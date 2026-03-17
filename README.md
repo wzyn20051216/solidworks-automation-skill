@@ -32,20 +32,37 @@
 
 ### 🚀 快速开始
 
-#### 1. 安装依赖
+#### 方式一：一键安装到 AI 工具（推荐）
+
+**Claude CLI:**
+```bash
+claude skill add https://github.com/wzyn20051216/solidworks-automation-skill
+```
+
+**Codex:**
+```bash
+codex skill add https://github.com/wzyn20051216/solidworks-automation-skill
+```
+
+**其他 AI 平台:**
+大多数支持 skill/plugin 的 AI 工具都可以通过 GitHub URL 直接安装。
+
+#### 方式二：手动安装
+
+##### 1. 安装依赖
 
 ```bash
 pip install pywin32
 ```
 
-#### 2. 克隆仓库
+##### 2. 克隆仓库
 
 ```bash
-git clone https://github.com/yourusername/solidworks-automation-skill.git
+git clone https://github.com/wzyn20051216/solidworks-automation-skill.git
 cd solidworks-automation-skill
 ```
 
-#### 3. 运行示例
+##### 3. 运行示例
 
 确保 SolidWorks 已经运行,然后执行:
 
