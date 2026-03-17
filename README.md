@@ -35,7 +35,7 @@
 #### 方式一：npx 一键安装（推荐）
 
 ```bash
-npx solidworks-automation-skill
+npx github:wzyn20051216/solidworks-automation-skill
 ```
 
 自动下载并安装到 Claude/Codex 的 skills 目录，无需手动配置。
