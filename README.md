@@ -32,7 +32,13 @@
 
 ### 🚀 快速开始
 
-#### 方式一：一键安装到 AI 工具（推荐）
+#### 方式一：pip 安装（推荐）
+
+```bash
+pip install git+https://github.com/wzyn20051216/solidworks-automation-skill.git
+```
+
+#### 方式二：AI 工具一键安装
 
 **Claude CLI:**
 ```bash
@@ -44,10 +50,7 @@ claude skill add https://github.com/wzyn20051216/solidworks-automation-skill
 codex skill add https://github.com/wzyn20051216/solidworks-automation-skill
 ```
 
-**其他 AI 平台:**
-大多数支持 skill/plugin 的 AI 工具都可以通过 GitHub URL 直接安装。
-
-#### 方式二：手动安装
+#### 方式三：手动安装
 
 ##### 1. 安装依赖
 
