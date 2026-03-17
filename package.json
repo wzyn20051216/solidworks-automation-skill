@@ -1,0 +1,27 @@
+{
+  "name": "solidworks-automation-skill",
+  "version": "1.0.0",
+  "description": "SolidWorks automation skill installer for Claude CLI and other AI tools",
+  "main": "install.js",
+  "bin": {
+    "solidworks-automation-skill": "./install.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "keywords": [
+    "solidworks",
+    "automation",
+    "cad",
+    "claude",
+    "skill",
+    "ai"
+  ],
+  "author": "wzyn20051216",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wzyn20051216/solidworks-automation-skill.git"
+  },
+  "homepage": "https://github.com/wzyn20051216/solidworks-automation-skill#readme"
+}

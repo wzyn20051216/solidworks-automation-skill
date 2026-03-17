@@ -32,24 +32,18 @@
 
 ### 🚀 快速开始
 
-#### 方式一：Claude CLI 一键安装（推荐）
+#### 方式一：npx 一键安装（推荐）
+
+```bash
+npx solidworks-automation-skill
+```
+
+自动下载并安装到 Claude/Codex 的 skills 目录，无需手动配置。
+
+#### 方式二：Claude CLI 安装
 
 ```bash
 claude skill add https://github.com/wzyn20051216/solidworks-automation-skill
-```
-
-安装后，Claude 会自动识别 SolidWorks 相关的任务并调用此 skill。
-
-#### 方式二：作为 Python 包安装
-
-```bash
-pip install git+https://github.com/wzyn20051216/solidworks-automation-skill.git
-```
-
-安装后可以在 Python 代码中直接导入：
-```python
-from solidworks_automation.sw_connect import connect_solidworks
-from solidworks_automation.sw_part import extrude_boss
 ```
 
 #### 方式三：手动克隆
