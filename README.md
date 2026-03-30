@@ -4,7 +4,7 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![SolidWorks](https://img.shields.io/badge/SolidWorks-2020--2025-red.svg)](https://www.solidworks.com/)
 
-通过 Python COM 接口自动化控制 SolidWorks 的完整工具集。支持零件建模、装配体、工程图、钣金、焊件、仿真等全流程自动化操作。
+通过 Python COM 接口自动化控制 SolidWorks 的完整工具集，可被 Codex / Claude / OpenClaw（龙虾）等代理直接复用。支持零件建模、装配体、工程图、钣金、焊件、仿真等全流程自动化操作。
 
 [English](#english) | [中文](#中文)
 
@@ -38,15 +38,36 @@
 npx github:wzyn20051216/solidworks-automation-skill
 ```
 
-自动下载并安装到 Claude/Codex 的 skills 目录，无需手动配置。
+自动下载并安装到 Claude/Codex/OpenClaw 等已检测到的 skills 目录，无需手动配置。
 
-#### 方式二：Claude CLI 安装
+#### 方式二：OpenClaw / 龙虾 使用
+
+OpenClaw 兼容本 skill 的 `SKILL.md + scripts/ + references/` 目录结构。推荐把技能放在以下任一目录：
+
+```text
+~/.openclaw/skills/solidworks-automation/
+~/.agents/skills/solidworks-automation/
+```
+
+安装后，可直接在 OpenClaw 中使用自然语言驱动 SolidWorks，例如：
+
+```text
+用 SolidWorks 新建一个 120x80x10 mm 的安装板，四角各打一个 phi6 孔，保存到 C:\temp\plate.sldprt，并导出 STEP 到 C:\temp\plate.step
+```
+
+OpenClaw 侧的接入约定、执行模板与排障说明见：
+
+```text
+references/openclaw.md
+```
+
+#### 方式三：Claude CLI 安装
 
 ```bash
 claude skill add https://github.com/wzyn20051216/solidworks-automation-skill
 ```
 
-#### 方式三：手动克隆
+#### 方式四：手动克隆
 
 ##### 1. 安装依赖
 
@@ -100,6 +121,7 @@ solidworks-automation-skill/
 │   ├── sw_drawing.py    # 工程图
 │   └── sw_export.py     # 文件导出
 ├── references/          # API 参考文档
+│   ├── openclaw.md
 │   ├── part-modeling.md
 │   ├── assembly.md
 │   ├── drawing.md
@@ -200,6 +222,8 @@ model.Extension.SelectByID2(
 | Top Plane | 上视基准面 | Y 轴 |
 | Right Plane | 右视基准面 | X 轴 |
 
+从当前版本开始，`start_sketch()` 会自动在中英文默认基准面名称之间兜底切换，更适合代理在不同语言版本的 SolidWorks 中执行。
+
 ### 🛠️ 高级功能
 
 - **批量处理**: 批量打开、转换、导出文件
@@ -212,6 +236,14 @@ model.Extension.SelectByID2(
 详见 [references/](./references/) 目录下的完整文档。
 
 ### ❓ 常见问题
+
+#### OpenClaw 里没有识别到这个 skill？
+
+检查：
+1. 目录是否放在 `~/.openclaw/skills/solidworks-automation/` 或 `~/.agents/skills/solidworks-automation/`
+2. 目录根下是否存在 `SKILL.md`
+3. 当前会话是否在安装后重新开始
+4. Python / `pywin32` 是否已就绪
 
 #### 无法连接 SolidWorks?
 

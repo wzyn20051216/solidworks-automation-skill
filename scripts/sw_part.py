@@ -6,10 +6,136 @@ import win32com.client
 import pythoncom
 from win32com.client import VARIANT
 
+PLANE_NAME_ALIASES = {
+    "Front Plane": ["Front Plane", "前视基准面"],
+    "Top Plane": ["Top Plane", "上视基准面"],
+    "Right Plane": ["Right Plane", "右视基准面"],
+    "前视基准面": ["前视基准面", "Front Plane"],
+    "上视基准面": ["上视基准面", "Top Plane"],
+    "右视基准面": ["右视基准面", "Right Plane"],
+}
+
+SKETCH_NAME_PREFIX_ALIASES = {
+    "Sketch": "草图",
+    "草图": "Sketch",
+}
+
 
 # ============================================================
 # 草图操作
 # ============================================================
+
+def _empty_callout():
+    """创建兼容 SelectByID2 的空 Callout 参数。"""
+    return VARIANT(pythoncom.VT_DISPATCH, None)
+
+
+def _select_by_id(extension, entity_name, entity_type, append=False, mark=0):
+    """
+    统一封装 SelectByID2，避免 None 在部分 SolidWorks 版本中触发类型不匹配。
+
+    参数:
+        extension: ModelDocExtension 对象
+        entity_name: 实体名称
+        entity_type: 实体类型字符串
+        append: 是否追加选择
+        mark: 选择标记
+
+    返回:
+        bool
+    """
+    return extension.SelectByID2(
+        entity_name, entity_type, 0, 0, 0, append, mark, _empty_callout(), 0
+    )
+
+
+def _get_plane_name_candidates(plane_name):
+    """
+    获取基准面的候选名称列表
+
+    参数:
+        plane_name: 用户提供的基准面名称
+
+    返回:
+        list[str]
+    """
+    return PLANE_NAME_ALIASES.get(plane_name, [plane_name])
+
+
+def _get_sketch_name_candidates(sketch_name):
+    """
+    获取草图名称候选列表，自动兼容中英文前缀。
+
+    参数:
+        sketch_name: 草图名称
+
+    返回:
+        list[str]
+    """
+    candidates = [sketch_name]
+    for prefix, alias in SKETCH_NAME_PREFIX_ALIASES.items():
+        if sketch_name.startswith(prefix):
+            alias_name = alias + sketch_name[len(prefix):]
+            if alias_name not in candidates:
+                candidates.append(alias_name)
+    return candidates
+
+
+def _select_first_candidate(extension, candidate_names, entity_type, append=False, mark=0):
+    """
+    按候选名称列表依次尝试选择实体。
+
+    参数:
+        extension: ModelDocExtension 对象
+        candidate_names: 候选名称列表
+        entity_type: 实体类型字符串
+        append: 是否追加选择
+        mark: 选择标记
+
+    返回:
+        str | None
+    """
+    for candidate_name in candidate_names:
+        if _select_by_id(extension, candidate_name, entity_type, append=append, mark=mark):
+            return candidate_name
+    return None
+
+
+def _get_selection_count(model):
+    """
+    获取当前选择集中的对象数量。
+
+    参数:
+        model: IModelDoc2 对象
+
+    返回:
+        int
+    """
+    selection_manager = model.SelectionManager
+    count_member = getattr(selection_manager, "GetSelectedObjectCount2")
+    return count_member(-1) if callable(count_member) else int(count_member)
+
+
+def _ensure_sketch_selected(model, sketch_name):
+    """
+    确保拉伸/切除前已有可用的草图选择。
+
+    参数:
+        model: IModelDoc2 对象
+        sketch_name: 草图名称
+
+    返回:
+        str
+    """
+    if _get_selection_count(model) > 0:
+        return "__current_selection__"
+
+    selected_sketch = _select_first_candidate(
+        model.Extension, _get_sketch_name_candidates(sketch_name), "SKETCH"
+    )
+    if not selected_sketch:
+        raise ValueError(f"无法选择草图: {sketch_name}")
+    return selected_sketch
 
 def start_sketch(model, plane_name="Front Plane"):
     """
@@ -21,8 +147,16 @@ def start_sketch(model, plane_name="Front Plane"):
             英文: "Front Plane", "Top Plane", "Right Plane"
             中文: "前视基准面", "上视基准面", "右视基准面"
     """
-    model.Extension.SelectByID2(plane_name, "PLANE", 0, 0, 0, False, 0, None, 0)
-    model.SketchManager.InsertSketch(True)
+    model.ClearSelection2(True)
+
+    selected_plane = _select_first_candidate(
+        model.Extension, _get_plane_name_candidates(plane_name), "PLANE"
+    )
+    if selected_plane:
+        model.SketchManager.InsertSketch(True)
+        return selected_plane
+
+    raise ValueError(f"无法选择基准面: {plane_name}")
 
 
 def end_sketch(model):
@@ -128,15 +262,31 @@ def extrude_boss(model, sketch_name, depth, direction=True, merge=True):
         direction: True=正方向
         merge: True=合并结果
     """
-    model.Extension.SelectByID2(sketch_name, "SKETCH", 0, 0, 0, False, 0, None, 0)
+    _ensure_sketch_selected(model, sketch_name)
     return model.FeatureManager.FeatureExtrusion3(
-        direction, False, False,
-        0, 0,  # 终止条件: Blind
-        depth, 0,
-        False, False, False, False,
-        0.0, 0.0,
-        False, False, False,
-        merge, True, True, True, 0
+        True,         # Sd: 单向拉伸
+        False,        # Flip
+        direction,    # Dir: 拉伸方向
+        0,            # T1: Blind
+        0,            # T2: Blind
+        depth,        # D1
+        0.0,          # D2
+        False,        # Dchk1
+        False,        # Dchk2
+        False,        # Ddir1
+        False,        # Ddir2
+        0.0,          # Dang1
+        0.0,          # Dang2
+        False,        # OffsetReverse1
+        False,        # OffsetReverse2
+        False,        # TranslateSurface1
+        False,        # TranslateSurface2
+        merge,        # Merge
+        False,        # UseFeatScope
+        True,         # UseAutoSelect
+        0,            # T0: 从草图平面开始
+        0.0,          # StartOffset
+        False         # FlipStartOffset
     )
 
 
@@ -151,7 +301,7 @@ def extrude_cut(model, sketch_name, depth, direction=True, flip=False):
         direction: True=正方向
         flip: True=翻转切除方向
     """
-    model.Extension.SelectByID2(sketch_name, "SKETCH", 0, 0, 0, False, 0, None, 0)
+    _ensure_sketch_selected(model, sketch_name)
     if depth == 0:
         # 完全贯穿
         end_condition = 1  # swEndCondThroughAll
@@ -178,15 +328,31 @@ def extrude_midplane(model, sketch_name, total_depth):
     参数:
         total_depth: 总深度（米），每侧为 total_depth/2
     """
-    model.Extension.SelectByID2(sketch_name, "SKETCH", 0, 0, 0, False, 0, None, 0)
+    _ensure_sketch_selected(model, sketch_name)
     return model.FeatureManager.FeatureExtrusion3(
-        True, False, False,
-        6, 0,  # 6 = swEndCondMidPlane
-        total_depth, 0,
-        False, False, False, False,
-        0.0, 0.0,
-        False, False, False,
-        True, True, True, True, 0
+        True,         # Sd: 单向定义，终止条件控制为中面
+        False,        # Flip
+        True,         # Dir
+        6,            # T1: swEndCondMidPlane
+        0,            # T2
+        total_depth,  # D1
+        0.0,          # D2
+        False,        # Dchk1
+        False,        # Dchk2
+        False,        # Ddir1
+        False,        # Ddir2
+        0.0,          # Dang1
+        0.0,          # Dang2
+        False,        # OffsetReverse1
+        False,        # OffsetReverse2
+        False,        # TranslateSurface1
+        False,        # TranslateSurface2
+        True,         # Merge
+        False,        # UseFeatScope
+        True,         # UseAutoSelect
+        0,            # T0
+        0.0,          # StartOffset
+        False         # FlipStartOffset
     )
 
 
@@ -199,7 +365,7 @@ def revolve_boss(model, sketch_name, angle_rad, axis_sketch_name=None):
         angle_rad: 旋转角度（弧度），2*pi 表示 360 度
         axis_sketch_name: 旋转轴草图名称（None 则需预先选择轴线）
     """
-    model.Extension.SelectByID2(sketch_name, "SKETCH", 0, 0, 0, False, 0, None, 0)
+    _ensure_sketch_selected(model, sketch_name)
     return model.FeatureManager.FeatureRevolve2(
         True, True, False,
         False, False, False,
@@ -250,7 +416,7 @@ def linear_pattern(model, feature_name, d1_x, d1_y, d1_z, d1_spacing, d1_count,
         d1_*: 方向1 的方向向量、间距（米）和数量
         d2_*: 方向2（可选）
     """
-    model.Extension.SelectByID2(feature_name, "BODYFEATURE", 0, 0, 0, False, 4, None, 0)
+    _select_by_id(model.Extension, feature_name, "BODYFEATURE", mark=4)
     return model.FeatureManager.FeatureLinearPattern3(
         d1_spacing, d2_spacing,
         d1_count, d2_count,
@@ -272,8 +438,8 @@ def circular_pattern(model, feature_name, axis_name, angle_rad, count, equal_spa
         count: 实例数量
         equal_spacing: True=等间距
     """
-    model.Extension.SelectByID2(feature_name, "BODYFEATURE", 0, 0, 0, False, 4, None, 0)
-    model.Extension.SelectByID2(axis_name, "AXIS", 0, 0, 0, True, 1, None, 0)
+    _select_by_id(model.Extension, feature_name, "BODYFEATURE", mark=4)
+    _select_by_id(model.Extension, axis_name, "AXIS", append=True, mark=1)
     return model.FeatureManager.FeatureCircularPattern4(
         count, angle_rad, False, "None", False, equal_spacing, False
     )
@@ -298,8 +464,8 @@ def mirror_feature(model, feature_name, mirror_plane_name):
         feature_name: 要镜像的特征名称
         mirror_plane_name: 镜像基准面名称
     """
-    model.Extension.SelectByID2(feature_name, "BODYFEATURE", 0, 0, 0, False, 4, None, 0)
-    model.Extension.SelectByID2(mirror_plane_name, "PLANE", 0, 0, 0, True, 1, None, 0)
+    _select_by_id(model.Extension, feature_name, "BODYFEATURE", mark=4)
+    _select_by_id(model.Extension, mirror_plane_name, "PLANE", append=True, mark=1)
     return model.FeatureManager.InsertMirrorFeature2(False, False, False, False, 0)
 
 
@@ -322,7 +488,7 @@ def rib(model, sketch_name, thickness, direction=True):
         thickness: 筋厚度（米）
         direction: 拉伸方向
     """
-    model.Extension.SelectByID2(sketch_name, "SKETCH", 0, 0, 0, False, 0, None, 0)
+    _ensure_sketch_selected(model, sketch_name)
     return model.FeatureManager.InsertRib(
         direction, False, thickness, 0, False, False, False, 0, False
     )

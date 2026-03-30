@@ -4,6 +4,31 @@ SolidWorks 装配体操作工具
 import win32com.client
 import pythoncom
 from win32com.client import VARIANT
+from sw_connect import get_com_member
+
+
+def _empty_callout():
+    """创建兼容 SelectByID2 的空 Callout 参数。"""
+    return VARIANT(pythoncom.VT_DISPATCH, None)
+
+
+def _select_by_id(extension, entity_name, entity_type, append=False, mark=0):
+    """
+    统一封装 SelectByID2，避免 None 在部分 SolidWorks 版本中触发类型不匹配。
+
+    参数:
+        extension: ModelDocExtension 对象
+        entity_name: 实体名称
+        entity_type: 实体类型字符串
+        append: 是否追加选择
+        mark: 选择标记
+
+    返回:
+        bool
+    """
+    return extension.SelectByID2(
+        entity_name, entity_type, 0, 0, 0, append, mark, _empty_callout(), 0
+    )
 
 
 def add_component(asm_model, part_path, x=0, y=0, z=0, config_name=""):
@@ -36,8 +61,8 @@ def add_mate_coincident(asm_model, entity1_name, entity1_type, entity2_name, ent
         entity1_type/entity2_type: 实体类型字符串（"FACE", "PLANE", "EDGE", "VERTEX" 等）
     """
     asm_model.ClearSelection2(True)
-    asm_model.Extension.SelectByID2(entity1_name, entity1_type, 0, 0, 0, False, 1, None, 0)
-    asm_model.Extension.SelectByID2(entity2_name, entity2_type, 0, 0, 0, True, 1, None, 0)
+    _select_by_id(asm_model.Extension, entity1_name, entity1_type, mark=1)
+    _select_by_id(asm_model.Extension, entity2_name, entity2_type, append=True, mark=1)
     return asm_model.AddMate5(
         0,    # swMateCoincident
         0,    # swMateAlignALIGNED
@@ -48,8 +73,8 @@ def add_mate_coincident(asm_model, entity1_name, entity1_type, entity2_name, ent
 def add_mate_concentric(asm_model, face1_name, face2_name):
     """添加同心配合"""
     asm_model.ClearSelection2(True)
-    asm_model.Extension.SelectByID2(face1_name, "FACE", 0, 0, 0, False, 1, None, 0)
-    asm_model.Extension.SelectByID2(face2_name, "FACE", 0, 0, 0, True, 1, None, 0)
+    _select_by_id(asm_model.Extension, face1_name, "FACE", mark=1)
+    _select_by_id(asm_model.Extension, face2_name, "FACE", append=True, mark=1)
     return asm_model.AddMate5(
         1,    # swMateConcentric
         0, False, 0, 0, 0, 0, 0, 0, 0, 0, False
@@ -64,8 +89,8 @@ def add_mate_distance(asm_model, entity1_name, entity1_type, entity2_name, entit
         distance: 配合距离（米）
     """
     asm_model.ClearSelection2(True)
-    asm_model.Extension.SelectByID2(entity1_name, entity1_type, 0, 0, 0, False, 1, None, 0)
-    asm_model.Extension.SelectByID2(entity2_name, entity2_type, 0, 0, 0, True, 1, None, 0)
+    _select_by_id(asm_model.Extension, entity1_name, entity1_type, mark=1)
+    _select_by_id(asm_model.Extension, entity2_name, entity2_type, append=True, mark=1)
     return asm_model.AddMate5(
         5,    # swMateDistance
         0, False, distance, distance, distance, 0, 0, 0, 0, 0, False
@@ -75,8 +100,8 @@ def add_mate_distance(asm_model, entity1_name, entity1_type, entity2_name, entit
 def add_mate_parallel(asm_model, face1_name, face2_name):
     """添加平行配合"""
     asm_model.ClearSelection2(True)
-    asm_model.Extension.SelectByID2(face1_name, "FACE", 0, 0, 0, False, 1, None, 0)
-    asm_model.Extension.SelectByID2(face2_name, "FACE", 0, 0, 0, True, 1, None, 0)
+    _select_by_id(asm_model.Extension, face1_name, "FACE", mark=1)
+    _select_by_id(asm_model.Extension, face2_name, "FACE", append=True, mark=1)
     return asm_model.AddMate5(
         3,    # swMateParallel
         0, False, 0, 0, 0, 0, 0, 0, 0, 0, False
@@ -99,7 +124,7 @@ def get_components(asm_model, top_level_only=True):
         for comp in components:
             result.append({
                 "name": comp.Name2,
-                "path": comp.GetPathName(),
+                "path": get_com_member(comp, "GetPathName"),
                 "suppressed": comp.IsSuppressed(),
                 "visible": comp.Visible,
             })
@@ -108,13 +133,13 @@ def get_components(asm_model, top_level_only=True):
 
 def suppress_component(asm_model, component_name):
     """压缩（隐藏）组件"""
-    asm_model.Extension.SelectByID2(component_name, "COMPONENT", 0, 0, 0, False, 0, None, 0)
+    _select_by_id(asm_model.Extension, component_name, "COMPONENT")
     asm_model.EditSuppress()
 
 
 def unsuppress_component(asm_model, component_name):
     """解压缩（显示）组件"""
-    asm_model.Extension.SelectByID2(component_name, "COMPONENT", 0, 0, 0, False, 0, None, 0)
+    _select_by_id(asm_model.Extension, component_name, "COMPONENT")
     asm_model.EditUnsuppress()
 
 
@@ -126,7 +151,7 @@ def replace_component(asm_model, old_component_name, new_part_path):
         old_component_name: 旧组件名称
         new_part_path: 新零件文件路径
     """
-    asm_model.Extension.SelectByID2(old_component_name, "COMPONENT", 0, 0, 0, False, 0, None, 0)
+    _select_by_id(asm_model.Extension, old_component_name, "COMPONENT")
     return asm_model.ReplaceComponents2(new_part_path, "", False, 0, True)
 
 

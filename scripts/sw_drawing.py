@@ -4,6 +4,7 @@ SolidWorks 工程图操作工具
 import win32com.client
 import pythoncom
 from win32com.client import VARIANT
+from sw_connect import get_com_member
 
 
 def create_standard_views(drawing_model, part_path):
@@ -115,8 +116,8 @@ def add_sheet(drawing_model, paper_size=7, template_path=""):
 
 def get_all_views(drawing_model):
     """获取当前图纸上的所有视图"""
-    sheet = drawing_model.GetCurrentSheet()
-    views = sheet.GetViews()
+    sheet = get_com_member(drawing_model, "GetCurrentSheet")
+    views = get_com_member(sheet, "GetViews")
     result = []
     if views:
         for view in views:
@@ -142,7 +143,7 @@ def export_sheet_to_pdf(model, output_path, sheet_names=None):
 
     if sheet_names is None:
         drawing = model
-        sheet_names = drawing.GetSheetNames()
+        sheet_names = get_com_member(drawing, "GetSheetNames")
 
     pdf_data.SetSheets(0, sheet_names)  # 0 = swExportData_ExportSpecifiedSheets
 

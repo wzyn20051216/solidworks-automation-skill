@@ -12,18 +12,24 @@ const REPO_URL = 'https://github.com/wzyn20051216/solidworks-automation-skill.gi
 function getAllSkillsDirs() {
   const homeDir = os.homedir();
   const possibleDirs = [
+    path.join(homeDir, '.agents', 'skills'),
     path.join(homeDir, '.claude', 'skills'),
     path.join(homeDir, '.codex', 'skills'),
     path.join(homeDir, '.cursor', 'skills'),
+    path.join(homeDir, '.openclaw', 'skills'),
   ];
 
   const existingDirs = possibleDirs.filter(dir => fs.existsSync(dir));
 
-  // 如果没有找到任何目录,创建 Claude 默认目录
+  // 如果没有找到任何目录,创建对 OpenClaw / Codex 更友好的默认目录
   if (existingDirs.length === 0) {
-    const claudeDir = path.join(homeDir, '.claude', 'skills');
-    fs.mkdirSync(claudeDir, { recursive: true });
-    return [claudeDir];
+    const bootstrapDirs = [
+      path.join(homeDir, '.codex', 'skills'),
+      path.join(homeDir, '.openclaw', 'skills'),
+    ];
+
+    bootstrapDirs.forEach(dir => fs.mkdirSync(dir, { recursive: true }));
+    return bootstrapDirs;
   }
 
   return existingDirs;
@@ -84,7 +90,7 @@ function install() {
 
     console.log(`\n✅ 成功安装到 ${successCount}/${skillsDirs.length} 个目录！`);
     console.log('\n使用方法:');
-    console.log('  在 Claude/Codex/Cursor 中提到 SolidWorks、CAD、3D建模等关键词');
+    console.log('  在 Claude/Codex/Cursor/OpenClaw 中提到 SolidWorks、OpenClaw、龙虾、CAD、3D建模等关键词');
     console.log('  AI 会自动调用此 skill\n');
   } else {
     console.error('\n❌ 所有目录安装均失败');

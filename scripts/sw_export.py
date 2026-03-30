@@ -6,6 +6,7 @@ import win32com.client
 import pythoncom
 from win32com.client import VARIANT
 import os
+from sw_connect import create_empty_dispatch_variant, get_com_member
 
 
 def export_to_step(model, output_path):
@@ -50,7 +51,7 @@ def export_to_pdf(model, output_path, sheet_names=None):
     pdf_data = sw.GetExportFileData(1)  # swExportPDFData
 
     if sheet_names is None:
-        sheet_names = model.GetSheetNames()
+        sheet_names = get_com_member(model, "GetSheetNames")
 
     if pdf_data:
         pdf_data.SetSheets(0, sheet_names)
@@ -68,13 +69,13 @@ def export_to_dxf(model, output_path):
     导出为 DXF/DWG 格式
     适用于工程图或钣金展开图
     """
-    doc_type = model.GetType()
+    doc_type = get_com_member(model, "GetType")
     if doc_type == 3:  # 工程图
         return _export_generic(model, output_path)
     else:
         # 零件（钣金展开图）
         return model.ExportToDWG2(
-            output_path, model.GetPathName(),
+            output_path, get_com_member(model, "GetPathName"),
             1, True, True, False, False, 0, None
         )
 
@@ -136,7 +137,7 @@ def batch_export(sw, file_paths, output_dir, format_ext=".step"):
         results.append({"file": file_path, "success": bool(success), "output": output_path})
 
         # 关闭文档
-        sw.CloseDoc(model.GetTitle())
+        sw.CloseDoc(get_com_member(model, "GetTitle"))
 
     # 汇总
     success_count = sum(1 for r in results if r["success"])
@@ -150,7 +151,9 @@ def _export_generic(model, output_path):
     errors = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
     warnings = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
 
-    success = model.Extension.SaveAs(output_path, 0, 1, None, errors, warnings)
+    success = model.Extension.SaveAs(
+        output_path, 0, 1, create_empty_dispatch_variant(), errors, warnings
+    )
 
     ext = os.path.splitext(output_path)[1].upper()
     _print_result(ext, output_path, success, errors, warnings)

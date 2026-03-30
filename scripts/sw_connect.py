@@ -10,6 +10,27 @@ import os
 import glob
 
 
+def get_com_member(obj, attr_name, *args):
+    """
+    兼容 pywin32 中“同一成员在不同环境下可能是属性也可能是方法”的情况。
+
+    参数:
+        obj: COM 对象
+        attr_name: 成员名称
+        *args: 当成员可调用时传入的参数
+
+    返回:
+        成员值或调用结果
+    """
+    member = getattr(obj, attr_name)
+    return member(*args) if callable(member) else member
+
+
+def create_empty_dispatch_variant():
+    """创建可传给 COM 接口的空 Dispatch 参数。"""
+    return VARIANT(pythoncom.VT_DISPATCH, None)
+
+
 def connect_solidworks(version=None, wait_seconds=5):
     """
     连接到 SolidWorks 实例
@@ -43,8 +64,9 @@ def connect_solidworks(version=None, wait_seconds=5):
     model = sw.ActiveDoc
     if model:
         doc_types = {1: "零件", 2: "装配体", 3: "工程图"}
-        doc_type = model.GetType()
-        print(f"当前文档: {model.GetTitle()} (类型: {doc_types.get(doc_type, '未知')})")
+        doc_type = get_com_member(model, "GetType")
+        title = get_com_member(model, "GetTitle")
+        print(f"当前文档: {title} (类型: {doc_types.get(doc_type, '未知')})")
     else:
         print("当前没有打开的文档")
 
@@ -53,7 +75,7 @@ def connect_solidworks(version=None, wait_seconds=5):
 
 def get_sw_version(sw):
     """获取 SolidWorks 版本信息"""
-    rev = sw.RevisionNumber()
+    rev = get_com_member(sw, "RevisionNumber")
     major = int(rev.split(".")[0])
     year = major - 8 + 2000
     return {"revision": rev, "year": year, "major": major}
@@ -78,8 +100,19 @@ def find_template(sw, doc_type="part"):
     }
 
     default_path, pattern = type_map.get(doc_type, type_map["part"])
-    if default_path and os.path.exists(default_path):
-        return default_path
+    if default_path:
+        for candidate_root in str(default_path).split(";"):
+            candidate_root = candidate_root.strip().strip('"')
+            if not candidate_root:
+                continue
+
+            if os.path.isfile(candidate_root):
+                return candidate_root
+
+            if os.path.isdir(candidate_root):
+                matches = glob.glob(os.path.join(candidate_root, pattern))
+                if matches:
+                    return matches[0]
 
     # 搜索常见模板目录
     search_dirs = [
@@ -110,10 +143,19 @@ def new_document(sw, doc_type="part", template_path=None):
     if not template_path:
         template_path = find_template(sw, doc_type)
 
-    type_enum = {"part": 1, "assembly": 2, "drawing": 3}
-    sw.NewDocument(template_path, 0, 0, 0)
-    model = sw.ActiveDoc
-    print(f"已创建新{{'part': '零件', 'assembly': '装配体', 'drawing': '工程图'}[doc_type]}文档")
+    model = sw.NewDocument(template_path, 0, 0, 0)
+    if model is None:
+        for _ in range(20):
+            model = sw.ActiveDoc
+            if model is not None:
+                break
+            time.sleep(0.25)
+
+    if model is None:
+        raise RuntimeError(f"创建{doc_type}文档失败，SolidWorks 未返回活动文档")
+
+    doc_type_names = {"part": "零件", "assembly": "装配体", "drawing": "工程图"}
+    print(f"已创建新{doc_type_names.get(doc_type, doc_type)}文档")
     return model
 
 
@@ -160,12 +202,14 @@ def save_document(model, file_path=None):
     warnings = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
 
     if file_path:
-        success = model.Extension.SaveAs(file_path, 0, 1, None, errors, warnings)
+        success = model.Extension.SaveAs(
+            file_path, 0, 1, create_empty_dispatch_variant(), errors, warnings
+        )
     else:
         success = model.Save3(1, errors, warnings)
 
     if success:
-        print(f"保存成功: {file_path or model.GetPathName()}")
+        print(f"保存成功: {file_path or get_com_member(model, 'GetPathName')}")
     else:
         print(f"保存失败, 错误码: {errors.value}, 警告码: {warnings.value}")
     return bool(success)
