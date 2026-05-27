@@ -7,9 +7,13 @@ SolidWorks 结果自审查工具。
 """
 import os
 import json
+import argparse
 from pathlib import Path
 
-from sw_connect import get_com_member
+try:
+    from .sw_connect import connect_solidworks, get_com_member, open_document
+except ImportError:
+    from sw_connect import connect_solidworks, get_com_member, open_document
 
 
 STANDARD_VIEWS = {
@@ -229,12 +233,151 @@ def build_review_report(model, output_dir, basename="review", views=None, expect
         "若 expected_outputs_exist 为 false，优先检查保存/导出路径和 COM 错误码。",
     ]
 
-    return {
+    report = {
         "model": summary,
         "previews": previews,
         "expected_outputs": expected,
         "checks": checks,
         "review_notes": review_notes,
+    }
+    report["evaluation"] = evaluate_review_report(report)
+    return report
+
+
+def evaluate_review_report(report):
+    """
+    对结构化审查报告做规则评分。
+
+    返回:
+        dict，包含 status、score、issues、recommendations、manual_review_required。
+    """
+    checks = report.get("checks", {})
+    previews = report.get("previews", [])
+    expected_outputs = report.get("expected_outputs", [])
+    issues = []
+    recommendations = []
+    score = 100
+    hard_fail = False
+
+    def add_issue(code, severity, message, recommendation, penalty):
+        nonlocal score, hard_fail
+        issues.append({
+            "code": code,
+            "severity": severity,
+            "message": message,
+        })
+        recommendations.append(recommendation)
+        score -= penalty
+        if severity == "fail":
+            hard_fail = True
+
+    if not checks.get("model_available"):
+        add_issue(
+            "model_missing",
+            "fail",
+            "没有可审查的 SolidWorks 模型对象。",
+            "先确认连接成功并打开或新建了有效文档。",
+            40,
+        )
+
+    if not checks.get("previews_created"):
+        add_issue(
+            "previews_missing",
+            "fail",
+            "预览图未成功生成。",
+            "检查 SaveBMP、输出目录权限、模型视图是否可见。",
+            35,
+        )
+
+    if checks.get("previews_created") and not checks.get("previews_not_blank"):
+        add_issue(
+            "previews_blank",
+            "fail",
+            "至少一张预览图疑似空白。",
+            "检查模型是否为空、是否缩放到合适窗口、是否只停留在草图状态。",
+            35,
+        )
+
+    if checks.get("expected_outputs_exist") is False:
+        add_issue(
+            "expected_outputs_missing",
+            "fail",
+            "期望输出文件不存在或大小为 0。",
+            "重新检查保存/导出路径和 SolidWorks SaveAs 错误码。",
+            30,
+        )
+
+    if checks.get("expected_outputs_exist") is None:
+        add_issue(
+            "expected_outputs_not_declared",
+            "warn",
+            "未声明期望输出文件，无法验证交付物是否完整。",
+            "调用 run_review() 时传入 expected_outputs。",
+            8,
+        )
+
+    if not checks.get("feature_summary_available"):
+        add_issue(
+            "feature_summary_unavailable",
+            "warn",
+            "无法读取特征树摘要。",
+            "若几何预览正常可继续；若需调试特征树，检查 COM 成员兼容性。",
+            8,
+        )
+
+    if len(previews) < 2:
+        add_issue(
+            "too_few_previews",
+            "warn",
+            "预览视角过少，难以判断三维几何。",
+            "至少导出 isometric/front/top/right 四个视角。",
+            8,
+        )
+
+    for preview in previews:
+        if preview.get("exists") and preview.get("size_bytes", 0) < 10000:
+            add_issue(
+                "preview_file_too_small",
+                "warn",
+                f"预览图文件过小: {preview.get('path')}",
+                "确认 BMP 是否完整导出，必要时重新导出预览图。",
+                5,
+            )
+        if preview.get("width") and preview.get("height"):
+            if preview["width"] < 640 or preview["height"] < 480:
+                add_issue(
+                    "preview_resolution_low",
+                    "warn",
+                    f"预览图分辨率偏低: {preview.get('path')}",
+                    "使用默认 1600x1000 或更高分辨率导出。",
+                    4,
+                )
+
+    for output in expected_outputs:
+        if output.get("exists") and output.get("size_bytes", 0) < 1024:
+            add_issue(
+                "output_file_too_small",
+                "warn",
+                f"输出文件过小: {output.get('path')}",
+                "检查文件是否只是空壳或导出失败残留。",
+                6,
+            )
+
+    score = max(0, min(100, score))
+    if hard_fail:
+        status = "fail"
+    elif issues:
+        status = "warn"
+    else:
+        status = "pass"
+
+    return {
+        "status": status,
+        "score": score,
+        "issues": issues,
+        "recommendations": list(dict.fromkeys(recommendations)),
+        "manual_review_required": True,
+        "manual_review_reason": "规则评分只能发现明显失败，最终几何是否符合用户意图仍需查看预览图或截图。",
     }
 
 
@@ -269,3 +412,47 @@ def run_review(model, output_dir, basename="review", views=None, expected_output
     )
     report_path = write_review_report(report, output_dir / f"{basename}_review_report.json")
     return report, report_path
+
+
+def _parse_args():
+    """解析命令行参数。"""
+    parser = argparse.ArgumentParser(description="导出 SolidWorks 多视角预览图并生成结构化自审查报告。")
+    parser.add_argument("--file", help="要打开并审查的 SolidWorks 文件；不传则审查当前活动文档。")
+    parser.add_argument("--output-dir", required=True, help="预览图和 review_report.json 输出目录。")
+    parser.add_argument("--basename", default="review", help="输出文件名前缀。")
+    parser.add_argument("--views", default="isometric,front,top,right", help="逗号分隔的视图列表。")
+    parser.add_argument("--expected", action="append", default=[], help="期望存在的输出文件，可重复传入。")
+    parser.add_argument("--version", type=int, help="SolidWorks 年份，例如 2024。")
+    parser.add_argument("--silent-open", action="store_true", help="静默打开 --file。")
+    return parser.parse_args()
+
+
+def main():
+    """命令行入口。"""
+    args = _parse_args()
+    sw, model = connect_solidworks(version=args.version)
+    if args.file:
+        model = open_document(sw, args.file, silent=args.silent_open, raise_on_error=True)
+    if model is None:
+        raise RuntimeError("没有可审查的活动 SolidWorks 文档")
+
+    views = [item.strip() for item in args.views.split(",") if item.strip()]
+    report, report_path = run_review(
+        model,
+        output_dir=args.output_dir,
+        basename=args.basename,
+        views=views,
+        expected_outputs=args.expected,
+    )
+    evaluation = report["evaluation"]
+    print(f"报告: {report_path}")
+    print(f"状态: {evaluation['status']} / 分数: {evaluation['score']}")
+    if evaluation["issues"]:
+        print("问题:")
+        for issue in evaluation["issues"]:
+            print(f"- [{issue['severity']}] {issue['code']}: {issue['message']}")
+    return 0 if evaluation["status"] in ("pass", "warn") else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

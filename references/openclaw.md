@@ -76,7 +76,7 @@ from sw_review import run_review
 model.ForceRebuild3(False)
 report, report_path = run_review(model, r"C:\temp\review", basename="result")
 print(report_path)
-print(report["checks"])
+print(report["evaluation"])
 ```
 
 如果预览图不对，先修改脚本并重新生成，不要只报告“文件保存成功”。

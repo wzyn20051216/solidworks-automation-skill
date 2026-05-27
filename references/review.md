@@ -35,12 +35,32 @@ print(report["checks"])
 
 - 多视角 BMP 预览图。
 - `*_review_report.json` 结构化报告。
+- `evaluation.status`：`pass` / `warn` / `fail`。
+- `evaluation.score`：规则评分，满分 100。
+- `evaluation.issues`：机器可读的问题列表。
+- `evaluation.recommendations`：修复建议。
 - `checks.previews_created`：预览图是否生成。
 - `checks.previews_not_blank`：预览图是否疑似非空白。
 - `checks.expected_outputs_exist`：期望输出文件是否真实存在且大小大于 0。
 - `checks.feature_summary_available`：是否能读取特征树摘要。
 
 注意：结构化报告只能抓明显失败，不能替代人工或视觉模型对几何意图的判断。
+
+## 命令行一键审查
+
+```bash
+python scripts/sw_review.py ^
+  --file C:\temp\model.sldprt ^
+  --output-dir C:\temp\solidworks_review ^
+  --basename model ^
+  --expected C:\temp\model.sldprt ^
+  --expected C:\temp\model.step
+```
+
+返回码：
+
+- `0`：`pass` 或 `warn`，报告已生成。
+- `2`：`fail`，存在必须修复的问题。
 
 ## 目视自查清单
 

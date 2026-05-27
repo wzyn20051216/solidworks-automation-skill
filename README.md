@@ -255,6 +255,7 @@ model.Extension.SelectByID2(
 - **设计表**: 通过 Excel 驱动参数化设计
 - **钣金展开**: 导出 DXF 展开图用于激光切割
 - **仿真分析**: 创建 FEA 算例,运行分析,获取结果
+- **CAD Agent 自审查**: 自动导出多视角预览图、生成 `review_report.json`、给出 `pass/warn/fail` 与修复建议
 
 详见 [references/](./references/) 目录下的完整文档。
 
