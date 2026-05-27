@@ -24,9 +24,10 @@ pip install pywin32
 
 1. 先补齐约束信息：SolidWorks 版本、界面语言、中间文件路径、最终输出路径、尺寸单位、目标格式。
 2. 优先调用 `scripts/sw_connect.py`、`scripts/sw_part.py`、`scripts/sw_assembly.py`、`scripts/sw_drawing.py`、`scripts/sw_export.py`。
-3. 把任务拆成小步骤：连接、打开/新建、建模/装配、保存、导出、验证。
+3. 把任务拆成小步骤：连接、打开/新建、建模/装配、保存、导出、截图/预览自审查。
 4. 每一步都检查返回值，不要假设 COM 调用一定成功。
 5. 导出或保存后，再检查目标文件是否实际存在。
+6. 生成或修改模型后，导出至少一张等轴测预览图；如果有桌面截图能力，再截图当前 SolidWorks 窗口复核。
 
 ## 最小导入模板
 
@@ -39,6 +40,7 @@ sys.path.insert(0, r"{baseDir}/scripts")
 from sw_connect import connect_solidworks, mm, deg, new_document, open_document, save_document
 from sw_part import start_sketch, end_sketch, sketch_rectangle, sketch_circle, extrude_boss, extrude_cut
 from sw_export import export_to_step, export_to_stl, export_to_pdf
+from sw_review import collect_model_summary, save_review_previews
 ```
 
 ## 推荐提示词
@@ -65,3 +67,17 @@ from sw_export import export_to_step, export_to_stl, export_to_pdf
 3. 特征函数（如 `extrude_boss()`）是否返回特征对象。
 4. `save_document()` / 导出函数是否返回成功。
 5. 目标文件是否在磁盘上真实存在。
+6. `save_review_previews()` 是否成功导出预览图。
+7. 预览图中模型是否符合任务描述，是否存在空白、比例错误、部件缺失、方向错误、重叠或悬空。
+
+## 自审查示例
+
+```python
+model.ForceRebuild3(False)
+previews = save_review_previews(model, r"C:\temp\review", basename="result")
+summary = collect_model_summary(model)
+print(previews)
+print(summary["feature_count"])
+```
+
+如果预览图不对，先修改脚本并重新生成，不要只报告“文件保存成功”。

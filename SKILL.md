@@ -47,6 +47,7 @@ session.export(model, r"C:\temp\cylinder.step")
 | 装配体操作 | `scripts/sw_assembly.py` | `references/assembly.md` |
 | 工程图出图 | `scripts/sw_drawing.py` | `references/drawing.md` |
 | 文件导出 | `scripts/sw_export.py` | `references/export.md` |
+| 结果自审查 | `scripts/sw_review.py` | `references/review.md` |
 | OpenClaw 控制 SolidWorks | - | `references/openclaw.md` |
 | 钣金/焊件/仿真/属性 | - | `references/advanced.md` |
 | 常见错误排查 | - | `references/troubleshooting.md` |
@@ -64,7 +65,8 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 ```
 
 4. 执行后检查返回对象是否为 `None`、保存/导出是否成功、输出文件是否落盘。
-5. 如果需要更完整的 OpenClaw 工作流、提示词示例和排障建议，再读取 `references/openclaw.md`。
+5. 生成或修改模型后必须做结果自审查：导出至少一个等轴测预览图，必要时导出前/俯/右视图，并通过截图或 BMP 目视检查几何是否符合用户意图。
+6. 如果需要更完整的 OpenClaw 工作流、提示词示例和排障建议，再读取 `references/openclaw.md`。
 
 ## 使用流程
 
@@ -72,6 +74,29 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 2. 优先用 `SolidWorksSession()` 管理连接、打开、新建、保存、导出
 3. 需要底层控制时再组合 `sw_connect.py`、`sw_part.py` 等函数
 4. 使用 `session.export()` 或 `sw_export.py` 保存/导出文件
+5. 使用 `sw_review.py` 导出预览图并自审查；如果有 GUI/桌面截图能力，打开 SolidWorks 视图截图复核
+
+## 结果自审查
+
+每次生成、修改、导入或导出 CAD 后都要做自审查，除非用户明确说不需要：
+
+1. 检查 COM 返回值、特征对象、保存/导出返回值和输出文件大小。
+2. 调用 `model.ForceRebuild3(False)`、`model.ViewZoomtofit2()` 刷新模型。
+3. 用 `scripts/sw_review.py` 导出 `isometric` 预览图；复杂模型再导出 `front/top/right`。
+4. 通过截图或导出的 BMP 检查：主体是否存在、比例/方位是否合理、关键部件是否缺失、是否明显重叠或悬空、文件名和输出路径是否正确。
+5. 若发现问题，先修脚本并重新生成，再汇报；不要只报告“保存成功”。
+
+示例：
+
+```python
+from sw_review import collect_model_summary, save_review_previews
+
+model.ForceRebuild3(False)
+previews = save_review_previews(model, r"C:\temp\review", basename="car")
+summary = collect_model_summary(model)
+print(previews)
+print(summary["feature_count"])
+```
 
 ## 关键注意事项
 

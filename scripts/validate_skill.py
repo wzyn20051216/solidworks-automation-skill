@@ -20,11 +20,13 @@ REQUIRED_FILES = [
     "scripts/sw_assembly.py",
     "scripts/sw_drawing.py",
     "scripts/sw_export.py",
+    "scripts/sw_review.py",
     "scripts/sw_session.py",
     "references/part-modeling.md",
     "references/assembly.md",
     "references/drawing.md",
     "references/export.md",
+    "references/review.md",
     "references/troubleshooting.md",
 ]
 
