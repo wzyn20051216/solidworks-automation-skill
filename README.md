@@ -24,6 +24,7 @@
 - 📊 **FEA 仿真** - 静态分析、频率分析、热分析
 - 📝 **自定义属性** - 读写文件属性、配置管理、设计表
 - 👀 **结果自审查** - 导出多视角预览图、`review_report.json` 与 Markdown 摘要，帮助代理复核模型是否符合意图
+- 🔎 **API 查证优先** - 未封装接口先查官方 API Help / 本地 SDK，再实现、运行、自审查并沉淀
 
 ### 📋 环境要求
 
@@ -330,10 +331,13 @@ model.Extension.SelectByID2(
 - 🔩 **Assembly Operations** - Add components, mates, interference detection, exploded views
 - 📐 **Drawing Creation** - Standard views, section views, dimensions, BOM tables
 - 💾 **File Export** - STEP, STL, IGES, PDF, DXF/DWG, Parasolid
+- 🎨 **Appearance and Materials** - Document, feature, and component-level color workflows
 - 🔨 **Sheet Metal** - Base flange, edge flange, flat pattern export
 - ⚡ **Weldments** - Structural members, cut lists
 - 📊 **FEA Simulation** - Static, frequency, thermal analysis
 - 📝 **Custom Properties** - Read/write file properties, configuration management
+- 👀 **CAD Agent Self-Review** - Export multi-view previews, JSON reports, Markdown summaries, and `pass/warn/fail` evaluations
+- 🔎 **Verified API Workflow** - Look up official API Help or local SDK docs before using unwrapped SolidWorks APIs
 
 ### 📋 Requirements
 
@@ -344,20 +348,23 @@ model.Extension.SelectByID2(
 
 ### 🚀 Quick Start
 
-#### 1. Install Dependencies
+#### Option 1: Install with npx
 
 ```bash
+npx github:wzyn20051216/solidworks-automation-skill
+```
+
+This installs the skill into detected Claude/Codex/OpenClaw skill directories.
+
+#### Option 2: Clone Manually
+
+```bash
+git clone https://github.com/wzyn20051216/solidworks-automation-skill.git
+cd solidworks-automation-skill
 pip install pywin32
 ```
 
-#### 2. Clone Repository
-
-```bash
-git clone https://github.com/yourusername/solidworks-automation-skill.git
-cd solidworks-automation-skill
-```
-
-#### 3. Run Example
+#### Run Example
 
 Make sure SolidWorks is running, then:
 
@@ -387,7 +394,12 @@ print("Part created!")
 
 ### 📚 Documentation
 
-See [references/](./references/) directory for complete API documentation.
+See [references/](./references/) for focused workflows:
+
+- [`references/openclaw.md`](./references/openclaw.md) for OpenClaw agent usage.
+- [`references/review.md`](./references/review.md) for CAD self-review.
+- [`references/api-lookup.md`](./references/api-lookup.md) for verified use of unwrapped SolidWorks APIs.
+- [`references/troubleshooting.md`](./references/troubleshooting.md) for common COM and modeling failures.
 
 ### 🤝 Contributing
 
