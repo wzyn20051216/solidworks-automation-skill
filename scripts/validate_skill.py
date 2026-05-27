@@ -28,6 +28,7 @@ REQUIRED_FILES = [
     "references/drawing.md",
     "references/export.md",
     "references/review.md",
+    "references/api-lookup.md",
     "references/troubleshooting.md",
 ]
 

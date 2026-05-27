@@ -129,6 +129,7 @@ solidworks-automation-skill/
 │   ├── openclaw.md
 │   ├── appearance.md
 │   ├── review.md
+│   ├── api-lookup.md
 │   ├── part-modeling.md
 │   ├── assembly.md
 │   ├── drawing.md
@@ -262,8 +263,13 @@ model.Extension.SelectByID2(
 - **钣金展开**: 导出 DXF 展开图用于激光切割
 - **仿真分析**: 创建 FEA 算例,运行分析,获取结果
 - **CAD Agent 自审查**: 自动导出多视角预览图、生成 `review_report.json`、给出 `pass/warn/fail` 与修复建议
+- **API 查证工作流**: 对尚未封装的 SolidWorks API，先查官方 API Help / 本地 SDK，再写最小验证脚本并沉淀稳定封装
 
 详见 [references/](./references/) 目录下的完整文档。
+
+### 🔎 Agent API 查证约定
+
+本 skill 不把 SolidWorks 全量 API 硬塞进上下文。遇到 `scripts/` 里尚未封装的接口时，代理应先读取 [`references/api-lookup.md`](./references/api-lookup.md)，再查询 SolidWorks 官方 API Help 或本地 SDK，确认签名、枚举、返回值和版本差异；实现后必须真实运行、保存/导出文件，并用 `sw_review.py` 或桌面截图自审查结果。
 
 ### ⭐ Star History
 
