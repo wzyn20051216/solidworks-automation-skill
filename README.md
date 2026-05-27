@@ -22,6 +22,7 @@
 - ⚡ **焊件设计** - 结构构件、切割清单
 - 📊 **FEA 仿真** - 静态分析、频率分析、热分析
 - 📝 **自定义属性** - 读写文件属性、配置管理、设计表
+- 👀 **结果自审查** - 导出多视角预览图，帮助代理用截图/图片复核模型是否符合意图
 
 ### 📋 环境要求
 
@@ -256,6 +257,10 @@ model.Extension.SelectByID2(
 - **仿真分析**: 创建 FEA 算例,运行分析,获取结果
 
 详见 [references/](./references/) 目录下的完整文档。
+
+### ⭐ Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=wzyn20051216/solidworks-automation-skill&type=Date)](https://www.star-history.com/#wzyn20051216/solidworks-automation-skill&Date)
 
 ### ❓ 常见问题
 
