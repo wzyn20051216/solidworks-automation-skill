@@ -20,6 +20,7 @@
 - 💾 **文件导出** - STEP、STL、IGES、PDF、DXF/DWG、Parasolid
 - 🎨 **外观材质** - 文档、特征、组件级颜色设置，支持装配体分色建模
 - 🎬 **Motion Study** - 自动创建运动算例、匀速旋转马达并计算/播放动画
+- 🔌 **MCP Server** - 将 SolidWorks COM 自动化封装成 Codex / Claude 可调用的本地 MCP 工具
 - 🔨 **钣金设计** - 基体法兰、边线法兰、展开图导出
 - ⚡ **焊件设计** - 结构构件、切割清单
 - 📊 **FEA 仿真** - 静态分析、频率分析、热分析
@@ -148,8 +149,35 @@ solidworks-automation-skill/
 │   ├── advanced.md
 │   └── troubleshooting.md
 ├── examples/            # 示例代码
+├── mcp-server/          # 本地 stdio MCP Server
 └── README.md
 ```
+
+### 🔌 MCP Server
+
+本仓库包含一个本地 `stdio` MCP Server，可让 Codex / Claude Desktop 等 MCP 客户端通过工具调用 SolidWorks：
+
+```powershell
+pip install -r mcp-server\requirements.txt
+python mcp-server\server.py
+```
+
+客户端配置示例：
+
+```json
+{
+  "mcpServers": {
+    "solidworks": {
+      "command": "python",
+      "args": [
+        "C:\\Users\\23201\\.codex\\skills\\solidworks-automation\\mcp-server\\server.py"
+      ]
+    }
+  }
+}
+```
+
+第一阶段已暴露 `solidworks_connect`、`solidworks_open_document`、`solidworks_save_document`、`solidworks_export_active`、`solidworks_review_active`、`solidworks_add_rotary_motor` 等工具。更多说明见 [mcp-server/README.md](mcp-server/README.md)。
 
 ### 🎯 使用示例
 

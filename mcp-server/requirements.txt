@@ -1,0 +1,4 @@
+mcp>=1.2.0
+pydantic>=2.0
+pywin32>=305
+comtypes>=1.2.0

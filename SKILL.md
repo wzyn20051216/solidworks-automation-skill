@@ -67,6 +67,7 @@ session.export(model, r"C:\temp\cylinder.step")
 | 工程图出图 | `scripts/sw_drawing.py` | `references/drawing.md` |
 | 文件导出 | `scripts/sw_export.py` | `references/export.md` |
 | 结果自审查 | `scripts/sw_review.py` | `references/review.md` |
+| 本地 MCP Server | `mcp-server/server.py` | `mcp-server/README.md`、`references/mcp-server.md` |
 | 未封装 API 查证 | - | `references/api-lookup.md` |
 | OpenClaw 控制 SolidWorks | - | `references/openclaw.md` |
 | 钣金/焊件/仿真/属性 | - | `references/advanced.md` |
@@ -96,6 +97,16 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 4. 如果必须由大模型生成 VBA 宏，先使用 `sw_macro_guard.py` 做模型分流、代码校验、重试和本地模板兜底。
 5. 使用 `session.export()` 或 `sw_export.py` 保存/导出文件。
 6. 使用 `sw_review.py` 导出预览图并自审查；如果有 GUI/桌面截图能力，打开 SolidWorks 视图截图复核。
+
+### MCP Server 使用
+
+当用户要求“让 SolidWorks 支持 MCP”“接入 Codex/Claude Desktop 工具调用”“不要每次生成一大段 Python 脚本”时：
+
+1. 读取 `mcp-server/README.md`。
+2. 使用本地 `stdio` MCP server：`python mcp-server/server.py`。
+3. 工具调用优先走 `solidworks_connect`、`solidworks_open_document`、`solidworks_export_active`、`solidworks_review_active`、`solidworks_add_rotary_motor`。
+4. 不要暴露任意 Python/VBA 执行工具；新增 MCP 工具时应复用 `scripts/sw_*.py` 中已验证封装。
+5. SolidWorks COM 操作必须串行执行；MCP server 内部已使用全局锁降低桌面会话冲突。
 
 ### 运动装配体要求
 
