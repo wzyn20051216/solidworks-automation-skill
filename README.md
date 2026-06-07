@@ -20,7 +20,7 @@
 - 💾 **文件导出** - STEP、STL、IGES、PDF、DXF/DWG、Parasolid
 - 🎨 **外观材质** - 文档、特征、组件级颜色设置，支持装配体分色建模
 - 🎬 **Motion Study** - 自动创建运动算例、匀速旋转马达并计算/播放动画
-- 🔌 **MCP Server** - 将 SolidWorks COM 自动化封装成 Codex / Claude 可调用的本地 MCP 工具
+- 🔌 **MCP Server** - 将 SolidWorks COM 自动化封装成 Codex / Claude / Cursor 可调用的本地 MCP 工具，覆盖基础建模、装配、Mate、外观、导出、审查和旋转马达
 - 🔨 **钣金设计** - 基体法兰、边线法兰、展开图导出
 - ⚡ **焊件设计** - 结构构件、切割清单
 - 📊 **FEA 仿真** - 静态分析、频率分析、热分析
@@ -198,6 +198,8 @@ claude mcp list
 ```
 
 第一阶段已暴露 `solidworks_connect`、`solidworks_open_document`、`solidworks_save_document`、`solidworks_export_active`、`solidworks_review_active`、`solidworks_add_rotary_motor` 等工具。更多说明见 [mcp-server/README.md](mcp-server/README.md)。
+
+当前 MCP 还包含 `solidworks_health_check`、`solidworks_create_basic_part`、`solidworks_add_component`、`solidworks_add_coincident_mate`、`solidworks_add_distance_mate`、`solidworks_add_concentric_mate`、`solidworks_set_component_fixed`、`solidworks_set_appearance` 等基础工具。复杂圆角/倒角仍建议作为后续专项优化，不作为基准 demo 的成功标准。
 
 ### 🎯 使用示例
 

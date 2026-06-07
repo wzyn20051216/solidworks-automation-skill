@@ -148,3 +148,5 @@ AddComponent4 返回 None
 - 装配体 Mate：底座/立柱同轴+重合，叶轮/轴同轴未锁转+轴向重合，前盖同轴+角向定位。
 - 固定状态：底座/立柱/前盖固定，叶轮浮动。
 - Motion Study：创建 `叶轮_60RPM_循环转动`，添加 `叶轮旋转马达_60RPM`，`Calculate=True`。
+
+仓库中的 `examples/08_mini_fan_motion_assembly.py` 是可重复运行的基准示例。该示例重点验证自动建模、装配、真实 Mate、Motion Study 和审查导出；圆角/倒角没有作为成功标准，叶片也采用稳定矩形叶片而非复杂弧面叶片。

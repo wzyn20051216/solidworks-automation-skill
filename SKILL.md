@@ -68,6 +68,7 @@ session.export(model, r"C:\temp\cylinder.step")
 | 文件导出 | `scripts/sw_export.py` | `references/export.md` |
 | 结果自审查 | `scripts/sw_review.py` | `references/review.md` |
 | 本地 MCP Server | `mcp-server/server.py` | `mcp-server/README.md`、`references/mcp-server.md` |
+| MCP 协议验证 | `scripts/validate_mcp.py` | `mcp-server/README.md` |
 | 未封装 API 查证 | - | `references/api-lookup.md` |
 | OpenClaw 控制 SolidWorks | - | `references/openclaw.md` |
 | 钣金/焊件/仿真/属性 | - | `references/advanced.md` |
@@ -105,9 +106,10 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 1. 读取 `mcp-server/README.md`。
 2. 若用户要求自动配置 MCP，优先运行多客户端注册器：`powershell -ExecutionPolicy Bypass -File mcp-server/register_all_ai_mcp.ps1 -InstallDependencies`；它会尝试注册 Codex、Claude Code、Claude Desktop、Cursor、Windsurf。
 3. 使用本地 `stdio` MCP server：`python mcp-server/server.py`。
-4. 工具调用优先走 `solidworks_connect`、`solidworks_open_document`、`solidworks_export_active`、`solidworks_review_active`、`solidworks_add_rotary_motor`。
+4. 工具调用优先走 `solidworks_health_check`、`solidworks_create_basic_part`、`solidworks_add_component`、`solidworks_add_coincident_mate`、`solidworks_add_distance_mate`、`solidworks_add_concentric_mate`、`solidworks_set_component_fixed`、`solidworks_export_active`、`solidworks_review_active`、`solidworks_add_rotary_motor`。
 5. 不要暴露任意 Python/VBA 执行工具；新增 MCP 工具时应复用 `scripts/sw_*.py` 中已验证封装。
 6. SolidWorks COM 操作必须串行执行；MCP server 内部已使用全局锁降低桌面会话冲突。
+7. 基准 demo 使用 `examples/08_mini_fan_motion_assembly.py`；它验证自动建模、装配、Mate 和 Motion Study，不承诺圆角/倒角外观完美。
 
 ### 运动装配体要求
 

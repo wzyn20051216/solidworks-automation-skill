@@ -98,14 +98,74 @@ claude mcp add --scope user solidworks -- python C:\Users\23201\.codex\skills\so
 
 | 工具 | 说明 | 是否修改 SolidWorks |
 |---|---|---|
+| `solidworks_health_check` | 检查 Python 依赖、SolidWorks 检测、Motion 类型库和可选实时连接 | 否 |
 | `solidworks_connect` | 连接/启动 SolidWorks 并返回活动文档摘要 | 否 |
 | `solidworks_new_document` | 新建零件/装配体/工程图 | 是 |
+| `solidworks_create_basic_part` | 创建基础盒体/圆柱零件，可保存并设置文档颜色 | 是 |
 | `solidworks_open_document` | 打开已有 SolidWorks 文档 | 是 |
+| `solidworks_add_component` | 向活动装配体添加零件/子装配体，可选固定组件 | 是 |
+| `solidworks_set_component_fixed` | 按组件名关键字固定或浮动装配体组件 | 是 |
 | `solidworks_save_document` | 保存或另存为活动文档 | 是 |
 | `solidworks_close_documents` | 关闭活动文档或全部文档 | 是，可能丢弃未保存修改 |
+| `solidworks_add_coincident_mate` | 在两个组件的指定基准面/特征之间添加重合 Mate | 是 |
+| `solidworks_add_distance_mate` | 在两个组件的指定基准面/特征之间添加距离 Mate | 是 |
+| `solidworks_add_concentric_mate` | 按圆柱面半径范围添加同心 Mate，可选择是否锁转 | 是 |
+| `solidworks_set_appearance` | 设置活动文档或指定组件外观颜色 | 是 |
 | `solidworks_export_active` | 导出活动文档为 STEP/STL/IGES/Parasolid/PDF/DXF | 是，写输出文件 |
 | `solidworks_review_active` | 导出多视角 BMP 预览和 JSON 审查报告 | 是，写输出文件 |
 | `solidworks_add_rotary_motor` | 在活动装配体中新建 Motion Study 并添加匀速旋转马达 | 是 |
+
+## 基础装配工具示例
+
+创建圆柱零件：
+
+```json
+{
+  "shape": "cylinder",
+  "radius_mm": 25,
+  "depth_mm": 50,
+  "output_path": "C:\\temp\\cylinder.SLDPRT",
+  "color": "#BFC4C8"
+}
+```
+
+向活动装配体添加组件并固定：
+
+```json
+{
+  "path": "C:\\temp\\base.SLDPRT",
+  "x_mm": 0,
+  "y_mm": 0,
+  "z_mm": 0,
+  "fix_component": true
+}
+```
+
+添加保留旋转自由度的同心 Mate：
+
+```json
+{
+  "component_a_keyword": "stand",
+  "component_b_keyword": "impeller",
+  "radius_a_min_mm": 4.5,
+  "radius_a_max_mm": 5.5,
+  "radius_b_min_mm": 11,
+  "radius_b_max_mm": 13,
+  "lock_rotation": false
+}
+```
+
+添加轴向距离 Mate：
+
+```json
+{
+  "component_a_keyword": "stand",
+  "component_b_keyword": "impeller",
+  "feature_a_name": "Front Plane",
+  "feature_b_name": "Front Plane",
+  "distance_mm": 42
+}
+```
 
 ## Motion Study 示例
 
@@ -140,5 +200,5 @@ claude mcp add --scope user solidworks -- python C:\Users\23201\.codex\skills\so
 ## 已知限制
 
 - 当前是第一阶段工具集，重点覆盖文档、导出、审查、Motion Study 旋转马达。
-- 复杂零件建模原语尚未全部暴露为 MCP 工具，建议后续按 `sw_part.py`、`sw_assembly.py` 继续扩展。
+- MCP 已覆盖基础盒体/圆柱、添加组件、常用 Mate、固定/浮动、外观、导出、审查和旋转马达；复杂草图、放样、扫描和可靠圆角/倒角仍建议通过 Python 脚本分步实现并审查。
 - SolidWorks Motion / Simulation 许可证差异可能影响 Motion Study 的计算能力。
