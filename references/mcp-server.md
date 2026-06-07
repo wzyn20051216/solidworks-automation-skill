@@ -26,6 +26,23 @@ SolidWorks 是 Windows 桌面 COM 应用，不是原生 MCP 服务。MCP Server 
 - 多客户端并发容易让 SolidWorks 文档状态混乱。
 - 远程访问还需要身份认证、Origin 校验和桌面会话隔离。
 
+## 多客户端注册策略
+
+安装器会调用 `mcp-server/register_all_ai_mcp.js`，尽量自动注册常见本地 AI 客户端：
+
+- Codex：通过 `codex mcp add solidworks -- <python> <server.py>` 注册。
+- Claude Code：通过 `claude mcp add --scope user solidworks -- <python> <server.py>` 注册。
+- Claude Desktop：写入用户级 `claude_desktop_config.json`。
+- Cursor：写入全局 `~/.cursor/mcp.json`。
+- Windsurf：写入全局 `~/.codeium/windsurf/mcp_config.json`。
+
+注意：
+
+1. 只有执行 `npx` 安装器或注册脚本时，才能自动修改本机 MCP 配置；纯 skill 导入通常不会运行安装脚本。
+2. 不同客户端可能需要重启或人工确认信任后才会加载新 MCP。
+3. 云端网页产品没有本机配置入口时，skill 无法替用户直接安装本地 MCP。
+4. JSON 配置写入前会创建 `.bak-*` 备份；命令行客户端会先移除同名 server 再重新注册。
+
 ## 并发策略
 
 `mcp-server/server.py` 使用全局 `RLock` 串行执行所有工具。原因：

@@ -4,7 +4,8 @@
   "description": "SolidWorks automation skill installer for Claude CLI and other AI tools",
   "main": "install.js",
   "bin": {
-    "solidworks-automation-skill": "./install.js"
+    "solidworks-automation-skill": "./install.js",
+    "solidworks-mcp-register": "./mcp-server/register_all_ai_mcp.js"
   },
   "scripts": {
     "postinstall": "node install.js"

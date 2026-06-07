@@ -25,32 +25,52 @@ python mcp-server\server.py
 
 该命令通常由 MCP 客户端作为子进程启动，不需要手动长期运行。
 
-## Codex / Claude Desktop 配置示例
+## 多客户端自动注册
 
-### Codex 一键注册
+本仓库提供多客户端注册器，会自动尝试把 `solidworks` MCP Server 注册到：
+
+- Codex
+- Claude Code
+- Claude Desktop
+- Cursor
+- Windsurf
 
 在仓库根目录运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\mcp-server\register_all_ai_mcp.ps1 -InstallDependencies
+```
+
+只注册指定客户端：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\mcp-server\register_all_ai_mcp.ps1 -InstallDependencies -Clients codex,claude-code,cursor
+```
+
+Node.js 版本可直接用于 `npx` 安装器或 CI：
+
+```powershell
+node .\mcp-server\register_all_ai_mcp.js --install-dependencies
+```
+
+注册后可按客户端检查：
+
+```powershell
+codex mcp list
+claude mcp list
+```
+
+> 通过本仓库 `npx` 安装时会自动运行多客户端注册器。某些 AI 客户端的纯 skill 导入不会执行安装脚本，需要在本地运行上述注册命令。
+
+## Codex 专用注册
+
+如果只想注册 Codex：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\mcp-server\register_codex_mcp.ps1 -InstallDependencies
 ```
 
-如果已经注册过同名 server，需要覆盖配置：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\mcp-server\register_codex_mcp.ps1 -InstallDependencies -Force
-```
-
-注册后可检查：
-
-```powershell
-codex mcp list
-codex mcp get solidworks
-```
-
-> 安装 skill 本身不会静默修改用户的 MCP 配置；只有用户明确运行上面的脚本或命令时，才会注册 Codex MCP Server。
-
-### 手动配置
+## 手动配置
 
 把路径替换为你的本地仓库路径：
 
@@ -71,6 +91,7 @@ codex mcp get solidworks
 
 ```powershell
 codex mcp add solidworks -- python C:\Users\23201\.codex\skills\solidworks-automation\mcp-server\server.py
+claude mcp add --scope user solidworks -- python C:\Users\23201\.codex\skills\solidworks-automation\mcp-server\server.py
 ```
 
 ## 已暴露工具

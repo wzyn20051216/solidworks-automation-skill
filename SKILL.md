@@ -103,7 +103,7 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 当用户要求“让 SolidWorks 支持 MCP”“接入 Codex/Claude Desktop 工具调用”“不要每次生成一大段 Python 脚本”时：
 
 1. 读取 `mcp-server/README.md`。
-2. 安装 skill 本身不会静默注册 MCP；只有用户明确要求配置 Codex MCP 时，才运行 `powershell -ExecutionPolicy Bypass -File mcp-server/register_codex_mcp.ps1 -InstallDependencies`。
+2. 若用户要求自动配置 MCP，优先运行多客户端注册器：`powershell -ExecutionPolicy Bypass -File mcp-server/register_all_ai_mcp.ps1 -InstallDependencies`；它会尝试注册 Codex、Claude Code、Claude Desktop、Cursor、Windsurf。
 3. 使用本地 `stdio` MCP server：`python mcp-server/server.py`。
 4. 工具调用优先走 `solidworks_connect`、`solidworks_open_document`、`solidworks_export_active`、`solidworks_review_active`、`solidworks_add_rotary_motor`。
 5. 不要暴露任意 Python/VBA 执行工具；新增 MCP 工具时应复用 `scripts/sw_*.py` 中已验证封装。

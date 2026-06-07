@@ -45,7 +45,9 @@
 npx github:wzyn20051216/solidworks-automation-skill
 ```
 
-自动下载并安装到 Claude/Codex/OpenClaw 等已检测到的 skills 目录，无需手动配置。
+自动下载并安装到 Claude/Codex/OpenClaw 等已检测到的 skills 目录，并自动尝试把 SolidWorks MCP 注册到 Codex、Claude Code、Claude Desktop、Cursor、Windsurf 等本地 AI 客户端。
+
+安装后如果客户端已经打开，建议重启对应客户端；部分客户端首次加载本地 MCP 时可能还需要在界面中确认信任。
 
 #### 方式二：OpenClaw / 龙虾 使用
 
@@ -155,21 +157,30 @@ solidworks-automation-skill/
 
 ### 🔌 MCP Server
 
-本仓库包含一个本地 `stdio` MCP Server，可让 Codex / Claude Desktop 等 MCP 客户端通过工具调用 SolidWorks：
+本仓库包含一个本地 `stdio` MCP Server，可让 Codex / Claude Code / Claude Desktop / Cursor / Windsurf 等 MCP 客户端通过工具调用 SolidWorks：
 
 ```powershell
 pip install -r mcp-server\requirements.txt
 python mcp-server\server.py
 ```
 
-Codex 用户可在仓库根目录一键注册：
+推荐使用多客户端注册器：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\mcp-server\register_codex_mcp.ps1 -InstallDependencies
+powershell -ExecutionPolicy Bypass -File .\mcp-server\register_all_ai_mcp.ps1 -InstallDependencies
 codex mcp list
+claude mcp list
 ```
 
-> 安装 skill 不会静默改写其他用户的 MCP 配置；需要用户明确运行注册脚本，或在自己的 MCP 客户端中手动添加 server。
+该注册器会自动尝试：
+
+- Codex：调用 `codex mcp add`
+- Claude Code：调用 `claude mcp add --scope user`
+- Claude Desktop：写入 `claude_desktop_config.json`
+- Cursor：写入 `~/.cursor/mcp.json`
+- Windsurf：写入 `~/.codeium/windsurf/mcp_config.json`
+
+> 通过 `npx github:wzyn20051216/solidworks-automation-skill` 安装时会自动运行注册器。若使用某些客户端的纯 skill 导入功能，客户端可能不会执行安装脚本，此时让 AI 运行上面的注册命令即可。
 
 客户端手动配置示例：
 
