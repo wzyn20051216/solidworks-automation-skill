@@ -1,0 +1,16 @@
+# MICU AI 资源库项目元数据
+# 用于 zuoliangyu/micu-ai-lib 聚合展示。
+
+name: SolidWorks Automation Skill
+authors: [wzyn20051216, zuoliangyu]
+category: Tool
+tags: [SolidWorks, CAD, MCP, Python, COM, Automation]
+status: in-progress
+updated: 2026-06-14
+summary: 面向 Codex、Claude 与 OpenClaw 的 SolidWorks 自动化技能，支持零件建模、装配、工程图、导出、自审查和本地 MCP 工具调用。
+
+cover: assets/douyin-balance.jpg
+readme: README.md
+
+links:
+  github: https://github.com/wzyn20051216/solidworks-automation-skill
