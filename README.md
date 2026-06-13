@@ -6,6 +6,14 @@
 
 通过 Python COM 接口自动化控制 SolidWorks 的完整工具集，可被 Codex / Claude / OpenClaw（龙虾）等代理直接复用。支持零件建模、装配体、工程图、钣金、焊件、仿真等全流程自动化操作。
 
+<p align="center">
+  <img src="assets/douyin-balance.jpg" alt="抖音 @balance. 关注二维码" width="320">
+  <br>
+  <strong>关注抖音 @balance.</strong>
+  <br>
+  <sub>嵌入式开发、SolidWorks 自动化和 AI 辅助工程实践持续更新</sub>
+</p>
+
 [English](#english) | [中文](#中文)
 
 ---
