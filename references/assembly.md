@@ -12,15 +12,30 @@
 
 ## 添加组件
 
+优先复用 `scripts/sw_assembly.py` 的 `add_component()`。SW2024 中文版 + pywin32 下，
+`AddComponent4()` 可能无异常但返回 `None`；当前封装会优先走 `AddComponent5()` 的
+8 参数签名，失败后再回退 `AddComponent4()`。若两者都返回空，封装会自动把零件
+静默打开到 SolidWorks 会话、重新激活装配体，再重试 `AddComponent5()`。
+
 ```python
-component = asm_model.AddComponent4(
-    CompPath,     # str: 零件/子装配体文件路径
-    ConfigName,   # str: 配置名，空字符串为默认配置
-    X, Y, Z       # float: 放置位置，单位米
+from sw_assembly import add_component
+
+component = add_component(asm_model, r"E:\parts\base.SLDPRT", x=0, y=0, z=0)
+```
+
+底层稳定调用：
+
+```python
+component = asm_model.AddComponent5(
+    CompPath, 0, "", False, ConfigName, X, Y, Z
 )
 ```
 
-`AddComponent4` 失败时，先检查零件文件是否真实存在、装配体是否为活动文档；必要时先用 `open_document(sw, part_path, silent=True)` 打开零件再添加。
+`AddComponent4` / `AddComponent5` 失败时，先检查零件文件是否真实存在、装配体是否为活动文档、零件是否已保存到磁盘；必要时先打开零件再切回装配体。真实回归验证：
+
+```powershell
+py -3.13 tests\solidworks_add_component_regression.py --output-dir E:\desktop\CAD\solidworks_add_component_regression
+```
 
 ## 运动型装配工作流
 

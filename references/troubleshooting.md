@@ -126,6 +126,29 @@ resolve_component(component)  # 默认 swComponentFullyResolved=2，失败时回
 part = get_component_model(component)
 ```
 
+### AddComponent4 返回 None
+
+场景：SW2024 中文版 + pywin32 下，`asm.AddComponent4(path, "", x, y, z)` 无异常但持续返回 `None`，导致装配体无法添加零件。
+
+稳定写法：优先使用 `sw_assembly.add_component()`。当前封装先检查文件路径，然后调用 `AddComponent5(path, 0, "", False, config, x, y, z)`，失败后回退 `AddComponent4()`；若仍为空，会自动静默打开零件、重新激活装配体，再重试 `AddComponent5()`。
+
+```python
+from sw_assembly import add_component, get_components
+
+component = add_component(asm, r"E:\parts\probe_block.SLDPRT", x=0, y=0, z=0)
+if component is None:
+    raise RuntimeError("添加组件失败")
+print(get_components(asm))
+```
+
+真实 SolidWorks 回归验证：
+
+```powershell
+py -3.13 tests\solidworks_add_component_regression.py --output-dir E:\desktop\CAD\solidworks_add_component_regression
+```
+
+通过标准：`component_count >= 1`，`component_name` 非空，`.SLDASM` 保存成功，`review_evaluation.status` 为 `pass` 或至少 `review_checks.expected_outputs_exist=true`。
+
 ### Mate 创建后特征树没有真实配合
 
 场景：脚本报告“成功”，但 SolidWorks 里没有 Gear Mate / Concentric Mate，拖动也不会联动。

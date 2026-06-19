@@ -634,7 +634,7 @@ def solidworks_add_component(params: SolidWorksAddComponentInput) -> str:
     """Add an existing part/subassembly to the active assembly, optionally fixing it."""
 
     def op():
-        _sw, asm = _active_assembly_required()
+        sw, asm = _active_assembly_required()
         component = assembly_add_component(
             asm,
             params.path,
@@ -642,6 +642,7 @@ def solidworks_add_component(params: SolidWorksAddComponentInput) -> str:
             mm(params.y_mm),
             mm(params.z_mm),
             config_name=params.config_name,
+            sw=sw,
         )
         if component is None:
             raise RuntimeError(f"AddComponent4 failed: {params.path}")

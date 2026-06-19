@@ -5,13 +5,14 @@ SolidWorks 装配体操作工具。
 真实 Mate 创建、运动型装配验证。SolidWorks API 使用米作为长度单位。
 """
 import math
+import os
 
 try:
     from .sw_preflight import import_com_dependencies
-    from .sw_connect import safe_get_com_member
+    from .sw_connect import open_document, safe_get_com_member
 except ImportError:
     from sw_preflight import import_com_dependencies
-    from sw_connect import safe_get_com_member
+    from sw_connect import open_document, safe_get_com_member
 
 pythoncom, _win32com, VARIANT = import_com_dependencies()
 
@@ -64,7 +65,61 @@ def _as_alias_list(aliases):
     return names
 
 
-def add_component(asm_model, part_path, x=0, y=0, z=0, config_name=""):
+def _active_solidworks_app():
+    """获取当前运行中的 SolidWorks 应用对象。"""
+    try:
+        return _win32com.GetActiveObject("SldWorks.Application")
+    except Exception:
+        return None
+
+
+def _activate_model_document(sw, model):
+    """激活给定文档，兼容 ActivateDoc3 的 by-ref error 参数。"""
+    if sw is None or model is None:
+        return False
+    title = safe_get_com_member(model, "GetTitle")
+    if not title:
+        return False
+    errors = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+    try:
+        return sw.ActivateDoc3(title, False, 0, errors) is not None
+    except Exception:
+        try:
+            sw.ActivateDoc2(title, False, errors)
+            return True
+        except Exception:
+            return False
+
+
+def _add_component5(asm_model, component_path, config_name, x, y, z):
+    """调用 AddComponent5 的 SW2024 兼容签名。"""
+    add_component5 = getattr(asm_model, "AddComponent5", None)
+    if not add_component5:
+        return None
+    return add_component5(
+        component_path,
+        0,              # swAddComponentConfigOptions_e: 使用指定/默认配置
+        "",
+        False,
+        config_name or "",
+        float(x),
+        float(y),
+        float(z),
+    )
+
+
+def _add_component4(asm_model, component_path, config_name, x, y, z):
+    """调用 AddComponent4。"""
+    return asm_model.AddComponent4(
+        component_path,
+        config_name or "",
+        float(x),
+        float(y),
+        float(z),
+    )
+
+
+def add_component(asm_model, part_path, x=0, y=0, z=0, config_name="", sw=None):
     """
     向装配体添加零部件
 
@@ -73,15 +128,61 @@ def add_component(asm_model, part_path, x=0, y=0, z=0, config_name=""):
         part_path: 零件/子装配体文件路径
         x, y, z: 放置位置（米）
         config_name: 配置名称，空字符串使用默认配置
+        sw: 可选 SolidWorks 应用对象；用于 AddComponent 失败后自动打开零件并切回装配体。
 
     返回:
         IComponent2 对象
     """
-    component = asm_model.AddComponent4(part_path, config_name, x, y, z)
+    component_path = os.path.abspath(os.path.expandvars(os.path.expanduser(str(part_path))))
+    if not os.path.exists(component_path):
+        raise FileNotFoundError(f"组件文件不存在: {component_path}")
+
+    component = None
+    errors = []
+
+    try:
+        # SW2024 中文版 + pywin32 下 AddComponent4 可能返回 None；
+        # AddComponent5 的 8 参数签名更稳定。
+        component = _add_component5(asm_model, component_path, config_name, x, y, z)
+    except Exception as exc:
+        errors.append(f"AddComponent5: {exc}")
+
+    if component is None:
+        try:
+            component = _add_component4(asm_model, component_path, config_name, x, y, z)
+        except Exception as exc:
+            errors.append(f"AddComponent4: {exc}")
+
+    if component is None:
+        sw = sw or _active_solidworks_app()
+        if sw is not None:
+            try:
+                opened = open_document(sw, component_path, read_only=False, silent=True)
+                if opened is None:
+                    errors.append("OpenDoc6: 返回 None")
+                elif _activate_model_document(sw, asm_model):
+                    component = _add_component5(
+                        asm_model,
+                        component_path,
+                        config_name,
+                        x,
+                        y,
+                        z,
+                    )
+                    if component is None:
+                        errors.append("open_then_AddComponent5: 返回 None")
+                else:
+                    errors.append("ActivateDoc: 无法重新激活装配体")
+            except Exception as exc:
+                errors.append(f"open_then_AddComponent5: {exc}")
+        else:
+            errors.append("GetActiveObject(SldWorks.Application): 返回 None")
+
     if component:
-        print(f"已添加组件: {part_path}")
+        print(f"已添加组件: {component_path}")
     else:
-        print(f"添加组件失败: {part_path}")
+        detail = "；".join(errors) if errors else "AddComponent5/AddComponent4 均返回 None"
+        print(f"添加组件失败: {component_path} ({detail})")
     return component
 
 
@@ -542,15 +643,15 @@ def get_components(asm_model, top_level_only=True):
     返回:
         组件信息列表
     """
-    components = asm_model.GetComponents(top_level_only)
+    components = safe_get_com_member(asm_model, "GetComponents", top_level_only)
     result = []
     if components:
         for comp in components:
             result.append({
-                "name": comp.Name2,
+                "name": safe_get_com_member(comp, "Name2"),
                 "path": safe_get_com_member(comp, "GetPathName"),
-                "suppressed": comp.IsSuppressed(),
-                "visible": comp.Visible,
+                "suppressed": safe_get_com_member(comp, "IsSuppressed"),
+                "visible": safe_get_com_member(comp, "Visible"),
             })
     return result
 

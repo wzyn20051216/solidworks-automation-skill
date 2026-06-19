@@ -189,6 +189,7 @@ print(report["evaluation"])
 - **版本**：使用 `SldWorks.Application` 自动连接，兼容所有版本
 - **选择**：能拿到 COM 对象时优先用对象级 `Select2()`；基准面可用 `SelectByID2("PLANE")`，草图不要只依赖 `SelectByID2("SKETCH")`
 - **草图**：推荐用 `with sketch(model, "Front Plane") as sketch_name:` 自动进入/退出草图；`sw_part.py` 会缓存草图对象引用，避免 SW2024 中文版按名称选择草图失败
+- **添加组件**：装配体优先用 `sw_assembly.add_component()`；SW2024 中文版下 `AddComponent4` 可能返回 `None`，封装会用 `AddComponent5`、静默打开零件、重新激活装配体后重试
 - **外观**：对颜色要求高的模型优先拆成多零件装配体，并用 `sw_appearance.py` 设置文档级或组件级外观
 - **VARIANT**：by-ref 参数必须用 `VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)` 包装
 - **基准面名称**：`start_sketch()` 会自动兼容英文版 "Front/Top/Right Plane" 与中文版 "前视/上视/右视基准面"
