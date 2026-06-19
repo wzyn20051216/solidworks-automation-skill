@@ -247,6 +247,14 @@ if feature is None:
     raise RuntimeError("拉伸失败：检查草图闭合、方向和对象选择")
 ```
 
+真实 SolidWorks 回归验证：
+
+```powershell
+py -3.13 tests\solidworks_sketch_selection_regression.py --output-dir E:\desktop\CAD\solidworks_skill_regression
+```
+
+通过标准：脚本在两次 `ClearSelection2(True)` 后都报告 `selection_count=0`，随后仍能生成 `凸台-拉伸1` 和 `切除-拉伸1`，保存 `.SLDPRT`、导出 `.step`，并且 `review_evaluation.status` 为 `pass`。
+
 ### FeatureCut4 长参数不稳定
 
 场景：手写 `FeatureCut4(...)` 后特征返回 `None`，但同一草图在 GUI 或封装函数中可切除。
