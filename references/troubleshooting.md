@@ -223,6 +223,30 @@ add_concentric_mate_by_cylinders(..., lock_rotation=False)
 3. **草图有开环** - 拉伸需要闭合轮廓
 4. **单位错误** - API 使用米，不是毫米
 
+### SelectByID2("SKETCH") 持续返回 False
+
+场景：SolidWorks 2024 中文版中，`SelectByID2("草图1", "SKETCH", ...)` 和 `SelectByID2("Sketch1", "SKETCH", ...)` 都返回 `False`，随后 `FeatureExtrusion3()` 返回 `None`。
+
+根因：部分版本/语言环境下，草图名称选择不稳定；旧版 `sw_part._ensure_sketch_selected()` 还曾经把“当前选择集数量 > 0”当成成功条件，导致前几个零件靠残留选择集偶然成功，选择集被清空后全部失败。
+
+稳定写法：
+
+1. 优先使用 `with sketch(model, "...") as sketch_name:`，由 `sw_part.py` 在创建草图时缓存真实草图对象引用。
+2. 不要在特征创建前依赖残留选择集；切换文档、重建、解析组件和失败的 API 调用都可能清空选择集。
+3. 选择草图时优先用对象级 `Select2()` 选择草图 Feature / Sketch；最后才回退 `SelectByID2("SKETCH")`。
+4. 若必须手写底层流程，`end_sketch(model)` 的返回值可直接传给 `extrude_boss()` / `extrude_cut()`。
+
+```python
+from sw_part import end_sketch, extrude_boss, sketch_circle, start_sketch
+
+start_sketch(model, "Front Plane")
+sketch_circle(model, 0, 0, 0.025)
+sketch_ref = end_sketch(model)
+feature = extrude_boss(model, sketch_ref, 0.05)
+if feature is None:
+    raise RuntimeError("拉伸失败：检查草图闭合、方向和对象选择")
+```
+
 ### FeatureCut4 长参数不稳定
 
 场景：手写 `FeatureCut4(...)` 后特征返回 `None`，但同一草图在 GUI 或封装函数中可切除。

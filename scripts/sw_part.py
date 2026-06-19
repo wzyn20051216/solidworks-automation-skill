@@ -2,11 +2,14 @@
 SolidWorks 零件建模工具
 提供草图绘制和特征创建的常用函数
 """
+from dataclasses import dataclass
 from contextlib import contextmanager
 
 try:
+    from .sw_connect import get_com_member
     from .sw_preflight import import_com_dependencies
 except ImportError:
+    from sw_connect import get_com_member
     from sw_preflight import import_com_dependencies
 
 pythoncom, _win32com, VARIANT = import_com_dependencies()
@@ -24,6 +27,31 @@ SKETCH_NAME_PREFIX_ALIASES = {
     "Sketch": "草图",
     "草图": "Sketch",
 }
+
+
+@dataclass
+class SketchSelectionRef:
+    """
+    记录草图对象引用，避免后续只能靠 SelectByID2("SKETCH") 按名称反查。
+
+    SolidWorks 2024 中文版中，按名称选择 SKETCH 可能持续返回 False。创建草图时
+    保存对象引用，后续特征创建可直接 Select2 草图、草图特征或轮廓。
+    """
+
+    name: str
+    sketch: object = None
+    feature: object = None
+    contours: tuple = ()
+    regions: tuple = ()
+    segments: tuple = ()
+    source: str = ""
+
+    def __str__(self):
+        """保持与旧代码中普通草图名称字符串相近的表现。"""
+        return self.name
+
+
+_SKETCH_SELECTION_CACHE = {}
 
 
 # ============================================================
@@ -77,6 +105,7 @@ def _get_sketch_name_candidates(sketch_name):
     返回:
         list[str]
     """
+    sketch_name = str(sketch_name)
     candidates = [sketch_name]
     for prefix, alias in SKETCH_NAME_PREFIX_ALIASES.items():
         if sketch_name.startswith(prefix):
@@ -84,6 +113,107 @@ def _get_sketch_name_candidates(sketch_name):
             if alias_name not in candidates:
                 candidates.append(alias_name)
     return candidates
+
+
+def _as_tuple(value):
+    """把 COM 返回的单对象、SAFEARRAY 或 None 统一成 tuple。"""
+    if value is None:
+        return ()
+    if isinstance(value, tuple):
+        return tuple(item for item in value if item is not None)
+    if isinstance(value, list):
+        return tuple(item for item in value if item is not None)
+    return (value,)
+
+
+def _safe_com_member(obj, attr_name, *args, default=None):
+    """读取 COM 成员，失败时返回默认值，避免排障路径再次抛 COM 异常。"""
+    if obj is None:
+        return default
+    try:
+        value = get_com_member(obj, attr_name, *args)
+        return default if value is None else value
+    except Exception:
+        return default
+
+
+def _model_cache_key(model):
+    """生成仅用于当前 Python 进程的模型缓存键。"""
+    ole_object = getattr(model, "_oleobj_", None)
+    if ole_object is not None:
+        return id(ole_object)
+    return id(model)
+
+
+def _cache_name_variants(sketch_name):
+    """生成草图缓存名称，兼容中英文默认草图名前缀。"""
+    variants = []
+    for candidate in _get_sketch_name_candidates(sketch_name):
+        if candidate not in variants:
+            variants.append(candidate)
+    return variants
+
+
+def _cache_sketch_ref(model, sketch_ref):
+    """缓存草图对象引用，后续可跳过 SelectByID2("SKETCH")。"""
+    if not sketch_ref or not sketch_ref.name:
+        return sketch_ref
+    model_cache = _SKETCH_SELECTION_CACHE.setdefault(_model_cache_key(model), {})
+    for candidate in _cache_name_variants(sketch_ref.name):
+        model_cache[candidate] = sketch_ref
+    return sketch_ref
+
+
+def _find_cached_sketch_ref(model, sketch_name):
+    """从当前进程缓存中查找草图对象引用。"""
+    if isinstance(sketch_name, SketchSelectionRef):
+        return sketch_name
+
+    model_cache = _SKETCH_SELECTION_CACHE.get(_model_cache_key(model), {})
+    for candidate in _cache_name_variants(sketch_name):
+        cached = model_cache.get(candidate)
+        if cached:
+            return cached
+    return None
+
+
+def _capture_sketch_ref(model, sketch_obj=None, fallback="Sketch1", source=""):
+    """从活动草图或给定草图对象中提取可复用的选择引用。"""
+    if sketch_obj is None:
+        sketch_obj = _safe_com_member(model.SketchManager, "ActiveSketch")
+    if sketch_obj is None:
+        return None
+
+    sketch_name = _safe_com_member(sketch_obj, "Name", default=fallback) or fallback
+    sketch_ref = SketchSelectionRef(
+        name=sketch_name,
+        sketch=sketch_obj,
+        feature=_safe_com_member(sketch_obj, "GetFeature"),
+        contours=_as_tuple(_safe_com_member(sketch_obj, "GetSketchContours")),
+        regions=_as_tuple(_safe_com_member(sketch_obj, "GetSketchRegions")),
+        segments=_as_tuple(_safe_com_member(sketch_obj, "GetSketchSegments")),
+        source=source,
+    )
+    return _cache_sketch_ref(model, sketch_ref)
+
+
+def _refresh_sketch_ref(sketch_ref):
+    """退出草图后再次刷新 Feature/Contour 引用。"""
+    if not sketch_ref or sketch_ref.sketch is None:
+        return sketch_ref
+    feature = _safe_com_member(sketch_ref.sketch, "GetFeature")
+    contours = _as_tuple(_safe_com_member(sketch_ref.sketch, "GetSketchContours"))
+    regions = _as_tuple(_safe_com_member(sketch_ref.sketch, "GetSketchRegions"))
+    segments = _as_tuple(_safe_com_member(sketch_ref.sketch, "GetSketchSegments"))
+    if feature is not None:
+        sketch_ref.feature = feature
+    if contours:
+        sketch_ref.contours = contours
+    if regions:
+        sketch_ref.regions = regions
+    if segments:
+        sketch_ref.segments = segments
+    return sketch_ref
 
 
 def _select_first_candidate(extension, candidate_names, entity_type, append=False, mark=0):
@@ -121,6 +251,67 @@ def _get_selection_count(model):
     return count_member(-1) if callable(count_member) else int(count_member)
 
 
+def _select_com_object(obj, append=False, mark=0):
+    """使用对象自身 Select2/Select4 选择，优先避开 SelectByID2 名称解析。"""
+    if obj is None:
+        return False
+    for method_name in ("Select2", "Select4"):
+        method = getattr(obj, method_name, None)
+        if not method:
+            continue
+        try:
+            if method_name == "Select2":
+                if bool(method(append, mark)):
+                    return True
+            elif bool(method(append, _empty_callout())):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _select_any_object(objects, append=False, mark=0):
+    """从一组 COM 对象里尽量选择全部对象，至少选中一个即视为成功。"""
+    selected_count = 0
+    for obj in _as_tuple(objects):
+        if _select_com_object(obj, append=(append or selected_count > 0), mark=mark):
+            selected_count += 1
+    return selected_count > 0
+
+
+def _select_sketch_ref(model, sketch_ref, mark=0):
+    """
+    按稳定优先级选择草图引用。
+
+    轮廓/区域更接近 FeatureExtrusion3 需要的预选对象；不可用时再回退草图
+    Feature 或 Sketch 对象。
+    """
+    if not sketch_ref:
+        return False
+    model.ClearSelection2(True)
+    _refresh_sketch_ref(sketch_ref)
+    for objects in (
+        sketch_ref.feature,
+        sketch_ref.sketch,
+        sketch_ref.contours,
+        sketch_ref.regions,
+        sketch_ref.segments,
+    ):
+        if _select_any_object(objects, append=False, mark=mark):
+            return True
+        model.ClearSelection2(True)
+    return False
+
+
+def _select_sketch_feature_by_name(model, sketch_name, mark=0):
+    """通过 FeatureByName 找到草图特征后对象级选择。"""
+    for candidate in _get_sketch_name_candidates(sketch_name):
+        feature = _safe_com_member(model, "FeatureByName", candidate)
+        if feature and _select_com_object(feature, append=False, mark=mark):
+            return candidate
+    return None
+
+
 def _ensure_sketch_selected(model, sketch_name):
     """
     确保拉伸/切除前已有可用的草图选择。
@@ -132,15 +323,32 @@ def _ensure_sketch_selected(model, sketch_name):
     返回:
         str
     """
-    if _get_selection_count(model) > 0:
+    if str(sketch_name) == "__current_selection__" and _get_selection_count(model) > 0:
         return "__current_selection__"
+
+    active_ref = _capture_sketch_ref(model, fallback=str(sketch_name), source="active")
+    if active_ref and _select_sketch_ref(model, active_ref):
+        return active_ref.name
+
+    cached_ref = _find_cached_sketch_ref(model, sketch_name)
+    if cached_ref and _select_sketch_ref(model, cached_ref):
+        return cached_ref.name
+
+    selected_feature = _select_sketch_feature_by_name(model, sketch_name)
+    if selected_feature:
+        return selected_feature
 
     selected_sketch = _select_first_candidate(
         model.Extension, _get_sketch_name_candidates(sketch_name), "SKETCH"
     )
     if not selected_sketch:
-        raise ValueError(f"无法选择草图: {sketch_name}")
+        model.ClearSelection2(True)
+        raise ValueError(
+            f"无法选择草图: {sketch_name}。已尝试活动草图对象、缓存草图对象、"
+            "FeatureByName 和 SelectByID2('SKETCH')。"
+        )
     return selected_sketch
+
 
 def start_sketch(model, plane_name="Front Plane"):
     """
@@ -165,8 +373,15 @@ def start_sketch(model, plane_name="Front Plane"):
 
 
 def end_sketch(model):
-    """退出当前草图"""
+    """
+    退出当前草图，并返回可复用的草图选择引用。
+
+    返回值兼容旧调用：调用者可以忽略它；需要稳定选择时可传给
+    `extrude_boss()` / `extrude_cut()` 等特征函数。
+    """
+    sketch_ref = _capture_sketch_ref(model, source="end_sketch")
     model.SketchManager.InsertSketch(True)
+    return _cache_sketch_ref(model, _refresh_sketch_ref(sketch_ref))
 
 
 @contextmanager
@@ -180,10 +395,18 @@ def sketch(model, plane_name="Front Plane"):
         extrude_boss(model, sketch_name, mm(50))
     """
     start_sketch(model, plane_name)
+    sketch_ref = None
     try:
-        yield current_sketch_name(model)
+        sketch_ref = _capture_sketch_ref(model, source="context")
+        yield sketch_ref.name if sketch_ref else current_sketch_name(model)
     finally:
-        end_sketch(model)
+        finished_ref = end_sketch(model)
+        if sketch_ref and finished_ref:
+            sketch_ref.feature = finished_ref.feature
+            sketch_ref.contours = finished_ref.contours
+            sketch_ref.regions = finished_ref.regions
+            sketch_ref.segments = finished_ref.segments
+            _cache_sketch_ref(model, sketch_ref)
 
 
 def current_sketch_name(model, fallback="Sketch1"):

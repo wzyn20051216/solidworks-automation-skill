@@ -72,7 +72,11 @@ def check_skill_frontmatter():
 
 def check_python_syntax():
     """检查 scripts 和 examples 下 Python 文件语法。"""
-    targets = list((ROOT / "scripts").glob("*.py")) + list((ROOT / "examples").glob("*.py"))
+    targets = (
+        list((ROOT / "scripts").glob("*.py"))
+        + list((ROOT / "examples").glob("*.py"))
+        + list((ROOT / "tests").glob("*.py"))
+    )
     for path in targets:
         ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 

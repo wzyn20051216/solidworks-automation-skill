@@ -41,6 +41,29 @@ model.SketchAddConstraints("sgHORIZONTAL")
 
 常用约束类型：`sgFIXED`, `sgHORIZONTAL`, `sgVERTICAL`, `sgCOLINEAR`, `sgPARALLEL`, `sgPERPENDICULAR`, `sgTANGENT`, `sgCONCENTRIC`, `sgEQUAL`, `sgSYMMETRIC`, `sgMIDPOINT`, `sgCOINCIDENT`
 
+### 草图选择稳定策略
+
+优先使用 `sw_part.sketch()` 上下文或 `end_sketch()` 返回值，不要手写 `SelectByID2("Sketch1", "SKETCH", ...)` 作为唯一选择方式。SolidWorks 2024 中文版反馈过 SKETCH 名称选择持续返回 `False` 的情况。
+
+推荐：
+
+```python
+with sketch(model, "Front Plane") as sketch_name:
+    sketch_circle(model, 0, 0, mm(25))
+feature = extrude_boss(model, sketch_name, mm(50))
+```
+
+手动流程：
+
+```python
+start_sketch(model, "Front Plane")
+sketch_circle(model, 0, 0, mm(25))
+sketch_ref = end_sketch(model)
+feature = extrude_boss(model, sketch_ref, mm(50))
+```
+
+内部规则：`extrude_boss()` / `extrude_cut()` 会按“活动草图引用 -> 创建时缓存引用 -> FeatureByName -> SelectByID2("SKETCH")”顺序选择草图；不再把残留选择集当作草图已选中的证据。
+
 ## 特征操作
 
 ### FeatureExtrusion3 参数详解

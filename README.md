@@ -414,7 +414,7 @@ model.Extension.SelectByID2(
 检查:
 1. 草图是否闭合
 2. 单位是否正确(使用 `mm()` 转换)
-3. 实体是否正确选择
+3. 实体是否正确选择；SW2024 中文版优先使用 `with sketch(...)` 或 `end_sketch()` 返回值，不要只靠 `SelectByID2("SKETCH")`
 4. 查看 [troubleshooting.md](./references/troubleshooting.md)
 
 ### 🤝 贡献
