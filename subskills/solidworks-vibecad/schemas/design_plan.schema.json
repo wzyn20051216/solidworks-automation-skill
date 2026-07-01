@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "VibeCAD SolidWorks Design Plan",
+  "type": "object",
+  "required": [
+    "plan_version",
+    "source_brief",
+    "part_family",
+    "parameters",
+    "features",
+    "operation_sequence",
+    "assumptions",
+    "risk_register",
+    "review_plan"
+  ],
+  "properties": {
+    "plan_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "source_brief": {
+      "type": "string"
+    },
+    "part_family": {
+      "type": "string",
+      "enum": ["cnc_mount", "connector_block", "bracket", "plate", "shaft", "enclosure", "assembly", "unknown"]
+    },
+    "parameters": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "type", "params", "required"],
+        "properties": {
+          "name": {"type": "string"},
+          "type": {"type": "string"},
+          "params": {"type": "object", "additionalProperties": true},
+          "required": {"type": "boolean"},
+          "fallback": {"type": "string"}
+        }
+      }
+    },
+    "operation_sequence": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "risk_register": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["risk", "mitigation"],
+        "properties": {
+          "risk": {"type": "string"},
+          "mitigation": {"type": "string"}
+        }
+      }
+    },
+    "review_plan": {
+      "type": "object",
+      "required": ["expected_outputs", "views", "checks"],
+      "properties": {
+        "expected_outputs": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "views": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "checks": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "solidworks_mapping": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["operation", "preferred_api"],
+        "properties": {
+          "operation": {"type": "string"},
+          "preferred_api": {"type": "string"},
+          "notes": {"type": "string"}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+name: solidworks-fillet-chamfer-cnc
+title: SolidWorks Fillet Chamfer CNC
+status: stable
+summary: 生成可审查的 CNC 安装座、连接块、支架、孔槽、减重口袋、多圆角和多倒角模型。
+entrypoint: SKILL.md
+scripts:
+  - scripts/create_cnc_mount_template.py
+references:
+  - references/cnc-fillet-chamfer-lessons.md
+depends_on:
+  - solidworks-automation
+related:
+  - solidworks-vibecad
+  - solidworks-threaded-holes

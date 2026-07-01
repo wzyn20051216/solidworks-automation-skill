@@ -1,0 +1,22 @@
+name: solidworks-vibecad
+title: SolidWorks VibeCAD
+status: experimental
+summary: 自然语言机械设计需求到 SolidWorks 参数化设计计划、制造规则检查、执行摘要和审查门禁。
+entrypoint: SKILL.md
+scripts:
+  - scripts/plan_from_brief.py
+  - scripts/sw_execution_outline.py
+knowledge:
+  - knowledge/manufacturing_rules.yaml
+prompts:
+  - prompts/solidworks_parametric_planner.md
+schemas:
+  - schemas/design_plan.schema.json
+examples:
+  - examples/motor_mount_brief.txt
+  - examples/motor_mount_plan.json
+  - examples/motor_mount_execution.md
+depends_on:
+  - solidworks-automation
+  - solidworks-fillet-chamfer-cnc
+  - solidworks-threaded-holes

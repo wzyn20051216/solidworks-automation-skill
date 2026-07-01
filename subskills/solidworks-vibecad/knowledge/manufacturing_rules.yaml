@@ -1,0 +1,87 @@
+version: 1
+unit: mm
+
+thread_tap_drills:
+  M3:
+    pitch: 0.5
+    tap_drill: 2.5
+    default_thread_depth_factor_d: 2.0
+    default_mouth_chamfer: 0.3
+  M4:
+    pitch: 0.7
+    tap_drill: 3.3
+    default_thread_depth_factor_d: 2.0
+    default_mouth_chamfer: 0.4
+  M5:
+    pitch: 0.8
+    tap_drill: 4.2
+    default_thread_depth_factor_d: 2.0
+    default_mouth_chamfer: 0.5
+  M6:
+    pitch: 1.0
+    tap_drill: 5.0
+    default_thread_depth_factor_d: 2.0
+    default_mouth_chamfer: 0.6
+  M8:
+    pitch: 1.25
+    tap_drill: 6.8
+    default_thread_depth_factor_d: 2.0
+    default_mouth_chamfer: 0.8
+  M10:
+    pitch: 1.5
+    tap_drill: 8.5
+    default_thread_depth_factor_d: 2.0
+    default_mouth_chamfer: 1.0
+  M12:
+    pitch: 1.75
+    tap_drill: 10.2
+    default_thread_depth_factor_d: 2.0
+    default_mouth_chamfer: 1.2
+
+cnc_defaults:
+  base_plate:
+    min_thickness: 4.0
+    default_thickness: 8.0
+    default_corner_fillet: 6.0
+    default_edge_chamfer: 1.0
+  hole_clearance:
+    M3: 3.4
+    M4: 4.5
+    M5: 5.5
+    M6: 6.6
+    M8: 9.0
+  slot:
+    min_end_radius: 1.5
+    default_end_radius: 3.0
+  pocket:
+    min_wall: 3.0
+    min_floor: 2.0
+
+feature_order:
+  cnc_mount:
+    - close_same_name_documents
+    - new_part
+    - base_plate
+    - bosses_or_raised_pads
+    - outer_fillet_and_chamfer
+    - pockets
+    - through_holes
+    - counterbores
+    - threaded_holes
+    - slots
+    - mouth_chamfers
+    - custom_properties
+    - save_export_review
+
+review_requirements:
+  required_outputs:
+    - SLDPRT
+    - STEP
+    - parameters_json
+    - review_report_json
+    - isometric_preview
+  required_checks:
+    - expected_outputs_exist
+    - previews_created
+    - previews_not_blank
+    - feature_summary_available

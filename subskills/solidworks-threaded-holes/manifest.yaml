@@ -1,0 +1,14 @@
+name: solidworks-threaded-holes
+title: SolidWorks Threaded Holes
+status: stable
+summary: 生成可审查的攻丝底孔、螺纹孔、孔口倒角、螺纹参数属性和 STEP 输出。
+entrypoint: SKILL.md
+scripts:
+  - scripts/create_threaded_hole_template.py
+references:
+  - references/threaded-hole-lessons.md
+depends_on:
+  - solidworks-automation
+related:
+  - solidworks-vibecad
+  - solidworks-fillet-chamfer-cnc

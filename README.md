@@ -23,6 +23,7 @@
 ### ✨ 特性
 
 - 🔧 **零件建模** - 草图绘制、拉伸、旋转、倒角、圆角、阵列等
+- 🧠 **VibeCAD 参数化规划** - 将自然语言需求转换为设计计划、制造规则检查、SolidWorks API 执行摘要和审查门禁
 - 🧵 **螺纹孔建模** - 攻丝底孔、M3/M4/M5/M6/M8 盲孔/通孔、孔口倒角、装饰螺纹与可见螺旋线兜底
 - 🔩 **装配体操作** - 添加组件、配合关系、干涉检查、爆炸视图
 - 📐 **工程图出图** - 三视图、剖视图、尺寸标注、BOM 表
@@ -159,11 +160,27 @@ solidworks-automation-skill/
 │   ├── export.md
 │   ├── advanced.md
 │   └── troubleshooting.md
-├── subskills/           # 专项子技能：多圆角/倒角 CNC、螺纹孔等
+├── subskills/           # 专项子技能矩阵
+│   ├── solidworks-vibecad/              # 自然语言 -> 参数化设计计划
+│   ├── solidworks-fillet-chamfer-cnc/   # CNC 多圆角/倒角机加工件
+│   └── solidworks-threaded-holes/       # 螺纹孔、攻丝底孔和孔口倒角
 ├── examples/            # 示例代码
 ├── mcp-server/          # 本地 stdio MCP Server
+├── SUBSKILLS.md         # 多子技能索引和路由说明
 └── README.md
 ```
+
+### 🧩 子技能矩阵
+
+本仓库按“大仓库 + 多子技能”的方式组织。根技能提供 SolidWorks COM 连接、文档管理、建模 API、导出、自审查和 MCP Server；专项能力放在 `subskills/` 下，每个子技能自包含 `SKILL.md`、`README.md`、`manifest.yaml`、脚本和实测参考。
+
+| 子技能 | 状态 | 用途 |
+|---|---|---|
+| [`solidworks-vibecad`](subskills/solidworks-vibecad/README.md) | experimental | 自然语言需求 -> 参数化设计计划、制造规则检查、执行摘要、审查门禁 |
+| [`solidworks-fillet-chamfer-cnc`](subskills/solidworks-fillet-chamfer-cnc/README.md) | stable | CNC 安装座、连接块、支架、多圆角/倒角、孔槽和减重口袋 |
+| [`solidworks-threaded-holes`](subskills/solidworks-threaded-holes/README.md) | stable | M3-M12 螺纹孔、攻丝底孔、孔口倒角、螺纹属性和 STEP 输出 |
+
+更多路由说明见 [`SUBSKILLS.md`](SUBSKILLS.md)。
 
 ### 🔌 MCP Server
 
