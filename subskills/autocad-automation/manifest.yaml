@@ -1,0 +1,21 @@
+name: autocad-automation
+title: AutoCAD Automation
+status: stable
+summary: AutoCAD DWG/DXF 二维绘图、线稿矢量化、图层/文字/标注处理、导出和图纸自检。
+entrypoint: SKILL.md
+scripts:
+  - scripts/acad_preflight.py
+  - scripts/acad_draw.py
+  - scripts/acad_review.py
+  - scripts/acad_preview.py
+  - scripts/acad_session.py
+references:
+  - references/api-lookup.md
+  - references/engineering-patterns.md
+  - references/troubleshooting.md
+depends_on:
+  - solidworks-automation
+related:
+  - solidworks-vibecad
+  - solidworks-fillet-chamfer-cnc
+  - solidworks-threaded-holes

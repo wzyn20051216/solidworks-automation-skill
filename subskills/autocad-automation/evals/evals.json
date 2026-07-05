@@ -1,0 +1,24 @@
+{
+  "skill_name": "autocad-automation",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我想让 Codex 直接打开本机 AutoCAD，新建一张毫米单位的 DWG，画一个 120x80 的安装板，四角各一个直径 9 的安装孔，并保存到 C:\\temp\\plate.dwg。",
+      "expected_output": "应先运行 AutoCAD/pywin32 自检，生成明确绘图计划，使用 scripts/acad_draw.py 或 acad_session.py 创建矩形和四个圆，保存 DWG，并建议运行 acad_review.py 复核实体和包围盒。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "我有一批 DWG，想统计每张图的图层、实体数量和大概边界，最好不要覆盖原图。",
+      "expected_output": "应选择批量只读打开和 acad_review.py 路线，强调不覆盖原图、逐文件记录错误、输出 JSON/CSV 汇总，并说明 COM 操作串行执行。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "帮我做一个 AutoCAD .NET 插件，用 NETLOAD 后执行命令自动生成几个圆和文字，最好参考官方文档和 GitHub 示例。",
+      "expected_output": "应切换到 .NET 插件路线，读取 api-lookup.md，参考 Managed .NET Developer Guide、ADN-DevTech 示例，说明 CommandMethod、事务、文档锁、版本目标框架和 NETLOAD 验证。",
+      "files": []
+    }
+  ]
+}
+

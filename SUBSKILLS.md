@@ -11,6 +11,7 @@
 | `solidworks-vibecad` | experimental | 自然语言需求 -> 参数化设计计划、制造规则检查、执行摘要、审查门禁 | `subskills/solidworks-vibecad/SKILL.md` |
 | `solidworks-fillet-chamfer-cnc` | stable | CNC 安装座、连接块、支架、多圆角/倒角、孔槽和减重口袋 | `subskills/solidworks-fillet-chamfer-cnc/SKILL.md` |
 | `solidworks-threaded-holes` | stable | M3-M12 螺纹孔、攻丝底孔、孔口倒角、螺纹属性和 STEP 输出 | `subskills/solidworks-threaded-holes/SKILL.md` |
+| `autocad-automation` | stable | AutoCAD DWG/DXF 二维绘图、线稿矢量化、图层/文字/标注处理、导出和图纸自检 | `subskills/autocad-automation/SKILL.md` |
 
 ## 推荐路由
 
@@ -69,6 +70,24 @@ subskills/solidworks-fillet-chamfer-cnc/SKILL.md
 ```text
 subskills/solidworks-threaded-holes/SKILL.md
 ```
+
+### autocad-automation
+
+用户说：
+
+- “用 AutoCAD 画这个”
+- “生成/修改 DWG 或 DXF”
+- “把这张图片线稿转成 CAD”
+- “批量检查图层、文字、块、外部参照”
+- “导出 AutoCAD 原生预览并审查”
+
+使用：
+
+```text
+subskills/autocad-automation/SKILL.md
+```
+
+注意：普通“照图画 CAD”的最终版只保留原图矢量化线条，不保留手工猜测的外围轮廓、五官椭圆、Logo 三角线、水波线、替代文字或图内审查说明。
 
 ## 子技能目录规范
 

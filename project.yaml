@@ -6,8 +6,8 @@ authors: [wzyn20051216, zuoliangyu]
 category: Tool
 tags: [SolidWorks, CAD, MCP, Python, COM, Automation, VibeCAD, Subskills]
 status: in-progress
-updated: 2026-06-14
-summary: 面向 Codex、Claude 与 OpenClaw 的 SolidWorks 自动化技能总仓，支持零件建模、装配、工程图、导出、自审查、本地 MCP 工具调用，以及 VibeCAD、CNC 圆角倒角、螺纹孔等专项子技能。
+updated: 2026-07-05
+summary: 面向 Codex、Claude 与 OpenClaw 的 SolidWorks 自动化技能总仓，支持零件建模、装配、工程图、导出、自审查、本地 MCP 工具调用，以及 VibeCAD、CNC 圆角倒角、螺纹孔、AutoCAD DWG/DXF 等专项子技能。
 
 cover: assets/douyin-balance.jpg
 readme: README.md
@@ -28,3 +28,7 @@ subskills:
     status: stable
     path: subskills/solidworks-threaded-holes
     summary: M3-M12 螺纹孔、攻丝底孔、孔口倒角、螺纹属性和 STEP 输出。
+  - name: autocad-automation
+    status: stable
+    path: subskills/autocad-automation
+    summary: AutoCAD DWG/DXF 二维绘图、线稿矢量化、图层/文字/标注处理、导出和图纸自检。
