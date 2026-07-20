@@ -9,10 +9,10 @@ from pathlib import Path
 import os
 
 try:
-    from .sw_connect import connect_solidworks, new_document, open_document, save_document
+    from .sw_connect import connect_solidworks, get_com_member, new_document, open_document, save_document
     from .sw_export import export_to_dxf, export_to_iges, export_to_pdf, export_to_stl, export_to_step
 except ImportError:
-    from sw_connect import connect_solidworks, new_document, open_document, save_document
+    from sw_connect import connect_solidworks, get_com_member, new_document, open_document, save_document
     from sw_export import export_to_dxf, export_to_iges, export_to_pdf, export_to_stl, export_to_step
 
 
@@ -154,9 +154,15 @@ class SolidWorksSession:
             model = model or self.active_doc
             if model is None:
                 return False
-            title = model.GetTitle()
+            title = get_com_member(model, "GetTitle")
+        is_current_model = False
+        if self.model:
+            try:
+                is_current_model = get_com_member(self.model, "GetTitle") == title
+            except Exception:
+                is_current_model = True
         self.sw.CloseDoc(title)
-        if self.model and self.model.GetTitle() == title:
+        if is_current_model:
             self.model = self.sw.ActiveDoc
         return True
 

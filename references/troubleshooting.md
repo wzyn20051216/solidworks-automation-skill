@@ -107,6 +107,46 @@ warnings = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
 
 ## 操作失败
 
+### run_review 只截到一个零件或子装配
+
+场景：装配体里组件数量、可见状态和颜色回读都正常，但 `run_review()` 导出的图只看到一个轮毂/一个小零件，其他几何只剩阴影或完全不可见。
+
+常见原因：
+
+1. SolidWorks `SaveBMP()` 使用当前活动图形窗口，目标 `model` 不是活动文档。
+2. 批量打开零件/子装配后，活动文档停留在最后一个组件上。
+3. 规则审查只判断预览非空白，无法发现“截错文档”的视觉错误。
+
+稳定写法：使用新版 `sw_review.save_preview()` / `run_review()`；它会在截图前按 `GetTitle()` 激活目标文档。若手写截图流程，必须先 `ActivateDoc3()`，再 `ClearSelection2(True)`、`ViewZoomtofit2()`、`SaveBMP()`。
+
+```python
+errors = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+sw.ActivateDoc3(model.GetTitle(), False, 0, errors)
+model.ClearSelection2(True)
+model.ViewZoomtofit2()
+model.SaveBMP(r"E:\review\assembly.bmp", 1600, 1000)
+```
+
+最终仍要目视检查四视图；`evaluation.status=pass` 不能替代几何判断。
+
+### STEP 分件装配后全部叠在原点
+
+场景：把一个彩色 STEP/装配拆成多个 STEP，再逐个导入 SolidWorks 原生分件并新建总装；组件数量正确，但预览中只看到一个轮子或一团重叠阴影。
+
+原因：部分 CAD 导出器在“单独导出某个实体”时会保留实体原始坐标；而 SolidWorks `AddComponent5(path, ..., x, y, z)` 可能按组件包围盒中心放置，传 `(0,0,0)` 会把所有分件居中叠放。
+
+稳定写法：
+
+1. 导出分件 manifest 时记录每个实体导出前的全局包围盒中心。
+2. 添加组件时传入该中心坐标（米），而不是统一 `(0,0,0)`。
+3. 添加后读取组件 `Transform2.ArrayData[9:12]` 和 `GetBox()`，确认装配包围盒接近原始整机尺寸。
+4. 对子装配 `.SLDASM` 递归检查内部组件，不要只看顶层组件数。
+
+```python
+center_m = [value / 1000.0 for value in bbox_center_mm]
+component = add_component(asm, native_path, x=center_m[0], y=center_m[1], z=center_m[2])
+```
+
 ### GetModelDoc2 返回 None
 
 场景：装配体中组件明明存在，但 `component.GetModelDoc2()` 返回 `None`，后续无法读取基准面、实体面或特征。
@@ -343,6 +383,44 @@ success = model.Extension.SaveAs(path, 0, 1, None, errors, warnings)
 print(f"错误码: {errors.value}, 警告码: {warnings.value}")
 # 查看 references/export.md 中的错误码对照表
 ```
+
+### STEP/IGES 用 OpenDoc6 崩溃或弹模板对话框
+
+场景：`OpenDoc6()` 打开 `.step/.stp/.igs/.iges` 时 SolidWorks 退出、RPC 断开；或
+`LoadFile4(path, "", importData, errors)` 弹出“新建 SOLIDWORKS 文件”模板对话框并阻塞。
+
+原因：非 DXF/DWG、非 Pro/E 外来文件应通过 `LoadFile4` 导入为新的 SolidWorks 文档，
+并将 `ArgString` 设为 `"r"`。空字符串在 SW2024 环境中可能触发模板选择 UI，不适合自动化。
+
+稳定写法：优先使用 `sw_connect.open_document()` / `SolidWorksSession.open()`；封装会对
+STEP/STP/IGES/IGS 自动调用 `LoadFile4(file_path, "r", sw.GetImportFileData(file_path), errors)`。
+导入前还会调用 `ensure_default_templates()`，设置默认零件/装配/工程图模板，并打开
+`swAlwaysUseDefaultTemplates=111`，避免 SolidWorks 弹出“新建 SOLIDWORKS 文件”模板窗口。
+
+```python
+from sw_session import SolidWorksSession
+
+session = SolidWorksSession(version=2024, visible=True)
+model = session.open(r"E:\parts\body.step", silent=True, raise_on_error=True)
+session.save(model, r"E:\parts\body.SLDPRT")
+```
+
+真实 SolidWorks 回归验证：
+
+```powershell
+py -3.13 tests\solidworks_loadfile4_import_regression.py --output-dir E:\desktop\CAD\solidworks_loadfile4_import_regression
+```
+
+通过标准：`status=pass`，`body_count >= 1`，导入后的 `.SLDPRT` 保存成功，并生成四视图审查报告。
+
+注意：默认模板路径的字符串偏好枚举为 `swDefaultTemplatePart=8`、
+`swDefaultTemplateAssembly=9`、`swDefaultTemplateDrawing=10`。不要误用文件位置枚举或旧值，
+否则 `NewDocument()` / `LoadFile4()` 仍可能弹模板对话框。
+
+若完整大型 STEP 反复触发 `pywintypes.com_error: (-2147023170, '远程过程调用失败。')`，
+不要继续盲目重试同一 SolidWorks 进程；先保存日志，重启 SolidWorks 后改用更小分件导入、
+Parasolid 中间格式，或让用户手工确认模板弹窗。`ensure_default_templates()` 只能降低弹窗概率，
+不能保证所有 SW2024 本地模板配置都静默导入。
 
 ### SaveAs 错误码 1 或覆盖失败
 

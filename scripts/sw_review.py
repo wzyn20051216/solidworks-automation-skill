@@ -12,8 +12,13 @@ from pathlib import Path
 
 try:
     from .sw_connect import connect_solidworks, get_com_member, open_document
+    from .sw_preflight import import_com_dependencies
 except ImportError:
     from sw_connect import connect_solidworks, get_com_member, open_document
+    from sw_preflight import import_com_dependencies
+
+
+pythoncom, _win32com, VARIANT = import_com_dependencies()
 
 
 STANDARD_VIEWS = {
@@ -114,6 +119,29 @@ def clear_selection_for_preview(model):
     get_com_member(model, "GraphicsRedraw2")
 
 
+def activate_model_for_preview(model):
+    """激活待审查文档，避免 SaveBMP 截到 SolidWorks 当前活动的其他零件/子装配。"""
+    if model is None:
+        return False
+    title = get_com_member(model, "GetTitle")
+    if not title:
+        return False
+    try:
+        sw = _win32com.GetActiveObject("SldWorks.Application")
+    except Exception:
+        return False
+    errors = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+    try:
+        active = sw.ActivateDoc3(title, False, 0, errors)
+    except Exception:
+        try:
+            sw.ActivateDoc2(title, False, errors)
+            active = sw.ActiveDoc
+        except Exception:
+            return False
+    return active is not None
+
+
 def set_standard_view(model, view_name="isometric"):
     """
     设置标准视图方向。
@@ -147,6 +175,7 @@ def save_preview(model, output_path, view_name="isometric", width=1600, height=1
     if output_path.suffix.lower() != ".bmp":
         output_path = output_path.with_suffix(".bmp")
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    activate_model_for_preview(model)
     clear_selection_for_preview(model)
     set_standard_view(model, view_name)
     clear_selection_for_preview(model)

@@ -32,6 +32,14 @@ DOC_TYPE_LABELS = {
     "drawing": "工程图",
 }
 
+DEFAULT_TEMPLATE_PREFS = {
+    "part": 8,       # swUserPreferenceStringValue_e.swDefaultTemplatePart
+    "assembly": 9,   # swUserPreferenceStringValue_e.swDefaultTemplateAssembly
+    "drawing": 10,   # swUserPreferenceStringValue_e.swDefaultTemplateDrawing
+}
+
+SW_ALWAYS_USE_DEFAULT_TEMPLATES = 111
+
 
 def get_com_member(obj, attr_name, *args):
     """
@@ -166,9 +174,9 @@ def find_template(sw, doc_type="part"):
     doc_type, _ = normalize_doc_type(doc_type)
 
     type_map = {
-        "part": (sw.GetUserPreferenceStringValue(24), "*.prtdot"),
-        "assembly": (sw.GetUserPreferenceStringValue(25), "*.asmdot"),
-        "drawing": (sw.GetUserPreferenceStringValue(26), "*.drwdot"),
+        "part": (sw.GetUserPreferenceStringValue(DEFAULT_TEMPLATE_PREFS["part"]), "*.prtdot"),
+        "assembly": (sw.GetUserPreferenceStringValue(DEFAULT_TEMPLATE_PREFS["assembly"]), "*.asmdot"),
+        "drawing": (sw.GetUserPreferenceStringValue(DEFAULT_TEMPLATE_PREFS["drawing"]), "*.drwdot"),
     }
 
     default_path, pattern = type_map.get(doc_type, type_map["part"])
@@ -197,6 +205,26 @@ def find_template(sw, doc_type="part"):
             return matches[0]
 
     raise FileNotFoundError(f"无法找到 {doc_type} 模板文件，请手动指定路径")
+
+
+def ensure_default_templates(sw):
+    """
+    @brief 配置默认模板并关闭新建文件模板选择提示。
+    @param sw SolidWorks 应用对象。
+    @return 字典，包含已确认的默认模板路径。
+    """
+    templates = {}
+    for doc_type, preference in DEFAULT_TEMPLATE_PREFS.items():
+        template_path = find_template(sw, doc_type)
+        templates[doc_type] = template_path
+        current_path = str(sw.GetUserPreferenceStringValue(preference) or "")
+        if _expand_path(current_path) != _expand_path(template_path):
+            sw.SetUserPreferenceStringValue(preference, template_path)
+    try:
+        sw.SetUserPreferenceToggle(SW_ALWAYS_USE_DEFAULT_TEMPLATES, True)
+    except Exception as exc:
+        print(f"提示: 无法设置始终使用默认模板: {exc}")
+    return templates
 
 
 def new_document(sw, doc_type="part", template_path=None):
@@ -255,8 +283,8 @@ def open_document(sw, file_path, read_only=False, silent=False, raise_on_error=F
         return None
 
     ext = os.path.splitext(file_path)[1].lower()
-    type_map = {".sldprt": 1, ".sldasm": 2, ".slddrw": 3, ".step": 1, ".stp": 1, ".igs": 1, ".iges": 1}
-    doc_type = type_map.get(ext, 1)
+    foreign_exts = {".step", ".stp", ".igs", ".iges"}
+    type_map = {".sldprt": 1, ".sldasm": 2, ".slddrw": 3}
 
     errors = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
     warnings = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
@@ -264,7 +292,26 @@ def open_document(sw, file_path, read_only=False, silent=False, raise_on_error=F
     if silent:
         options |= 1  # swOpenDocOptions_Silent = 1
 
-    model = sw.OpenDoc6(file_path, doc_type, options, "", errors, warnings)
+    if ext in foreign_exts:
+        if read_only:
+            print("提示: LoadFile4 导入外来 CAD 文件时不支持 read_only，已忽略该参数")
+        if silent:
+            print("提示: LoadFile4 导入外来 CAD 文件时不支持 OpenDoc6 silent 选项，已忽略该参数")
+        ensure_default_templates(sw)
+        import_data = sw.GetImportFileData(file_path)
+        if import_data is None:
+            message = f"获取导入数据失败: {file_path}"
+            if raise_on_error:
+                raise RuntimeError(message)
+            print(message)
+            return None
+        # 非 DXF/DWG、非 Pro/E 外来文件应传 "r"，表示导入为新的 SolidWorks 文档；
+        # 空字符串会在部分 SW2024 环境中弹出模板选择对话框并阻塞自动化。
+        model = sw.LoadFile4(file_path, "r", import_data, errors)
+        warnings.value = 0
+    else:
+        doc_type = type_map.get(ext, 1)
+        model = sw.OpenDoc6(file_path, doc_type, options, "", errors, warnings)
     if model:
         print(f"已打开: {file_path}")
     else:
