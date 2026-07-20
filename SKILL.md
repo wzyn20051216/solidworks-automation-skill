@@ -107,6 +107,17 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 9. 使用 `session.export()` 或 `sw_export.py` 保存/导出文件。
 10. 使用 `sw_review.py` 导出预览图并自审查；如果有 GUI/桌面截图能力，打开 SolidWorks 视图截图复核。
 
+### 多色外观要求
+
+当模型包含车身、玻璃、灯组、轮胎、轮毂或其他多种颜色时：
+
+1. 读取 `references/appearance.md`，统一使用 `sw_appearance.py`，禁止把普通 Python `list` 直接传给 COM 材质属性。
+2. 源零件先设置文档级颜色；装配体中需要覆盖时再用组件级颜色。
+3. 每次设置后调用 `verify_appearance()` 或 `apply_component_palette()` 回读 RGB；只检查 setter 返回值不算通过。
+4. 保存与截图前调用 `model.ClearSelection2(True)`；`sw_review.save_preview()` 已内置该清理。
+5. 目视确认至少三种预期颜色真实可见；“预览非空白”不能替代颜色检查。
+6. 外观异常时先运行 `tests/solidworks_appearance_regression.py`，再重建用户模型。
+
 ### MCP Server 使用
 
 当用户要求“让 SolidWorks 支持 MCP”“接入 Codex/Claude Desktop 工具调用”“不要每次生成一大段 Python 脚本”时：
@@ -194,7 +205,7 @@ print(report["evaluation"])
 - **选择**：能拿到 COM 对象时优先用对象级 `Select2()`；基准面可用 `SelectByID2("PLANE")`，草图不要只依赖 `SelectByID2("SKETCH")`
 - **草图**：推荐用 `with sketch(model, "Front Plane") as sketch_name:` 自动进入/退出草图；`sw_part.py` 会缓存草图对象引用，避免 SW2024 中文版按名称选择草图失败
 - **添加组件**：装配体优先用 `sw_assembly.add_component()`；SW2024 中文版下 `AddComponent4` 可能返回 `None`，封装会用 `AddComponent5`、静默打开零件、重新激活装配体后重试
-- **外观**：对颜色要求高的模型优先拆成多零件装配体，并用 `sw_appearance.py` 设置文档级或组件级外观
+- **外观**：对颜色要求高的模型优先拆成多零件装配体；材质数组必须用 `SAFEARRAY(double)` 编组，并回读 RGB 验证
 - **VARIANT**：by-ref 参数必须用 `VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)` 包装
 - **基准面名称**：`start_sketch()` 会自动兼容英文版 "Front/Top/Right Plane" 与中文版 "前视/上视/右视基准面"
 - **草图坐标**：基于草图平面的局部坐标系，单位为米

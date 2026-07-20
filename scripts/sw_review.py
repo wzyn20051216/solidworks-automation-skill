@@ -100,6 +100,20 @@ def zoom_to_fit(model):
     get_com_member(model, "GraphicsRedraw2")
 
 
+def clear_selection_for_preview(model):
+    """清除选择高亮并重绘，避免绿色选择色覆盖真实外观。"""
+    get_com_member(model, "ClearSelection2", True)
+    selection_manager = get_com_member(model, "SelectionManager")
+    if selection_manager is not None:
+        try:
+            selected_count = get_com_member(selection_manager, "GetSelectedObjectCount2", -1)
+            if selected_count:
+                get_com_member(model, "ClearSelection2", True)
+        except Exception:
+            pass
+    get_com_member(model, "GraphicsRedraw2")
+
+
 def set_standard_view(model, view_name="isometric"):
     """
     设置标准视图方向。
@@ -133,7 +147,9 @@ def save_preview(model, output_path, view_name="isometric", width=1600, height=1
     if output_path.suffix.lower() != ".bmp":
         output_path = output_path.with_suffix(".bmp")
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    clear_selection_for_preview(model)
     set_standard_view(model, view_name)
+    clear_selection_for_preview(model)
     ok = model.SaveBMP(str(output_path), int(width), int(height))
     if not ok or not output_path.exists():
         raise RuntimeError(f"预览图导出失败: {output_path}")

@@ -399,6 +399,35 @@ model.ForceRebuild3(False)
 
 `BlankRefGeom()` 通常需要先选择要隐藏的参考几何；单独调用不一定隐藏脚本新建的基准面。
 
+### 多色装配体几乎全部变绿
+
+场景：脚本配置了红、蓝、银、黑等颜色，但装配体或 BMP 预览几乎只有绿色。
+
+原因通常有两类，必须分别验证：
+
+1. 把普通 Python `list` 直接传给 `MaterialPropertyValues`，导致 COM 数组编组错位。
+2. 截图前仍有组件、面或边被选中，SolidWorks 绿色选择高亮覆盖真实外观。
+
+稳定写法：
+
+```python
+from sw_appearance import set_component_appearance, verify_appearance
+
+assert set_component_appearance(component, "signal_red")
+assert verify_appearance(component, "signal_red")["ok"]
+
+model.ClearSelection2(True)
+model.GraphicsRedraw2()
+```
+
+不要自行把列表换成 tuple 后继续尝试；应统一使用 `material_variant()` 生成
+`VT_ARRAY | VT_R8`。不要用 `bool(SetMaterialPropertyValues2(...))` 判断结果，
+因为该方法返回 `void`。验证命令：
+
+```powershell
+python tests\solidworks_appearance_regression.py
+```
+
 ### MathUtility.CreateTransform 不稳定
 
 场景：尝试 `sw.GetMathUtility().CreateTransform(data)` 或 `math_utility.CreateTransform()` 时 COM 返回异常、空对象，或组件移动后不求解。
