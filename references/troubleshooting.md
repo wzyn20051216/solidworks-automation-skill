@@ -422,6 +422,43 @@ py -3.13 tests\solidworks_loadfile4_import_regression.py --output-dir E:\desktop
 Parasolid 中间格式，或让用户手工确认模板弹窗。`ensure_default_templates()` 只能降低弹窗概率，
 不能保证所有 SW2024 本地模板配置都静默导入。
 
+### OBJ/STL 用 OpenDoc6 打不开或 LoadFile4 类型不匹配
+
+场景：公开网格参考模型、汽车外观模型或测试立方体 `.obj/.stl` 用 `OpenDoc6(path, swDocPART, ...)`
+打开失败，错误码为 `2097152`（`swFileRequiresRepairError`）；改用
+`LoadFile4(path, "r", None, errors)` 又报 `com_error(-2147352571, '类型不匹配。')`。
+
+原因：在部分 SolidWorks 2024 COM 环境中，OBJ/STL 不能按普通零件文档路径打开；
+`LoadFile4()` 第三个参数也不能传 Python `None`。这不一定表示网格文件坏，即使一个
+684 字节的简单 STL 立方体也可能复现同样问题。
+
+稳定写法：优先使用 `scripts/sw_import_mesh_reference.py`，或手写以下最小导入：
+
+```python
+from sw_connect import connect_solidworks, create_empty_dispatch_variant, save_document
+from win32com.client import VARIANT
+import pythoncom
+
+sw, _ = connect_solidworks(visible=True)
+sw.SetUserPreferenceIntegerValue(208, 0)   # swImportStlVrmlModelType_Graphics
+sw.SetUserPreferenceIntegerValue(210, 2)   # swMETER
+sw.SetUserPreferenceToggle(303, True)      # swImportStlVrmlTextureInformation
+sw.SetUserPreferenceToggle(679, True)      # swVrmlStlImportAsPSMesh
+
+errors = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+model = sw.LoadFile4(
+    r"E:\work\reference_scaled_m.obj",
+    "r",
+    create_empty_dispatch_variant(),
+    errors,
+)
+assert model is not None, errors.value
+save_document(model, r"E:\work\reference.SLDPRT")
+```
+
+注意：STEP/STP/IGES/IGS 与 OBJ/STL 的导入数据参数不同。中性 CAD 文件继续使用
+`sw.GetImportFileData(path)`；OBJ/STL 网格参考模型使用空 Dispatch 变体。不要把两条路线混用。
+
 ### SaveAs 错误码 1 或覆盖失败
 
 场景：`session.save(model, path)` 或 `model.Extension.SaveAs(...)` 返回失败，错误码为 `1`，目标文件明明存在且路径正确。

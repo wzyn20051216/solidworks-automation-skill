@@ -1,6 +1,6 @@
 ---
 name: solidworks-automation
-description: "SolidWorks CAD 自动化技能，可通过 Python COM 接口与 OpenClaw / Codex / Claude 协作控制 Windows 上运行的 SolidWorks，用于零件建模、装配体、工程图、钣金、焊件、仿真、文件导出、自定义属性、设计表与配置管理；当用户提到 SolidWorks、SW、OpenClaw、龙虾、3D 建模、CAD、零件、装配、工程图、钣金、焊件、导出 STEP/STL/PDF、BOM、设计表或 FEA 仿真等需求时使用。"
+description: "SolidWorks CAD 自动化技能，可通过 Python COM 接口与 OpenClaw / Codex / Claude 协作控制 Windows 上运行的 SolidWorks，用于零件建模、装配体、工程图、钣金、焊件、仿真、文件导出、自定义属性、设计表、配置管理，以及 OBJ/STL/STEP 等外来模型导入；当用户提到 SolidWorks、SW、OpenClaw、龙虾、3D 建模、CAD、零件、装配、工程图、钣金、焊件、导出 STEP/STL/PDF、BOM、设计表、公开三维模型、网格参考模型、原版外观复刻或高还原产品外观时使用。"
 metadata: { "openclaw": { "homepage": "https://github.com/wzyn20051216/solidworks-automation-skill", "os": ["win32"], "requires": { "anyBins": ["python", "py"] } } }
 ---
 
@@ -70,6 +70,7 @@ session.export(model, r"C:\temp\cylinder.step")
 | Motion Study 运动算例与旋转马达 | `scripts/sw_motion.py` | `references/motion-study.md` |
 | 工程图出图 | `scripts/sw_drawing.py` | `references/drawing.md` |
 | 文件导出 | `scripts/sw_export.py` | `references/export.md` |
+| OBJ/STL 高还原网格参考导入 | `scripts/sw_import_mesh_reference.py` | `references/mesh-reference-import.md` |
 | 结果自审查 | `scripts/sw_review.py` | `references/review.md` |
 | 本地 MCP Server | `mcp-server/server.py` | `mcp-server/README.md`、`references/mcp-server.md` |
 | MCP 协议验证 | `scripts/validate_mcp.py` | `mcp-server/README.md` |
@@ -103,9 +104,21 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 5. 圆角/倒角很多的 CNC 件、安装座、连接块、支架，先读取 `subskills/solidworks-fillet-chamfer-cnc/SKILL.md`，按“基础体 -> 外轮廓圆角/倒角 -> 孔槽切除 -> 孔口倒角 -> 审查”的稳定顺序执行。
 6. 螺丝孔、螺纹孔、攻牙孔、M3/M4/M5/M6/M8 盲孔或通孔任务，先读取 `subskills/solidworks-threaded-holes/SKILL.md`；默认按“攻丝底孔 -> 尝试 Thread/CosmeticThread -> 可见 3D 螺旋线兜底 -> 孔口倒角 -> 属性和审查”的稳定路线执行。
 7. AutoCAD、DWG、DXF、二维图纸、线稿转 CAD、批量改 DWG 或 AutoCAD 原生预览任务，先读取 `subskills/autocad-automation/SKILL.md`。普通“照图画 CAD”只保留原图矢量化线条，最终审查必须确认没有手工猜测的外围轮廓、五官辅助线、Logo 几何、水波线、替代文字或图内审查说明。
-8. 如果必须由大模型生成 VBA 宏，先使用 `sw_macro_guard.py` 做模型分流、代码校验、重试和本地模板兜底。
-9. 使用 `session.export()` 或 `sw_export.py` 保存/导出文件。
-10. 使用 `sw_review.py` 导出预览图并自审查；如果有 GUI/桌面截图能力，打开 SolidWorks 视图截图复核。
+8. 当用户要求真实产品“原版外观”“1:1 复刻”“不像概念版”，先读取 `references/mesh-reference-import.md`：公开网格/蓝图参考优先，不要在低保真手搓底稿上反复精修；需要导入 OBJ/STL 时优先用 `scripts/sw_import_mesh_reference.py`。
+9. 如果必须由大模型生成 VBA 宏，先使用 `sw_macro_guard.py` 做模型分流、代码校验、重试和本地模板兜底。
+10. 使用 `session.export()` 或 `sw_export.py` 保存/导出文件。
+11. 使用 `sw_review.py` 导出预览图并自审查；如果有 GUI/桌面截图能力，打开 SolidWorks 视图截图复核。
+
+### 高还原外观/公开网格参考模型
+
+当用户要求汽车、消费电子、雕塑等真实对象外观高还原时，先区分“视觉参考模型”和“工程可制造参数模型”：
+
+1. 若用户要“像原版”，优先索取或查找公开 3D 模型/多视图蓝图，并记录来源、作者、许可证和下载日期；不要声称生成的是官方 Class-A 或扫描级模型。
+2. `.glb/.gltf/.fbx/.blend` 先转换为 `.obj/.stl`；OBJ 优先保留材质，STL 作为无材质兜底。
+3. 导入前用包围盒确认坐标轴和尺度，再按真实公称尺寸缩放。
+4. OBJ/STL 导入 SolidWorks 时用 `sw_import_mesh_reference.py`；关键写法是 `LoadFile4(path, "r", create_empty_dispatch_variant(), errors)`，不要用 `OpenDoc6()` 或把 `None` 传给 `LoadFile4()`。
+5. 结果审查必须看四视图和关键识别特征；“预览非空白”不能替代“像用户指定对象”。
+6. 若用户后续要工程可编辑结构，应基于网格参考分件逆向重建，并明确说明网格导入件不是参数化实体。
 
 ### 多色外观要求
 
