@@ -30,6 +30,35 @@ SolidWorks 对 GLB/FBX/BLEND 支持不稳定，建议先转换：
 - Python 可用时：用 `trimesh` 读取 GLB，导出 OBJ/STL；若要保留材质，优先导出 OBJ。
 - 高面数模型不要直接转 STEP。网格转 STEP 会生成大量三角面 BREP，SolidWorks `LoadFile4` 容易卡死或 RPC 断开。
 
+### Python 可选依赖
+
+网格转换不是普通 SolidWorks 建模的核心依赖，但遇到 GLB/GLTF/OBJ/STL 检查、缩放、纹理导出时应提前检查：
+
+| 库 | 用途 |
+|---|---|
+| `trimesh` | 读取 GLB/GLTF/OBJ/STL、计算包围盒、导出 OBJ/STL/PLY |
+| `pygltflib` | 更细粒度解析 GLTF/GLB 元数据和资源 |
+| `numpy` | 尺度变换、坐标轴处理 |
+| `Pillow` | 纹理图片读写和预览辅助 |
+
+检查命令：
+
+```powershell
+python - <<'PY'
+import importlib.util
+for name in ["trimesh", "pygltflib", "numpy", "PIL"]:
+    print(name, "OK" if importlib.util.find_spec(name) else "MISSING")
+PY
+```
+
+缺失时提示用户安装：
+
+```powershell
+python -m pip install -r SKILL_DIR\requirements-mesh.txt
+```
+
+如果只是打开已有 OBJ/STL 并导入 SolidWorks，不一定需要这些库；如果要从 GLB/FBX/BLEND 转换或按真实尺寸重缩放，通常需要。
+
 示例尺度处理：
 
 ```python

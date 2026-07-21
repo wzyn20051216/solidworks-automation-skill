@@ -29,6 +29,7 @@
 - 🔩 **装配体操作** - 添加组件、配合关系、干涉检查、爆炸视图
 - 📐 **工程图出图** - 三视图、剖视图、尺寸标注、BOM 表
 - 💾 **文件导出** - STEP、STL、IGES、PDF、DXF/DWG、Parasolid
+- 🧩 **网格参考导入** - 将公开 GLB/OBJ/STL 外观参考模型缩放、转换并导入为 SolidWorks 参考零件
 - 🎨 **外观材质** - 文档、特征、组件级颜色设置，支持装配体分色建模
 - 🎬 **Motion Study** - 自动创建运动算例、匀速旋转马达并计算/播放动画
 - 🔌 **MCP Server** - 将 SolidWorks COM 自动化封装成 Codex / Claude / Cursor 可调用的本地 MCP 工具，覆盖基础建模、装配、Mate、外观、导出、审查和旋转马达
@@ -44,7 +45,8 @@
 - **操作系统**: Windows 10/11
 - **SolidWorks**: 2020-2025 任意版本
 - **Python**: 3.8 或更高版本
-- **依赖库**: `pywin32`、`comtypes`
+- **核心依赖库**: `pywin32`、`comtypes`
+- **网格转换可选依赖**: `trimesh`、`pygltflib`、`numpy`、`Pillow`
 
 > 运行前可执行 `python scripts/sw_preflight.py`。如果缺少 `comtypes` / `win32com`，脚本会先询问是否授权 AI 自动配置本地环境；如果未检测到 SolidWorks，会直接停止并提示先手动安装 SolidWorks。
 
@@ -93,6 +95,12 @@ claude skill add https://github.com/wzyn20051216/solidworks-automation-skill
 
 ```bash
 pip install "pywin32>=305" "comtypes>=1.2.0"
+```
+
+如果需要处理 GLB/GLTF/OBJ/STL 等公开网格参考模型，并进行包围盒检查、尺度缩放或格式转换，额外安装：
+
+```bash
+pip install -r requirements-mesh.txt
 ```
 
 ##### 2. 克隆仓库

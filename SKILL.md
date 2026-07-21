@@ -12,6 +12,8 @@ metadata: { "openclaw": { "homepage": "https://github.com/wzyn20051216/solidwork
 
 - Windows 系统 + SolidWorks 已安装并运行
 - Python 3.8+ + `pywin32` / `comtypes`
+- MCP/工具化调用需要 `mcp` / `pydantic`
+- 处理 GLB/GLTF/OBJ/STL 网格参考模型时，可能还需要 `trimesh` / `pygltflib` / `numpy` / `Pillow`
 - 如果通过 OpenClaw 使用，确保技能目录位于 `~/.openclaw/skills/solidworks-automation/` 或 `~/.agents/skills/solidworks-automation/`
 
 ### 入口自检
@@ -28,6 +30,21 @@ python SKILL_DIR/scripts/sw_preflight.py
    `检测到当前 Python 环境缺少 comtypes / win32com 库，是否授权 AI 自动为您配置本地环境？[Y/N]`
 2. 用户输入 `Y` / `yes` 后，代理可在本地 shell 中自动执行 `python -m pip install "pywin32>=305" "comtypes>=1.2.0"` 补齐依赖；用户拒绝时停止并给出手动安装命令。
 3. 检测不到 SolidWorks 安装或 COM 注册时，直接停止，不要继续生成或执行 CAD 脚本；提示用户：需要先手动安装 SolidWorks，并至少启动一次完成 COM 注册。
+
+### Python 依赖提醒
+
+按任务最小化安装依赖，不要在普通零件建模时强制安装网格转换库：
+
+```powershell
+# 核心 SolidWorks COM 自动化依赖
+python -m pip install -r SKILL_DIR\requirements.txt
+
+# 仅在需要 GLB/GLTF/OBJ/STL 网格检查、缩放或转换时安装
+python -m pip install -r SKILL_DIR\requirements-mesh.txt
+```
+
+执行涉及 GLB/GLTF/FBX/BLEND 转 OBJ/STL 的任务前，先用 `importlib.util.find_spec()` 检查
+`trimesh`、`pygltflib`、`PIL` 是否可用；缺失时先提示用户需要安装哪些库和用途，再安装或给出手动命令。
 
 ### 连接 SolidWorks
 
@@ -116,9 +133,10 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 1. 若用户要“像原版”，优先索取或查找公开 3D 模型/多视图蓝图，并记录来源、作者、许可证和下载日期；不要声称生成的是官方 Class-A 或扫描级模型。
 2. `.glb/.gltf/.fbx/.blend` 先转换为 `.obj/.stl`；OBJ 优先保留材质，STL 作为无材质兜底。
 3. 导入前用包围盒确认坐标轴和尺度，再按真实公称尺寸缩放。
-4. OBJ/STL 导入 SolidWorks 时用 `sw_import_mesh_reference.py`；关键写法是 `LoadFile4(path, "r", create_empty_dispatch_variant(), errors)`，不要用 `OpenDoc6()` 或把 `None` 传给 `LoadFile4()`。
-5. 结果审查必须看四视图和关键识别特征；“预览非空白”不能替代“像用户指定对象”。
-6. 若用户后续要工程可编辑结构，应基于网格参考分件逆向重建，并明确说明网格导入件不是参数化实体。
+4. 如果需要 Python 转换/缩放，先确认 `requirements-mesh.txt` 中的可选依赖可用；缺失时说明用途并提示安装。
+5. OBJ/STL 导入 SolidWorks 时用 `sw_import_mesh_reference.py`；关键写法是 `LoadFile4(path, "r", create_empty_dispatch_variant(), errors)`，不要用 `OpenDoc6()` 或把 `None` 传给 `LoadFile4()`。
+6. 结果审查必须看四视图和关键识别特征；“预览非空白”不能替代“像用户指定对象”。
+7. 若用户后续要工程可编辑结构，应基于网格参考分件逆向重建，并明确说明网格导入件不是参数化实体。
 
 ### 多色外观要求
 
