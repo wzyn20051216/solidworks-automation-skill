@@ -349,6 +349,34 @@ fn read_queue_events(app: AppHandle, id: String) -> Result<Vec<Value>, String> {
     Ok(events)
 }
 
+fn tail_text(path: PathBuf, max_chars: usize) -> String {
+    let raw = fs::read_to_string(path).unwrap_or_default();
+    if raw.chars().count() <= max_chars {
+        return raw;
+    }
+    raw.chars()
+        .rev()
+        .take(max_chars)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect()
+}
+
+#[tauri::command]
+fn read_queue_log_tail(app: AppHandle, id: String) -> Result<Value, String> {
+    let safe_id = safe_id(&id)?;
+    let log_dir = queue_dir(&app)?.join("logs");
+    let stdout_path = log_dir.join(format!("{}.stdout.log", safe_id));
+    let stderr_path = log_dir.join(format!("{}.stderr.log", safe_id));
+    Ok(json!({
+        "stdoutPath": stdout_path.to_string_lossy(),
+        "stderrPath": stderr_path.to_string_lossy(),
+        "stdout": tail_text(stdout_path, 6000),
+        "stderr": tail_text(stderr_path, 3000)
+    }))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -363,7 +391,8 @@ pub fn run() {
             start_worker,
             stop_worker,
             read_queue_jobs,
-            read_queue_events
+            read_queue_events,
+            read_queue_log_tail
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

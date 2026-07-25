@@ -1,6 +1,8 @@
 import {
   Aperture,
   Archive,
+  CaretDown,
+  ChatCircleText,
   CubeFocus,
   Export,
   FilePlus,
@@ -11,6 +13,7 @@ import {
   Layout,
   Lightning,
   Minus,
+  PaperPlaneTilt,
   Play,
   Ruler,
   ShieldCheck,
@@ -60,6 +63,14 @@ type CodexConfig = {
 };
 type AutomationJobKind = "create_shell" | "import_model" | "delivery_package" | "codex_task";
 type AutomationJobStatus = "queued" | "running" | "passed" | "failed" | "cancelled" | "approval_required";
+type WorkerLogEntry = {
+  status?: string;
+  message?: string;
+  at?: string;
+  worker?: string;
+  runnerId?: string;
+  data?: unknown;
+};
 type AutomationJob = {
   schemaVersion: "1.0";
   id: string;
@@ -85,6 +96,11 @@ type AutomationJob = {
   cwd?: string;
   skillPath?: string;
   lastMessage?: string;
+  workerLog?: Array<WorkerLogEntry | string>;
+  leaseUntil?: string;
+  heartbeatAt?: string;
+  runnerId?: string;
+  workerPid?: number;
   result?: {
     mode?: string;
     outputPath?: string;
@@ -119,6 +135,24 @@ type QueueEvent = {
   status?: string;
   message?: string;
   at?: string;
+  progress?: number;
+  worker?: string;
+  runId?: string;
+  runnerId?: string;
+  data?: unknown;
+};
+type QueueLogTail = {
+  stdoutPath?: string;
+  stderrPath?: string;
+  stdout?: string;
+  stderr?: string;
+};
+type AgentChatMessage = {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  at: string;
+  jobId?: string;
 };
 type WorkerStatus = {
   running: boolean;
@@ -210,6 +244,7 @@ const reviewItems = [
 
 const SETTINGS_KEY = "cad-studio.settings.v1";
 const QUEUE_KEY = "cad-studio.queue.v1";
+const CHAT_KEY = "cad-studio.agent-chat.v1";
 const APP_VERSION = "0.1.1";
 const CODEX_CWD = "C:/Users/23201/.codex/skills/solidworks-automation";
 const CODEX_SKILL_PATH = `${CODEX_CWD}/SKILL.md`;
@@ -383,6 +418,94 @@ function loadLocalQueue(): AutomationJob[] {
   }
 }
 
+function loadAgentChat(): AgentChatMessage[] {
+  try {
+    const raw = localStorage.getItem(CHAT_KEY);
+    if (!raw) return [];
+    const messages = JSON.parse(raw);
+    return Array.isArray(messages) ? messages.slice(-30) : [];
+  } catch {
+    return [];
+  }
+}
+
+function createChatMessage(role: AgentChatMessage["role"], content: string, jobId?: string): AgentChatMessage {
+  return {
+    id: `msg-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    role,
+    content,
+    at: new Date().toISOString(),
+    jobId,
+  };
+}
+
+function formatTimeLabel(value?: string) {
+  if (!value) return "刚刚";
+  if (value.startsWith("unix:")) return value;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function eventTypeLabel(type?: string) {
+  if (!type) return "执行记录";
+  if (type.includes("approval")) return "审批";
+  if (type.includes("codex.started")) return "AI 启动";
+  if (type.includes("codex.completed")) return "AI 结束";
+  if (type.includes("heartbeat")) return "心跳";
+  if (type.includes("claimed")) return "接单";
+  if (type.includes("failed")) return "失败";
+  if (type.includes("passed")) return "完成";
+  if (type.includes("review")) return "复核";
+  if (type.includes("artifact")) return "交付物";
+  if (type.includes("step")) return "步骤";
+  return type.replaceAll(".", " ");
+}
+
+function workerLogMessage(entry: WorkerLogEntry | string) {
+  if (typeof entry === "string") return entry;
+  return entry.message || entry.status || "worker 已更新任务状态";
+}
+
+function workerLogTime(entry: WorkerLogEntry | string) {
+  return typeof entry === "string" ? "" : entry.at;
+}
+
+function compactJobMessage(job: AutomationJob, events?: QueueEvent[]) {
+  return (
+    (job.status === "approval_required" ? job.approvalReasons?.[0] : undefined) ||
+    events?.[events.length - 1]?.message ||
+    (job.reviewGate?.status ? `复核结果: ${job.reviewGate.status}` : undefined) ||
+    job.lastMessage ||
+    job.result?.message ||
+    job.result?.outputPath ||
+    job.error ||
+    job.detail
+  );
+}
+
+function buildChatPrompt(config: CodexConfig, userText: string, history: AgentChatMessage[], projectPath?: string) {
+  const recentHistory = history
+    .slice(-8)
+    .map((message) => `${message.role === "user" ? "用户" : message.role === "assistant" ? "AI" : "系统"}: ${message.content}`)
+    .join("\n");
+  return [
+    buildCodexPrompt(config, projectPath),
+    "",
+    "CAD Studio 对话执行要求:",
+    "- 你正在响应软件内的 AI 执行对话框，不要输出隐藏推理；请输出可给用户看的执行计划、关键决策、工具调用结果、文件路径和验证结论。",
+    "- 如果用户说继续改、重做、调整审美或补充尺寸，需要基于上文和本地文件继续推进，而不是从零开始。",
+    "- 面向普通用户表达，不暴露无关开发者配置；必要的命令、文件路径和失败原因要写清楚。",
+    "- 若涉及 SolidWorks 或 AutoCAD，本轮仍遵循本地 skills 和中国机械制图/可制造规范。",
+    "",
+    "最近对话:",
+    recentHistory || "暂无历史对话。",
+    "",
+    "用户本次指令:",
+    userText,
+  ].join("\n");
+}
+
 function createJob(kind: AutomationJobKind, projectPath?: string, overrides: Partial<AutomationJob> = {}): AutomationJob {
   const now = new Date().toISOString();
   const copy = jobKindDetail(kind);
@@ -473,6 +596,11 @@ function App() {
   const [queueLoaded, setQueueLoaded] = useState(false);
   const [jobs, setJobs] = useState<AutomationJob[]>([]);
   const [jobEvents, setJobEvents] = useState<Record<string, QueueEvent[]>>({});
+  const [jobLogTails, setJobLogTails] = useState<Record<string, QueueLogTail>>({});
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+  const [activeAgentJobId, setActiveAgentJobId] = useState<string | null>(null);
+  const [agentMessages, setAgentMessages] = useState<AgentChatMessage[]>([]);
+  const [agentInput, setAgentInput] = useState("");
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus>({ running: false, message: "桌面端可启动" });
   const [windowHint, setWindowHint] = useState("窗口控制就绪");
   const [codexConfig, setCodexConfig] = useState<CodexConfig>({
@@ -495,6 +623,7 @@ function App() {
   const [isRunning, setIsRunning] = useState(false);
   const [focusFeature, setFocusFeature] = useState(0);
   const wallpaperInputRef = useRef<HTMLInputElement>(null);
+  const completedChatJobIdsRef = useRef<Set<string>>(new Set());
   const reducedMotion = useReducedMotion();
 
   const visualStages = useMemo(() => {
@@ -530,6 +659,7 @@ function App() {
     return taskTemplates.filter((item) => item.tab === activeTab);
   }, [activeTab]);
 
+  const activeAgentJob = useMemo(() => jobs.find((job) => job.id === activeAgentJobId) ?? jobs.find((job) => job.uiConfig?.agentChat === true) ?? jobs[0], [activeAgentJobId, jobs]);
   const codexPrompt = useMemo(() => buildCodexPrompt(codexConfig, recentProjectPath), [codexConfig, recentProjectPath]);
 
   function updateCodexConfig(patch: Partial<CodexConfig>) {
@@ -706,6 +836,67 @@ function App() {
     });
     upsertJob(job);
     if (!isTauriRuntime()) simulateJob(job);
+  }
+
+  function submitAgentMessage() {
+    const text = agentInput.trim();
+    if (!text) return;
+
+    const userMessage = createChatMessage("user", text);
+    const prompt = buildChatPrompt(codexConfig, text, [...agentMessages, userMessage], recentProjectPath);
+    const job = createJob("codex_task", recentProjectPath, {
+      executor: "codex",
+      title: "AI 对话执行",
+      detail: `${cadApplicationLabels[codexConfig.cadApplication]} · ${codexTargets[codexConfig.target]} · 可继续追问修改`,
+      objective: text,
+      targetSoftware: cadApplicationLabels[codexConfig.cadApplication],
+      target: codexTargets[codexConfig.target],
+      expectedOutput: codexOutputs[codexConfig.expectedOutput],
+      strictRules: [
+        "以软件内 AI 对话形式响应用户，输出可公开的步骤摘要、执行结果和文件位置。",
+        codexConfig.realCutouts ? "涉及孔槽时必须是真实几何开孔/切除。" : "涉及孔槽时必须说明实现状态。",
+        codexConfig.strictGbDrawing ? "涉及图纸时必须遵循中国常用机械制图规范并复核尺寸链。" : "涉及图纸时说明规范覆盖范围。",
+        "所有交付物只保存到用户指定的本地输出目录。",
+      ],
+      capabilities: codexConfig.localCadAutomation ? ["cad_macro"] : [],
+      prompt,
+      cwd: CODEX_CWD,
+      skillPath: CODEX_SKILL_PATH,
+      policy: {
+        sandbox: codexConfig.localCadAutomation ? "danger-full-access" : "workspace-write",
+        approval: "never",
+        requireSkillRead: true,
+        requireTests: true,
+        requireCommit: false,
+        requirePush: false,
+        requireReviewerPass: true,
+      },
+      uiConfig: {
+        agentChat: true,
+        outputDir: codexConfig.outputDir,
+        sourceJobId: activeAgentJob?.id,
+        cadRuntime: {
+          application: codexConfig.cadApplication,
+          applicationLabel: cadApplicationLabels[codexConfig.cadApplication],
+          route: cadApplicationRoutes[codexConfig.cadApplication],
+          localCadAutomation: codexConfig.localCadAutomation,
+          solidworksSkillPath: CODEX_SKILL_PATH,
+          autocadSkillPath: AUTOCAD_SKILL_PATH,
+        },
+      },
+    });
+
+    setAgentInput("");
+    setActiveAgentJobId(job.id);
+    setExpandedJobId(job.id);
+    setAgentMessages((messages) => [
+      ...messages,
+      userMessage,
+      createChatMessage("assistant", "收到，我已经把这句话转成一条本地 Codex 执行任务。你可以在下方看到公开步骤、审批、日志和结果；不满意就继续补充要求。", job.id),
+    ].slice(-40));
+    upsertJob(job);
+    if (!isTauriRuntime()) simulateJob(job);
+    if (isTauriRuntime() && !workerStatus.running) void startLocalWorker();
   }
 
   function enqueueTemplateTask(template: (typeof taskTemplates)[number]) {
@@ -898,6 +1089,25 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const savedMessages = loadAgentChat();
+    setAgentMessages(
+      savedMessages.length > 0
+        ? savedMessages
+        : [
+            createChatMessage(
+              "assistant",
+              "你好，我是 CAD Studio 的 AI 执行助手。直接告诉我你要建模、改图、开孔、出图或打包交付，我会把要求交给本地 Codex 执行，并把可见过程显示在这里。",
+            ),
+          ],
+    );
+  }, []);
+
+  useEffect(() => {
+    if (agentMessages.length === 0) return;
+    localStorage.setItem(CHAT_KEY, JSON.stringify(agentMessages.slice(-40)));
+  }, [agentMessages]);
+
+  useEffect(() => {
     let disposed = false;
 
     async function loadQueue() {
@@ -915,10 +1125,19 @@ function App() {
           .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""))
           .slice(0, 8);
         setJobs(nextJobs);
-        const eventPairs = await Promise.all(
-          nextJobs.slice(0, 4).map(async (job) => [job.id, await invoke<QueueEvent[]>("read_queue_events", { id: job.id })] as const),
+        const visibleJobIds = Array.from(new Set([...nextJobs.slice(0, 4).map((job) => job.id), activeAgentJobId, expandedJobId].filter(Boolean))) as string[];
+        const eventPairs = await Promise.all(visibleJobIds.map(async (id) => [id, await invoke<QueueEvent[]>("read_queue_events", { id })] as const));
+        const logPairs = await Promise.all(
+          visibleJobIds.map(async (id) => {
+            try {
+              return [id, await invoke<QueueLogTail>("read_queue_log_tail", { id })] as const;
+            } catch {
+              return [id, {}] as const;
+            }
+          }),
         );
         if (!disposed) setJobEvents(Object.fromEntries(eventPairs));
+        if (!disposed) setJobLogTails(Object.fromEntries(logPairs));
       } finally {
         if (!disposed) setQueueLoaded(true);
       }
@@ -934,7 +1153,7 @@ function App() {
       disposed = true;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [activeAgentJobId, expandedJobId]);
 
   useEffect(() => {
     void refreshWorkerStatus();
@@ -945,6 +1164,34 @@ function App() {
 
   useEffect(() => {
     setIsRunning(jobs.some((job) => job.status === "running"));
+  }, [jobs]);
+
+  useEffect(() => {
+    const updates: AgentChatMessage[] = [];
+    for (const job of jobs) {
+      if (job.uiConfig?.agentChat !== true) continue;
+      if (!["passed", "failed", "approval_required", "cancelled"].includes(job.status)) continue;
+      const marker = `${job.id}:${job.status}`;
+      if (completedChatJobIdsRef.current.has(marker)) continue;
+      completedChatJobIdsRef.current.add(marker);
+
+      if (job.status === "passed") {
+        const lines = [
+          "这轮执行已完成。",
+          job.result?.message,
+          job.result?.outputPath ? `输出位置: ${job.result.outputPath}` : undefined,
+          job.reviewGate?.status ? `复核结果: ${job.reviewGate.status}` : undefined,
+        ].filter(Boolean);
+        updates.push(createChatMessage("assistant", lines.join("\n"), job.id));
+      } else if (job.status === "approval_required") {
+        updates.push(createChatMessage("assistant", `这轮需要你先批准本机自动化权限：${job.approvalReasons?.join("；") || "需要人工确认后继续执行。"}`, job.id));
+      } else if (job.status === "failed") {
+        updates.push(createChatMessage("assistant", `这轮执行失败了：${job.error || job.lastMessage || "未知错误"}\n你可以直接补充一句“继续修复这个错误”。`, job.id));
+      } else if (job.status === "cancelled") {
+        updates.push(createChatMessage("assistant", "这轮任务已经取消。你可以换一种要求重新发起。", job.id));
+      }
+    }
+    if (updates.length > 0) setAgentMessages((messages) => [...messages, ...updates].slice(-40));
   }, [jobs]);
 
   useEffect(() => {
@@ -963,6 +1210,8 @@ function App() {
 
   const activeWallpaperName =
     activeWallpaper === "custom" ? customWallpaper?.name ?? "我的壁纸" : wallpapers.find((item) => item.id === activeWallpaper)?.name ?? "Aurora";
+  const activeAgentEvents = activeAgentJob ? jobEvents[activeAgentJob.id] ?? [] : [];
+  const activeAgentLogs = activeAgentJob ? jobLogTails[activeAgentJob.id] ?? {} : {};
 
   return (
     <main
@@ -1579,11 +1828,92 @@ function App() {
               ))}
             </div>
 
+            <section className="agent-console">
+              <div className="agent-head">
+                <div>
+                  <p className="eyebrow">AI EXECUTION CHAT</p>
+                  <h2>AI 执行对话</h2>
+                </div>
+                <span>{activeAgentJob ? `${jobStatusLabel(activeAgentJob.status)} · ${activeAgentJob.progress}%` : "等待指令"}</span>
+              </div>
+
+              <div className="agent-body">
+                <div className="chat-thread" aria-label="AI 执行对话记录">
+                  {agentMessages.map((message) => (
+                    <motion.div
+                      className={`chat-bubble ${message.role}`}
+                      key={message.id}
+                      initial={reducedMotion ? false : { y: 8, opacity: 0 }}
+                      animate={{ y: 0, opacity: 1 }}
+                    >
+                      <span>{message.role === "user" ? "你" : message.role === "system" ? "系统" : "CAD Agent"}</span>
+                      <p>{message.content}</p>
+                      <small>{formatTimeLabel(message.at)}</small>
+                    </motion.div>
+                  ))}
+                </div>
+
+                <div className="agent-live-panel">
+                  <div className="live-head">
+                    <ChatCircleText size={18} weight="duotone" />
+                    <strong>{activeAgentJob?.title ?? "等待第一条任务"}</strong>
+                    <span>{activeAgentJob ? jobStatusLabel(activeAgentJob.status) : "待命"}</span>
+                  </div>
+                  <div className="live-progress">
+                    <i style={{ width: `${activeAgentJob?.progress ?? 0}%` }} />
+                  </div>
+                  <div className="live-summary">
+                    <p>{activeAgentJob ? compactJobMessage(activeAgentJob, activeAgentEvents) : "输入你的要求后，这里会显示 AI 的公开执行过程、工具结果和输出文件。"}</p>
+                  </div>
+                  {activeAgentJob?.status === "approval_required" ? (
+                    <button className="approval-button" type="button" onClick={() => void approveJob(activeAgentJob.id)}>
+                      批准本机执行
+                    </button>
+                  ) : null}
+                  <div className="live-timeline">
+                    {activeAgentEvents.length === 0 ? (
+                      <div className="timeline-empty">任务开始后会显示：接单、审批、AI 启动、复核、输出路径和错误。</div>
+                    ) : (
+                      activeAgentEvents.slice(-6).map((event, index) => (
+                        <div className="timeline-item" key={`${event.at}-${event.type}-${index}`}>
+                          <span>{eventTypeLabel(event.type)}</span>
+                          <p>{event.message || "状态已更新"}</p>
+                          <small>{formatTimeLabel(event.at)}</small>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  {(activeAgentLogs.stdout || activeAgentLogs.stderr) && (
+                    <div className="agent-log-preview">
+                      <strong>AI 输出</strong>
+                      {activeAgentLogs.stdout ? <pre>{activeAgentLogs.stdout}</pre> : null}
+                      {activeAgentLogs.stderr ? <pre className="error-log">{activeAgentLogs.stderr}</pre> : null}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="agent-input-row">
+                <textarea
+                  value={agentInput}
+                  onChange={(event) => setAgentInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") submitAgentMessage();
+                  }}
+                  placeholder="例如：把这个外壳的 USB 口改大 1mm，并重新导出 STL 和国标 PDF 图纸"
+                />
+                <button type="button" onClick={submitAgentMessage}>
+                  <PaperPlaneTilt size={18} weight="fill" />
+                  发送执行
+                </button>
+              </div>
+            </section>
+
             <section className="queue-panel">
               <div className="queue-head">
                 <div>
                   <p className="eyebrow">AUTOMATION QUEUE</p>
-                  <h2>本地自动化队列</h2>
+                  <h2>本地任务监视器</h2>
                 </div>
                 <div className="queue-actions">
                   <span className={workerStatus.running ? "worker-pill running" : "worker-pill"}>
@@ -1599,39 +1929,128 @@ function App() {
                 {jobs.length === 0 ? (
                   <div className="queue-empty">
                     <Sparkle size={19} weight="duotone" />
-                    <span>点击建模模板、导入模型或生成交付包后，任务会出现在这里。</span>
+                    <span>点击模板、发送 AI 对话或导入模型后，任务会出现在这里。</span>
                   </div>
                 ) : (
-                  jobs.slice(0, 4).map((job) => (
-                    <motion.article className={`queue-job ${job.status}`} key={job.id} layout>
-                      <div>
-                        <strong>{job.title}</strong>
-                        <small>
-                          {(job.status === "approval_required" ? job.approvalReasons?.[0] : undefined) ||
-                            jobEvents[job.id]?.[jobEvents[job.id].length - 1]?.message ||
-                            (job.reviewGate?.status ? `Reviewer Gate: ${job.reviewGate.status}` : undefined) ||
-                            job.lastMessage ||
-                            job.result?.outputPath ||
-                            job.error ||
-                            job.detail}
-                        </small>
-                      </div>
-                      <span>{jobStatusLabel(job.status)}</span>
-                      <div className="job-progress" aria-label={`${job.title} 进度 ${job.progress}%`}>
-                        <i style={{ width: `${job.progress}%` }} />
-                      </div>
-                      {job.status === "approval_required" ? (
-                        <button type="button" onClick={() => void approveJob(job.id)}>
-                          批准
-                        </button>
-                      ) : null}
-                      {job.status === "queued" || job.status === "running" ? (
-                        <button type="button" onClick={() => cancelJob(job.id)}>
-                          取消
-                        </button>
-                      ) : null}
-                    </motion.article>
-                  ))
+                  jobs.slice(0, 4).map((job) => {
+                    const expanded = expandedJobId === job.id;
+                    const events = jobEvents[job.id] ?? [];
+                    const logs = jobLogTails[job.id] ?? {};
+                    const workerLogs = (job.workerLog ?? []).slice(-5);
+                    return (
+                      <motion.article className={`queue-job ${job.status} ${expanded ? "expanded" : ""}`} key={job.id} layout>
+                        <div className="job-main">
+                          <div>
+                            <strong>{job.title}</strong>
+                            <small>{compactJobMessage(job, events)}</small>
+                          </div>
+                          <span>{jobStatusLabel(job.status)}</span>
+                        </div>
+                        <div className="job-progress" aria-label={`${job.title} 进度 ${job.progress}%`}>
+                          <i style={{ width: `${job.progress}%` }} />
+                        </div>
+                        <div className="job-controls">
+                          <button type="button" onClick={() => setExpandedJobId(expanded ? null : job.id)}>
+                            <CaretDown size={15} weight="bold" />
+                            {expanded ? "收起过程" : "查看过程"}
+                          </button>
+                          {job.uiConfig?.agentChat === true ? (
+                            <button type="button" onClick={() => setActiveAgentJobId(job.id)}>
+                              对话跟随
+                            </button>
+                          ) : null}
+                          {job.status === "approval_required" ? (
+                            <button type="button" onClick={() => void approveJob(job.id)}>
+                              批准
+                            </button>
+                          ) : null}
+                          {job.status === "queued" || job.status === "running" ? (
+                            <button type="button" onClick={() => cancelJob(job.id)}>
+                              取消
+                            </button>
+                          ) : null}
+                        </div>
+                        <AnimatePresence>
+                          {expanded ? (
+                            <motion.div
+                              className="job-process"
+                              initial={reducedMotion ? false : { height: 0, opacity: 0 }}
+                              animate={{ height: "auto", opacity: 1 }}
+                              exit={reducedMotion ? undefined : { height: 0, opacity: 0 }}
+                            >
+                              <div className="process-grid">
+                                <div>
+                                  <span>当前任务</span>
+                                  <strong>{job.detail}</strong>
+                                </div>
+                                <div>
+                                  <span>执行软件</span>
+                                  <strong>{job.targetSoftware || "AI 自动判断"}</strong>
+                                </div>
+                                <div>
+                                  <span>最近心跳</span>
+                                  <strong>{formatTimeLabel(job.heartbeatAt || workerStatus.health?.heartbeatAt)}</strong>
+                                </div>
+                                <div>
+                                  <span>Worker</span>
+                                  <strong>{job.workerPid ? `PID ${job.workerPid}` : workerLabel}</strong>
+                                </div>
+                              </div>
+
+                              {job.approvalReasons?.length ? (
+                                <div className="process-note warning">
+                                  <strong>需要审批</strong>
+                                  <p>{job.approvalReasons.join("；")}</p>
+                                </div>
+                              ) : null}
+                              {job.error ? (
+                                <div className="process-note error">
+                                  <strong>错误</strong>
+                                  <p>{job.error}</p>
+                                </div>
+                              ) : null}
+                              {job.result?.outputPath || job.artifactLedgerPath || job.reviewGatePath ? (
+                                <div className="process-paths">
+                                  {job.result?.outputPath ? <span>输出: {job.result.outputPath}</span> : null}
+                                  {job.artifactLedgerPath ? <span>交付账本: {job.artifactLedgerPath}</span> : null}
+                                  {job.reviewGatePath ? <span>复核记录: {job.reviewGatePath}</span> : null}
+                                </div>
+                              ) : null}
+
+                              <div className="process-columns">
+                                <div className="process-timeline">
+                                  <strong>执行过程</strong>
+                                  {(events.length ? events : [{ message: job.lastMessage || "等待 worker 接单", at: job.updatedAt, type: job.status }]).slice(-8).map((event, index) => (
+                                    <div className="timeline-item" key={`${event.at}-${event.type}-${index}`}>
+                                      <span>{eventTypeLabel(event.type)}</span>
+                                      <p>{event.message || "状态已更新"}</p>
+                                      <small>{formatTimeLabel(event.at)}</small>
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="process-timeline">
+                                  <strong>Worker 日志</strong>
+                                  {(workerLogs.length ? workerLogs : [{ message: "暂无 worker 日志，任务启动后会自动刷新。", at: job.updatedAt }]).map((entry, index) => (
+                                    <div className="timeline-item" key={`${workerLogTime(entry)}-${index}`}>
+                                      <span>{formatTimeLabel(workerLogTime(entry))}</span>
+                                      <p>{workerLogMessage(entry)}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                              {(logs.stdout || logs.stderr) && (
+                                <div className="agent-log-preview full">
+                                  <strong>Codex 输出尾部</strong>
+                                  {logs.stdout ? <pre>{logs.stdout}</pre> : null}
+                                  {logs.stderr ? <pre className="error-log">{logs.stderr}</pre> : null}
+                                </div>
+                              )}
+                            </motion.div>
+                          ) : null}
+                        </AnimatePresence>
+                      </motion.article>
+                    );
+                  })
                 )}
               </div>
             </section>
