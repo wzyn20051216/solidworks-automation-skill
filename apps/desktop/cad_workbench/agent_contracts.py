@@ -50,7 +50,7 @@ class EnterpriseAgentProfile:
     roles: tuple[AgentRole, ...] = (
         AgentRole("Intake", "intake", "读取 UI 配置、项目路径、制造约束和用户目标。"),
         AgentRole("Planner", "plan", "把需求拆为 CAD 建模、图纸、验证、交付和 Git 任务。"),
-        AgentRole("Executor", "execute", "使用 solidworks-automation skill 执行建模、图纸和文件操作。", can_write=True),
+        AgentRole("Executor", "execute", "按任务路由调用 SolidWorks / AutoCAD 自动化 skill 执行建模、图纸和文件操作。", can_write=True),
         AgentRole("Reviewer", "review", "按 3D 打印真实开孔、GB/T 图纸、测试和交付清单复核。"),
         AgentRole("Delivery", "deliver", "整理输出位置、验证结果、commit/push 状态和失败原因。", can_write=True),
     )
@@ -112,6 +112,15 @@ def compile_codex_prompt(job: dict[str, Any], profile: EnterpriseAgentProfile = 
     strict_rules = job.get("strictRules") if isinstance(job.get("strictRules"), list) else []
     ui_config = job.get("uiConfig") if isinstance(job.get("uiConfig"), dict) else {}
     selection = ui_config.get("selection") if isinstance(ui_config.get("selection"), dict) else {}
+    cad_runtime = ui_config.get("cadRuntime") if isinstance(ui_config.get("cadRuntime"), dict) else {}
+    application = str(cad_runtime.get("applicationLabel") or job.get("targetSoftware") or "AI 自动选择 CAD 软件")
+    route = str(
+        cad_runtime.get("route")
+        or "AI 根据任务自动选择: 三维实体/装配/开孔优先 SolidWorks；DWG/DXF/PDF、国标图纸和批量改图优先 AutoCAD；交付包可联动两者。"
+    )
+    solidworks_skill = str(cad_runtime.get("solidworksSkillPath") or profile.skill_path)
+    autocad_skill = str(cad_runtime.get("autocadSkillPath") or (profile.skill_path.parent / "subskills" / "autocad-automation" / "SKILL.md"))
+    local_cad_automation = bool(cad_runtime.get("localCadAutomation"))
 
     role_lines = "\n".join(
         f"- {role.stage.upper()} / {role.name}: {role.responsibility} 写权限={'是' if role.can_write else '否'}"
@@ -140,8 +149,9 @@ def compile_codex_prompt(job: dict[str, Any], profile: EnterpriseAgentProfile = 
             "本次任务来自图形化界面，必须按企业级 Agent 流程执行，而不是自由聊天。",
             "",
             "【必须读取的 Skill】",
-            str(profile.skill_path),
-            "执行前必须完整阅读并遵守该 SKILL.md 及相关子技能；若任务暴露出可沉淀规范，需更新 skill 或文档。",
+            f"- SolidWorks 主技能: {solidworks_skill}（solidworks-automation skill）",
+            f"- AutoCAD 子技能: {autocad_skill}（autocad-automation skill）",
+            "执行前必须按任务路由完整阅读并遵守对应 SKILL.md 及相关子技能；若任务暴露出可沉淀规范，需更新 skill 或文档。",
             "",
             "【Agent 流水线】",
             role_lines,
@@ -151,6 +161,11 @@ def compile_codex_prompt(job: dict[str, Any], profile: EnterpriseAgentProfile = 
             "",
             "【目标对象】",
             target,
+            "",
+            "【目标 CAD 软件】",
+            application,
+            route,
+            f"本机 CAD 自动化: {'允许，需遵守审批和桌面 COM 自检' if local_cad_automation else '不直接调用，仅生成计划、脚本或说明'}",
             "",
             "【项目/模型路径】",
             project_path,
@@ -166,6 +181,12 @@ def compile_codex_prompt(job: dict[str, Any], profile: EnterpriseAgentProfile = 
             "",
             "【自动决策规则】",
             "\n".join(auto_lines) if auto_lines else "- 未启用显式自动决策标记；仍需对缺失信息采用保守工程假设并说明。",
+            "",
+            "【CAD 软件调用规则】",
+            "- 三维实体、装配体、参数化特征、真实孔槽切除、STEP/STL/SLDPRT 导出，优先调用 SolidWorks 自动化。",
+            "- 二维 DWG/DXF/PDF、国标工程图、图层、尺寸链、孔表、标题栏和 AutoCAD 原生预览，优先调用 AutoCAD 自动化。",
+            "- 交付包、装配图和制造复核任务可以先用 SolidWorks 生成三维和中间文件，再用 AutoCAD 完成二维图纸与 DWG/DXF/PDF 输出。",
+            "- 任何本机 CAD COM/宏执行前必须运行对应 preflight；失败时写清缺失软件、依赖或权限，不允许假装已调用。",
             "",
             "【质量门禁】",
             "- Planner 必须先给出可执行步骤和风险点。",

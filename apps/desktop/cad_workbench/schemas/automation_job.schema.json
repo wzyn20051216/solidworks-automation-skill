@@ -37,6 +37,9 @@
     "requestedBy": {
       "type": "string"
     },
+    "targetSoftware": {
+      "type": "string"
+    },
     "createdByAppVersion": {
       "type": "string"
     },

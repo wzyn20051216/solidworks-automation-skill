@@ -1261,6 +1261,10 @@ textarea {
   gap: 7px;
 }
 
+.software-control {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .segmented-control button,
 .toggle-pill {
   min-height: 34px;
@@ -1271,6 +1275,7 @@ textarea {
   cursor: pointer;
   font-size: 12px;
   font-weight: 900;
+  line-height: 1.2;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
   transition: transform 180ms ease, background 180ms ease, color 180ms ease, box-shadow 180ms ease;
 }
@@ -1779,6 +1784,7 @@ textarea {
   .settings-grid,
   .bridge-controls,
   .segmented-control,
+  .software-control,
   .metric-row,
   .stage-row,
   .queue-list {

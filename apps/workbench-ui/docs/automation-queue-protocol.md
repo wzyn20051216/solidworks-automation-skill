@@ -296,6 +296,38 @@ codex exec -C "<cwd>" -a never -s workspace-write -o "<输出文件>" --output-s
 - UI 负责生成 prompt 和执行约束，Codex 负责实际读写文件、调用 skill、运行验证、提交推送。
 - Codex 输出会写入 `ai_team/{job_id}_codex_result.md`，同时在任务 JSON 的 `result.outputPath` 中回写路径。
 
+### CAD 软件路由
+
+UI 会把目标软件写入 `targetSoftware` 和 `uiConfig.cadRuntime`:
+
+```json
+{
+  "targetSoftware": "AI 自动选软件",
+  "capabilities": ["cad_macro"],
+  "policy": {
+    "sandbox": "danger-full-access",
+    "approval": "never"
+  },
+  "uiConfig": {
+    "cadRuntime": {
+      "application": "auto",
+      "applicationLabel": "AI 自动选软件",
+      "localCadAutomation": true,
+      "solidworksSkillPath": "C:/Users/23201/.codex/skills/solidworks-automation/SKILL.md",
+      "autocadSkillPath": "C:/Users/23201/.codex/skills/solidworks-automation/subskills/autocad-automation/SKILL.md"
+    }
+  }
+}
+```
+
+路由规则:
+
+- 三维实体、装配、真实开孔、钣金、STEP/STL/SLDPRT 导出优先调用 SolidWorks。
+- DWG/DXF/PDF、国标工程图、图层、尺寸链、孔表、标题栏和 AutoCAD 原生预览优先调用 AutoCAD。
+- 交付包、装配图和制造复核可以先用 SolidWorks 生成三维与中间文件，再用 AutoCAD 完成二维图纸和导出。
+- `application == "auto"` 时，Codex 必须根据任务目标自动选择 SolidWorks、AutoCAD 或两者联动，并在结果中说明选择理由。
+- `localCadAutomation == true` 时任务会声明 `cad_macro` 能力和 `danger-full-access` 沙箱，因此 Policy Gate 会要求人工审批；worker 也必须以 `--codex-full-access` 启动后，审批过的任务才会真正具备桌面软件调用能力。
+
 ## 接入真实执行器
 
 Python worker 的扩展点在:

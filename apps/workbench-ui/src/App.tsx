@@ -43,6 +43,7 @@ type AppSettings = {
 };
 type CodexConfig = {
   objective: string;
+  cadApplication: "auto" | "solidworks" | "autocad" | "both";
   target: "auto" | "general_part" | "assembly" | "shell" | "fixture" | "sheet_metal" | "holes" | "drawing" | "package" | "reverse" | "skill";
   expectedOutput: "auto" | "cad_files" | "drawing_package" | "skill_update" | "research_report";
   process: "auto" | "FDM" | "SLA" | "CNC" | "sheet_metal";
@@ -55,6 +56,7 @@ type CodexConfig = {
   outputDir: string;
   strictGbDrawing: boolean;
   realCutouts: boolean;
+  localCadAutomation: boolean;
   commitAndPush: boolean;
 };
 type AutomationJobKind = "create_shell" | "import_model" | "delivery_package" | "codex_task";
@@ -75,6 +77,7 @@ type AutomationJob = {
   projectPath?: string;
   executor?: "mock" | "codex";
   objective?: string;
+  targetSoftware?: string;
   target?: string;
   expectedOutput?: string;
   strictRules?: string[];
@@ -208,9 +211,24 @@ const reviewItems = [
 
 const SETTINGS_KEY = "cad-studio.settings.v1";
 const QUEUE_KEY = "cad-studio.queue.v1";
-const APP_VERSION = "0.1.0";
+const APP_VERSION = "0.1.1";
 const CODEX_CWD = "C:/Users/23201/.codex/skills/solidworks-automation";
 const CODEX_SKILL_PATH = `${CODEX_CWD}/SKILL.md`;
+const AUTOCAD_SKILL_PATH = `${CODEX_CWD}/subskills/autocad-automation/SKILL.md`;
+
+const cadApplicationLabels: Record<CodexConfig["cadApplication"], string> = {
+  auto: "AI 自动选软件",
+  solidworks: "SolidWorks 三维建模",
+  autocad: "AutoCAD 二维图纸",
+  both: "SolidWorks + AutoCAD 联动",
+};
+
+const cadApplicationRoutes: Record<CodexConfig["cadApplication"], string> = {
+  auto: "AI 根据任务自动选择: 三维实体/装配/开孔优先 SolidWorks；DWG/DXF/PDF、国标图纸和批量改图优先 AutoCAD；交付包可联动两者。",
+  solidworks: "必须优先调用本机 SolidWorks，通过 solidworks-automation 的 Python COM 封装完成三维建模、装配、真实开孔、STEP/STL/SLDPRT 导出和预览复核。",
+  autocad: "必须优先调用本机 AutoCAD，通过 autocad-automation 的 Python COM/ActiveX 封装完成 DWG/DXF/PDF 二维绘图、图层、尺寸标注、图框标题栏和原生预览复核。",
+  both: "先用 SolidWorks 完成三维实体、装配、开孔和 STEP/STL；再用 AutoCAD 完成 DWG/DXF/PDF 工程图、孔槽定位尺寸、标题栏和图纸复核。",
+};
 
 const codexTargets: Record<CodexConfig["target"], string> = {
   auto: "AI 自动判断",
@@ -410,6 +428,8 @@ function buildCodexPrompt(config: CodexConfig, projectPath?: string) {
     "你是 Codex，请执行由 CAD Studio 图形化界面生成的任务。",
     "",
     `任务目标: ${config.objective}`,
+    `目标 CAD 软件: ${cadApplicationLabels[config.cadApplication]}`,
+    `软件路由策略: ${cadApplicationRoutes[config.cadApplication]}`,
     `任务类型: ${codexTargets[config.target]}`,
     `期望输出: ${codexOutputs[config.expectedOutput]}`,
     `项目/模型路径: ${projectPath || "未指定"}`,
@@ -420,6 +440,7 @@ function buildCodexPrompt(config: CodexConfig, projectPath?: string) {
     `参考壁厚/板厚: ${config.wallThickness} ${config.unit}`,
     `输出目录: ${config.outputDir}`,
     `Skill 路径: ${CODEX_SKILL_PATH}`,
+    `AutoCAD 子技能路径: ${AUTOCAD_SKILL_PATH}`,
     "",
     "强制规则:",
     ...strictRules.map((rule) => `- ${rule}`),
@@ -430,6 +451,10 @@ function buildCodexPrompt(config: CodexConfig, projectPath?: string) {
     "- 若信息不足以可靠决策，先采用行业常用保守方案，并标记残余风险。",
     "",
     "执行方式:",
+    "- 必须把 CAD Studio 的图形化配置转换成可执行的本地 CAD 自动化任务。",
+    "- 三维实体、装配、开孔、钣金、STEP/STL/SLDPRT 导出优先调用 SolidWorks。",
+    "- 二维 DWG/DXF/PDF、国标图纸、尺寸链、孔表、图框标题栏优先调用 AutoCAD。",
+    "- 若目标软件为 AI 自动选软件，需要先判断本任务应该调用 SolidWorks、AutoCAD 或两者联动，并说明理由。",
     "- 优先使用 solidworks-automation skill 及其 SolidWorks/AutoCAD 子技能。",
     "- 先检查现有文件和规范，再小步实现。",
     "- 结束时用中文说明改动、验证结果和输出位置。",
@@ -454,6 +479,7 @@ function App() {
   const [windowHint, setWindowHint] = useState("窗口控制就绪");
   const [codexConfig, setCodexConfig] = useState<CodexConfig>({
     objective: "根据用户输入自动判断最佳 CAD 任务类型、制造方式、材料和交付格式，生成可制造结果并解释选择理由。",
+    cadApplication: "auto",
     target: "auto",
     expectedOutput: "auto",
     process: "auto",
@@ -466,7 +492,8 @@ function App() {
     outputDir: "Documents/CADAutomationWorkbench",
     strictGbDrawing: true,
     realCutouts: true,
-    commitAndPush: true,
+    localCadAutomation: true,
+    commitAndPush: false,
   });
   const [isRunning, setIsRunning] = useState(false);
   const [focusFeature, setFocusFeature] = useState(0);
@@ -568,7 +595,7 @@ function App() {
       const status = await invoke<WorkerStatus>("start_worker", {
         repoPath: CODEX_CWD,
         enableCodex: true,
-        codexFullAccess: false,
+        codexFullAccess: codexConfig.localCadAutomation,
       });
       setWorkerStatus(status);
     } catch (error) {
@@ -614,22 +641,29 @@ function App() {
     const strictRules = [
       config.realCutouts ? "孔槽、接口、沉头和螺纹必须是真实几何切除" : "明确说明孔槽实现状态",
       config.strictGbDrawing ? "必须按中国机械制图常用格式复核 CAD 图纸" : "说明当前图纸规范覆盖范围",
+      `${cadApplicationLabels[config.cadApplication]}: ${cadApplicationRoutes[config.cadApplication]}`,
+      config.localCadAutomation ? "允许经审批后调用本机 SolidWorks / AutoCAD 桌面自动化能力。" : "不直接调用本机 CAD 软件，仅生成计划、脚本或说明。",
       config.commitAndPush ? "完成验证后中文提交并推送 GitHub" : "完成验证并保留本地结果",
+    ];
+    const capabilities = [
+      ...(config.localCadAutomation ? ["cad_macro"] : []),
+      ...(config.commitAndPush ? ["git_push"] : []),
     ];
     const job = createJob("codex_task", recentProjectPath, {
       executor: "codex",
       title: "Codex 执行",
-      detail: `${codexTargets[config.target]} · ${codexOutputs[config.expectedOutput]}`,
+      detail: `${cadApplicationLabels[config.cadApplication]} · ${codexTargets[config.target]} · ${codexOutputs[config.expectedOutput]}`,
       objective: config.objective,
+      targetSoftware: cadApplicationLabels[config.cadApplication],
       target: codexTargets[config.target],
       expectedOutput: codexOutputs[config.expectedOutput],
       strictRules,
-      capabilities: config.commitAndPush ? ["git_push"] : [],
+      capabilities,
       prompt: buildCodexPrompt(config, recentProjectPath),
       cwd: CODEX_CWD,
       skillPath: CODEX_SKILL_PATH,
       policy: {
-        sandbox: "workspace-write",
+        sandbox: config.localCadAutomation ? "danger-full-access" : "workspace-write",
         approval: "never",
         requireSkillRead: true,
         requireTests: true,
@@ -638,6 +672,14 @@ function App() {
         requireReviewerPass: true,
       },
       uiConfig: {
+        cadRuntime: {
+          application: config.cadApplication,
+          applicationLabel: cadApplicationLabels[config.cadApplication],
+          route: cadApplicationRoutes[config.cadApplication],
+          localCadAutomation: config.localCadAutomation,
+          solidworksSkillPath: CODEX_SKILL_PATH,
+          autocadSkillPath: AUTOCAD_SKILL_PATH,
+        },
         manufacturing: {
           process: config.process,
           processLabel: processLabels[config.process],
@@ -648,10 +690,11 @@ function App() {
         selection: {
           mode: "auto_best",
           autoTarget: config.target === "auto",
+          autoCadApplication: config.cadApplication === "auto",
           autoOutput: config.expectedOutput === "auto",
           autoProcess: config.process === "auto",
           autoMaterial: config.material === "auto",
-          instruction: "未指定字段由 AI 自动选择最佳工程方案，并说明理由。",
+          instruction: "未指定字段由 AI 自动选择最佳工程方案、目标 CAD 软件和执行路线，并说明理由。",
         },
         geometry: {
           length: config.length,
@@ -1335,6 +1378,22 @@ function App() {
                 <textarea value={codexConfig.objective} onChange={(event) => updateCodexConfig({ objective: event.target.value })} />
               </label>
 
+              <div className="bridge-field wide">
+                <span>目标软件</span>
+                <div className="segmented-control software-control">
+                  {(Object.keys(cadApplicationLabels) as Array<CodexConfig["cadApplication"]>).map((application) => (
+                    <button
+                      type="button"
+                      className={codexConfig.cadApplication === application ? "active" : ""}
+                      key={application}
+                      onClick={() => updateCodexConfig({ cadApplication: application })}
+                    >
+                      {cadApplicationLabels[application]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="bridge-field">
                 <span>制造方式</span>
                 <div className="segmented-control">
@@ -1429,6 +1488,9 @@ function App() {
                 <button type="button" className={codexConfig.strictGbDrawing ? "toggle-pill active" : "toggle-pill"} onClick={() => updateCodexConfig({ strictGbDrawing: !codexConfig.strictGbDrawing })}>
                   严格图纸规范
                 </button>
+                <button type="button" className={codexConfig.localCadAutomation ? "toggle-pill active" : "toggle-pill"} onClick={() => updateCodexConfig({ localCadAutomation: !codexConfig.localCadAutomation })}>
+                  本机 CAD 自动化
+                </button>
                 <button type="button" className={codexConfig.commitAndPush ? "toggle-pill active" : "toggle-pill"} onClick={() => updateCodexConfig({ commitAndPush: !codexConfig.commitAndPush })}>
                   提交并推送
                 </button>
@@ -1441,8 +1503,16 @@ function App() {
                 <strong>Codex CLI</strong>
               </div>
               <div className="runtime-line">
+                <span>目标软件</span>
+                <strong>{cadApplicationLabels[codexConfig.cadApplication]}</strong>
+              </div>
+              <div className="runtime-line">
                 <span>Skill</span>
-                <strong>solidworks-automation</strong>
+                <strong>{codexConfig.cadApplication === "autocad" ? "autocad-automation" : codexConfig.cadApplication === "both" ? "SW + AutoCAD skills" : "solidworks-automation"}</strong>
+              </div>
+              <div className="runtime-line">
+                <span>权限</span>
+                <strong>{codexConfig.localCadAutomation ? "需审批后控制本机 CAD" : "仅生成计划/脚本"}</strong>
               </div>
               <div className="runtime-line">
                 <span>制造输入</span>
