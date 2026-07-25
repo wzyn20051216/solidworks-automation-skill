@@ -27,6 +27,10 @@ DEFAULT_CODEX_TIMEOUT_SECONDS = 1800
 DEFAULT_LEASE_SECONDS = 900
 
 
+class JobCancelled(RuntimeError):
+    """@brief 任务被用户取消。"""
+
+
 def default_tauri_queue_dir(identifier: str = "com.wzyn.cadstudio") -> Path:
     """@brief 返回 Tauri 默认应用数据队列目录。"""
     if os.name == "nt" and os.environ.get("APPDATA"):
@@ -68,6 +72,54 @@ def quarantine_dir(queue_dir: Path) -> Path:
     directory = Path(queue_dir) / "quarantine"
     directory.mkdir(parents=True, exist_ok=True)
     return directory
+
+
+def events_dir(queue_dir: Path) -> Path:
+    """@brief 返回任务事件流目录。"""
+    directory = Path(queue_dir) / "events"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def logs_dir(queue_dir: Path) -> Path:
+    """@brief 返回运行日志目录。"""
+    directory = Path(queue_dir) / "logs"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def event_path_for(queue_dir: Path, job_id: Any) -> Path:
+    """@brief 返回任务 JSONL 事件文件路径。"""
+    safe_id = "".join(ch for ch in str(job_id or "") if ch.isascii() and (ch.isalnum() or ch in "-_"))
+    if not safe_id:
+        safe_id = "unknown"
+    return events_dir(queue_dir) / f"{safe_id[:96]}.jsonl"
+
+
+def log_paths_for(queue_dir: Path, job_id: Any) -> tuple[Path, Path]:
+    """@brief 返回任务 stdout/stderr 日志路径。"""
+    safe_id = "".join(ch for ch in str(job_id or "") if ch.isascii() and (ch.isalnum() or ch in "-_")) or "unknown"
+    directory = logs_dir(queue_dir)
+    return directory / f"{safe_id[:96]}.stdout.log", directory / f"{safe_id[:96]}.stderr.log"
+
+
+def append_event(queue_dir: Path, job: dict[str, Any], event_type: str, message: str, data: dict[str, Any] | None = None) -> None:
+    """@brief 追加一条结构化队列事件。"""
+    event = {
+        "type": event_type,
+        "jobId": job.get("id"),
+        "runId": job.get("runId"),
+        "status": job.get("status"),
+        "progress": job.get("progress"),
+        "message": message,
+        "at": now_iso(),
+        "worker": WORKER_NAME,
+        "runnerId": job.get("runnerId"),
+        "data": data or {},
+    }
+    path = event_path_for(queue_dir, job.get("id"))
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
 def parse_iso(value: Any) -> datetime | None:
@@ -148,6 +200,32 @@ def mark_job_claimed(job: dict[str, Any], runner_id: str, lease_seconds: int) ->
     job["heartbeatAt"] = now_iso()
     job["leaseUntil"] = lease_until(lease_seconds)
     job["attempt"] = int(job.get("attempt") or 0) + 1
+
+
+def refresh_job_heartbeat(path: Path, runner_id: str, lease_seconds: int, message: str = "worker heartbeat") -> dict[str, Any]:
+    """@brief 刷新运行中任务 heartbeat 与 lease。"""
+    job = read_job(path)
+    if job.get("status") == "cancelled" or job.get("cancelRequested") is True:
+        raise JobCancelled("任务已请求取消")
+    job["runnerId"] = runner_id
+    job["workerPid"] = os.getpid()
+    job["heartbeatAt"] = now_iso()
+    job["leaseUntil"] = lease_until(lease_seconds)
+    job["lastMessage"] = message
+    write_job(path, job)
+    append_event(path.parent, job, "run.heartbeat", message)
+    return job
+
+
+def request_cancel(path: Path) -> dict[str, Any]:
+    """@brief 将任务标记为请求取消。"""
+    job = read_job(path)
+    job["cancelRequested"] = True
+    job["updatedAt"] = now_iso()
+    job["lastMessage"] = "已请求取消，等待 worker 停止当前步骤。"
+    write_job(path, job)
+    append_event(path.parent, job, "run.cancel_requested", "已请求取消")
+    return job
 
 
 def recover_stale_jobs(queue_dir: Path) -> int:
@@ -256,8 +334,11 @@ def run_codex_job(
         str(DEFAULT_PROFILE.policy.output_schema_path),
         prompt,
     ]
-    active_runner = runner or _run_command
-    completed = active_runner(command, cwd, timeout_seconds)
+    if runner is None and job.get("_runtime"):
+        completed = _run_command_with_runtime(command, cwd, timeout_seconds, job)
+    else:
+        active_runner = runner or _run_command
+        completed = active_runner(command, cwd, timeout_seconds)
     stdout = completed.stdout or ""
     stderr = completed.stderr or ""
     if completed.returncode != 0:
@@ -285,6 +366,73 @@ def _run_command(command: Sequence[str], cwd: Path, timeout_seconds: int) -> sub
         timeout=timeout_seconds,
         check=False,
     )
+
+
+def _run_command_with_runtime(
+    command: Sequence[str],
+    cwd: Path,
+    timeout_seconds: int,
+    job: dict[str, Any],
+) -> subprocess.CompletedProcess[str]:
+    """@brief 运行 Codex 进程并维护 heartbeat、lease 与取消语义。"""
+    runtime = job.get("_runtime") if isinstance(job.get("_runtime"), dict) else {}
+    job_path = Path(str(runtime.get("jobPath")))
+    runner_id = str(runtime.get("runnerId") or job.get("runnerId") or worker_id())
+    lease_seconds = int(runtime.get("leaseSeconds") or DEFAULT_LEASE_SECONDS)
+    heartbeat_interval = max(1.0, min(10.0, lease_seconds / 3))
+    started_at = time.monotonic()
+    next_heartbeat = 0.0
+    stdout_path, stderr_path = log_paths_for(job_path.parent, job.get("id"))
+
+    append_event(job_path.parent, job, "codex.started", "Codex 进程已启动", {"cwd": str(cwd), "stdout": str(stdout_path), "stderr": str(stderr_path)})
+    with stdout_path.open("w", encoding="utf-8") as stdout_handle, stderr_path.open("w", encoding="utf-8") as stderr_handle:
+        process = subprocess.Popen(
+            list(command),
+            cwd=str(cwd),
+            text=True,
+            stdout=stdout_handle,
+            stderr=stderr_handle,
+        )
+
+        while process.poll() is None:
+            now = time.monotonic()
+            if now - started_at > timeout_seconds:
+                terminate_process(process)
+                append_event(job_path.parent, job, "codex.timeout", "Codex 执行超时，已请求终止")
+                raise TimeoutError(f"Codex 执行超时: {timeout_seconds}s")
+            if now >= next_heartbeat:
+                try:
+                    refresh_job_heartbeat(job_path, runner_id, lease_seconds, "Codex 正在执行，worker 已续租。")
+                except JobCancelled:
+                    terminate_process(process)
+                    append_event(job_path.parent, job, "codex.cancelled", "收到取消请求，已终止 Codex 进程")
+                    raise
+                next_heartbeat = now + heartbeat_interval
+            time.sleep(0.25)
+
+    stdout = stdout_path.read_text(encoding="utf-8") if stdout_path.exists() else ""
+    stderr = stderr_path.read_text(encoding="utf-8") if stderr_path.exists() else ""
+    completed = subprocess.CompletedProcess(list(command), process.returncode or 0, stdout=stdout, stderr=stderr)
+    append_event(
+        job_path.parent,
+        job,
+        "codex.completed",
+        "Codex 进程已退出",
+        {"returnCode": completed.returncode},
+    )
+    return completed
+
+
+def terminate_process(process: subprocess.Popen[str]) -> None:
+    """@brief 尽力终止子进程并回收。"""
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=3)
 
 
 DEFAULT_HANDLERS: Mapping[str, JobHandler] = {
@@ -325,13 +473,25 @@ def process_job(
         mark_job_claimed(job, runner_id or worker_id(), lease_seconds)
         set_job_state(job, "running", 12, "worker 已接单，正在准备本地 CAD 执行环境。")
         write_job(path, job)
+        append_event(path.parent, job, "run.claimed", "任务已被 worker 领取")
+        append_event(path.parent, job, "step.started", "任务执行开始")
 
+        job["_runtime"] = {"jobPath": str(path), "runnerId": job.get("runnerId"), "leaseSeconds": lease_seconds}
         result = active_handlers[kind](job)
+        job.pop("_runtime", None)
         job["result"] = result
         set_job_state(job, "passed", 100, str(result.get("message", "任务完成")))
+        append_event(path.parent, job, "run.passed", str(result.get("message", "任务完成")))
+    except JobCancelled as error:
+        job.pop("_runtime", None)
+        job["cancelRequested"] = True
+        set_job_state(job, "cancelled", int(job.get("progress") or 0), str(error))
+        append_event(path.parent, job, "run.cancelled", str(error))
     except Exception as error:  # noqa: BLE001 - worker 必须把单任务错误写回队列，不能让队列静默中断。
+        job.pop("_runtime", None)
         job["error"] = str(error)
         set_job_state(job, "failed", 100, str(error))
+        append_event(path.parent, job, "run.failed", str(error))
 
     write_job(path, job)
     return job

@@ -56,6 +56,9 @@
     "leaseUntil": {
       "type": "string"
     },
+    "cancelRequested": {
+      "type": "boolean"
+    },
     "policy": {
       "type": "object",
       "additionalProperties": false,

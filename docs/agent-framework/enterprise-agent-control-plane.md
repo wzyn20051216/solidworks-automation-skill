@@ -50,6 +50,7 @@ Codex 仍然是最终执行者，`solidworks-automation` skill 是核心能力�
 - 版本化任务 Schema。
 - 默认 `workspace-write` 沙箱、工作区白名单和固定输出目录。
 - JSON 队列 claim lock、lease、stale running 恢复和坏任务 quarantine。
+- 运行中 heartbeat 续租、取消语义、JSONL 事件流和 stdout/stderr 日志落盘。
 
 未实现:
 
@@ -58,7 +59,7 @@ Codex 仍然是最终执行者，`solidworks-automation` skill 是核心能力�
 - 多 Agent 并行/评审调度。
 - Memory 和企业权限。
 - CAD 真实执行器的生产级回滚。
-- HMAC 签名、执行中 heartbeat 续租、人工审批门和审计 ledger。
+- HMAC 签名、人工审批门和审计 ledger。
 
 ## 最小企业级原则
 
@@ -72,7 +73,7 @@ Codex 仍然是最终执行者，`solidworks-automation` skill 是核心能力�
 
 ## 近期路线
 
-1. Queue Store: 增加执行中 heartbeat 续租、运行中取消和队列事件流。
+1. Queue Store: 增加事件流 UI 时间线、运行中重试策略和队列健康状态。
 2. Policy Gate: 增加 commit/push、跨目录写入、网络访问、CAD 宏执行的人工审批状态。
 3. Artifact Ledger: 记录输出文件 hash、Codex 输出、验证命令、Git commit 和审计事件。
 4. UI: 把 Prompt Preview 改为执行计划、门禁和影响范围，prompt 放到高级详情。

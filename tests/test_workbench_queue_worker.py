@@ -1,15 +1,22 @@
 from pathlib import Path
 import subprocess
+import sys
+import threading
+import time
 
 from apps.desktop.cad_workbench.agent_contracts import DEFAULT_PROFILE, codex_output_path, resolve_workspace, validate_codex_job
 from apps.desktop.cad_workbench.queue_worker import (
+    JobCancelled,
+    _run_command_with_runtime,
     acquire_lock,
     build_codex_prompt,
+    event_path_for,
     lock_path_for,
     process_queue,
     read_job,
     recover_stale_jobs,
     release_lock,
+    request_cancel,
     run_codex_job,
     write_job,
 )
@@ -47,6 +54,9 @@ def test_queue_worker_processes_queued_job(tmp_path: Path) -> None:
     assert saved["heartbeatAt"]
     assert saved["leaseUntil"]
     assert not lock_path_for(job_path).exists()
+    event_path = event_path_for(queue_dir, "job-1")
+    assert event_path.exists()
+    assert "run.passed" in event_path.read_text(encoding="utf-8")
 
 
 def test_queue_worker_marks_unknown_kind_failed(tmp_path: Path) -> None:
@@ -127,6 +137,60 @@ def test_queue_worker_recovers_stale_running_job(tmp_path: Path) -> None:
     assert saved["status"] == "queued"
     assert "runnerId" not in saved
     assert "workerPid" not in saved
+
+
+def test_managed_command_refreshes_heartbeat_and_writes_events(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job_path = queue_dir / "job-managed.json"
+    job = _queued_job("job-managed")
+    job.update({"status": "running", "runnerId": "runner-1", "leaseUntil": "2020-01-01T00:00:00+08:00"})
+    write_job(job_path, job)
+    job["_runtime"] = {"jobPath": str(job_path), "runnerId": "runner-1", "leaseSeconds": 3}
+
+    completed = _run_command_with_runtime(
+        [sys.executable, "-c", "import time; time.sleep(1); print('done')"],
+        tmp_path,
+        5,
+        job,
+    )
+
+    saved = read_job(job_path)
+    assert completed.returncode == 0
+    assert saved["heartbeatAt"]
+    assert saved["leaseUntil"] != "2020-01-01T00:00:00+08:00"
+    events = event_path_for(queue_dir, "job-managed").read_text(encoding="utf-8")
+    assert "codex.started" in events
+    assert "run.heartbeat" in events
+    assert "codex.completed" in events
+
+
+def test_managed_command_stops_when_cancel_requested(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job_path = queue_dir / "job-cancel.json"
+    job = _queued_job("job-cancel")
+    job.update({"status": "running", "runnerId": "runner-2", "leaseUntil": "2099-01-01T00:00:00+08:00"})
+    write_job(job_path, job)
+    job["_runtime"] = {"jobPath": str(job_path), "runnerId": "runner-2", "leaseSeconds": 3}
+
+    def cancel_later() -> None:
+        time.sleep(0.5)
+        request_cancel(job_path)
+
+    thread = threading.Thread(target=cancel_later)
+    thread.start()
+    try:
+        try:
+            _run_command_with_runtime([sys.executable, "-c", "import time; time.sleep(5)"], tmp_path, 10, job)
+        except JobCancelled:
+            pass
+        else:
+            raise AssertionError("应响应取消请求")
+    finally:
+        thread.join(timeout=2)
+
+    events = event_path_for(queue_dir, "job-cancel").read_text(encoding="utf-8")
+    assert "run.cancel_requested" in events
+    assert "codex.cancelled" in events
 
 
 def test_codex_prompt_contains_ui_configuration() -> None:

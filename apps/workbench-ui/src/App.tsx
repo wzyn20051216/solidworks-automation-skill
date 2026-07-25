@@ -97,6 +97,13 @@ type AutomationJob = {
   artifacts?: Array<Record<string, unknown>>;
   error?: string;
 };
+type QueueEvent = {
+  type?: string;
+  jobId?: string;
+  status?: string;
+  message?: string;
+  at?: string;
+};
 
 type Stage = {
   key: string;
@@ -328,6 +335,7 @@ function App() {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [queueLoaded, setQueueLoaded] = useState(false);
   const [jobs, setJobs] = useState<AutomationJob[]>([]);
+  const [jobEvents, setJobEvents] = useState<Record<string, QueueEvent[]>>({});
   const [codexConfig, setCodexConfig] = useState<CodexConfig>({
     objective: "根据当前配置生成可 3D 打印的外壳，并严格检查真实开孔和图纸标注。",
     target: "shell",
@@ -612,12 +620,15 @@ function App() {
       try {
         const savedJobs = await invoke<AutomationJob[]>("read_queue_jobs");
         if (disposed) return;
-        setJobs(
-          savedJobs
-            .filter((job) => typeof job.id === "string")
-            .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""))
-            .slice(0, 8),
+        const nextJobs = savedJobs
+          .filter((job) => typeof job.id === "string")
+          .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""))
+          .slice(0, 8);
+        setJobs(nextJobs);
+        const eventPairs = await Promise.all(
+          nextJobs.slice(0, 4).map(async (job) => [job.id, await invoke<QueueEvent[]>("read_queue_events", { id: job.id })] as const),
         );
+        if (!disposed) setJobEvents(Object.fromEntries(eventPairs));
       } finally {
         if (!disposed) setQueueLoaded(true);
       }
@@ -1133,7 +1144,7 @@ function App() {
                     <motion.article className={`queue-job ${job.status}`} key={job.id} layout>
                       <div>
                         <strong>{job.title}</strong>
-                        <small>{job.lastMessage || job.result?.outputPath || job.error || job.detail}</small>
+                        <small>{jobEvents[job.id]?.[jobEvents[job.id].length - 1]?.message || job.lastMessage || job.result?.outputPath || job.error || job.detail}</small>
                       </div>
                       <span>{jobStatusLabel(job.status)}</span>
                       <div className="job-progress" aria-label={`${job.title} 进度 ${job.progress}%`}>

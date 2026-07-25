@@ -118,9 +118,13 @@ queued -> approval_required -> queued
 
 - 领取任务前创建 `{job}.json.lock`，使用原子创建避免多 worker 重复接单。
 - 领取后写入 `runnerId`、`workerPid`、`attempt`、`heartbeatAt`、`leaseUntil`。
+- 运行中 worker 会定期刷新 `heartbeatAt` 和 `leaseUntil`，防止长任务被误判为 stale。
 - worker 结束后释放 `.lock`。
+- UI 可把任务写为 `status: "cancelled"` 或 `cancelRequested: true`，worker 会终止托管中的 Codex 子进程。
 - 启动或轮询时会恢复 `leaseUntil` 过期的 `running` 任务，将其重新置为 `queued`。
 - 损坏 JSON 会被移动到 `queue/quarantine`，并生成同名 `.error.txt`，不会中断 watch 循环。
+- 每个任务会写入 `queue/events/{job_id}.jsonl` 事件流。
+- 托管子进程 stdout/stderr 会写入 `queue/logs/{job_id}.stdout.log` 与 `queue/logs/{job_id}.stderr.log`。
 
 这些字段是 worker 管理字段，UI 可展示但不要手动修改。
 

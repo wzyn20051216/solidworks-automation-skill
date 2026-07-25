@@ -13,6 +13,10 @@ fn queue_dir(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn job_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
+    Ok(queue_dir(app)?.join(format!("{}.json", safe_id(id)?)))
+}
+
+fn safe_id(id: &str) -> Result<String, String> {
     let safe_id = id
         .chars()
         .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '-' || *ch == '_')
@@ -20,7 +24,7 @@ fn job_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
     if safe_id.is_empty() {
         return Err("invalid job id".to_string());
     }
-    Ok(queue_dir(app)?.join(format!("{safe_id}.json")))
+    Ok(safe_id)
 }
 
 #[tauri::command]
@@ -52,11 +56,35 @@ fn read_queue_jobs(app: AppHandle) -> Result<Vec<Value>, String> {
     Ok(jobs)
 }
 
+#[tauri::command]
+fn read_queue_events(app: AppHandle, id: String) -> Result<Vec<Value>, String> {
+    let path = queue_dir(&app)?
+        .join("events")
+        .join(format!("{}.jsonl", safe_id(&id)?));
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let raw = fs::read_to_string(path).map_err(|error| error.to_string())?;
+    let mut events = Vec::new();
+    for line in raw.lines().rev().take(12) {
+        if let Ok(event) = serde_json::from_str::<Value>(line) {
+            events.push(event);
+        }
+    }
+    events.reverse();
+    Ok(events)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![save_queue_job, read_queue_jobs])
+        .invoke_handler(tauri::generate_handler![
+            save_queue_job,
+            read_queue_jobs,
+            read_queue_events
+        ])
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
