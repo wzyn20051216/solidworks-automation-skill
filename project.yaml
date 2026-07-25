@@ -4,10 +4,10 @@
 name: SolidWorks Automation Skill
 authors: [wzyn20051216, zuoliangyu]
 category: Tool
-tags: [SolidWorks, CAD, MCP, Python, COM, Automation, VibeCAD, Subskills]
+tags: [SolidWorks, CAD, AutoCAD, Desktop, PySide6, MCP, Python, COM, Automation, VibeCAD, Subskills]
 status: in-progress
-updated: 2026-07-05
-summary: 面向 Codex、Claude 与 OpenClaw 的 SolidWorks 自动化技能总仓，支持零件建模、装配、工程图、导出、自审查、本地 MCP 工具调用，以及 VibeCAD、CNC 圆角倒角、螺纹孔、AutoCAD DWG/DXF 等专项子技能。
+updated: 2026-07-25
+summary: 面向 Codex、Claude 与 OpenClaw 的 SolidWorks 自动化技能总仓，支持零件建模、装配、工程图、导出、自审查、本地 MCP 工具调用，并开始产品化为 PySide6 本地 CAD 自动化交付工作台。
 
 cover: assets/douyin-balance.jpg
 readme: README.md

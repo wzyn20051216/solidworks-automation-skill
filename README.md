@@ -178,11 +178,24 @@ solidworks-automation-skill/
 │   ├── market-research-2026.md          # 市场调研与产品定位
 │   ├── product-mvp-spec.md              # 本地桌面软件 MVP 规格
 │   └── skill-map.md                     # 技能矩阵和路由说明
+├── apps/                # 产品化应用
+│   └── desktop/                         # PySide6 本地桌面软件原型
 ├── examples/            # 示例代码
 ├── mcp-server/          # 本地 stdio MCP Server
 ├── SUBSKILLS.md         # 多子技能索引和路由说明
 └── README.md
 ```
+
+### 🖥️ 桌面软件原型
+
+第一版桌面端位于 `apps/desktop/`，当前先跑通“新建项目 -> 保存参数 -> mock 执行 -> 生成复核报告和交付目录”的本地流程。
+
+```powershell
+python -m pip install -r apps/desktop/requirements.txt
+python apps/desktop/run.py
+```
+
+当前 mock 输出不是可制造 CAD 文件；真实 SolidWorks / AutoCAD 自动化会在后续版本接入同一条执行流水线。
 
 ### 🧩 子技能矩阵
 
