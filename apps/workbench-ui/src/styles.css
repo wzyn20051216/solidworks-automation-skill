@@ -341,32 +341,62 @@ textarea {
   -webkit-app-region: drag;
 }
 
-.traffic-lights {
+.window-controls {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
 }
 
-.traffic-lights button {
-  display: block;
-  width: 12px;
-  height: 12px;
-  padding: 0;
-  border: 0;
+.window-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid rgba(37, 53, 74, 0.08);
   border-radius: 999px;
+  color: #2a3a50;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 10px 26px rgba(72, 96, 122, 0.07);
   cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
   -webkit-app-region: no-drag;
 }
 
-.traffic-lights button:nth-child(1) {
-  background: #ff6159;
+.window-control svg {
+  flex: 0 0 auto;
 }
 
-.traffic-lights button:nth-child(2) {
-  background: #ffbd2e;
+.window-control.minimize {
+  color: #8a6400;
+  background: color-mix(in srgb, #ffbd2e 20%, #ffffff);
 }
 
-.traffic-lights button:nth-child(3) {
-  background: #28c840;
+.window-control.maximize {
+  color: #166c37;
+  background: color-mix(in srgb, #28c840 17%, #ffffff);
+}
+
+.window-control.close {
+  color: #9f2525;
+  background: color-mix(in srgb, #ff6159 18%, #ffffff);
+}
+
+.window-controls small {
+  flex-basis: 100%;
+  overflow: hidden;
+  max-width: 230px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .project-title {
@@ -1680,7 +1710,7 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .traffic-lights,
+  .window-controls,
   .toolbar-actions,
   .command-row {
     justify-content: center;

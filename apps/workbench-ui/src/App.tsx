@@ -10,13 +10,16 @@ import {
   ImageSquare,
   Layout,
   Lightning,
+  Minus,
   Play,
   Ruler,
   ShieldCheck,
   SlidersHorizontal,
   Sparkle,
+  Square,
   UploadSimple,
   WarningCircle,
+  X,
 } from "@phosphor-icons/react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -448,6 +451,7 @@ function App() {
   const [jobs, setJobs] = useState<AutomationJob[]>([]);
   const [jobEvents, setJobEvents] = useState<Record<string, QueueEvent[]>>({});
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus>({ running: false, message: "桌面端可启动" });
+  const [windowHint, setWindowHint] = useState("桌面窗口控制");
   const [codexConfig, setCodexConfig] = useState<CodexConfig>({
     objective: "根据用户输入自动判断最佳 CAD 任务类型、制造方式、材料和交付格式，生成可制造结果并解释选择理由。",
     target: "auto",
@@ -799,11 +803,21 @@ function App() {
   }
 
   async function controlWindow(action: "close" | "minimize" | "maximize") {
-    if (!isTauriRuntime()) return;
-    const appWindow = getCurrentWindow();
-    if (action === "close") await appWindow.close();
-    if (action === "minimize") await appWindow.minimize();
-    if (action === "maximize") await appWindow.toggleMaximize();
+    const labels = { close: "关闭", minimize: "最小化", maximize: "最大化/还原" };
+    if (!isTauriRuntime()) {
+      setWindowHint("浏览器预览不控制窗口，请打开桌面版使用");
+      return;
+    }
+    try {
+      const appWindow = getCurrentWindow();
+      setWindowHint(`正在${labels[action]}窗口`);
+      if (action === "close") await appWindow.close();
+      if (action === "minimize") await appWindow.minimize();
+      if (action === "maximize") await appWindow.toggleMaximize();
+      if (action !== "close") setWindowHint(`已${labels[action]}`);
+    } catch (error) {
+      setWindowHint(`窗口控制失败: ${String(error)}`);
+    }
   }
 
   useEffect(() => {
@@ -989,10 +1003,44 @@ function App() {
 
         <section className="main-window liquid">
           <header className="window-bar app-toolbar">
-            <div className="traffic-lights" aria-label="窗口控制">
-              <button type="button" aria-label="关闭窗口" onClick={() => controlWindow("close")} />
-              <button type="button" aria-label="最小化窗口" onClick={() => controlWindow("minimize")} />
-              <button type="button" aria-label="最大化窗口" onClick={() => controlWindow("maximize")} />
+            <div className="window-controls" aria-label="窗口控制">
+              <motion.button
+                className="window-control minimize"
+                type="button"
+                title="最小化窗口"
+                aria-label="最小化窗口"
+                onClick={() => controlWindow("minimize")}
+                whileHover={reducedMotion ? undefined : { y: -1 }}
+                whileTap={{ scale: 0.96 }}
+              >
+                <Minus size={14} weight="bold" />
+                <span>最小化</span>
+              </motion.button>
+              <motion.button
+                className="window-control maximize"
+                type="button"
+                title="最大化或还原窗口"
+                aria-label="最大化或还原窗口"
+                onClick={() => controlWindow("maximize")}
+                whileHover={reducedMotion ? undefined : { y: -1 }}
+                whileTap={{ scale: 0.96 }}
+              >
+                <Square size={12} weight="bold" />
+                <span>最大化</span>
+              </motion.button>
+              <motion.button
+                className="window-control close"
+                type="button"
+                title="关闭窗口"
+                aria-label="关闭窗口"
+                onClick={() => controlWindow("close")}
+                whileHover={reducedMotion ? undefined : { y: -1 }}
+                whileTap={{ scale: 0.96 }}
+              >
+                <X size={13} weight="bold" />
+                <span>关闭</span>
+              </motion.button>
+              <small>{windowHint}</small>
             </div>
             <div className="project-title">
               <strong>{currentPage.title}</strong>
