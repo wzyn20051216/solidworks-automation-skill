@@ -1061,6 +1061,43 @@ textarea {
   box-shadow: 0 0 0 4px var(--accent-soft), inset 0 1px 0 rgba(255, 255, 255, 0.86);
 }
 
+.number-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.number-grid label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.number-grid em {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.number-grid input {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid rgba(57, 76, 104, 0.1);
+  border-radius: 12px;
+  padding: 0 9px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.68);
+  outline: none;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.number-grid input:focus {
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
 .segmented-control {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

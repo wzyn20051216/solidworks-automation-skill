@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from .agent_contracts import DEFAULT_PROFILE, codex_output_path, compile_codex_prompt, validate_codex_job
 from .core import now_iso
 
 
@@ -103,60 +104,21 @@ def mock_delivery_package(job: dict[str, Any]) -> dict[str, Any]:
 
 def build_codex_prompt(job: dict[str, Any]) -> str:
     """@brief 把图形化配置任务转换为 Codex 可执行提示词。"""
-    objective = str(job.get("objective") or job.get("detail") or "执行 CAD 自动化任务")
-    target = str(job.get("target") or "solidworks-automation skill")
-    output = str(job.get("expectedOutput") or "完成实现、验证并总结结果")
-    project_path = job.get("projectPath") or "未指定"
-    strict_rules = job.get("strictRules") if isinstance(job.get("strictRules"), list) else []
-
-    rule_lines = "\n".join(f"- {rule}" for rule in strict_rules)
-    if not rule_lines:
-        rule_lines = "\n".join(
-            [
-                "- 必须遵守 3D 打印真实开孔要求，不能只画外观线。",
-                "- 必须遵守 GB/T 风格图纸规范，尺寸链、孔位和技术要求要完整。",
-                "- 修改后必须运行可用验证，并提交中文 commit。",
-            ]
-        )
-
-    return "\n".join(
-        [
-            "你是 Codex，请在本地仓库中执行 CAD 自动化任务。",
-            "",
-            "【任务目标】",
-            objective,
-            "",
-            "【目标对象】",
-            target,
-            "",
-            "【项目/模型路径】",
-            str(project_path),
-            "",
-            "【期望输出】",
-            output,
-            "",
-            "【强制规则】",
-            rule_lines,
-            "",
-            "【执行要求】",
-            "- 优先使用 solidworks-automation skill 及其子技能。",
-            "- 如果需要生成或修改图纸，必须按中国机械制图常用规范复核。",
-            "- 如果任务涉及上传 GitHub，完成验证后推送。",
-            "- 结束时用中文说明改了什么、验证了什么、输出在哪里。",
-        ]
-    )
+    return compile_codex_prompt(job, profile=DEFAULT_PROFILE)
 
 
 def run_codex_job(
     job: dict[str, Any],
     runner: CommandRunner | None = None,
     timeout_seconds: int = DEFAULT_CODEX_TIMEOUT_SECONDS,
+    full_access: bool = False,
 ) -> dict[str, Any]:
     """@brief 调用 codex exec 执行由 UI 生成的任务。"""
-    cwd = Path(str(job.get("cwd") or Path.cwd())).expanduser()
+    cwd = validate_codex_job(job)
     prompt = str(job.get("prompt") or build_codex_prompt(job))
-    output_path = Path(str(job.get("codexOutputPath") or cwd / "ai_team" / f"{job['id']}_codex_result.md"))
+    output_path = codex_output_path(job, cwd)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    sandbox = "danger-full-access" if full_access else "workspace-write"
 
     command = [
         "codex",
@@ -166,9 +128,11 @@ def run_codex_job(
         "-a",
         "never",
         "-s",
-        "danger-full-access",
+        sandbox,
         "-o",
         str(output_path),
+        "--output-schema",
+        str(DEFAULT_PROFILE.policy.output_schema_path),
         prompt,
     ]
     active_runner = runner or _run_command
@@ -183,6 +147,7 @@ def run_codex_job(
         "message": "Codex 已完成执行，结果已回写到本地输出文件。",
         "command": command[:2] + ["..."],
         "cwd": str(cwd),
+        "sandbox": sandbox,
         "outputPath": str(output_path),
         "stdoutTail": stdout[-4000:],
         "stderrTail": stderr[-4000:],
@@ -245,11 +210,11 @@ def process_job(path: Path, handlers: Mapping[str, JobHandler] | None = None) ->
     return job
 
 
-def build_handlers(enable_codex: bool = False) -> Mapping[str, JobHandler]:
+def build_handlers(enable_codex: bool = False, codex_full_access: bool = False) -> Mapping[str, JobHandler]:
     """@brief 根据 CLI 参数构建任务分发器。"""
     handlers: dict[str, JobHandler] = dict(DEFAULT_HANDLERS)
     if enable_codex:
-        handlers["codex_task"] = run_codex_job
+        handlers["codex_task"] = lambda job: run_codex_job(job, full_access=codex_full_access)
     return handlers
 
 
@@ -286,8 +251,9 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=None, help="单次最多处理任务数")
     parser.add_argument("--interval", type=float, default=1.0, help="监听轮询间隔秒数")
     parser.add_argument("--enable-codex", action="store_true", help="允许 worker 调用 codex exec 执行任务")
+    parser.add_argument("--codex-full-access", action="store_true", help="允许 Codex 使用 danger-full-access 沙箱")
     args = parser.parse_args()
-    handlers = build_handlers(enable_codex=args.enable_codex)
+    handlers = build_handlers(enable_codex=args.enable_codex, codex_full_access=args.codex_full_access)
 
     if args.watch:
         watch_queue(args.queue_dir, interval_seconds=args.interval, handlers=handlers)

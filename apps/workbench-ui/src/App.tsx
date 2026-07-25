@@ -42,6 +42,14 @@ type CodexConfig = {
   objective: string;
   target: "shell" | "drawing" | "skill" | "package";
   expectedOutput: "cad_files" | "drawing_package" | "skill_update" | "research_report";
+  process: "FDM" | "SLA" | "CNC" | "sheet_metal";
+  material: "PLA" | "PETG" | "ABS" | "Al6061";
+  unit: "mm";
+  length: number;
+  width: number;
+  height: number;
+  wallThickness: number;
+  outputDir: string;
   strictGbDrawing: boolean;
   realCutouts: boolean;
   commitAndPush: boolean;
@@ -49,7 +57,9 @@ type CodexConfig = {
 type AutomationJobKind = "create_shell" | "import_model" | "delivery_package" | "codex_task";
 type AutomationJobStatus = "queued" | "running" | "passed" | "failed" | "cancelled";
 type AutomationJob = {
+  schemaVersion: "1.0";
   id: string;
+  runId: string;
   kind: AutomationJobKind;
   title: string;
   detail: string;
@@ -57,6 +67,8 @@ type AutomationJob = {
   progress: number;
   createdAt: string;
   updatedAt: string;
+  requestedBy: string;
+  createdByAppVersion: string;
   projectPath?: string;
   executor?: "mock" | "codex";
   objective?: string;
@@ -72,6 +84,17 @@ type AutomationJob = {
     outputPath?: string;
     message?: string;
   };
+  uiConfig?: Record<string, unknown>;
+  policy?: {
+    sandbox: "read-only" | "workspace-write" | "danger-full-access";
+    approval: "never" | "manual-required";
+    requireSkillRead: boolean;
+    requireTests: boolean;
+    requireCommit: boolean;
+    requirePush: boolean;
+    requireReviewerPass: boolean;
+  };
+  artifacts?: Array<Record<string, unknown>>;
   error?: string;
 };
 
@@ -121,6 +144,7 @@ const reviewItems = [
 
 const SETTINGS_KEY = "cad-studio.settings.v1";
 const QUEUE_KEY = "cad-studio.queue.v1";
+const APP_VERSION = "0.1.0";
 const CODEX_CWD = "C:/Users/23201/.codex/skills/solidworks-automation";
 const CODEX_SKILL_PATH = `${CODEX_CWD}/SKILL.md`;
 
@@ -136,6 +160,13 @@ const codexOutputs: Record<CodexConfig["expectedOutput"], string> = {
   drawing_package: "DWG / DXF / PDF 图纸包",
   skill_update: "Skill 更新 + GitHub 推送",
   research_report: "调研报告 / 执行建议",
+};
+
+const processLabels: Record<CodexConfig["process"], string> = {
+  FDM: "FDM 3D 打印",
+  SLA: "SLA 光固化",
+  CNC: "CNC 加工",
+  sheet_metal: "钣金",
 };
 
 function stateLabel(state: StageState) {
@@ -224,7 +255,9 @@ function createJob(kind: AutomationJobKind, projectPath?: string, overrides: Par
   const now = new Date().toISOString();
   const copy = jobKindDetail(kind);
   return {
+    schemaVersion: "1.0",
     id: `job-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    runId: `run-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     kind,
     title: copy.title,
     detail: projectPath ? `${copy.detail} · ${displayNameFromPath(projectPath)}` : copy.detail,
@@ -232,6 +265,18 @@ function createJob(kind: AutomationJobKind, projectPath?: string, overrides: Par
     progress: 0,
     createdAt: now,
     updatedAt: now,
+    requestedBy: "local-user",
+    createdByAppVersion: APP_VERSION,
+    policy: {
+      sandbox: "workspace-write",
+      approval: "never",
+      requireSkillRead: true,
+      requireTests: true,
+      requireCommit: true,
+      requirePush: false,
+      requireReviewerPass: true,
+    },
+    artifacts: [],
     projectPath,
     ...overrides,
   };
@@ -251,6 +296,12 @@ function buildCodexPrompt(config: CodexConfig, projectPath?: string) {
     `任务类型: ${codexTargets[config.target]}`,
     `期望输出: ${codexOutputs[config.expectedOutput]}`,
     `项目/模型路径: ${projectPath || "未指定"}`,
+    `制造方式: ${processLabels[config.process]}`,
+    `材料: ${config.material}`,
+    `单位: ${config.unit}`,
+    `外形尺寸: ${config.length} x ${config.width} x ${config.height} ${config.unit}`,
+    `壁厚: ${config.wallThickness} ${config.unit}`,
+    `输出目录: ${config.outputDir}`,
     `Skill 路径: ${CODEX_SKILL_PATH}`,
     "",
     "强制规则:",
@@ -280,6 +331,14 @@ function App() {
     objective: "根据当前配置生成可 3D 打印的外壳，并严格检查真实开孔和图纸标注。",
     target: "shell",
     expectedOutput: "cad_files",
+    process: "FDM",
+    material: "PETG",
+    unit: "mm",
+    length: 120,
+    width: 80,
+    height: 35,
+    wallThickness: 1.6,
+    outputDir: "Documents/CADAutomationWorkbench",
     strictGbDrawing: true,
     realCutouts: true,
     commitAndPush: true,
@@ -383,6 +442,35 @@ function App() {
       prompt: codexPrompt,
       cwd: CODEX_CWD,
       skillPath: CODEX_SKILL_PATH,
+      policy: {
+        sandbox: "workspace-write",
+        approval: "never",
+        requireSkillRead: true,
+        requireTests: true,
+        requireCommit: codexConfig.commitAndPush,
+        requirePush: codexConfig.commitAndPush,
+        requireReviewerPass: true,
+      },
+      uiConfig: {
+        manufacturing: {
+          process: codexConfig.process,
+          processLabel: processLabels[codexConfig.process],
+          material: codexConfig.material,
+          unit: codexConfig.unit,
+        },
+        shell: {
+          length: codexConfig.length,
+          width: codexConfig.width,
+          height: codexConfig.height,
+          wallThickness: codexConfig.wallThickness,
+        },
+        gates: {
+          realCutouts: codexConfig.realCutouts,
+          strictGbDrawing: codexConfig.strictGbDrawing,
+          commitAndPush: codexConfig.commitAndPush,
+        },
+        outputDir: codexConfig.outputDir,
+      },
     });
     upsertJob(job);
     if (!isTauriRuntime()) simulateJob(job);
@@ -902,6 +990,45 @@ function App() {
               </label>
 
               <div className="bridge-field">
+                <span>制造方式</span>
+                <div className="segmented-control">
+                  {(Object.keys(processLabels) as Array<CodexConfig["process"]>).map((process) => (
+                    <button
+                      type="button"
+                      className={codexConfig.process === process ? "active" : ""}
+                      key={process}
+                      onClick={() => updateCodexConfig({ process })}
+                    >
+                      {processLabels[process]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bridge-field compact-inputs">
+                <span>外壳参数</span>
+                <div className="number-grid">
+                  {[
+                    ["length", "长"],
+                    ["width", "宽"],
+                    ["height", "高"],
+                    ["wallThickness", "壁厚"],
+                  ].map(([key, label]) => (
+                    <label key={key}>
+                      <em>{label}</em>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={codexConfig[key as "length" | "width" | "height" | "wallThickness"]}
+                        onChange={(event) => updateCodexConfig({ [key]: Number(event.target.value) } as Partial<CodexConfig>)}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bridge-field">
                 <span>目标模块</span>
                 <div className="segmented-control">
                   {(Object.keys(codexTargets) as Array<CodexConfig["target"]>).map((target) => (
@@ -955,8 +1082,12 @@ function App() {
                 <span>Skill</span>
                 <strong>solidworks-automation</strong>
               </div>
+              <div className="runtime-line">
+                <span>制造输入</span>
+                <strong>{`${processLabels[codexConfig.process]} · ${codexConfig.material} · ${codexConfig.length}x${codexConfig.width}x${codexConfig.height}`}</strong>
+              </div>
               <div className="prompt-preview">
-                <span>Prompt Preview</span>
+                <span>执行计划预览</span>
                 <p>{codexPrompt}</p>
               </div>
               <motion.button className="primary-button bridge-run shine" onClick={enqueueCodexTask} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.975 }}>

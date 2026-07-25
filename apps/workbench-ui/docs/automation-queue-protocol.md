@@ -42,7 +42,9 @@ python -m apps.desktop.cad_workbench.queue_worker --watch --queue-dir "<队列�
 
 ```json
 {
+  "schemaVersion": "1.0",
   "id": "job-1721900000000-a1b2c3",
+  "runId": "run-1721900000000-a1b2c3",
   "kind": "create_shell",
   "title": "新建外壳",
   "detail": "生成参数化壳体、开孔和基础检查任务",
@@ -50,8 +52,25 @@ python -m apps.desktop.cad_workbench.queue_worker --watch --queue-dir "<队列�
   "progress": 0,
   "createdAt": "2026-07-25T12:00:00.000Z",
   "updatedAt": "2026-07-25T12:00:00.000Z",
+  "requestedBy": "local-user",
+  "createdByAppVersion": "0.1.0",
+  "policy": {
+    "sandbox": "workspace-write",
+    "approval": "never",
+    "requireSkillRead": true,
+    "requireTests": true,
+    "requireCommit": true,
+    "requirePush": false,
+    "requireReviewerPass": true
+  },
   "projectPath": "D:/demo/demo_shell.step"
 }
+```
+
+机器可读 Schema:
+
+```text
+apps/desktop/cad_workbench/schemas/automation_job.schema.json
 ```
 
 任务类型:
@@ -109,12 +128,14 @@ python -m apps.desktop.cad_workbench.queue_worker --watch --enable-codex --queue
 worker 会调用:
 
 ```powershell
-codex exec -C "<cwd>" -a never -s danger-full-access -o "<输出文件>" "<prompt>"
+codex exec -C "<cwd>" -a never -s workspace-write -o "<输出文件>" --output-schema "<schema>" "<prompt>"
 ```
 
 注意:
 
 - `--enable-codex` 是显式开关，避免普通 mock 调试误触发真实 Codex 执行。
+- 默认只允许 `workspace-write`，若确需全权限，必须额外传 `--codex-full-access`。
+- worker 会校验 `cwd` 必须位于仓库白名单内，并强制输出到 `<cwd>/ai_team/{job_id}_codex_result.md`。
 - UI 负责生成 prompt 和执行约束，Codex 负责实际读写文件、调用 skill、运行验证、提交推送。
 - Codex 输出会写入 `ai_team/{job_id}_codex_result.md`，同时在任务 JSON 的 `result.outputPath` 中回写路径。
 

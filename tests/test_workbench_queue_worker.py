@@ -1,6 +1,7 @@
 from pathlib import Path
 import subprocess
 
+from apps.desktop.cad_workbench.agent_contracts import DEFAULT_PROFILE, codex_output_path, resolve_workspace, validate_codex_job
 from apps.desktop.cad_workbench.queue_worker import build_codex_prompt, process_queue, read_job, run_codex_job, write_job
 
 
@@ -67,6 +68,7 @@ def test_codex_prompt_contains_ui_configuration() -> None:
             "objective": "按配置生成带真实 USB-C 开孔的外壳",
             "expectedOutput": "输出 SLDPRT、STEP、STL 和 GB/T 图纸",
             "strictRules": ["真实开孔必须切透实体", "提交并推送 GitHub"],
+            "uiConfig": {"manufacturing": {"process": "FDM"}, "shell": {"wallThickness": 1.6}},
         }
     )
 
@@ -75,6 +77,7 @@ def test_codex_prompt_contains_ui_configuration() -> None:
     assert "按配置生成带真实 USB-C 开孔的外壳" in prompt
     assert "真实开孔必须切透实体" in prompt
     assert "solidworks-automation skill" in prompt
+    assert '"wallThickness": 1.6' in prompt
 
 
 def test_codex_executor_requires_enable_flag(tmp_path: Path) -> None:
@@ -95,9 +98,9 @@ def test_codex_executor_invokes_codex_exec_with_prompt(tmp_path: Path) -> None:
     job.update(
         {
             "executor": "codex",
-            "cwd": str(tmp_path),
+            "cwd": str(Path(__file__).resolve().parents[1]),
             "prompt": "执行一次可控 Codex 桥接测试",
-            "codexOutputPath": str(tmp_path / "codex_result.md"),
+            "codexOutputPath": str(tmp_path / "ignored.md"),
         }
     )
     calls = []
@@ -109,7 +112,39 @@ def test_codex_executor_invokes_codex_exec_with_prompt(tmp_path: Path) -> None:
     result = run_codex_job(job, runner=fake_runner, timeout_seconds=3)
 
     assert result["mode"] == "codex"
+    assert result["sandbox"] == "workspace-write"
     assert calls[0][0][:2] == ["codex", "exec"]
     assert "执行一次可控 Codex 桥接测试" in calls[0][0]
-    assert calls[0][1] == tmp_path
+    assert "-s" in calls[0][0]
+    assert "workspace-write" in calls[0][0]
+    assert "--output-schema" in calls[0][0]
+    assert str(DEFAULT_PROFILE.policy.output_schema_path) in calls[0][0]
+    assert str(tmp_path / "ignored.md") not in calls[0][0]
     assert calls[0][2] == 3
+
+
+def test_enterprise_profile_uses_restricted_default_sandbox() -> None:
+    assert DEFAULT_PROFILE.policy.sandbox == "workspace-write"
+
+
+def test_codex_executor_rejects_cwd_outside_workspace(tmp_path: Path) -> None:
+    job = _queued_job("job-7", "codex_task")
+    job.update({"executor": "codex", "cwd": str(tmp_path), "prompt": "越界测试"})
+
+    try:
+        validate_codex_job(job)
+    except ValueError as error:
+        assert "cwd 不在允许工作区内" in str(error)
+    else:
+        raise AssertionError("应拒绝仓库外 cwd")
+
+
+def test_codex_output_path_is_forced_inside_workspace() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    job = _queued_job("job-8", "codex_task")
+    job.update({"executor": "codex", "cwd": str(repo), "codexOutputPath": "C:/Windows/win.ini"})
+
+    cwd = resolve_workspace(job)
+    output = codex_output_path(job, cwd)
+
+    assert output == repo / "ai_team" / "job-8_codex_result.md"

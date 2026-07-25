@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CAD Studio Codex Final Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "changedFiles", "verification", "risks", "nextSteps"],
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "中文总结本次任务完成情况。"
+    },
+    "changedFiles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "本次修改或生成的关键文件路径。"
+    },
+    "verification": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "status", "note"],
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["passed", "failed", "skipped"]
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "仍需人工关注的风险。"
+    },
+    "nextSteps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "建议的下一步动作。"
+    }
+  }
+}

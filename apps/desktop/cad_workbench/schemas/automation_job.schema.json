@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CAD Studio Automation Job",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "id", "runId", "kind", "title", "detail", "status", "progress", "createdAt", "updatedAt"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,96}$"
+    },
+    "runId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,120}$"
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["create_shell", "import_model", "delivery_package", "codex_task"]
+    },
+    "executor": {
+      "type": "string",
+      "enum": ["mock", "codex"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["queued", "running", "passed", "failed", "cancelled", "approval_required"]
+    },
+    "progress": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "requestedBy": {
+      "type": "string"
+    },
+    "createdByAppVersion": {
+      "type": "string"
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sandbox": {
+          "type": "string",
+          "enum": ["read-only", "workspace-write", "danger-full-access"]
+        },
+        "approval": {
+          "type": "string",
+          "enum": ["never", "manual-required"]
+        },
+        "requireSkillRead": {
+          "type": "boolean"
+        },
+        "requireTests": {
+          "type": "boolean"
+        },
+        "requireCommit": {
+          "type": "boolean"
+        },
+        "requirePush": {
+          "type": "boolean"
+        },
+        "requireReviewerPass": {
+          "type": "boolean"
+        }
+      }
+    },
+    "uiConfig": {
+      "type": "object"
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  }
+}

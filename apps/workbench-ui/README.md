@@ -112,5 +112,17 @@ Codex Bridge 的职责边界:
 
 - UI 负责收集点击配置、工程规则、目标输出和 prompt 预览。
 - 队列负责把任务持久化为 JSON。
-- worker 负责调用 `codex exec`。
+- worker 负责校验任务、限制工作区、固定输出路径并调用 `codex exec`。
 - Codex 负责真正执行 skill、修改文件、运行验证、提交和推送。
+
+默认 Codex 沙箱为 `workspace-write`。如确需全权限，需要显式增加:
+
+```powershell
+python -m apps.desktop.cad_workbench.queue_worker --watch --enable-codex --codex-full-access --queue-dir "<队列目录>"
+```
+
+企业控制平面说明:
+
+```text
+docs\agent-framework\enterprise-agent-control-plane.md
+```
