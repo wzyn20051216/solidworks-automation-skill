@@ -43,6 +43,44 @@ type AppSettings = {
   wallpaperVignette: number;
   recentWallpapers: RecentWallpaper[];
   recentProjectPath?: string;
+  apiConfig?: ApiIntegrationConfig;
+};
+type ApiIntegrationMode = "codex_cli" | "cc_switch" | "openai_compatible" | "manual";
+type ApiProviderSummary = {
+  id?: string;
+  name?: string;
+  active?: boolean;
+  endpoint?: string;
+  model?: string;
+  hasApiKey?: boolean;
+  redactedApiKey?: string;
+};
+type CcSwitchSync = {
+  source?: string;
+  rootPath?: string;
+  configPath?: string;
+  settingsPath?: string;
+  syncedAt?: string;
+  codexCurrent?: string;
+  claudeCurrent?: string;
+  codexProviders?: ApiProviderSummary[];
+  claudeProviders?: ApiProviderSummary[];
+  settings?: {
+    currentProviderCodex?: string;
+    currentProviderClaude?: string;
+    enableLocalProxy?: boolean;
+    enableFailoverToggle?: boolean;
+    skillSyncMethod?: string;
+  };
+};
+type ApiIntegrationConfig = {
+  mode: ApiIntegrationMode;
+  providerName: string;
+  endpoint: string;
+  model: string;
+  keyStatus: "missing" | "configured" | "synced";
+  lastSyncAt?: string;
+  sourcePath?: string;
 };
 type CodexConfig = {
   objective: string;
@@ -250,6 +288,14 @@ const CODEX_CWD = "C:/Users/23201/.codex/skills/solidworks-automation";
 const CODEX_SKILL_PATH = `${CODEX_CWD}/SKILL.md`;
 const AUTOCAD_SKILL_PATH = `${CODEX_CWD}/subskills/autocad-automation/SKILL.md`;
 
+const defaultApiConfig: ApiIntegrationConfig = {
+  mode: "codex_cli",
+  providerName: "Codex CLI",
+  endpoint: "本机 Codex 登录态",
+  model: "由 Codex 配置决定",
+  keyStatus: "configured",
+};
+
 const cadApplicationLabels: Record<CodexConfig["cadApplication"], string> = {
   auto: "AI 自动选软件",
   solidworks: "SolidWorks 三维建模",
@@ -401,6 +447,17 @@ function loadSettings(): AppSettings | null {
       wallpaperVignette: clampNumber(parsed.wallpaperVignette, 18, 0, 42),
       recentWallpapers: Array.isArray(parsed.recentWallpapers) ? parsed.recentWallpapers.slice(0, 6) : [],
       recentProjectPath: parsed.recentProjectPath,
+      apiConfig: parsed.apiConfig
+        ? {
+            mode: parsed.apiConfig.mode ?? defaultApiConfig.mode,
+            providerName: parsed.apiConfig.providerName ?? defaultApiConfig.providerName,
+            endpoint: parsed.apiConfig.endpoint ?? defaultApiConfig.endpoint,
+            model: parsed.apiConfig.model ?? defaultApiConfig.model,
+            keyStatus: parsed.apiConfig.keyStatus ?? defaultApiConfig.keyStatus,
+            lastSyncAt: parsed.apiConfig.lastSyncAt,
+            sourcePath: parsed.apiConfig.sourcePath,
+          }
+        : defaultApiConfig,
     };
   } catch {
     return null;
@@ -484,7 +541,7 @@ function compactJobMessage(job: AutomationJob, events?: QueueEvent[]) {
   );
 }
 
-function buildChatPrompt(config: CodexConfig, userText: string, history: AgentChatMessage[], projectPath?: string) {
+function buildChatPrompt(config: CodexConfig, api: ApiIntegrationConfig, userText: string, history: AgentChatMessage[], projectPath?: string) {
   const recentHistory = history
     .slice(-8)
     .map((message) => `${message.role === "user" ? "用户" : message.role === "assistant" ? "AI" : "系统"}: ${message.content}`)
@@ -497,6 +554,7 @@ function buildChatPrompt(config: CodexConfig, userText: string, history: AgentCh
     "- 如果用户说继续改、重做、调整审美或补充尺寸，需要基于上文和本地文件继续推进，而不是从零开始。",
     "- 面向普通用户表达，不暴露无关开发者配置；必要的命令、文件路径和失败原因要写清楚。",
     "- 若涉及 SolidWorks 或 AutoCAD，本轮仍遵循本地 skills 和中国机械制图/可制造规范。",
+    `- 当前 AI 接入方式: ${apiModeLabel(api.mode)}；Provider: ${api.providerName}；Endpoint: ${api.endpoint}；Model: ${api.model}；Key: ${keyStatusLabel(api.keyStatus)}。`,
     "",
     "最近对话:",
     recentHistory || "暂无历史对话。",
@@ -504,6 +562,19 @@ function buildChatPrompt(config: CodexConfig, userText: string, history: AgentCh
     "用户本次指令:",
     userText,
   ].join("\n");
+}
+
+function apiModeLabel(mode: ApiIntegrationMode) {
+  if (mode === "cc_switch") return "同步 CC Switch";
+  if (mode === "openai_compatible") return "OpenAI 兼容 API";
+  if (mode === "manual") return "手动 API";
+  return "Codex CLI";
+}
+
+function keyStatusLabel(status: ApiIntegrationConfig["keyStatus"]) {
+  if (status === "synced") return "已同步";
+  if (status === "configured") return "已配置";
+  return "未配置";
 }
 
 function createJob(kind: AutomationJobKind, projectPath?: string, overrides: Partial<AutomationJob> = {}): AutomationJob {
@@ -592,6 +663,9 @@ function App() {
   const [wallpaperVignette, setWallpaperVignette] = useState(18);
   const [recentWallpapers, setRecentWallpapers] = useState<RecentWallpaper[]>([]);
   const [recentProjectPath, setRecentProjectPath] = useState<string | undefined>();
+  const [apiConfig, setApiConfig] = useState<ApiIntegrationConfig>(defaultApiConfig);
+  const [ccSwitchSync, setCcSwitchSync] = useState<CcSwitchSync | null>(null);
+  const [apiSyncMessage, setApiSyncMessage] = useState("可同步 CC Switch，也可继续使用本机 Codex CLI。");
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [queueLoaded, setQueueLoaded] = useState(false);
   const [jobs, setJobs] = useState<AutomationJob[]>([]);
@@ -740,6 +814,36 @@ function App() {
     }
   }
 
+  async function syncCcSwitchConfig() {
+    if (!isTauriRuntime()) {
+      setApiSyncMessage("浏览器预览不能读取本机 CC Switch 配置，请在桌面版中同步。");
+      return;
+    }
+    setApiSyncMessage("正在读取 CC Switch 配置...");
+    try {
+      const sync = await invoke<CcSwitchSync>("sync_cc_switch_config");
+      const provider =
+        sync.codexProviders?.find((item) => item.active) ||
+        sync.codexProviders?.[0] ||
+        sync.claudeProviders?.find((item) => item.active) ||
+        sync.claudeProviders?.[0];
+      const nextConfig: ApiIntegrationConfig = {
+        mode: "cc_switch",
+        providerName: provider?.name || provider?.id || "CC Switch",
+        endpoint: provider?.endpoint || "由 CC Switch 配置决定",
+        model: provider?.model || "由 CC Switch 配置决定",
+        keyStatus: provider?.hasApiKey ? "synced" : "missing",
+        lastSyncAt: sync.syncedAt,
+        sourcePath: sync.configPath,
+      };
+      setCcSwitchSync(sync);
+      setApiConfig(nextConfig);
+      setApiSyncMessage(provider?.hasApiKey ? "已同步 CC Switch 配置，密钥仅显示脱敏状态。" : "已同步 CC Switch，但当前 provider 没检测到 API Key。");
+    } catch (error) {
+      setApiSyncMessage(`同步失败: ${String(error)}`);
+    }
+  }
+
   function simulateJob(job: AutomationJob) {
     window.setTimeout(() => {
       updateJob(job.id, (item) => ({ ...item, status: "running", progress: 18, updatedAt: new Date().toISOString() }));
@@ -843,7 +947,7 @@ function App() {
     if (!text) return;
 
     const userMessage = createChatMessage("user", text);
-    const prompt = buildChatPrompt(codexConfig, text, [...agentMessages, userMessage], recentProjectPath);
+    const prompt = buildChatPrompt(codexConfig, apiConfig, text, [...agentMessages, userMessage], recentProjectPath);
     const job = createJob("codex_task", recentProjectPath, {
       executor: "codex",
       title: "AI 对话执行",
@@ -875,6 +979,7 @@ function App() {
         agentChat: true,
         outputDir: codexConfig.outputDir,
         sourceJobId: activeAgentJob?.id,
+        apiRuntime: apiConfig,
         cadRuntime: {
           application: codexConfig.cadApplication,
           applicationLabel: cadApplicationLabels[codexConfig.cadApplication],
@@ -1083,6 +1188,7 @@ function App() {
       setWallpaperVignette(settings.wallpaperVignette);
       setRecentWallpapers(settings.recentWallpapers);
       setRecentProjectPath(settings.recentProjectPath);
+      setApiConfig(settings.apiConfig ?? defaultApiConfig);
       if (settings.customWallpaperPath) setCustomWallpaper(wallpaperFromPath(settings.customWallpaperPath));
     }
     setSettingsLoaded(true);
@@ -1204,9 +1310,10 @@ function App() {
       wallpaperVignette,
       recentWallpapers,
       recentProjectPath,
+      apiConfig,
     };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-  }, [activeWallpaper, customWallpaper?.sourcePath, recentProjectPath, recentWallpapers, settingsLoaded, wallpaperBlur, wallpaperBrightness, wallpaperVignette]);
+  }, [activeWallpaper, apiConfig, customWallpaper?.sourcePath, recentProjectPath, recentWallpapers, settingsLoaded, wallpaperBlur, wallpaperBrightness, wallpaperVignette]);
 
   const activeWallpaperName =
     activeWallpaper === "custom" ? customWallpaper?.name ?? "我的壁纸" : wallpapers.find((item) => item.id === activeWallpaper)?.name ?? "Aurora";
@@ -1470,25 +1577,81 @@ function App() {
 
           {activeTab === "settings" ? (
             <section className="tab-surface">
-              <div className="settings-grid">
-                <article className="setting-card">
-                  <span>Worker</span>
+              <div className="settings-studio">
+                <article className="setting-card api-card primary-setting">
+                  <div className="setting-title">
+                    <span>AI 接入</span>
+                    <strong>{apiModeLabel(apiConfig.mode)}</strong>
+                    <p>决定 CAD Agent 底层接谁。默认可用 Codex CLI，也可以一键同步 CC Switch 的 provider、模型和接口配置。</p>
+                  </div>
+                  <div className="api-mode-grid">
+                    {(["codex_cli", "cc_switch", "openai_compatible", "manual"] as ApiIntegrationMode[]).map((mode) => (
+                      <button
+                        type="button"
+                        className={apiConfig.mode === mode ? "active" : ""}
+                        key={mode}
+                        onClick={() => setApiConfig((config) => ({ ...config, mode }))}
+                      >
+                        {apiModeLabel(mode)}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="api-form-grid">
+                    <label>
+                      <span>Provider</span>
+                      <input value={apiConfig.providerName} onChange={(event) => setApiConfig((config) => ({ ...config, providerName: event.target.value }))} />
+                    </label>
+                    <label>
+                      <span>Model</span>
+                      <input value={apiConfig.model} onChange={(event) => setApiConfig((config) => ({ ...config, model: event.target.value }))} />
+                    </label>
+                    <label className="wide">
+                      <span>Base URL / 执行入口</span>
+                      <input value={apiConfig.endpoint} onChange={(event) => setApiConfig((config) => ({ ...config, endpoint: event.target.value }))} />
+                    </label>
+                  </div>
+                  <div className="api-sync-row">
+                    <button type="button" onClick={() => void syncCcSwitchConfig()}>
+                      同步 CC Switch
+                    </button>
+                    <span>{apiSyncMessage}</span>
+                  </div>
+                  <div className="api-status-strip">
+                    <span>密钥状态: {keyStatusLabel(apiConfig.keyStatus)}</span>
+                    <span>配置来源: {apiConfig.sourcePath || "CAD Studio 本地设置"}</span>
+                    <span>同步时间: {formatTimeLabel(apiConfig.lastSyncAt)}</span>
+                  </div>
+                  {ccSwitchSync?.codexProviders?.length ? (
+                    <div className="provider-list">
+                      {ccSwitchSync.codexProviders.slice(0, 4).map((provider) => (
+                        <div className={provider.active ? "provider-row active" : "provider-row"} key={provider.id || provider.name}>
+                          <strong>{provider.name || provider.id}</strong>
+                          <span>{provider.model || "模型跟随 CC Switch"}</span>
+                          <small>{provider.hasApiKey ? `Key ${provider.redactedApiKey || "已配置"}` : "未检测到 Key"}</small>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </article>
+
+                <article className="setting-card status-setting">
+                  <span>本地执行</span>
                   <strong>{workerStatus.running ? `运行中 · PID ${workerStatus.pid ?? "-"}` : "未启动"}</strong>
                   <p>{workerStatus.health?.heartbeatAt ? `最近心跳 ${workerStatus.health.heartbeatAt}` : workerStatus.message}</p>
                   <button type="button" onClick={() => void (workerStatus.running ? stopLocalWorker() : startLocalWorker())}>
-                    {workerStatus.running ? "停止本地 Worker" : "启动本地 Worker"}
+                    {workerStatus.running ? "停止本地执行器" : "启动本地执行器"}
                   </button>
                 </article>
-                <article className="setting-card">
-                  <span>Codex Bridge</span>
-                  <strong>本地输出</strong>
-                  <p>任务只保存到本机目标位置。本机 CAD 自动化会经过 Policy Gate 审批，不向 GitHub 发布。</p>
+                <article className="setting-card status-setting amber">
+                  <span>本地输出</span>
+                  <strong>只保存到本机</strong>
+                  <p>{codexConfig.outputDir}</p>
                   <button type="button" onClick={chooseOutputDir}>选择输出文件夹</button>
                 </article>
-                <article className="setting-card">
-                  <span>Appearance</span>
+                <article className="setting-card status-setting dark">
+                  <span>外观</span>
                   <strong>{activeWallpaperName}</strong>
-                  <p>支持导入本地图片、GIF 和视频壁纸，设置保存在本机。</p>
+                  <p>支持本地图片、GIF 和视频壁纸。建议用低饱和背景，避免影响 CAD 信息阅读。</p>
                   <button type="button" onClick={() => setAppearanceOpen(true)}>打开外观设置</button>
                 </article>
               </div>
@@ -1518,6 +1681,8 @@ function App() {
             </section>
           )}
 
+          {activeTab !== "settings" ? (
+            <>
           <section className="content-grid workbench-grid">
             <motion.article className="preview-card" layout>
               <div className="panel-heading">
@@ -2072,6 +2237,8 @@ function App() {
               ))}
             </div>
           </footer>
+            </>
+          ) : null}
         </section>
       </motion.section>
 

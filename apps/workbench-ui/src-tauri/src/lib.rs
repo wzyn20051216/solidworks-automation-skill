@@ -167,6 +167,107 @@ fn read_worker_health(app: &AppHandle) -> Option<Value> {
     serde_json::from_str::<Value>(&raw).ok()
 }
 
+fn command_exists(program: &str, args: &[&str]) -> bool {
+    Command::new(program)
+        .args(args)
+        .arg("--version")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn python_command() -> Result<(String, Vec<String>), String> {
+    if command_exists("python", &[]) {
+        return Ok(("python".to_string(), Vec::new()));
+    }
+    if command_exists("py", &["-3"]) {
+        return Ok(("py".to_string(), vec!["-3".to_string()]));
+    }
+    Err(
+        "没有找到 Python。请先安装 Python 3，或把 python/py 加入 PATH 后再启动本地执行器。"
+            .to_string(),
+    )
+}
+
+fn redact_secret(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return "".to_string();
+    }
+    if trimmed.len() <= 8 {
+        return "已配置".to_string();
+    }
+    format!("{}***{}", &trimmed[..4], &trimmed[trimmed.len() - 4..])
+}
+
+fn object_string_value<'a>(object: &'a Value, names: &[&str]) -> Option<&'a str> {
+    for name in names {
+        if let Some(value) = object.get(*name).and_then(Value::as_str) {
+            if !value.trim().is_empty() {
+                return Some(value);
+            }
+        }
+    }
+    None
+}
+
+fn provider_summary(id: &str, provider: &Value, current: Option<&str>) -> Value {
+    let settings = provider.get("settingsConfig").unwrap_or(provider);
+    let name = object_string_value(provider, &["name", "label"])
+        .or_else(|| object_string_value(settings, &["name", "label"]))
+        .unwrap_or(id);
+    let endpoint = object_string_value(
+        settings,
+        &[
+            "baseURL", "baseUrl", "base_url", "apiBase", "api_base", "endpoint", "url",
+        ],
+    );
+    let model = object_string_value(
+        settings,
+        &["model", "modelName", "defaultModel", "default_model"],
+    );
+    let secret = object_string_value(
+        settings,
+        &[
+            "apiKey",
+            "api_key",
+            "authToken",
+            "auth_token",
+            "token",
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+        ],
+    );
+
+    json!({
+        "id": id,
+        "name": name,
+        "active": current == Some(id),
+        "endpoint": endpoint.unwrap_or(""),
+        "model": model.unwrap_or(""),
+        "hasApiKey": secret.is_some(),
+        "redactedApiKey": secret.map(redact_secret).unwrap_or_default()
+    })
+}
+
+fn providers_for(root: &Value, group: &str) -> Vec<Value> {
+    let current = root
+        .get(group)
+        .and_then(|item| item.get("current"))
+        .and_then(Value::as_str);
+    let mut providers = Vec::new();
+    if let Some(map) = root
+        .get(group)
+        .and_then(|item| item.get("providers"))
+        .and_then(Value::as_object)
+    {
+        for (id, provider) in map {
+            providers.push(provider_summary(id, provider, current));
+        }
+    }
+    providers
+}
+
 #[tauri::command]
 fn save_queue_job(app: AppHandle, job: Value) -> Result<(), String> {
     let id = job
@@ -264,7 +365,9 @@ fn start_worker(
     }
 
     let queue = queue_dir(&app)?;
-    let mut command = Command::new("python");
+    let (python, python_args) = python_command()?;
+    let mut command = Command::new(python);
+    command.args(python_args);
     command
         .current_dir(repo_path)
         .arg("-m")
@@ -281,7 +384,9 @@ fn start_worker(
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
 
-    let child = command.spawn().map_err(|error| error.to_string())?;
+    let child = command
+        .spawn()
+        .map_err(|error| format!("本地执行器启动失败: {error}"))?;
     let pid = child.id();
     *guard = Some(child);
     Ok(json!({
@@ -377,6 +482,47 @@ fn read_queue_log_tail(app: AppHandle, id: String) -> Result<Value, String> {
     }))
 }
 
+#[tauri::command]
+fn sync_cc_switch_config() -> Result<Value, String> {
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .map_err(|_| "无法定位用户目录，不能读取 CC Switch 配置。".to_string())?;
+    let root = PathBuf::from(home).join(".cc-switch");
+    let config_path = root.join("config.json");
+    let settings_path = root.join("settings.json");
+    if !config_path.exists() {
+        return Err(
+            "没有找到 .cc-switch/config.json。请先确认 CC Switch 已安装并完成配置。".to_string(),
+        );
+    }
+
+    let config_raw = fs::read_to_string(&config_path).map_err(|error| error.to_string())?;
+    let config = serde_json::from_str::<Value>(&config_raw).map_err(|error| error.to_string())?;
+    let settings = fs::read_to_string(&settings_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .unwrap_or(Value::Null);
+
+    Ok(json!({
+        "source": "CC Switch",
+        "rootPath": root.to_string_lossy(),
+        "configPath": config_path.to_string_lossy(),
+        "settingsPath": settings_path.to_string_lossy(),
+        "syncedAt": unix_timestamp_label(),
+        "codexCurrent": config.get("codex").and_then(|item| item.get("current")).and_then(Value::as_str).unwrap_or(""),
+        "claudeCurrent": config.get("claude").and_then(|item| item.get("current")).and_then(Value::as_str).unwrap_or(""),
+        "codexProviders": providers_for(&config, "codex"),
+        "claudeProviders": providers_for(&config, "claude"),
+        "settings": {
+            "currentProviderCodex": settings.get("currentProviderCodex").and_then(Value::as_str).unwrap_or(""),
+            "currentProviderClaude": settings.get("currentProviderClaude").and_then(Value::as_str).unwrap_or(""),
+            "enableLocalProxy": settings.get("enableLocalProxy").and_then(Value::as_bool).unwrap_or(false),
+            "enableFailoverToggle": settings.get("enableFailoverToggle").and_then(Value::as_bool).unwrap_or(false),
+            "skillSyncMethod": settings.get("skillSyncMethod").and_then(Value::as_str).unwrap_or("")
+        }
+    }))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -392,7 +538,8 @@ pub fn run() {
             stop_worker,
             read_queue_jobs,
             read_queue_events,
-            read_queue_log_tail
+            read_queue_log_tail,
+            sync_cc_switch_config
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
