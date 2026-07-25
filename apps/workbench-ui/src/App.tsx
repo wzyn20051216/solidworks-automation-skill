@@ -19,6 +19,9 @@ import {
   UploadSimple,
   WarningCircle,
 } from "@phosphor-icons/react";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { type CSSProperties, type ChangeEvent, type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 
@@ -78,6 +81,22 @@ function stateLabel(state: StageState) {
   return "待执行";
 }
 
+function isTauriRuntime() {
+  return "__TAURI_INTERNALS__" in window;
+}
+
+function isVideoPath(path: string) {
+  return /\.(mp4|webm|mov|m4v|avi)$/i.test(path);
+}
+
+function displayNameFromPath(path: string) {
+  return path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") || "我的壁纸";
+}
+
+function revokeObjectUrl(url?: string) {
+  if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState("project");
   const [activeWallpaper, setActiveWallpaper] = useState<WallpaperId>("aurora");
@@ -112,11 +131,41 @@ function App() {
     if (!isImage && !isVideo) return;
 
     setCustomWallpaper((previous) => {
-      if (previous?.url) URL.revokeObjectURL(previous.url);
+      revokeObjectUrl(previous?.url);
       return {
         url: URL.createObjectURL(file),
         name: file.name.replace(/\.[^.]+$/, ""),
         kind: isVideo ? "video" : "image",
+      };
+    });
+    setActiveWallpaper("custom");
+    setAppearanceOpen(true);
+  }
+
+  async function chooseWallpaper() {
+    if (!isTauriRuntime()) {
+      wallpaperInputRef.current?.click();
+      return;
+    }
+
+    const selected = await openDialog({
+      multiple: false,
+      filters: [
+        {
+          name: "Wallpapers",
+          extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp", "mp4", "webm", "mov", "m4v", "avi"],
+        },
+      ],
+    });
+
+    if (!selected || Array.isArray(selected)) return;
+
+    setCustomWallpaper((previous) => {
+      revokeObjectUrl(previous?.url);
+      return {
+        url: convertFileSrc(selected),
+        name: displayNameFromPath(selected),
+        kind: isVideoPath(selected) ? "video" : "image",
       };
     });
     setActiveWallpaper("custom");
@@ -133,9 +182,17 @@ function App() {
     useWallpaperFile(event.dataTransfer.files?.[0]);
   }
 
+  async function controlWindow(action: "close" | "minimize" | "maximize") {
+    if (!isTauriRuntime()) return;
+    const appWindow = getCurrentWindow();
+    if (action === "close") await appWindow.close();
+    if (action === "minimize") await appWindow.minimize();
+    if (action === "maximize") await appWindow.toggleMaximize();
+  }
+
   useEffect(() => {
     return () => {
-      if (customWallpaper?.url) URL.revokeObjectURL(customWallpaper.url);
+      revokeObjectUrl(customWallpaper?.url);
     };
   }, [customWallpaper?.url]);
 
@@ -238,10 +295,10 @@ function App() {
 
         <section className="main-window liquid">
           <header className="window-bar app-toolbar">
-            <div className="traffic-lights" aria-hidden="true">
-              <span />
-              <span />
-              <span />
+            <div className="traffic-lights" aria-label="窗口控制">
+              <button type="button" aria-label="关闭窗口" onClick={() => controlWindow("close")} />
+              <button type="button" aria-label="最小化窗口" onClick={() => controlWindow("minimize")} />
+              <button type="button" aria-label="最大化窗口" onClick={() => controlWindow("maximize")} />
             </div>
             <div className="project-title">
               <strong>智能外壳项目</strong>
@@ -273,7 +330,7 @@ function App() {
                   <input ref={wallpaperInputRef} className="wallpaper-input" type="file" accept="image/*,video/*" onChange={importWallpaper} />
                   <button
                     className="drop-wallpaper"
-                    onClick={() => wallpaperInputRef.current?.click()}
+                    onClick={chooseWallpaper}
                     onDragOver={(event) => event.preventDefault()}
                     onDrop={dropWallpaper}
                   >
