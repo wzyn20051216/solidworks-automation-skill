@@ -74,6 +74,7 @@ Codex 仍然是最终执行者，`solidworks-automation` skill 是核心能力�
 - 所有 Codex 调用必须引用 skill 路径。
 - 所有交付必须有验证记录。
 - 真实制造文件必须经过 Reviewer Gate。
+- 用户未指定的工程选项默认进入 `auto_best`，由 AI 自动选择最佳方案，并记录选择理由和残余风险。
 - Codex 执行必须显式启用，不允许默认静默运行。
 - `danger-full-access` 必须同时满足任务审批和 worker `--codex-full-access` 开关，不能作为默认值。
 - 前端任务 JSON 不可信，Policy Gate 必须在 worker/control-plane 层强制执行。

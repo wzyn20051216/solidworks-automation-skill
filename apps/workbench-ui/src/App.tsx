@@ -40,10 +40,10 @@ type AppSettings = {
 };
 type CodexConfig = {
   objective: string;
-  target: "general_part" | "assembly" | "shell" | "fixture" | "sheet_metal" | "holes" | "drawing" | "package" | "reverse" | "skill";
-  expectedOutput: "cad_files" | "drawing_package" | "skill_update" | "research_report";
-  process: "FDM" | "SLA" | "CNC" | "sheet_metal";
-  material: "PLA" | "PETG" | "ABS" | "Al6061";
+  target: "auto" | "general_part" | "assembly" | "shell" | "fixture" | "sheet_metal" | "holes" | "drawing" | "package" | "reverse" | "skill";
+  expectedOutput: "auto" | "cad_files" | "drawing_package" | "skill_update" | "research_report";
+  process: "auto" | "FDM" | "SLA" | "CNC" | "sheet_metal";
+  material: "auto" | "PLA" | "PETG" | "ABS" | "Al6061";
   unit: "mm";
   length: number;
   width: number;
@@ -210,6 +210,7 @@ const CODEX_CWD = "C:/Users/23201/.codex/skills/solidworks-automation";
 const CODEX_SKILL_PATH = `${CODEX_CWD}/SKILL.md`;
 
 const codexTargets: Record<CodexConfig["target"], string> = {
+  auto: "AI 自动判断",
   general_part: "通用零件建模",
   assembly: "装配体与约束",
   shell: "3D 打印外壳建模",
@@ -257,6 +258,7 @@ const taskTemplates: Array<{
 ];
 
 const codexOutputs: Record<CodexConfig["expectedOutput"], string> = {
+  auto: "AI 自动选择输出",
   cad_files: "SLDPRT / STEP / STL",
   drawing_package: "DWG / DXF / PDF 图纸包",
   skill_update: "Skill 更新 + GitHub 推送",
@@ -264,10 +266,19 @@ const codexOutputs: Record<CodexConfig["expectedOutput"], string> = {
 };
 
 const processLabels: Record<CodexConfig["process"], string> = {
+  auto: "AI 自动选工艺",
   FDM: "FDM 3D 打印",
   SLA: "SLA 光固化",
   CNC: "CNC 加工",
   sheet_metal: "钣金",
+};
+
+const materialLabels: Record<CodexConfig["material"], string> = {
+  auto: "AI 自动选材料",
+  PLA: "PLA",
+  PETG: "PETG",
+  ABS: "ABS",
+  Al6061: "Al6061",
 };
 
 function stateLabel(state: StageState) {
@@ -386,6 +397,7 @@ function createJob(kind: AutomationJobKind, projectPath?: string, overrides: Par
 
 function buildCodexPrompt(config: CodexConfig, projectPath?: string) {
   const strictRules = [
+    "用户未明确指定的建模类型、工艺、材料、输出格式、尺寸细节和检查项，由 AI 根据工程目标自动选择最佳方案，并在结果中说明选择理由。",
     config.realCutouts ? "所有孔、槽、螺纹、接口和减重结构必须是真实几何特征，不能只画线或只做外观标记。" : "如果涉及孔槽，需要明确说明当前是否已真实切除。",
     config.strictGbDrawing ? "CAD 图纸必须按中国机械制图常用格式复核，尺寸链、孔表、技术要求、图框标题栏要完整。" : "图纸输出需要标明当前规范覆盖范围。",
     config.commitAndPush ? "完成后运行验证，使用中文 commit，并推送 GitHub。" : "完成后运行验证并说明未提交的原因。",
@@ -399,7 +411,7 @@ function buildCodexPrompt(config: CodexConfig, projectPath?: string) {
     `期望输出: ${codexOutputs[config.expectedOutput]}`,
     `项目/模型路径: ${projectPath || "未指定"}`,
     `制造方式: ${processLabels[config.process]}`,
-    `材料: ${config.material}`,
+    `材料: ${materialLabels[config.material]}`,
     `单位: ${config.unit}`,
     `参考包络尺寸: ${config.length} x ${config.width} x ${config.height} ${config.unit}`,
     `参考壁厚/板厚: ${config.wallThickness} ${config.unit}`,
@@ -408,6 +420,11 @@ function buildCodexPrompt(config: CodexConfig, projectPath?: string) {
     "",
     "强制规则:",
     ...strictRules.map((rule) => `- ${rule}`),
+    "",
+    "自动决策规则:",
+    "- 若某项为 AI 自动判断/选择，先根据用户目标、输入文件、制造方式、成本、强度、可加工性和交付要求做最佳选择。",
+    "- 自动选择后必须在 summary 或 verification 中解释为什么这么选。",
+    "- 若信息不足以可靠决策，先采用行业常用保守方案，并标记残余风险。",
     "",
     "执行方式:",
     "- 优先使用 solidworks-automation skill 及其 SolidWorks/AutoCAD 子技能。",
@@ -432,11 +449,11 @@ function App() {
   const [jobEvents, setJobEvents] = useState<Record<string, QueueEvent[]>>({});
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus>({ running: false, message: "桌面端可启动" });
   const [codexConfig, setCodexConfig] = useState<CodexConfig>({
-    objective: "根据当前配置生成可制造的 CAD 模型，并严格检查真实开孔、格式输出和图纸标注。",
-    target: "general_part",
-    expectedOutput: "cad_files",
-    process: "FDM",
-    material: "PETG",
+    objective: "根据用户输入自动判断最佳 CAD 任务类型、制造方式、材料和交付格式，生成可制造结果并解释选择理由。",
+    target: "auto",
+    expectedOutput: "auto",
+    process: "auto",
+    material: "auto",
     unit: "mm",
     length: 120,
     width: 80,
@@ -457,7 +474,7 @@ function App() {
     return stages.map((stage, index) => ({
       ...stage,
       state: index === 1 ? "running" : stage.state,
-      detail: index === 1 ? "正在生成外壳特征" : stage.detail,
+      detail: index === 1 ? "正在生成 CAD 特征" : stage.detail,
     })) as Stage[];
   }, [isRunning]);
 
@@ -621,7 +638,16 @@ function App() {
           process: config.process,
           processLabel: processLabels[config.process],
           material: config.material,
+          materialLabel: materialLabels[config.material],
           unit: config.unit,
+        },
+        selection: {
+          mode: "auto_best",
+          autoTarget: config.target === "auto",
+          autoOutput: config.expectedOutput === "auto",
+          autoProcess: config.process === "auto",
+          autoMaterial: config.material === "auto",
+          instruction: "未指定字段由 AI 自动选择最佳工程方案，并说明理由。",
         },
         geometry: {
           length: config.length,
@@ -1269,6 +1295,22 @@ function App() {
                 </div>
               </div>
 
+              <div className="bridge-field">
+                <span>材料</span>
+                <div className="segmented-control">
+                  {(Object.keys(materialLabels) as Array<CodexConfig["material"]>).map((material) => (
+                    <button
+                      type="button"
+                      className={codexConfig.material === material ? "active" : ""}
+                      key={material}
+                      onClick={() => updateCodexConfig({ material })}
+                    >
+                      {materialLabels[material]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="bridge-field compact-inputs">
                 <span>几何参数</span>
                 <div className="number-grid">
@@ -1348,7 +1390,7 @@ function App() {
               </div>
               <div className="runtime-line">
                 <span>制造输入</span>
-                <strong>{`${processLabels[codexConfig.process]} · ${codexConfig.material} · ${codexConfig.length}x${codexConfig.width}x${codexConfig.height}`}</strong>
+                <strong>{`${processLabels[codexConfig.process]} · ${materialLabels[codexConfig.material]} · ${codexConfig.length}x${codexConfig.width}x${codexConfig.height}`}</strong>
               </div>
               <div className="prompt-preview">
                 <span>执行计划预览</span>
@@ -1366,7 +1408,7 @@ function App() {
               {[
                 ["运行模式", "本地桌面", Lightning],
                 ["图纸门禁", "GB/T P0", ShieldCheck],
-                ["制造场景", "3D 打印", Aperture],
+                ["制造场景", processLabels[codexConfig.process], Aperture],
                 ["任务队列", queueLoaded ? queueSummary : "加载中", Graph],
               ].map(([label, value, Icon]) => (
                 <motion.div className="metric-card" key={label as string} whileHover={reducedMotion ? undefined : { y: -2 }}>

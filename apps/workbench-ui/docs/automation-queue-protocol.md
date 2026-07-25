@@ -88,15 +88,32 @@ Codex Bridge 扩展字段:
 ```json
 {
   "executor": "codex",
-  "objective": "根据当前配置生成可 3D 打印外壳",
-  "target": "3D 打印外壳建模",
-  "expectedOutput": "SLDPRT / STEP / STL",
-  "strictRules": ["3D 打印开孔必须真实切除", "必须按中国机械制图常用格式复核 CAD 图纸"],
+  "objective": "根据用户输入自动判断最佳 CAD 任务类型、制造方式、材料和交付格式",
+  "target": "AI 自动判断",
+  "expectedOutput": "AI 自动选择输出",
+  "strictRules": ["未指定字段由 AI 自动选择最佳工程方案", "孔槽必须真实几何切除", "必须按中国机械制图常用格式复核 CAD 图纸"],
   "prompt": "你是 Codex，请执行由 CAD Studio 图形化界面生成的任务...",
   "cwd": "C:/Users/23201/.codex/skills/solidworks-automation",
-  "skillPath": "C:/Users/23201/.codex/skills/solidworks-automation/SKILL.md"
+  "skillPath": "C:/Users/23201/.codex/skills/solidworks-automation/SKILL.md",
+  "uiConfig": {
+    "selection": {
+      "mode": "auto_best",
+      "autoTarget": true,
+      "autoOutput": true,
+      "autoProcess": true,
+      "autoMaterial": true,
+      "instruction": "未指定字段由 AI 自动选择最佳工程方案，并说明理由。"
+    }
+  }
 }
 ```
+
+默认选择语义:
+
+- 用户没有指定任务类型、工艺、材料、输出格式或尺寸细节时，UI 会写入 `selection.mode = "auto_best"`。
+- Codex 必须根据工程目标、输入文件、制造方式、成本、强度、可加工性和交付要求自动选择最佳方案。
+- 自动选择后必须在最终结果中说明选择理由和残余风险。
+- 用户点击具体模板或具体选项后，该字段视为用户指定，Codex 应优先遵守。
 
 状态流转:
 

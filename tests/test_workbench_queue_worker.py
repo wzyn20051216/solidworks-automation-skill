@@ -344,7 +344,7 @@ def test_codex_prompt_contains_ui_configuration() -> None:
             "objective": "按配置生成带真实 USB-C 开孔的外壳",
             "expectedOutput": "输出 SLDPRT、STEP、STL 和 GB/T 图纸",
             "strictRules": ["真实开孔必须切透实体", "提交并推送 GitHub"],
-            "uiConfig": {"manufacturing": {"process": "FDM"}, "shell": {"wallThickness": 1.6}},
+            "uiConfig": {"selection": {"mode": "auto_best"}, "manufacturing": {"process": "auto"}, "geometry": {"wallThickness": 1.6}},
         }
     )
 
@@ -353,6 +353,8 @@ def test_codex_prompt_contains_ui_configuration() -> None:
     assert "按配置生成带真实 USB-C 开孔的外壳" in prompt
     assert "真实开孔必须切透实体" in prompt
     assert "solidworks-automation skill" in prompt
+    assert "auto_best" in prompt
+    assert "自动选择最佳工程方案" in prompt
     assert '"wallThickness": 1.6' in prompt
 
 

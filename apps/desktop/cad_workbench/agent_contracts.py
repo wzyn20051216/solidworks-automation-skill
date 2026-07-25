@@ -111,6 +111,7 @@ def compile_codex_prompt(job: dict[str, Any], profile: EnterpriseAgentProfile = 
     user_prompt = str(job.get("prompt") or "").strip()
     strict_rules = job.get("strictRules") if isinstance(job.get("strictRules"), list) else []
     ui_config = job.get("uiConfig") if isinstance(job.get("uiConfig"), dict) else {}
+    selection = ui_config.get("selection") if isinstance(ui_config.get("selection"), dict) else {}
 
     role_lines = "\n".join(
         f"- {role.stage.upper()} / {role.name}: {role.responsibility} 写权限={'是' if role.can_write else '否'}"
@@ -118,11 +119,19 @@ def compile_codex_prompt(job: dict[str, Any], profile: EnterpriseAgentProfile = 
     )
     rule_lines = "\n".join(f"- {rule}" for rule in strict_rules) or "\n".join(
         [
+            "- 用户未明确指定的建模类型、工艺、材料、输出格式、尺寸细节和检查项，由 AI 根据工程目标自动选择最佳方案，并说明选择理由。",
             "- 必须遵守 3D 打印真实开孔要求，不能只画外观线。",
             "- 必须遵守 GB/T 风格图纸规范，尺寸链、孔位和技术要求要完整。",
             "- 修改后必须运行可用验证，并提交中文 commit。",
         ]
     )
+    auto_lines = []
+    if selection.get("mode") == "auto_best":
+        auto_lines = [
+            "- 本任务启用 auto_best: 未指定字段由 AI 自动选择最佳工程方案。",
+            "- 自动选择时必须综合用户目标、输入文件、制造方式、材料、成本、强度、可加工性和交付要求。",
+            "- 自动选择后必须在最终 summary 或 verification 中说明选择理由和残余风险。",
+        ]
     ui_config_text = json.dumps(ui_config, ensure_ascii=False, indent=2) if ui_config else "{}"
 
     return "\n".join(
@@ -154,6 +163,9 @@ def compile_codex_prompt(job: dict[str, Any], profile: EnterpriseAgentProfile = 
             "",
             "【强制规则】",
             rule_lines,
+            "",
+            "【自动决策规则】",
+            "\n".join(auto_lines) if auto_lines else "- 未启用显式自动决策标记；仍需对缺失信息采用保守工程假设并说明。",
             "",
             "【质量门禁】",
             "- Planner 必须先给出可执行步骤和风险点。",
