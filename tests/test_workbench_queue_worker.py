@@ -1,14 +1,23 @@
+import json
 from pathlib import Path
 import subprocess
 import sys
 import threading
 import time
 
-from apps.desktop.cad_workbench.agent_contracts import DEFAULT_PROFILE, codex_output_path, resolve_workspace, validate_codex_job
+from apps.desktop.cad_workbench.agent_contracts import (
+    DEFAULT_PROFILE,
+    codex_output_path,
+    load_profile,
+    require_policy_approval,
+    resolve_workspace,
+    validate_codex_job,
+)
 from apps.desktop.cad_workbench.queue_worker import (
     JobCancelled,
     _run_command_with_runtime,
     acquire_lock,
+    approve_job,
     build_codex_prompt,
     event_path_for,
     lock_path_for,
@@ -256,8 +265,163 @@ def test_codex_executor_invokes_codex_exec_with_prompt(tmp_path: Path) -> None:
     assert calls[0][2] == 3
 
 
+def test_policy_gate_requires_approval_for_git_push(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job_path = queue_dir / "job-git-push.json"
+    job = _queued_job("job-git-push", "codex_task")
+    job.update(
+        {
+            "executor": "codex",
+            "cwd": str(Path(__file__).resolve().parents[1]),
+            "prompt": "提交并推送",
+            "capabilities": ["git_push"],
+            "policy": {"sandbox": "workspace-write", "approval": "never", "requirePush": True},
+        }
+    )
+    write_job(job_path, job)
+
+    processed = process_queue(queue_dir)
+
+    saved = read_job(job_path)
+    assert len(processed) == 1
+    assert saved["status"] == "approval_required"
+    assert saved["progress"] == 0
+    assert "Git push" in saved["lastMessage"]
+    assert "policy.approval_required" in event_path_for(queue_dir, "job-git-push").read_text(encoding="utf-8")
+
+
+def test_policy_gate_allows_approved_job(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job_path = queue_dir / "job-approved.json"
+    job = _queued_job("job-approved", "codex_task")
+    job.update(
+        {
+            "executor": "codex",
+            "cwd": str(Path(__file__).resolve().parents[1]),
+            "prompt": "审批后执行",
+            "capabilities": ["git_push"],
+            "policy": {"sandbox": "workspace-write", "approval": "never", "requirePush": True},
+        }
+    )
+    write_job(job_path, job)
+
+    process_queue(queue_dir)
+    approved = approve_job(job_path, approved_by="tester")
+
+    assert approved["status"] == "queued"
+    assert approved["approvedBy"] == "tester"
+    assert approved["approvedPolicyReasons"]
+
+    processed = process_queue(
+        queue_dir,
+        handlers={"codex_task": lambda active_job: {"mode": "codex", "message": f"已执行 {active_job['id']}"}},
+    )
+
+    saved = read_job(job_path)
+    assert len(processed) == 1
+    assert saved["status"] == "passed"
+    assert saved["result"]["mode"] == "codex"
+
+
+def test_policy_gate_rechecks_approved_scope_after_job_changes(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job_path = queue_dir / "job-scope.json"
+    job = _queued_job("job-scope", "codex_task")
+    job.update(
+        {
+            "executor": "codex",
+            "cwd": str(Path(__file__).resolve().parents[1]),
+            "prompt": "审批范围测试",
+            "capabilities": ["git_push"],
+            "policy": {"sandbox": "workspace-write", "approval": "never", "requirePush": True},
+        }
+    )
+    write_job(job_path, job)
+    process_queue(queue_dir)
+    approved = approve_job(job_path, approved_by="tester")
+    approved["policy"]["sandbox"] = "danger-full-access"
+    write_job(job_path, approved)
+
+    reasons = require_policy_approval(read_job(job_path))
+
+    assert reasons
+    assert any("danger-full-access" in reason for reason in reasons)
+
+
+def test_policy_gate_requires_approval_for_danger_full_access(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job_path = queue_dir / "job-full-access.json"
+    job = _queued_job("job-full-access", "codex_task")
+    job.update(
+        {
+            "executor": "codex",
+            "cwd": str(Path(__file__).resolve().parents[1]),
+            "prompt": "全权限测试",
+            "policy": {"sandbox": "danger-full-access", "approval": "never", "requirePush": False},
+        }
+    )
+    write_job(job_path, job)
+
+    process_queue(queue_dir)
+
+    saved = read_job(job_path)
+    assert saved["status"] == "approval_required"
+    assert any("danger-full-access" in reason for reason in saved["approvalReasons"])
+
+
+def test_policy_gate_requires_approval_for_dangerous_capability(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job_path = queue_dir / "job-cad-macro.json"
+    job = _queued_job("job-cad-macro", "codex_task")
+    job.update(
+        {
+            "executor": "codex",
+            "cwd": str(Path(__file__).resolve().parents[1]),
+            "prompt": "CAD 宏测试",
+            "capabilities": ["cad_macro"],
+            "policy": {"sandbox": "workspace-write", "approval": "never", "requirePush": False},
+        }
+    )
+    write_job(job_path, job)
+
+    process_queue(queue_dir)
+
+    saved = read_job(job_path)
+    assert saved["status"] == "approval_required"
+    assert any("CAD 宏" in reason for reason in saved["approvalReasons"])
+
+
+def test_codex_full_access_requires_policy_and_cli_flag(tmp_path: Path) -> None:
+    repo = Path(__file__).resolve().parents[1]
+    calls = []
+
+    def fake_runner(command, cwd, timeout_seconds):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    job = _queued_job("job-full-cli", "codex_task")
+    job.update({"executor": "codex", "cwd": str(repo), "prompt": "沙箱测试", "policy": {"sandbox": "danger-full-access"}})
+
+    result_without_cli = run_codex_job(job, runner=fake_runner, allow_full_access=False)
+    result_with_cli = run_codex_job(job, runner=fake_runner, allow_full_access=True)
+
+    assert result_without_cli["sandbox"] == "workspace-write"
+    assert result_with_cli["sandbox"] == "danger-full-access"
+    assert calls[0][calls[0].index("-s") + 1] == "workspace-write"
+    assert calls[1][calls[1].index("-s") + 1] == "danger-full-access"
+
+
 def test_enterprise_profile_uses_restricted_default_sandbox() -> None:
     assert DEFAULT_PROFILE.policy.sandbox == "workspace-write"
+
+
+def test_loaded_profile_uses_restricted_default_sandbox(tmp_path: Path) -> None:
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(json.dumps({"name": "custom", "policy": {}}), encoding="utf-8")
+
+    profile = load_profile(profile_path)
+
+    assert profile.policy.sandbox == "workspace-write"
 
 
 def test_codex_executor_rejects_cwd_outside_workspace(tmp_path: Path) -> None:

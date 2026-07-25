@@ -1295,6 +1295,10 @@ textarea {
   color: var(--accent);
 }
 
+.queue-job.approval_required > span {
+  color: var(--warning);
+}
+
 .queue-job.passed > span {
   color: var(--success);
 }

@@ -75,6 +75,7 @@ type AutomationJob = {
   target?: string;
   expectedOutput?: string;
   strictRules?: string[];
+  capabilities?: string[];
   prompt?: string;
   cwd?: string;
   skillPath?: string;
@@ -95,6 +96,10 @@ type AutomationJob = {
     requireReviewerPass: boolean;
   };
   artifacts?: Array<Record<string, unknown>>;
+  approvalReasons?: string[];
+  approvedAt?: string;
+  approvedBy?: string;
+  approvedPolicyReasons?: string[];
   error?: string;
 };
 type QueueEvent = {
@@ -367,8 +372,10 @@ function App() {
   }, [isRunning]);
 
   const queueSummary = useMemo(() => {
+    const approvalRequired = jobs.filter((job) => job.status === "approval_required").length;
     const running = jobs.filter((job) => job.status === "running").length;
     const queued = jobs.filter((job) => job.status === "queued").length;
+    if (approvalRequired > 0) return `${approvalRequired} 个待审批`;
     if (running > 0) return `${running} 个执行中`;
     if (queued > 0) return `${queued} 个排队`;
     return jobs.length > 0 ? "队列就绪" : "暂无任务";
@@ -448,6 +455,7 @@ function App() {
       target: codexTargets[codexConfig.target],
       expectedOutput: codexOutputs[codexConfig.expectedOutput],
       strictRules,
+      capabilities: codexConfig.commitAndPush ? ["git_push"] : [],
       prompt: codexPrompt,
       cwd: CODEX_CWD,
       skillPath: CODEX_SKILL_PATH,
@@ -487,6 +495,32 @@ function App() {
 
   function cancelJob(id: string) {
     updateJob(id, (item) => ({ ...item, status: "cancelled", progress: 0, updatedAt: new Date().toISOString() }));
+  }
+
+  async function approveJob(id: string) {
+    if (isTauriRuntime()) {
+      try {
+        const approvedJob = await invoke<AutomationJob>("approve_queue_job", { id });
+        upsertJob(approvedJob);
+      } catch (error) {
+        updateJob(id, (item) => ({
+          ...item,
+          lastMessage: `审批失败: ${String(error)}`,
+          updatedAt: new Date().toISOString(),
+        }));
+      }
+      return;
+    }
+
+    updateJob(id, (item) => ({
+      ...item,
+      status: "queued",
+      approvedAt: new Date().toISOString(),
+      approvedBy: "local-user",
+      approvedPolicyReasons: item.approvalReasons ?? [],
+      lastMessage: "人工审批已通过，任务重新进入队列。",
+      updatedAt: new Date().toISOString(),
+    }));
   }
 
   function rememberWallpaper(path: string) {
@@ -1144,12 +1178,24 @@ function App() {
                     <motion.article className={`queue-job ${job.status}`} key={job.id} layout>
                       <div>
                         <strong>{job.title}</strong>
-                        <small>{jobEvents[job.id]?.[jobEvents[job.id].length - 1]?.message || job.lastMessage || job.result?.outputPath || job.error || job.detail}</small>
+                        <small>
+                          {(job.status === "approval_required" ? job.approvalReasons?.[0] : undefined) ||
+                            jobEvents[job.id]?.[jobEvents[job.id].length - 1]?.message ||
+                            job.lastMessage ||
+                            job.result?.outputPath ||
+                            job.error ||
+                            job.detail}
+                        </small>
                       </div>
                       <span>{jobStatusLabel(job.status)}</span>
                       <div className="job-progress" aria-label={`${job.title} 进度 ${job.progress}%`}>
                         <i style={{ width: `${job.progress}%` }} />
                       </div>
+                      {job.status === "approval_required" ? (
+                        <button type="button" onClick={() => void approveJob(job.id)}>
+                          批准
+                        </button>
+                      ) : null}
                       {job.status === "queued" || job.status === "running" ? (
                         <button type="button" onClick={() => cancelJob(job.id)}>
                           取消

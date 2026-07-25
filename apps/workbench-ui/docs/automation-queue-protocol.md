@@ -63,6 +63,7 @@ python -m apps.desktop.cad_workbench.queue_worker --watch --queue-dir "<队列�
     "requirePush": false,
     "requireReviewerPass": true
   },
+  "capabilities": [],
   "projectPath": "D:/demo/demo_shell.step"
 }
 ```
@@ -112,6 +113,38 @@ queued -> approval_required -> queued
 - worker 回写 `workerLog`、`lastMessage`、`result` 或 `error`，前端可以直接展示这些字段。
 - 真实 CAD handler 必须在写入 `passed` 前完成文件存在性检查，不能把占位文件标为可制造交付。
 
+## Policy Gate
+
+Policy Gate 是 worker/control-plane 层的强制门禁，不能只依赖前端提示。Codex 任务在执行前会先检查策略和能力声明，命中风险则写回:
+
+```json
+{
+  "status": "approval_required",
+  "approvalReasons": ["任务请求 Git push，需要人工审批。"],
+  "lastMessage": "任务需要人工审批: ..."
+}
+```
+
+当前会要求人工审批的情况:
+
+- `policy.approval == "manual-required"`。
+- `policy.requirePush == true` 或 `uiConfig.gates.commitAndPush == true`。
+- `policy.sandbox == "danger-full-access"`。
+- `capabilities` 包含 `git_push`、`full_access`、`cad_macro`、`external_network`、`cross_workspace`、`delete_files`。
+
+桌面端点击“批准”后，会写入:
+
+```json
+{
+  "approvedAt": "unix:1784970000",
+  "approvedBy": "local-user",
+  "approvedPolicyReasons": ["任务请求 Git push，需要人工审批。"],
+  "status": "queued"
+}
+```
+
+worker 会重新计算当前任务的审批原因，并要求它与 `approvedPolicyReasons` 完全一致；如果批准后又把任务改成全权限、CAD 宏或其他危险能力，审批会失效并重新进入 `approval_required`。这不是最终的防篡改方案，后续 Artifact Ledger 会补 HMAC 签名和不可变审计记录。
+
 ## 可靠队列状态机
 
 当前仍使用本地 JSON 文件队列，但 worker 已具备最小可靠性语义:
@@ -151,7 +184,7 @@ codex exec -C "<cwd>" -a never -s workspace-write -o "<输出文件>" --output-s
 注意:
 
 - `--enable-codex` 是显式开关，避免普通 mock 调试误触发真实 Codex 执行。
-- 默认只允许 `workspace-write`，若确需全权限，必须额外传 `--codex-full-access`。
+- 默认只允许 `workspace-write`。若确需全权限，任务必须先经过 Policy Gate 审批，并且 worker 启动时额外传 `--codex-full-access`。
 - worker 会校验 `cwd` 必须位于仓库白名单内，并强制输出到 `<cwd>/ai_team/{job_id}_codex_result.md`。
 - UI 负责生成 prompt 和执行约束，Codex 负责实际读写文件、调用 skill、运行验证、提交推送。
 - Codex 输出会写入 `ai_team/{job_id}_codex_result.md`，同时在任务 JSON 的 `result.outputPath` 中回写路径。

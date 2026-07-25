@@ -19,6 +19,7 @@ Apple-style 本地工程软件，浅色悬浮窗口、外观中心、本地壁�
 - 本地配置持久化，自动记住当前壁纸、最近壁纸、亮度、模糊、暗角和最近导入模型路径。
 - 本地自动化队列，桌面端把新建外壳、导入模型、生成交付包任务保存为 JSON。
 - Codex Bridge 面板，把图形化配置转换为 `codex exec` 可执行任务。
+- Policy Gate 审批门禁，危险任务会先进入待审批状态。
 - 4 套默认壁纸: Aurora、Blueprint、Studio、Mist。
 - macOS 风格窗口栏、浅色 Dock 导航、项目工作台和右侧 Inspector 参数面板。
 - 按钮 hover、按压反馈和主按钮光泽扫过效果。
@@ -112,10 +113,12 @@ Codex Bridge 的职责边界:
 
 - UI 负责收集点击配置、工程规则、目标输出和 prompt 预览。
 - 队列负责把任务持久化为 JSON，并通过 `.lock`、lease、stale 恢复和 quarantine 保证本地可靠执行。
-- worker 负责校验任务、限制工作区、固定输出路径并调用 `codex exec`。
+- worker 负责校验任务、执行 Policy Gate、限制工作区、固定输出路径并调用 `codex exec`。
 - Codex 负责真正执行 skill、修改文件、运行验证、提交和推送。
 
-默认 Codex 沙箱为 `workspace-write`。如确需全权限，需要显式增加:
+危险能力会进入 `approval_required`，包括 Git push、`danger-full-access`、CAD 宏、外部网络、跨工作区写入和删除文件。桌面端点击“批准”后，任务才会回到 `queued`。
+
+默认 Codex 沙箱为 `workspace-write`。如确需全权限，需要任务先通过审批，并在 worker 启动时显式增加:
 
 ```powershell
 python -m apps.desktop.cad_workbench.queue_worker --watch --enable-codex --codex-full-access --queue-dir "<队列目录>"

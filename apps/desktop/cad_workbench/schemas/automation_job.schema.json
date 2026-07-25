@@ -59,6 +59,30 @@
     "cancelRequested": {
       "type": "boolean"
     },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "approvalReasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "approvedAt": {
+      "type": "string"
+    },
+    "approvedBy": {
+      "type": "string"
+    },
+    "approvedPolicyReasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "policy": {
       "type": "object",
       "additionalProperties": false,

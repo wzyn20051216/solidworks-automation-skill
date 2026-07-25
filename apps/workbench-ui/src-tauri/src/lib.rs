@@ -1,5 +1,7 @@
-use serde_json::Value;
-use std::{fs, path::PathBuf};
+use serde_json::{json, Value};
+use std::io::Write;
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::{fs, fs::OpenOptions, path::PathBuf};
 use tauri::{AppHandle, Manager};
 
 fn queue_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -27,6 +29,111 @@ fn safe_id(id: &str) -> Result<String, String> {
     Ok(safe_id)
 }
 
+fn approval_reasons(job: &Value) -> Vec<String> {
+    let mut reasons = Vec::new();
+    let policy = job.get("policy").and_then(Value::as_object);
+
+    if policy
+        .and_then(|item| item.get("approval"))
+        .and_then(Value::as_str)
+        == Some("manual-required")
+    {
+        reasons.push("任务策略要求人工审批。".to_string());
+    }
+    if policy
+        .and_then(|item| item.get("requirePush"))
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        reasons.push("任务请求 Git push，需要人工审批。".to_string());
+    }
+    if policy
+        .and_then(|item| item.get("sandbox"))
+        .and_then(Value::as_str)
+        == Some("danger-full-access")
+    {
+        reasons.push("任务请求 danger-full-access 沙箱，需要人工审批。".to_string());
+    }
+
+    if let Some(capabilities) = job.get("capabilities").and_then(Value::as_array) {
+        for capability in capabilities.iter().filter_map(Value::as_str) {
+            match capability {
+                "git_push" => reasons.push("Git 推送会把本地改动外发到远端仓库".to_string()),
+                "full_access" => reasons.push("全权限沙箱可访问工作区外文件".to_string()),
+                "cad_macro" => {
+                    reasons.push("CAD 宏/COM 自动化可能影响当前桌面会话和工程文件".to_string())
+                }
+                "external_network" => reasons.push("外部网络访问可能泄露工程上下文".to_string()),
+                "cross_workspace" => reasons.push("跨工作区写入需要明确授权".to_string()),
+                "delete_files" => reasons.push("删除或移动文件需要人工确认".to_string()),
+                _ => {}
+            }
+        }
+    }
+
+    let commit_and_push = job
+        .get("uiConfig")
+        .and_then(|item| item.get("gates"))
+        .and_then(|item| item.get("commitAndPush"))
+        .and_then(Value::as_bool)
+        == Some(true);
+    if commit_and_push
+        && !reasons
+            .iter()
+            .any(|item| item == "任务请求 Git push，需要人工审批。")
+    {
+        reasons.push("界面配置要求提交并推送，需要人工审批。".to_string());
+    }
+
+    reasons
+}
+
+fn unix_timestamp_label() -> String {
+    let seconds = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default();
+    format!("unix:{}", seconds)
+}
+
+fn append_queue_event(
+    app: &AppHandle,
+    job: &Value,
+    event_type: &str,
+    message: &str,
+    data: Value,
+) -> Result<(), String> {
+    let job_id = job
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "missing job id".to_string())?;
+    let event_dir = queue_dir(app)?.join("events");
+    fs::create_dir_all(&event_dir).map_err(|error| error.to_string())?;
+    let event_path = event_dir.join(format!("{}.jsonl", safe_id(job_id)?));
+    let event = json!({
+        "type": event_type,
+        "jobId": job_id,
+        "runId": job.get("runId").cloned().unwrap_or(Value::Null),
+        "status": job.get("status").cloned().unwrap_or(Value::Null),
+        "progress": job.get("progress").cloned().unwrap_or(Value::Null),
+        "message": message,
+        "at": unix_timestamp_label(),
+        "worker": "cad-studio-tauri-shell",
+        "data": data
+    });
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(event_path)
+        .map_err(|error| error.to_string())?;
+    writeln!(
+        file,
+        "{}",
+        serde_json::to_string(&event).map_err(|error| error.to_string())?
+    )
+    .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 fn save_queue_job(app: AppHandle, job: Value) -> Result<(), String> {
     let id = job
@@ -35,6 +142,51 @@ fn save_queue_job(app: AppHandle, job: Value) -> Result<(), String> {
         .ok_or_else(|| "missing job id".to_string())?;
     let payload = serde_json::to_string_pretty(&job).map_err(|error| error.to_string())?;
     fs::write(job_path(&app, id)?, payload).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn approve_queue_job(app: AppHandle, id: String) -> Result<Value, String> {
+    let path = job_path(&app, &id)?;
+    let raw = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+    let mut job = serde_json::from_str::<Value>(&raw).map_err(|error| error.to_string())?;
+    if job.get("status").and_then(Value::as_str) != Some("approval_required") {
+        return Ok(job);
+    }
+
+    let reasons = approval_reasons(&job);
+    let approved_policy_reasons = Value::Array(reasons.into_iter().map(Value::String).collect());
+    let object = job
+        .as_object_mut()
+        .ok_or_else(|| "job payload must be an object".to_string())?;
+    object.insert(
+        "approvedBy".to_string(),
+        Value::String("local-user".to_string()),
+    );
+    object.insert(
+        "approvedAt".to_string(),
+        Value::String(unix_timestamp_label()),
+    );
+    object.insert("approvedPolicyReasons".to_string(), approved_policy_reasons);
+    object.insert("status".to_string(), Value::String("queued".to_string()));
+    object.insert(
+        "updatedAt".to_string(),
+        Value::String(unix_timestamp_label()),
+    );
+    object.insert(
+        "lastMessage".to_string(),
+        Value::String("人工审批已通过，任务重新进入队列。".to_string()),
+    );
+
+    let payload = serde_json::to_string_pretty(&job).map_err(|error| error.to_string())?;
+    fs::write(path, payload).map_err(|error| error.to_string())?;
+    append_queue_event(
+        &app,
+        &job,
+        "policy.approved",
+        "人工审批已通过",
+        json!({ "approvedBy": "local-user" }),
+    )?;
+    Ok(job)
 }
 
 #[tauri::command]
@@ -82,6 +234,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             save_queue_job,
+            approve_queue_job,
             read_queue_jobs,
             read_queue_events
         ])

@@ -75,7 +75,7 @@ def load_profile(path: Path | None = None) -> EnterpriseAgentProfile:
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     policy_raw = raw.get("policy", {})
     policy = AgentRunPolicy(
-        sandbox=policy_raw.get("sandbox", "danger-full-access"),
+        sandbox=policy_raw.get("sandbox", "workspace-write"),
         approval=str(policy_raw.get("approval", "never")),
         timeout_seconds=int(policy_raw.get("timeout_seconds", 1800)),
         require_skill_read=bool(policy_raw.get("require_skill_read", True)),
@@ -215,3 +215,57 @@ def validate_codex_job(job: dict[str, Any], allowed_roots: list[Path] | None = N
     if not prompt and not objective:
         raise ValueError("Codex 任务缺少 prompt 或 objective")
     return resolve_workspace(job, allowed_roots=allowed_roots)
+
+
+DANGEROUS_CAPABILITIES = {
+    "git_push": "Git 推送会把本地改动外发到远端仓库",
+    "full_access": "全权限沙箱可访问工作区外文件",
+    "cad_macro": "CAD 宏/COM 自动化可能影响当前桌面会话和工程文件",
+    "external_network": "外部网络访问可能泄露工程上下文",
+    "cross_workspace": "跨工作区写入需要明确授权",
+    "delete_files": "删除或移动文件需要人工确认",
+}
+
+
+def policy_reasons(job: dict[str, Any]) -> list[str]:
+    """@brief 返回任务需要人工审批的原因。"""
+    policy = job.get("policy") if isinstance(job.get("policy"), dict) else {}
+    reasons: list[str] = []
+
+    if policy.get("approval") == "manual-required":
+        reasons.append("任务策略要求人工审批。")
+    if policy.get("requirePush") is True:
+        reasons.append("任务请求 Git push，需要人工审批。")
+    if policy.get("sandbox") == "danger-full-access":
+        reasons.append("任务请求 danger-full-access 沙箱，需要人工审批。")
+
+    capabilities = job.get("capabilities") if isinstance(job.get("capabilities"), list) else []
+    for capability in capabilities:
+        if capability in DANGEROUS_CAPABILITIES:
+            reasons.append(DANGEROUS_CAPABILITIES[str(capability)])
+
+    ui_config = job.get("uiConfig") if isinstance(job.get("uiConfig"), dict) else {}
+    gates = ui_config.get("gates") if isinstance(ui_config.get("gates"), dict) else {}
+    if gates.get("commitAndPush") is True and "任务请求 Git push，需要人工审批。" not in reasons:
+        reasons.append("界面配置要求提交并推送，需要人工审批。")
+
+    return reasons
+
+
+def is_policy_approved(job: dict[str, Any]) -> bool:
+    """@brief 判断任务是否已有人工审批。"""
+    if not (job.get("approvedAt") and job.get("approvedBy")):
+        return False
+    reasons = policy_reasons(job)
+    approved_reasons = job.get("approvedPolicyReasons")
+    if isinstance(approved_reasons, list):
+        return [str(item) for item in approved_reasons] == reasons
+    return not reasons
+
+
+def require_policy_approval(job: dict[str, Any]) -> list[str]:
+    """@brief 返回未审批的门禁原因，空列表代表可执行。"""
+    reasons = policy_reasons(job)
+    if not reasons or is_policy_approved(job):
+        return []
+    return reasons

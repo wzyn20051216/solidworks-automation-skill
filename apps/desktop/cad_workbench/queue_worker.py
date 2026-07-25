@@ -13,7 +13,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from .agent_contracts import DEFAULT_PROFILE, codex_output_path, compile_codex_prompt, validate_codex_job
+from .agent_contracts import (
+    DEFAULT_PROFILE,
+    codex_output_path,
+    compile_codex_prompt,
+    policy_reasons,
+    require_policy_approval,
+    validate_codex_job,
+)
 from .core import CN_TZ, now_iso
 
 
@@ -23,6 +30,7 @@ CommandRunner = Callable[[Sequence[str], Path, int], subprocess.CompletedProcess
 WORKER_NAME = "cad-workbench-python-worker"
 KNOWN_JOB_KINDS = {"create_shell", "import_model", "delivery_package", "codex_task"}
 TERMINAL_STATES = {"passed", "failed", "cancelled"}
+NON_EXECUTABLE_STATES = {"approval_required", *TERMINAL_STATES}
 DEFAULT_CODEX_TIMEOUT_SECONDS = 1800
 DEFAULT_LEASE_SECONDS = 900
 
@@ -228,6 +236,36 @@ def request_cancel(path: Path) -> dict[str, Any]:
     return job
 
 
+def approve_job(path: Path, approved_by: str = "local-user") -> dict[str, Any]:
+    """@brief 人工批准待审批任务重新进入队列。"""
+    job = read_job(path)
+    if job.get("status") != "approval_required":
+        return job
+    reasons = policy_reasons(job)
+    job["approvedBy"] = approved_by
+    job["approvedAt"] = now_iso()
+    job["approvedPolicyReasons"] = reasons
+    job["status"] = "queued"
+    job["updatedAt"] = now_iso()
+    job["lastMessage"] = "人工审批已通过，任务重新进入队列。"
+    write_job(path, job)
+    append_event(path.parent, job, "policy.approved", "人工审批已通过", {"approvedBy": approved_by})
+    return job
+
+
+def mark_approval_required(path: Path, job: dict[str, Any], reasons: list[str]) -> dict[str, Any]:
+    """@brief 将任务置为待审批状态。"""
+    job["status"] = "approval_required"
+    job["progress"] = 0
+    job["approvalReasons"] = reasons
+    job["updatedAt"] = now_iso()
+    job["lastMessage"] = "任务需要人工审批: " + "；".join(reasons)
+    append_worker_event(job, "approval_required", job["lastMessage"])
+    write_job(path, job)
+    append_event(path.parent, job, "policy.approval_required", job["lastMessage"], {"reasons": reasons})
+    return job
+
+
 def recover_stale_jobs(queue_dir: Path) -> int:
     """@brief 将 lease 过期的 running 任务恢复为 queued。"""
     recovered = 0
@@ -310,14 +348,16 @@ def run_codex_job(
     job: dict[str, Any],
     runner: CommandRunner | None = None,
     timeout_seconds: int = DEFAULT_CODEX_TIMEOUT_SECONDS,
-    full_access: bool = False,
+    allow_full_access: bool = False,
 ) -> dict[str, Any]:
     """@brief 调用 codex exec 执行由 UI 生成的任务。"""
     cwd = validate_codex_job(job)
     prompt = str(job.get("prompt") or build_codex_prompt(job))
     output_path = codex_output_path(job, cwd)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    sandbox = "danger-full-access" if full_access else "workspace-write"
+    policy = job.get("policy") if isinstance(job.get("policy"), dict) else {}
+    requested_sandbox = policy.get("sandbox")
+    sandbox = "danger-full-access" if allow_full_access and requested_sandbox == "danger-full-access" else "workspace-write"
 
     command = [
         "codex",
@@ -463,6 +503,9 @@ def process_job(
         if kind not in KNOWN_JOB_KINDS:
             raise ValueError(f"未知任务类型: {kind}")
         if job.get("executor") == "codex":
+            approval_reasons = require_policy_approval(job)
+            if approval_reasons:
+                return mark_approval_required(path, job, approval_reasons)
             if "codex_task" not in active_handlers:
                 raise ValueError("Codex 执行器未启用，请给 worker 添加 --enable-codex")
             kind = "codex_task"
@@ -501,7 +544,7 @@ def build_handlers(enable_codex: bool = False, codex_full_access: bool = False) 
     """@brief 根据 CLI 参数构建任务分发器。"""
     handlers: dict[str, JobHandler] = dict(DEFAULT_HANDLERS)
     if enable_codex:
-        handlers["codex_task"] = lambda job: run_codex_job(job, full_access=codex_full_access)
+        handlers["codex_task"] = lambda job: run_codex_job(job, allow_full_access=codex_full_access)
     return handlers
 
 
@@ -526,7 +569,7 @@ def process_queue(
         except Exception as error:
             quarantine_bad_job(path, error)
             continue
-        if job.get("status") in TERMINAL_STATES or job.get("status") != "queued":
+        if job.get("status") in NON_EXECUTABLE_STATES or job.get("status") != "queued":
             continue
         lock_path = acquire_lock(path, runner_id, lease_seconds)
         if lock_path is None:
