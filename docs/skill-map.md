@@ -43,6 +43,13 @@ Every CAD-generating subskill should produce or require:
 - `sw_review.run_review()` report.
 - At least isometric preview; front/top/right when geometry needs inspection.
 
+## Productization Docs
+
+| File | Purpose |
+|---|---|
+| `docs/market-research-2026.md` | Market research, user pain points, competitor signals, and product positioning |
+| `docs/product-mvp-spec.md` | MVP specification for the local desktop CAD delivery workbench |
+
 ## Adding a New Subskill
 
 Create:

@@ -174,6 +174,10 @@ solidworks-automation-skill/
 │   ├── solidworks-fillet-chamfer-cnc/   # CNC 多圆角/倒角机加工件
 │   ├── solidworks-threaded-holes/       # 螺纹孔、攻丝底孔和孔口倒角
 │   └── autocad-automation/              # AutoCAD DWG/DXF 二维绘图和线稿矢量化
+├── docs/                # 产品化、市场调研和技能地图
+│   ├── market-research-2026.md          # 市场调研与产品定位
+│   ├── product-mvp-spec.md              # 本地桌面软件 MVP 规格
+│   └── skill-map.md                     # 技能矩阵和路由说明
 ├── examples/            # 示例代码
 ├── mcp-server/          # 本地 stdio MCP Server
 ├── SUBSKILLS.md         # 多子技能索引和路由说明
