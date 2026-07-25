@@ -179,7 +179,8 @@ solidworks-automation-skill/
 │   ├── product-mvp-spec.md              # 本地桌面软件 MVP 规格
 │   └── skill-map.md                     # 技能矩阵和路由说明
 ├── apps/                # 产品化应用
-│   └── desktop/                         # PySide6 本地桌面软件原型
+│   ├── desktop/                         # PySide6 本地桌面软件原型
+│   └── workbench-ui/                    # React + Motion 高质感前端界面原型
 ├── examples/            # 示例代码
 ├── mcp-server/          # 本地 stdio MCP Server
 ├── SUBSKILLS.md         # 多子技能索引和路由说明
@@ -196,6 +197,14 @@ python apps/desktop/run.py
 ```
 
 当前 mock 输出不是可制造 CAD 文件；真实 SolidWorks / AutoCAD 自动化会在后续版本接入同一条执行流水线。
+
+更高质感的 React / Motion 前端界面位于 `apps/workbench-ui/`，用于后续嵌入 Tauri、Electron 或 PySide WebEngine:
+
+```powershell
+cd apps/workbench-ui
+npm install
+npm run dev
+```
 
 ### 🧩 子技能矩阵
 

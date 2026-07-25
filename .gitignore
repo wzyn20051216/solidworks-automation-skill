@@ -11,6 +11,12 @@ build/
 dist/
 *.egg-info/
 
+# Node / frontend
+node_modules/
+npm-debug.log*
+vite-dev*.log
+*.tsbuildinfo
+
 # SolidWorks files
 *.SLDPRT
 *.SLDASM
