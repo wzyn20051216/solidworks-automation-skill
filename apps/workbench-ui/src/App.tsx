@@ -40,7 +40,7 @@ type AppSettings = {
 };
 type CodexConfig = {
   objective: string;
-  target: "shell" | "drawing" | "skill" | "package";
+  target: "general_part" | "assembly" | "shell" | "fixture" | "sheet_metal" | "holes" | "drawing" | "package" | "reverse" | "skill";
   expectedOutput: "cad_files" | "drawing_package" | "skill_update" | "research_report";
   process: "FDM" | "SLA" | "CNC" | "sheet_metal";
   material: "PLA" | "PETG" | "ABS" | "Al6061";
@@ -149,6 +149,38 @@ const navItems = [
   ["export", "导出", Export],
   ["settings", "设置", GearSix],
 ] as const;
+type ActiveTab = (typeof navItems)[number][0];
+
+const pageCopy: Record<ActiveTab, { title: string; subtitle: string }> = {
+  project: {
+    title: "项目工作台",
+    subtitle: "拖入草图、参数表或模型文件，把零件、装配、外壳、治具、钣金、图纸和交付包交给本地 CAD Agent 流程处理。",
+  },
+  model: {
+    title: "建模中心",
+    subtitle: "从通用零件、装配体、治具夹具、钣金件、外壳、逆向重建等模板发起任务，不再局限于单一外壳。",
+  },
+  holes: {
+    title: "孔槽与连接",
+    subtitle: "管理通孔、沉头孔、螺纹孔、长圆孔、接口开槽、阵列孔和装配定位特征，要求真实几何切除。",
+  },
+  drawing: {
+    title: "图纸工程",
+    subtitle: "面向中国机械工程师的 GB/T 风格图纸、尺寸链、孔表、技术要求、标题栏和 DWG/DXF/PDF 输出。",
+  },
+  check: {
+    title: "检查门禁",
+    subtitle: "汇总 Policy Gate、Artifact Ledger、Reviewer Gate、格式检查和 3D 打印/CNC/钣金制造风险。",
+  },
+  export: {
+    title: "交付中心",
+    subtitle: "整理 SLDPRT、SLDASM、STEP、STL、DWG、DXF、PDF、PNG 预览、复核报告和 Git 交付记录。",
+  },
+  settings: {
+    title: "软件设置",
+    subtitle: "管理本地 worker、Codex Bridge、审批策略、壁纸外观、默认规范库和输出目录。",
+  },
+};
 
 const stages: Stage[] = [
   { key: "preflight", label: "环境", state: "passed", detail: "SolidWorks COM 可用" },
@@ -158,9 +190,10 @@ const stages: Stage[] = [
 ];
 
 const features = [
-  { name: "安装孔 H1", spec: "4 x Φ3.4", pos: "X10 Y10, pitch 100 x 60", status: "已切除" },
-  { name: "USB-C I1", spec: "10 x 4 R1", pos: "Front, X60 Y15", status: "待复核" },
-  { name: "螺丝柱 B1", spec: "M3, OD7, H8", pos: "Bottom, X10 Y10", status: "已生成" },
+  { name: "通孔 H1", spec: "4 x Φ3.4", pos: "基准 A/B, pitch 100 x 60", status: "真实切除" },
+  { name: "长圆孔 S1", spec: "18 x 6 R3", pos: "Front, X60 Y15", status: "待复核" },
+  { name: "螺纹孔 T1", spec: "M3x0.5, 深 8", pos: "Boss / Plate", status: "已生成" },
+  { name: "接口槽 C1", spec: "10 x 4 R1", pos: "侧面居中", status: "待复核" },
 ];
 
 const reviewItems = [
@@ -177,11 +210,51 @@ const CODEX_CWD = "C:/Users/23201/.codex/skills/solidworks-automation";
 const CODEX_SKILL_PATH = `${CODEX_CWD}/SKILL.md`;
 
 const codexTargets: Record<CodexConfig["target"], string> = {
+  general_part: "通用零件建模",
+  assembly: "装配体与约束",
   shell: "3D 打印外壳建模",
+  fixture: "治具/夹具/支架",
+  sheet_metal: "钣金展开与折弯",
+  holes: "孔槽/螺纹/阵列",
   drawing: "国标 CAD 图纸",
-  skill: "Skills 规范沉淀",
   package: "交付包整理",
+  reverse: "逆向建模/草图重建",
+  skill: "Skills 规范沉淀",
 };
+
+const taskTemplates: Array<{
+  key: string;
+  tab: ActiveTab;
+  title: string;
+  detail: string;
+  target: CodexConfig["target"];
+  output: CodexConfig["expectedOutput"];
+  icon: typeof CubeFocus;
+}> = [
+  { key: "part", tab: "model", title: "通用零件", detail: "拉伸、旋转、孔槽、倒角、圆角和参数表建模", target: "general_part", output: "cad_files", icon: CubeFocus },
+  { key: "assembly", tab: "model", title: "装配体", detail: "零件导入、基准约束、干涉检查和爆炸图准备", target: "assembly", output: "cad_files", icon: Graph },
+  { key: "fixture", tab: "model", title: "治具夹具", detail: "定位销、压紧位、安装孔、减重槽和 CNC 可加工性", target: "fixture", output: "cad_files", icon: Aperture },
+  { key: "sheet", tab: "model", title: "钣金件", detail: "折弯、展开、K 因子、孔位避让和 DXF 展开输出", target: "sheet_metal", output: "drawing_package", icon: Layout },
+  { key: "shell", tab: "model", title: "电子外壳", detail: "壁厚、卡扣、螺丝柱、接口开孔和 3D 打印约束", target: "shell", output: "cad_files", icon: Archive },
+  { key: "reverse", tab: "model", title: "逆向重建", detail: "根据图片、草图或旧模型重建参数化特征树", target: "reverse", output: "cad_files", icon: ImageSquare },
+  { key: "holes", tab: "holes", title: "孔槽工程", detail: "通孔、沉头孔、螺纹孔、长圆孔、接口槽和孔表", target: "holes", output: "cad_files", icon: Ruler },
+  { key: "threaded-holes", tab: "holes", title: "螺纹孔", detail: "M3/M4/M5/M6 攻丝底孔、螺纹深度、孔口倒角和孔标注", target: "holes", output: "cad_files", icon: GearSix },
+  { key: "counterbore", tab: "holes", title: "沉头/沉孔", detail: "沉头角度、沉孔直径、螺钉规格、装配避让和剖视标注", target: "holes", output: "drawing_package", icon: Aperture },
+  { key: "hole-pattern", tab: "holes", title: "阵列孔", detail: "线性阵列、圆周阵列、孔距、基准定位和孔表生成", target: "holes", output: "drawing_package", icon: Graph },
+  { key: "interface-cutout", tab: "holes", title: "接口开槽", detail: "USB、网口、按键、散热窗、线束出口和圆角真实切除", target: "holes", output: "cad_files", icon: Ruler },
+  { key: "drawing", tab: "drawing", title: "GB/T 图纸", detail: "三视图、剖视、尺寸链、形位公差、技术要求和标题栏", target: "drawing", output: "drawing_package", icon: FilePlus },
+  { key: "tolerance", tab: "drawing", title: "公差标注", detail: "尺寸公差、形位公差、表面粗糙度、基准符号和技术要求", target: "drawing", output: "drawing_package", icon: Ruler },
+  { key: "bom", tab: "drawing", title: "装配明细", detail: "装配图、爆炸图、BOM、序号球标和采购/加工清单", target: "assembly", output: "drawing_package", icon: Layout },
+  { key: "drawing-convert", tab: "drawing", title: "图纸转换", detail: "DWG、DXF、PDF、PNG 预览输出和国标图框检查", target: "drawing", output: "drawing_package", icon: Export },
+  { key: "check", tab: "check", title: "制造复核", detail: "真实开孔、壁厚、格式特征、文件 hash 和 Reviewer Gate", target: "package", output: "research_report", icon: ShieldCheck },
+  { key: "print-check", tab: "check", title: "3D 打印检查", detail: "壁厚、悬垂、孔径、支撑、装配间隙和 STL 格式特征", target: "package", output: "research_report", icon: Aperture },
+  { key: "cnc-check", tab: "check", title: "CNC 检查", detail: "刀具可达性、内圆角、装夹基准、薄壁风险和孔深比", target: "fixture", output: "research_report", icon: CubeFocus },
+  { key: "drawing-check", tab: "check", title: "图纸检查", detail: "尺寸链、孔表、标题栏、技术要求、比例和 GB/T 风格复核", target: "drawing", output: "research_report", icon: ShieldCheck },
+  { key: "export", tab: "export", title: "一键交付", detail: "STEP、STL、DWG、DXF、PDF、PNG、报告和 Git 记录打包", target: "package", output: "drawing_package", icon: Export },
+  { key: "print-export", tab: "export", title: "打印包", detail: "STL、STEP、切片备注、材料建议、方向建议和打印检查报告", target: "package", output: "cad_files", icon: Archive },
+  { key: "machining-export", tab: "export", title: "加工包", detail: "STEP、PDF 图纸、DXF 展开、材料规格、表面处理和检验清单", target: "package", output: "drawing_package", icon: Export },
+  { key: "audit-export", tab: "export", title: "审计包", detail: "Artifact Ledger、Reviewer Gate、Codex 输出、验证命令和 Git 记录", target: "package", output: "research_report", icon: ShieldCheck },
+];
 
 const codexOutputs: Record<CodexConfig["expectedOutput"], string> = {
   cad_files: "SLDPRT / STEP / STL",
@@ -214,7 +287,7 @@ function jobStatusLabel(status: AutomationJobStatus) {
 }
 
 function jobKindDetail(kind: AutomationJobKind) {
-  if (kind === "create_shell") return { title: "新建外壳", detail: "生成参数化壳体、开孔和基础检查任务" };
+  if (kind === "create_shell") return { title: "新建 CAD 任务", detail: "生成零件、装配、外壳、孔槽和基础检查任务" };
   if (kind === "import_model") return { title: "导入模型", detail: "读取本地 CAD 模型并创建项目上下文" };
   if (kind === "codex_task") return { title: "Codex 执行", detail: "把图形化配置转换为 Codex 非交互执行任务" };
   return { title: "生成交付包", detail: "整理 STEP、STL、PDF、DWG 和交付清单" };
@@ -313,7 +386,7 @@ function createJob(kind: AutomationJobKind, projectPath?: string, overrides: Par
 
 function buildCodexPrompt(config: CodexConfig, projectPath?: string) {
   const strictRules = [
-    config.realCutouts ? "3D 打印开孔必须是真实几何切除，不能只画线或只做外观标记。" : "如果涉及开孔，需要明确说明当前是否已真实切除。",
+    config.realCutouts ? "所有孔、槽、螺纹、接口和减重结构必须是真实几何特征，不能只画线或只做外观标记。" : "如果涉及孔槽，需要明确说明当前是否已真实切除。",
     config.strictGbDrawing ? "CAD 图纸必须按中国机械制图常用格式复核，尺寸链、孔表、技术要求、图框标题栏要完整。" : "图纸输出需要标明当前规范覆盖范围。",
     config.commitAndPush ? "完成后运行验证，使用中文 commit，并推送 GitHub。" : "完成后运行验证并说明未提交的原因。",
   ];
@@ -328,8 +401,8 @@ function buildCodexPrompt(config: CodexConfig, projectPath?: string) {
     `制造方式: ${processLabels[config.process]}`,
     `材料: ${config.material}`,
     `单位: ${config.unit}`,
-    `外形尺寸: ${config.length} x ${config.width} x ${config.height} ${config.unit}`,
-    `壁厚: ${config.wallThickness} ${config.unit}`,
+    `参考包络尺寸: ${config.length} x ${config.width} x ${config.height} ${config.unit}`,
+    `参考壁厚/板厚: ${config.wallThickness} ${config.unit}`,
     `输出目录: ${config.outputDir}`,
     `Skill 路径: ${CODEX_SKILL_PATH}`,
     "",
@@ -337,14 +410,14 @@ function buildCodexPrompt(config: CodexConfig, projectPath?: string) {
     ...strictRules.map((rule) => `- ${rule}`),
     "",
     "执行方式:",
-    "- 优先使用 solidworks-automation skill 及其子技能。",
+    "- 优先使用 solidworks-automation skill 及其 SolidWorks/AutoCAD 子技能。",
     "- 先检查现有文件和规范，再小步实现。",
     "- 结束时用中文说明改动、验证结果和输出位置。",
   ].join("\n");
 }
 
 function App() {
-  const [activeTab, setActiveTab] = useState("project");
+  const [activeTab, setActiveTab] = useState<ActiveTab>("project");
   const [activeWallpaper, setActiveWallpaper] = useState<WallpaperId>("aurora");
   const [customWallpaper, setCustomWallpaper] = useState<WallpaperFile | null>(null);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
@@ -359,8 +432,8 @@ function App() {
   const [jobEvents, setJobEvents] = useState<Record<string, QueueEvent[]>>({});
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus>({ running: false, message: "桌面端可启动" });
   const [codexConfig, setCodexConfig] = useState<CodexConfig>({
-    objective: "根据当前配置生成可 3D 打印的外壳，并严格检查真实开孔和图纸标注。",
-    target: "shell",
+    objective: "根据当前配置生成可制造的 CAD 模型，并严格检查真实开孔、格式输出和图纸标注。",
+    target: "general_part",
     expectedOutput: "cad_files",
     process: "FDM",
     material: "PETG",
@@ -404,6 +477,13 @@ function App() {
     if (health) return `上次 ${health}`;
     return workerStatus.message;
   }, [workerStatus]);
+
+  const currentPage = pageCopy[activeTab];
+  const visibleTemplates = useMemo(() => {
+    if (activeTab === "project") return taskTemplates.slice(0, 6);
+    if (activeTab === "settings") return taskTemplates.filter((item) => item.target === "skill" || item.target === "package");
+    return taskTemplates.filter((item) => item.tab === activeTab);
+  }, [activeTab]);
 
   const codexPrompt = useMemo(() => buildCodexPrompt(codexConfig, recentProjectPath), [codexConfig, recentProjectPath]);
 
@@ -506,21 +586,25 @@ function App() {
   }
 
   function enqueueCodexTask() {
+    enqueueCodexTaskWithConfig(codexConfig);
+  }
+
+  function enqueueCodexTaskWithConfig(config: CodexConfig) {
     const strictRules = [
-      codexConfig.realCutouts ? "3D 打印开孔必须真实切除" : "明确说明开孔实现状态",
-      codexConfig.strictGbDrawing ? "必须按中国机械制图常用格式复核 CAD 图纸" : "说明当前图纸规范覆盖范围",
-      codexConfig.commitAndPush ? "完成验证后中文提交并推送 GitHub" : "完成验证并保留本地结果",
+      config.realCutouts ? "孔槽、接口、沉头和螺纹必须是真实几何切除" : "明确说明孔槽实现状态",
+      config.strictGbDrawing ? "必须按中国机械制图常用格式复核 CAD 图纸" : "说明当前图纸规范覆盖范围",
+      config.commitAndPush ? "完成验证后中文提交并推送 GitHub" : "完成验证并保留本地结果",
     ];
     const job = createJob("codex_task", recentProjectPath, {
       executor: "codex",
       title: "Codex 执行",
-      detail: `${codexTargets[codexConfig.target]} · ${codexOutputs[codexConfig.expectedOutput]}`,
-      objective: codexConfig.objective,
-      target: codexTargets[codexConfig.target],
-      expectedOutput: codexOutputs[codexConfig.expectedOutput],
+      detail: `${codexTargets[config.target]} · ${codexOutputs[config.expectedOutput]}`,
+      objective: config.objective,
+      target: codexTargets[config.target],
+      expectedOutput: codexOutputs[config.expectedOutput],
       strictRules,
-      capabilities: codexConfig.commitAndPush ? ["git_push"] : [],
-      prompt: codexPrompt,
+      capabilities: config.commitAndPush ? ["git_push"] : [],
+      prompt: buildCodexPrompt(config, recentProjectPath),
       cwd: CODEX_CWD,
       skillPath: CODEX_SKILL_PATH,
       policy: {
@@ -528,33 +612,44 @@ function App() {
         approval: "never",
         requireSkillRead: true,
         requireTests: true,
-        requireCommit: codexConfig.commitAndPush,
-        requirePush: codexConfig.commitAndPush,
+        requireCommit: config.commitAndPush,
+        requirePush: config.commitAndPush,
         requireReviewerPass: true,
       },
       uiConfig: {
         manufacturing: {
-          process: codexConfig.process,
-          processLabel: processLabels[codexConfig.process],
-          material: codexConfig.material,
-          unit: codexConfig.unit,
+          process: config.process,
+          processLabel: processLabels[config.process],
+          material: config.material,
+          unit: config.unit,
         },
-        shell: {
-          length: codexConfig.length,
-          width: codexConfig.width,
-          height: codexConfig.height,
-          wallThickness: codexConfig.wallThickness,
+        geometry: {
+          length: config.length,
+          width: config.width,
+          height: config.height,
+          wallThickness: config.wallThickness,
         },
         gates: {
-          realCutouts: codexConfig.realCutouts,
-          strictGbDrawing: codexConfig.strictGbDrawing,
-          commitAndPush: codexConfig.commitAndPush,
+          realCutouts: config.realCutouts,
+          strictGbDrawing: config.strictGbDrawing,
+          commitAndPush: config.commitAndPush,
         },
-        outputDir: codexConfig.outputDir,
+        outputDir: config.outputDir,
       },
     });
     upsertJob(job);
     if (!isTauriRuntime()) simulateJob(job);
+  }
+
+  function enqueueTemplateTask(template: (typeof taskTemplates)[number]) {
+    const nextConfig = {
+      ...codexConfig,
+      target: template.target,
+      expectedOutput: template.output,
+      objective: `${template.title}: ${template.detail}。请根据用户导入的资料或当前配置生成可制造 CAD 结果，并输出必要的复核记录。`,
+    } satisfies CodexConfig;
+    setCodexConfig(nextConfig);
+    enqueueCodexTaskWithConfig(nextConfig);
   }
 
   function cancelJob(id: string) {
@@ -874,7 +969,7 @@ function App() {
               <button type="button" aria-label="最大化窗口" onClick={() => controlWindow("maximize")} />
             </div>
             <div className="project-title">
-              <strong>智能外壳项目</strong>
+              <strong>{currentPage.title}</strong>
               <span>{recentProjectPath ? `${displayNameFromPath(recentProjectPath)} · SolidWorks 已连接 · 规范库 GB/T` : "本地工作区 · SolidWorks 已连接 · 规范库 GB/T"}</span>
             </div>
             <div className="toolbar-actions">
@@ -974,13 +1069,13 @@ function App() {
           <section className="workbench-head">
             <div>
               <p className="eyebrow">LOCAL CAD WORKBENCH</p>
-              <h1>项目工作台</h1>
-              <p className="subtitle">拖入草图、参数表或模型文件，生成可打印外壳、国标图纸和交付包。</p>
+              <h1>{currentPage.title}</h1>
+              <p className="subtitle">{currentPage.subtitle}</p>
             </div>
             <div className="command-row">
-              <motion.button className="primary-button shine" onClick={() => enqueueAutomation("create_shell", recentProjectPath)} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.975 }}>
+              <motion.button className="primary-button shine" onClick={() => setActiveTab("model")} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.975 }}>
                 <FilePlus size={18} weight="duotone" />
-                新建外壳
+                新建 CAD 任务
               </motion.button>
               <motion.button className="ghost-button" onClick={chooseProjectFile} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.975 }}>
                 <FolderOpen size={18} weight="duotone" />
@@ -993,12 +1088,64 @@ function App() {
             </div>
           </section>
 
+          {activeTab === "settings" ? (
+            <section className="tab-surface">
+              <div className="settings-grid">
+                <article className="setting-card">
+                  <span>Worker</span>
+                  <strong>{workerStatus.running ? `运行中 · PID ${workerStatus.pid ?? "-"}` : "未启动"}</strong>
+                  <p>{workerStatus.health?.heartbeatAt ? `最近心跳 ${workerStatus.health.heartbeatAt}` : workerStatus.message}</p>
+                  <button type="button" onClick={() => void (workerStatus.running ? stopLocalWorker() : startLocalWorker())}>
+                    {workerStatus.running ? "停止本地 Worker" : "启动本地 Worker"}
+                  </button>
+                </article>
+                <article className="setting-card">
+                  <span>Codex Bridge</span>
+                  <strong>workspace-write</strong>
+                  <p>默认安全沙箱运行。Git push、全权限、CAD 宏等动作会先进入 Policy Gate 审批。</p>
+                  <button type="button" onClick={() => updateCodexConfig({ commitAndPush: !codexConfig.commitAndPush })}>
+                    {codexConfig.commitAndPush ? "关闭自动推送" : "启用提交推送"}
+                  </button>
+                </article>
+                <article className="setting-card">
+                  <span>Appearance</span>
+                  <strong>{activeWallpaperName}</strong>
+                  <p>支持导入本地图片、GIF 和视频壁纸，设置保存在本机。</p>
+                  <button type="button" onClick={() => setAppearanceOpen(true)}>打开外观设置</button>
+                </article>
+              </div>
+            </section>
+          ) : (
+            <section className="capability-board">
+              {visibleTemplates.map((template, index) => {
+                const Icon = template.icon;
+                return (
+                  <motion.button
+                    className="capability-card"
+                    key={template.key}
+                    onClick={() => enqueueTemplateTask(template)}
+                    initial={reducedMotion ? false : { y: 12, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ duration: 0.35, delay: index * 0.04 }}
+                    whileHover={reducedMotion ? undefined : { y: -3 }}
+                    whileTap={{ scale: 0.985 }}
+                  >
+                    <Icon size={22} weight="duotone" />
+                    <span>{codexTargets[template.target]}</span>
+                    <strong>{template.title}</strong>
+                    <p>{template.detail}</p>
+                  </motion.button>
+                );
+              })}
+            </section>
+          )}
+
           <section className="content-grid workbench-grid">
             <motion.article className="preview-card" layout>
               <div className="panel-heading">
                 <div>
                   <p className="eyebrow">MODEL PREVIEW</p>
-                  <h2>参数化外壳草案</h2>
+                  <h2>参数化 CAD 草案</h2>
                 </div>
                 <span className={isRunning ? "status-pill running" : "status-pill"}>{isRunning ? "建模中" : "待执行"}</span>
               </div>
@@ -1123,7 +1270,7 @@ function App() {
               </div>
 
               <div className="bridge-field compact-inputs">
-                <span>外壳参数</span>
+                <span>几何参数</span>
                 <div className="number-grid">
                   {[
                     ["length", "长"],
@@ -1250,7 +1397,7 @@ function App() {
                 {jobs.length === 0 ? (
                   <div className="queue-empty">
                     <Sparkle size={19} weight="duotone" />
-                    <span>点击新建外壳、导入模型或生成交付包后，任务会出现在这里。</span>
+                    <span>点击建模模板、导入模型或生成交付包后，任务会出现在这里。</span>
                   </div>
                 ) : (
                   jobs.slice(0, 4).map((job) => (

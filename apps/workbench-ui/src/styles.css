@@ -677,6 +677,113 @@ textarea {
   gap: 10px;
 }
 
+.capability-board,
+.tab-surface {
+  position: relative;
+  z-index: 1;
+  margin-top: 12px;
+}
+
+.capability-board {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.capability-card {
+  position: relative;
+  display: grid;
+  min-height: 148px;
+  padding: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.76);
+  border-radius: 22px;
+  color: var(--ink);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.5)),
+    color-mix(in srgb, var(--accent) 5%, transparent);
+  box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  text-align: left;
+  cursor: pointer;
+}
+
+.capability-card::after {
+  content: "";
+  position: absolute;
+  inset: auto -18% -52% 26%;
+  height: 96px;
+  transform: rotate(-8deg);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  filter: blur(16px);
+}
+
+.capability-card svg {
+  position: relative;
+  z-index: 1;
+  color: var(--accent);
+}
+
+.capability-card span,
+.setting-card span {
+  position: relative;
+  z-index: 1;
+  align-self: end;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.capability-card strong,
+.setting-card strong {
+  position: relative;
+  z-index: 1;
+  margin-top: 8px;
+  font-size: 20px;
+  line-height: 1.05;
+}
+
+.capability-card p,
+.setting-card p {
+  position: relative;
+  z-index: 1;
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.setting-card {
+  display: grid;
+  align-content: start;
+  min-height: 168px;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.76);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.62);
+  box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.setting-card button {
+  justify-self: start;
+  min-height: 34px;
+  margin-top: 16px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--accent) 72%, #173151);
+  background: var(--accent-soft);
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
 .ghost-button,
 .primary-button {
   display: inline-flex;
@@ -1529,6 +1636,11 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .capability-board,
+  .settings-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .codex-bridge {
     grid-template-columns: 1fr;
   }
@@ -1603,6 +1715,8 @@ textarea {
   }
 
   .wallpaper-grid,
+  .capability-board,
+  .settings-grid,
   .bridge-controls,
   .segmented-control,
   .metric-row,

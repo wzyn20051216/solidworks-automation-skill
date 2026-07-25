@@ -48,8 +48,8 @@ python -m apps.desktop.cad_workbench.queue_worker --watch --queue-dir "<队列�
   "id": "job-1721900000000-a1b2c3",
   "runId": "run-1721900000000-a1b2c3",
   "kind": "create_shell",
-  "title": "新建外壳",
-  "detail": "生成参数化壳体、开孔和基础检查任务",
+  "title": "新建 CAD 任务",
+  "detail": "生成零件、装配、外壳、孔槽和基础检查任务",
   "status": "queued",
   "progress": 0,
   "createdAt": "2026-07-25T12:00:00.000Z",
@@ -78,7 +78,7 @@ apps/desktop/cad_workbench/schemas/automation_job.schema.json
 
 任务类型:
 
-- `create_shell`: 新建参数化外壳、开孔和基础检查。
+- `create_shell`: 兼容旧命名的新建 CAD 任务，覆盖零件、装配、外壳、孔槽和基础检查。
 - `import_model`: 导入本地 CAD 模型并建立项目上下文。
 - `delivery_package`: 生成 STEP、STL、PDF、DWG 等交付包。
 - `codex_task`: 图形化配置生成的 Codex 非交互执行任务。
