@@ -45,7 +45,7 @@ type CodexConfig = {
   objective: string;
   cadApplication: "auto" | "solidworks" | "autocad" | "both";
   target: "auto" | "general_part" | "assembly" | "shell" | "fixture" | "sheet_metal" | "holes" | "drawing" | "package" | "reverse" | "skill";
-  expectedOutput: "auto" | "cad_files" | "drawing_package" | "skill_update" | "research_report";
+  expectedOutput: "auto" | "cad_files" | "drawing_package" | "research_report";
   process: "auto" | "FDM" | "SLA" | "CNC" | "sheet_metal";
   material: "auto" | "PLA" | "PETG" | "ABS" | "Al6061";
   unit: "mm";
@@ -57,7 +57,6 @@ type CodexConfig = {
   strictGbDrawing: boolean;
   realCutouts: boolean;
   localCadAutomation: boolean;
-  commitAndPush: boolean;
 };
 type AutomationJobKind = "create_shell" | "import_model" | "delivery_package" | "codex_task";
 type AutomationJobStatus = "queued" | "running" | "passed" | "failed" | "cancelled" | "approval_required";
@@ -282,7 +281,6 @@ const codexOutputs: Record<CodexConfig["expectedOutput"], string> = {
   auto: "AI 自动选择输出",
   cad_files: "SLDPRT / STEP / STL",
   drawing_package: "DWG / DXF / PDF 图纸包",
-  skill_update: "Skill 更新 + GitHub 推送",
   research_report: "调研报告 / 执行建议",
 };
 
@@ -421,7 +419,7 @@ function buildCodexPrompt(config: CodexConfig, projectPath?: string) {
     "用户未明确指定的建模类型、工艺、材料、输出格式、尺寸细节和检查项，由 AI 根据工程目标自动选择最佳方案，并在结果中说明选择理由。",
     config.realCutouts ? "所有孔、槽、螺纹、接口和减重结构必须是真实几何特征，不能只画线或只做外观标记。" : "如果涉及孔槽，需要明确说明当前是否已真实切除。",
     config.strictGbDrawing ? "CAD 图纸必须按中国机械制图常用格式复核，尺寸链、孔表、技术要求、图框标题栏要完整。" : "图纸输出需要标明当前规范覆盖范围。",
-    config.commitAndPush ? "完成后运行验证，使用中文 commit，并推送 GitHub。" : "完成后运行验证并说明未提交的原因。",
+    "结果必须保存到用户指定的本地输出目录，不向 GitHub 或外部服务发布。",
   ];
 
   return [
@@ -457,7 +455,7 @@ function buildCodexPrompt(config: CodexConfig, projectPath?: string) {
     "- 若目标软件为 AI 自动选软件，需要先判断本任务应该调用 SolidWorks、AutoCAD 或两者联动，并说明理由。",
     "- 优先使用 solidworks-automation skill 及其 SolidWorks/AutoCAD 子技能。",
     "- 先检查现有文件和规范，再小步实现。",
-    "- 结束时用中文说明改动、验证结果和输出位置。",
+    "- 结束时用中文说明输出文件、验证结果和本地保存位置。",
   ].join("\n");
 }
 
@@ -493,7 +491,6 @@ function App() {
     strictGbDrawing: true,
     realCutouts: true,
     localCadAutomation: true,
-    commitAndPush: false,
   });
   const [isRunning, setIsRunning] = useState(false);
   const [focusFeature, setFocusFeature] = useState(0);
@@ -643,12 +640,9 @@ function App() {
       config.strictGbDrawing ? "必须按中国机械制图常用格式复核 CAD 图纸" : "说明当前图纸规范覆盖范围",
       `${cadApplicationLabels[config.cadApplication]}: ${cadApplicationRoutes[config.cadApplication]}`,
       config.localCadAutomation ? "允许经审批后调用本机 SolidWorks / AutoCAD 桌面自动化能力。" : "不直接调用本机 CAD 软件，仅生成计划、脚本或说明。",
-      config.commitAndPush ? "完成验证后中文提交并推送 GitHub" : "完成验证并保留本地结果",
+      `所有交付物只保存到本地输出目录: ${config.outputDir}`,
     ];
-    const capabilities = [
-      ...(config.localCadAutomation ? ["cad_macro"] : []),
-      ...(config.commitAndPush ? ["git_push"] : []),
-    ];
+    const capabilities = config.localCadAutomation ? ["cad_macro"] : [];
     const job = createJob("codex_task", recentProjectPath, {
       executor: "codex",
       title: "Codex 执行",
@@ -667,8 +661,8 @@ function App() {
         approval: "never",
         requireSkillRead: true,
         requireTests: true,
-        requireCommit: config.commitAndPush,
-        requirePush: config.commitAndPush,
+        requireCommit: false,
+        requirePush: false,
         requireReviewerPass: true,
       },
       uiConfig: {
@@ -705,7 +699,7 @@ function App() {
         gates: {
           realCutouts: config.realCutouts,
           strictGbDrawing: config.strictGbDrawing,
-          commitAndPush: config.commitAndPush,
+          localCadAutomation: config.localCadAutomation,
         },
         outputDir: config.outputDir,
       },
@@ -833,6 +827,18 @@ function App() {
     if (!selected || Array.isArray(selected)) return;
     setRecentProjectPath(selected);
     enqueueAutomation("import_model", selected);
+  }
+
+  async function chooseOutputDir() {
+    if (!isTauriRuntime()) return;
+
+    const selected = await openDialog({
+      multiple: false,
+      directory: true,
+    });
+
+    if (!selected || Array.isArray(selected)) return;
+    updateCodexConfig({ outputDir: selected });
   }
 
   function importWallpaper(event: ChangeEvent<HTMLInputElement>) {
@@ -1226,11 +1232,9 @@ function App() {
                 </article>
                 <article className="setting-card">
                   <span>Codex Bridge</span>
-                  <strong>workspace-write</strong>
-                  <p>默认安全沙箱运行。Git push、全权限、CAD 宏等动作会先进入 Policy Gate 审批。</p>
-                  <button type="button" onClick={() => updateCodexConfig({ commitAndPush: !codexConfig.commitAndPush })}>
-                    {codexConfig.commitAndPush ? "关闭自动推送" : "启用提交推送"}
-                  </button>
+                  <strong>本地输出</strong>
+                  <p>任务只保存到本机目标位置。本机 CAD 自动化会经过 Policy Gate 审批，不向 GitHub 发布。</p>
+                  <button type="button" onClick={chooseOutputDir}>选择输出文件夹</button>
                 </article>
                 <article className="setting-card">
                   <span>Appearance</span>
@@ -1368,133 +1372,163 @@ function App() {
           <section className="codex-bridge">
             <div className="bridge-copy">
               <p className="eyebrow">CODEX BRIDGE</p>
-              <h2>图形化配置，Codex 执行</h2>
-              <p>把按钮、选项和工程规则转换成稳定提示词，交给本机 Codex CLI 执行，结果再回写任务队列。</p>
+              <h2>创建 CAD 任务</h2>
+              <p>按步骤填写目标、保存位置和执行偏好。软件会把它转换成本机 CAD Agent 任务，输出文件只保存到本地。</p>
             </div>
 
             <div className="bridge-controls">
-              <label className="bridge-field wide">
-                <span>任务目标</span>
-                <textarea value={codexConfig.objective} onChange={(event) => updateCodexConfig({ objective: event.target.value })} />
-              </label>
-
-              <div className="bridge-field wide">
-                <span>目标软件</span>
-                <div className="segmented-control software-control">
-                  {(Object.keys(cadApplicationLabels) as Array<CodexConfig["cadApplication"]>).map((application) => (
-                    <button
-                      type="button"
-                      className={codexConfig.cadApplication === application ? "active" : ""}
-                      key={application}
-                      onClick={() => updateCodexConfig({ cadApplication: application })}
-                    >
-                      {cadApplicationLabels[application]}
-                    </button>
-                  ))}
+              <section className="workflow-card">
+                <div className="workflow-card-head">
+                  <span>01</span>
+                  <div>
+                    <strong>任务内容</strong>
+                    <small>描述你要得到的模型或图纸</small>
+                  </div>
                 </div>
-              </div>
-
-              <div className="bridge-field">
-                <span>制造方式</span>
-                <div className="segmented-control">
-                  {(Object.keys(processLabels) as Array<CodexConfig["process"]>).map((process) => (
-                    <button
-                      type="button"
-                      className={codexConfig.process === process ? "active" : ""}
-                      key={process}
-                      onClick={() => updateCodexConfig({ process })}
-                    >
-                      {processLabels[process]}
-                    </button>
-                  ))}
+                <label className="bridge-field wide">
+                  <span>需求描述</span>
+                  <textarea value={codexConfig.objective} onChange={(event) => updateCodexConfig({ objective: event.target.value })} />
+                </label>
+                <div className="bridge-field">
+                  <span>目标模块</span>
+                  <div className="segmented-control">
+                    {(Object.keys(codexTargets) as Array<CodexConfig["target"]>).map((target) => (
+                      <button
+                        type="button"
+                        className={codexConfig.target === target ? "active" : ""}
+                        key={target}
+                        onClick={() => updateCodexConfig({ target })}
+                      >
+                        {codexTargets[target]}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              </section>
 
-              <div className="bridge-field">
-                <span>材料</span>
-                <div className="segmented-control">
-                  {(Object.keys(materialLabels) as Array<CodexConfig["material"]>).map((material) => (
-                    <button
-                      type="button"
-                      className={codexConfig.material === material ? "active" : ""}
-                      key={material}
-                      onClick={() => updateCodexConfig({ material })}
-                    >
-                      {materialLabels[material]}
-                    </button>
-                  ))}
+              <section className="workflow-card">
+                <div className="workflow-card-head">
+                  <span>02</span>
+                  <div>
+                    <strong>保存到本地</strong>
+                    <small>选择输出物和目标文件夹</small>
+                  </div>
                 </div>
-              </div>
-
-              <div className="bridge-field compact-inputs">
-                <span>几何参数</span>
-                <div className="number-grid">
-                  {[
-                    ["length", "长"],
-                    ["width", "宽"],
-                    ["height", "高"],
-                    ["wallThickness", "壁厚"],
-                  ].map(([key, label]) => (
-                    <label key={key}>
-                      <em>{label}</em>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={codexConfig[key as "length" | "width" | "height" | "wallThickness"]}
-                        onChange={(event) => updateCodexConfig({ [key]: Number(event.target.value) } as Partial<CodexConfig>)}
-                      />
-                    </label>
-                  ))}
+                <div className="bridge-field">
+                  <span>输出物</span>
+                  <div className="segmented-control output-control">
+                    {(Object.keys(codexOutputs) as Array<CodexConfig["expectedOutput"]>).map((output) => (
+                      <button
+                        type="button"
+                        className={codexConfig.expectedOutput === output ? "active" : ""}
+                        key={output}
+                        onClick={() => updateCodexConfig({ expectedOutput: output })}
+                      >
+                        {codexOutputs[output]}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+                <label className="bridge-field wide">
+                  <span>输出目录</span>
+                  <div className="output-path-row">
+                    <input value={codexConfig.outputDir} onChange={(event) => updateCodexConfig({ outputDir: event.target.value })} />
+                    <button type="button" onClick={chooseOutputDir}>选择</button>
+                  </div>
+                </label>
+              </section>
 
-              <div className="bridge-field">
-                <span>目标模块</span>
-                <div className="segmented-control">
-                  {(Object.keys(codexTargets) as Array<CodexConfig["target"]>).map((target) => (
-                    <button
-                      type="button"
-                      className={codexConfig.target === target ? "active" : ""}
-                      key={target}
-                      onClick={() => updateCodexConfig({ target })}
-                    >
-                      {codexTargets[target]}
-                    </button>
-                  ))}
+              <section className="workflow-card">
+                <div className="workflow-card-head">
+                  <span>03</span>
+                  <div>
+                    <strong>执行设置</strong>
+                    <small>默认自动选择，必要时再手动指定</small>
+                  </div>
                 </div>
-              </div>
-
-              <div className="bridge-field">
-                <span>输出物</span>
-                <div className="segmented-control">
-                  {(Object.keys(codexOutputs) as Array<CodexConfig["expectedOutput"]>).map((output) => (
-                    <button
-                      type="button"
-                      className={codexConfig.expectedOutput === output ? "active" : ""}
-                      key={output}
-                      onClick={() => updateCodexConfig({ expectedOutput: output })}
-                    >
-                      {codexOutputs[output]}
-                    </button>
-                  ))}
+                <div className="bridge-field wide">
+                  <span>目标软件</span>
+                  <div className="segmented-control software-control">
+                    {(Object.keys(cadApplicationLabels) as Array<CodexConfig["cadApplication"]>).map((application) => (
+                      <button
+                        type="button"
+                        className={codexConfig.cadApplication === application ? "active" : ""}
+                        key={application}
+                        onClick={() => updateCodexConfig({ cadApplication: application })}
+                      >
+                        {cadApplicationLabels[application]}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+                <div className="execution-grid">
+                  <div className="bridge-field">
+                    <span>制造方式</span>
+                    <div className="segmented-control">
+                      {(Object.keys(processLabels) as Array<CodexConfig["process"]>).map((process) => (
+                        <button
+                          type="button"
+                          className={codexConfig.process === process ? "active" : ""}
+                          key={process}
+                          onClick={() => updateCodexConfig({ process })}
+                        >
+                          {processLabels[process]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
-              <div className="bridge-toggles">
-                <button type="button" className={codexConfig.realCutouts ? "toggle-pill active" : "toggle-pill"} onClick={() => updateCodexConfig({ realCutouts: !codexConfig.realCutouts })}>
-                  真实开孔
-                </button>
-                <button type="button" className={codexConfig.strictGbDrawing ? "toggle-pill active" : "toggle-pill"} onClick={() => updateCodexConfig({ strictGbDrawing: !codexConfig.strictGbDrawing })}>
-                  严格图纸规范
-                </button>
-                <button type="button" className={codexConfig.localCadAutomation ? "toggle-pill active" : "toggle-pill"} onClick={() => updateCodexConfig({ localCadAutomation: !codexConfig.localCadAutomation })}>
-                  本机 CAD 自动化
-                </button>
-                <button type="button" className={codexConfig.commitAndPush ? "toggle-pill active" : "toggle-pill"} onClick={() => updateCodexConfig({ commitAndPush: !codexConfig.commitAndPush })}>
-                  提交并推送
-                </button>
-              </div>
+                  <div className="bridge-field">
+                    <span>材料</span>
+                    <div className="segmented-control">
+                      {(Object.keys(materialLabels) as Array<CodexConfig["material"]>).map((material) => (
+                        <button
+                          type="button"
+                          className={codexConfig.material === material ? "active" : ""}
+                          key={material}
+                          onClick={() => updateCodexConfig({ material })}
+                        >
+                          {materialLabels[material]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="bridge-field compact-inputs">
+                  <span>参考尺寸</span>
+                  <div className="number-grid">
+                    {[
+                      ["length", "长"],
+                      ["width", "宽"],
+                      ["height", "高"],
+                      ["wallThickness", "壁厚"],
+                    ].map(([key, label]) => (
+                      <label key={key}>
+                        <em>{label}</em>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          value={codexConfig[key as "length" | "width" | "height" | "wallThickness"]}
+                          onChange={(event) => updateCodexConfig({ [key]: Number(event.target.value) } as Partial<CodexConfig>)}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bridge-toggles">
+                  <button type="button" className={codexConfig.realCutouts ? "toggle-pill active" : "toggle-pill"} onClick={() => updateCodexConfig({ realCutouts: !codexConfig.realCutouts })}>
+                    真实开孔
+                  </button>
+                  <button type="button" className={codexConfig.strictGbDrawing ? "toggle-pill active" : "toggle-pill"} onClick={() => updateCodexConfig({ strictGbDrawing: !codexConfig.strictGbDrawing })}>
+                    严格图纸规范
+                  </button>
+                  <button type="button" className={codexConfig.localCadAutomation ? "toggle-pill active" : "toggle-pill"} onClick={() => updateCodexConfig({ localCadAutomation: !codexConfig.localCadAutomation })}>
+                    本机 CAD 自动化
+                  </button>
+                </div>
+              </section>
             </div>
 
             <div className="bridge-runtime">
