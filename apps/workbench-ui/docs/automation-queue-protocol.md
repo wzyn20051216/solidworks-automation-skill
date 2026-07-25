@@ -111,6 +111,7 @@ queued -> approval_required -> queued
 - worker 只处理 `status == "queued"` 的任务。
 - `passed`、`failed`、`cancelled` 是终态。
 - worker 回写 `workerLog`、`lastMessage`、`result` 或 `error`，前端可以直接展示这些字段。
+- 成功任务会回写 `artifactLedgerPath` 和 `artifacts`，用于展示交付物存在性、大小和 hash。
 - 真实 CAD handler 必须在写入 `passed` 前完成文件存在性检查，不能把占位文件标为可制造交付。
 
 ## Policy Gate
@@ -158,8 +159,42 @@ worker 会重新计算当前任务的审批原因，并要求它与 `approvedPol
 - 损坏 JSON 会被移动到 `queue/quarantine`，并生成同名 `.error.txt`，不会中断 watch 循环。
 - 每个任务会写入 `queue/events/{job_id}.jsonl` 事件流。
 - 托管子进程 stdout/stderr 会写入 `queue/logs/{job_id}.stdout.log` 与 `queue/logs/{job_id}.stderr.log`。
+- 成功任务会写入 `queue/ledgers/{job_id}.ledger.json` 交付物账本。
 
 这些字段是 worker 管理字段，UI 可展示但不要手动修改。
+
+## Artifact Ledger
+
+Artifact Ledger 用于把 Agent 交付结果变成可审计的机器记录。worker 在任务成功后收集 `result.outputPath`、`result.outputs`、`result.artifacts` 和任务自身 `artifacts` 字段，生成:
+
+```json
+{
+  "schemaVersion": "1.0",
+  "jobId": "job-1721900000000-a1b2c3",
+  "runId": "run-1721900000000-a1b2c3",
+  "status": "passed",
+  "artifacts": [
+    {
+      "kind": "step",
+      "path": "D:/demo/outputs/model/demo.step",
+      "exists": true,
+      "isDirectory": false,
+      "sizeBytes": 12345,
+      "sha256": "..."
+    }
+  ],
+  "verification": [],
+  "resultMessage": "任务完成"
+}
+```
+
+写入路径:
+
+```text
+queue/ledgers/{job_id}.ledger.json
+```
+
+相对输出路径会优先按任务 `cwd` 解析；没有 `cwd` 时按 `projectPath` 所在目录或项目目录解析。同一信息会摘要回写到任务 JSON 的 `artifactLedgerPath` 和 `artifacts` 字段，并追加 `artifact.ledger_written` 事件。真实 CAD handler 仍然必须自己判断 P0 交付物是否齐全；Ledger 负责记录事实，不替代制造级验收。
 
 ## Codex Bridge
 

@@ -83,6 +83,9 @@
         "type": "string"
       }
     },
+    "artifactLedgerPath": {
+      "type": "string"
+    },
     "policy": {
       "type": "object",
       "additionalProperties": false,

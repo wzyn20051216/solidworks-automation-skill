@@ -1,3 +1,4 @@
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -62,9 +63,11 @@ def test_queue_worker_processes_queued_job(tmp_path: Path) -> None:
     assert saved["runnerId"].startswith("cad-workbench-python-worker-")
     assert saved["heartbeatAt"]
     assert saved["leaseUntil"]
+    assert Path(saved["artifactLedgerPath"]).exists()
     assert not lock_path_for(job_path).exists()
     event_path = event_path_for(queue_dir, "job-1")
     assert event_path.exists()
+    assert "artifact.ledger_written" in event_path.read_text(encoding="utf-8")
     assert "run.passed" in event_path.read_text(encoding="utf-8")
 
 
@@ -80,6 +83,33 @@ def test_queue_worker_marks_unknown_kind_failed(tmp_path: Path) -> None:
     assert saved["status"] == "failed"
     assert saved["progress"] == 100
     assert "未知任务类型" in saved["error"]
+
+
+def test_artifact_ledger_records_output_hash(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job_path = queue_dir / "job-ledger.json"
+    project_dir = tmp_path / "project"
+    output_path = project_dir / "outputs" / "delivery.txt"
+    job = _queued_job("job-ledger")
+    job["projectPath"] = str(project_dir)
+    write_job(job_path, job)
+
+    def handler(job: dict) -> dict:
+        output_path.parent.mkdir(parents=True)
+        output_path.write_bytes(b"artifact\n")
+        return {"mode": "mock", "message": "生成交付物", "outputs": {"report": "outputs/delivery.txt"}}
+
+    process_queue(queue_dir, handlers={"create_shell": handler})
+
+    saved = read_job(job_path)
+    ledger = json.loads(Path(saved["artifactLedgerPath"]).read_text(encoding="utf-8"))
+    artifact = ledger["artifacts"][0]
+    assert ledger["jobId"] == "job-ledger"
+    assert artifact["kind"] == "report"
+    assert artifact["exists"] is True
+    assert artifact["sizeBytes"] == len("artifact\n".encode("utf-8"))
+    assert artifact["sha256"] == hashlib.sha256(b"artifact\n").hexdigest()
+    assert saved["artifacts"][0]["sha256"] == artifact["sha256"]
 
 
 def test_queue_worker_skips_terminal_jobs(tmp_path: Path) -> None:

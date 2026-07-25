@@ -100,6 +100,7 @@ type AutomationJob = {
   approvedAt?: string;
   approvedBy?: string;
   approvedPolicyReasons?: string[];
+  artifactLedgerPath?: string;
   error?: string;
 };
 type QueueEvent = {

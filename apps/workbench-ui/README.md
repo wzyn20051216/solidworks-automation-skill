@@ -20,6 +20,7 @@ Apple-style 本地工程软件，浅色悬浮窗口、外观中心、本地壁�
 - 本地自动化队列，桌面端把新建外壳、导入模型、生成交付包任务保存为 JSON。
 - Codex Bridge 面板，把图形化配置转换为 `codex exec` 可执行任务。
 - Policy Gate 审批门禁，危险任务会先进入待审批状态。
+- Artifact Ledger 交付物账本，记录输出文件存在性、大小和 SHA-256。
 - 4 套默认壁纸: Aurora、Blueprint、Studio、Mist。
 - macOS 风格窗口栏、浅色 Dock 导航、项目工作台和右侧 Inspector 参数面板。
 - 按钮 hover、按压反馈和主按钮光泽扫过效果。
@@ -112,7 +113,7 @@ python -m apps.desktop.cad_workbench.queue_worker --watch --enable-codex --queue
 Codex Bridge 的职责边界:
 
 - UI 负责收集点击配置、工程规则、目标输出和 prompt 预览。
-- 队列负责把任务持久化为 JSON，并通过 `.lock`、lease、stale 恢复和 quarantine 保证本地可靠执行。
+- 队列负责把任务持久化为 JSON，并通过 `.lock`、lease、stale 恢复、quarantine 和 Artifact Ledger 保证本地可靠执行。
 - worker 负责校验任务、执行 Policy Gate、限制工作区、固定输出路径并调用 `codex exec`。
 - Codex 负责真正执行 skill、修改文件、运行验证、提交和推送。
 

@@ -21,6 +21,7 @@ from .agent_contracts import (
     require_policy_approval,
     validate_codex_job,
 )
+from .artifact_ledger import write_artifact_ledger
 from .core import CN_TZ, now_iso
 
 
@@ -524,6 +525,10 @@ def process_job(
         job.pop("_runtime", None)
         job["result"] = result
         set_job_state(job, "passed", 100, str(result.get("message", "任务完成")))
+        ledger = write_artifact_ledger(path.parent, job, result)
+        job["artifactLedgerPath"] = ledger["ledgerPath"]
+        job["artifacts"] = ledger["artifacts"]
+        append_event(path.parent, job, "artifact.ledger_written", "交付物账本已写入", {"ledgerPath": ledger["ledgerPath"]})
         append_event(path.parent, job, "run.passed", str(result.get("message", "任务完成")))
     except JobCancelled as error:
         job.pop("_runtime", None)

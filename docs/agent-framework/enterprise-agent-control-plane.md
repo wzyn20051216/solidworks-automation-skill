@@ -53,6 +53,7 @@ Codex 仍然是最终执行者，`solidworks-automation` skill 是核心能力�
 - 运行中 heartbeat 续租、取消语义、JSONL 事件流和 stdout/stderr 日志落盘。
 - Policy Gate 人工审批状态，覆盖 Git push、全权限沙箱、CAD 宏、外部网络、跨工作区写入和删除文件。
 - 审批范围复核: 批准后若任务风险原因变化，worker 会重新拦截。
+- Artifact Ledger: 成功任务自动记录交付物路径、存在性、大小和 SHA-256。
 
 未实现:
 
@@ -61,7 +62,7 @@ Codex 仍然是最终执行者，`solidworks-automation` skill 是核心能力�
 - 多 Agent 并行/评审调度。
 - Memory 和企业权限。
 - CAD 真实执行器的生产级回滚。
-- HMAC 签名和不可变审计 ledger。
+- HMAC 签名和不可变审计账本。
 
 ## 最小企业级原则
 
@@ -85,10 +86,21 @@ Codex 仍然是最终执行者，`solidworks-automation` skill 是核心能力�
 
 命中后任务进入 `approval_required`，worker 写入 `approvalReasons` 和 `policy.approval_required` 事件。桌面端批准后写入 `approvedAt`、`approvedBy`、`approvedPolicyReasons` 并恢复为 `queued`。worker 会重新计算审批原因，只有当前原因与已批准原因一致时才继续执行。
 
+## Artifact Ledger
+
+Artifact Ledger 是 Reviewer Gate 的前置基础。任务成功后，worker 会把 `result.outputPath`、`result.outputs`、`result.artifacts` 和任务级 `artifacts` 汇总成 `queue/ledgers/{job_id}.ledger.json`，记录:
+
+- 交付物 kind/path。
+- 文件是否存在、是否目录。
+- 文件大小和 SHA-256。
+- 执行结果消息和验证摘要。
+
+Ledger 只记录事实，不替代制造级验收。真实 CAD handler 仍需在写入 `passed` 前检查 STEP/STL/DWG/PDF 等 P0 文件是否真实存在、可打开、可制造。
+
 ## 近期路线
 
 1. Queue Store: 增加事件流 UI 时间线、运行中重试策略和队列健康状态。
-2. Artifact Ledger: 记录输出文件 hash、Codex 输出、验证命令、Git commit 和审计事件。
-3. Worker Control: 软件内启动/停止 worker，并展示队列健康状态。
+2. Worker Control: 软件内启动/停止 worker，并展示队列健康状态。
+3. Reviewer Gate: 基于 Artifact Ledger 增加交付物完整性和制造规则复核。
 4. UI: 把 Prompt Preview 改为执行计划、门禁和影响范围，prompt 放到高级详情。
 5. Multi-Agent: 增加 Planner/Executor/Reviewer 三阶段，不追求多进程炫技，先追求可追溯和可验收。
