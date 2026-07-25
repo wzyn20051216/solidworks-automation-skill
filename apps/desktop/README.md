@@ -24,6 +24,24 @@ python -m pip install -r apps/desktop/requirements.txt
 python apps/desktop/run.py
 ```
 
+也可以直接用 PowerShell 启动脚本:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File apps/desktop/start_desktop.ps1
+```
+
+## 打包 exe
+
+```powershell
+powershell -ExecutionPolicy Bypass -File apps/desktop/build_exe.ps1
+```
+
+打包完成后，可执行文件位于:
+
+```text
+apps/desktop/dist/CADAutomationWorkbench/CADAutomationWorkbench.exe
+```
+
 ## 当前能力
 
 - 本地项目目录创建。
