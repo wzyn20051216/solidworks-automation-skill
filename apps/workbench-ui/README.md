@@ -17,6 +17,7 @@ Apple-style 本地工程软件，浅色悬浮窗口、外观中心、本地壁�
 
 - 右上角外观浮层，支持导入本地图片、GIF、视频壁纸，并可调节亮度、模糊和暗角。
 - 本地配置持久化，自动记住当前壁纸、最近壁纸、亮度、模糊、暗角和最近导入模型路径。
+- 本地自动化队列，桌面端把新建外壳、导入模型、生成交付包任务保存为 JSON。
 - 4 套默认壁纸: Aurora、Blueprint、Studio、Mist。
 - macOS 风格窗口栏、浅色 Dock 导航、项目工作台和右侧 Inspector 参数面板。
 - 按钮 hover、按压反馈和主按钮光泽扫过效果。
@@ -25,7 +26,7 @@ Apple-style 本地工程软件，浅色悬浮窗口、外观中心、本地壁�
 桌面化目标:
 
 - Tauri 外壳承载当前 React UI。
-- 接入真实 SolidWorks / AutoCAD 自动化队列。
+- 接入真实 SolidWorks / AutoCAD 自动化执行器。
 - 支持离线运行、系统托盘、任务通知和导出目录管理。
 
 说明:
@@ -77,3 +78,25 @@ npm run desktop:bundle
 ```text
 apps\workbench-ui\src-tauri\target\release\cad-studio.exe
 ```
+
+## 本地自动化队列
+
+协议文档:
+
+```text
+apps\workbench-ui\docs\automation-queue-protocol.md
+```
+
+桌面端任务保存到 Tauri 应用数据目录的 `queue` 文件夹。Python worker 原型:
+
+```powershell
+python -m apps.desktop.cad_workbench.queue_worker --queue-dir "<队列目录>"
+```
+
+持续监听:
+
+```powershell
+python -m apps.desktop.cad_workbench.queue_worker --watch --queue-dir "<队列目录>"
+```
+
+当前 worker 使用 mock handler，只验证任务流转和文件回写。后续真实接入时替换 `create_shell`、`import_model`、`delivery_package` 三类 handler。

@@ -977,6 +977,148 @@ input {
   gap: 12px;
 }
 
+.queue-panel {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.queue-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.queue-head h2 {
+  margin: 4px 0 0;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+.queue-head > span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 11px;
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--accent) 72%, #22354d);
+  background: var(--accent-soft);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.queue-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.queue-empty,
+.queue-job {
+  min-height: 84px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.66);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.queue-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.queue-empty svg {
+  color: var(--accent);
+}
+
+.queue-job {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 10px;
+  align-content: start;
+  padding: 13px;
+}
+
+.queue-job strong,
+.queue-job small {
+  display: block;
+}
+
+.queue-job strong {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-job small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.queue-job > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.queue-job.running > span,
+.queue-job.queued > span {
+  color: var(--accent);
+}
+
+.queue-job.passed > span {
+  color: var(--success);
+}
+
+.queue-job.cancelled > span,
+.queue-job.failed > span {
+  color: var(--warning);
+}
+
+.job-progress {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(37, 53, 74, 0.08);
+}
+
+.job-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 64%, #ffffff), var(--accent));
+  transition: width 260ms ease;
+}
+
+.queue-job button {
+  justify-self: end;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  color: #526071;
+  background: rgba(255, 255, 255, 0.76);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .metric-row,
 .stage-row {
   display: grid;
@@ -1124,7 +1266,8 @@ input {
   }
 
   .metric-row,
-  .stage-row {
+  .stage-row,
+  .queue-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1193,7 +1336,8 @@ input {
 
   .wallpaper-grid,
   .metric-row,
-  .stage-row {
+  .stage-row,
+  .queue-list {
     grid-template-columns: 1fr;
   }
 

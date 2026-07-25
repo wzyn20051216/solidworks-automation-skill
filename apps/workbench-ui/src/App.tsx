@@ -1,7 +1,6 @@
 import {
   Aperture,
   Archive,
-  CheckCircle,
   CubeFocus,
   Export,
   FilePlus,
@@ -19,7 +18,7 @@ import {
   UploadSimple,
   WarningCircle,
 } from "@phosphor-icons/react";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -38,6 +37,19 @@ type AppSettings = {
   wallpaperVignette: number;
   recentWallpapers: RecentWallpaper[];
   recentProjectPath?: string;
+};
+type AutomationJobKind = "create_shell" | "import_model" | "delivery_package";
+type AutomationJobStatus = "queued" | "running" | "passed" | "failed" | "cancelled";
+type AutomationJob = {
+  id: string;
+  kind: AutomationJobKind;
+  title: string;
+  detail: string;
+  status: AutomationJobStatus;
+  progress: number;
+  createdAt: string;
+  updatedAt: string;
+  projectPath?: string;
 };
 
 type Stage = {
@@ -85,12 +97,27 @@ const reviewItems = [
 ];
 
 const SETTINGS_KEY = "cad-studio.settings.v1";
+const QUEUE_KEY = "cad-studio.queue.v1";
 
 function stateLabel(state: StageState) {
   if (state === "passed") return "通过";
   if (state === "running") return "执行中";
   if (state === "attention") return "注意";
   return "待执行";
+}
+
+function jobStatusLabel(status: AutomationJobStatus) {
+  if (status === "running") return "执行中";
+  if (status === "passed") return "完成";
+  if (status === "failed") return "失败";
+  if (status === "cancelled") return "已取消";
+  return "排队";
+}
+
+function jobKindDetail(kind: AutomationJobKind) {
+  if (kind === "create_shell") return { title: "新建外壳", detail: "生成参数化壳体、开孔和基础检查任务" };
+  if (kind === "import_model") return { title: "导入模型", detail: "读取本地 CAD 模型并创建项目上下文" };
+  return { title: "生成交付包", detail: "整理 STEP、STL、PDF、DWG 和交付清单" };
 }
 
 function isTauriRuntime() {
@@ -142,6 +169,33 @@ function loadSettings(): AppSettings | null {
   }
 }
 
+function loadLocalQueue(): AutomationJob[] {
+  try {
+    const raw = localStorage.getItem(QUEUE_KEY);
+    if (!raw) return [];
+    const jobs = JSON.parse(raw);
+    return Array.isArray(jobs) ? jobs.slice(0, 8) : [];
+  } catch {
+    return [];
+  }
+}
+
+function createJob(kind: AutomationJobKind, projectPath?: string): AutomationJob {
+  const now = new Date().toISOString();
+  const copy = jobKindDetail(kind);
+  return {
+    id: `job-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    kind,
+    title: copy.title,
+    detail: projectPath ? `${copy.detail} · ${displayNameFromPath(projectPath)}` : copy.detail,
+    status: "queued",
+    progress: 0,
+    createdAt: now,
+    updatedAt: now,
+    projectPath,
+  };
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState("project");
   const [activeWallpaper, setActiveWallpaper] = useState<WallpaperId>("aurora");
@@ -153,6 +207,8 @@ function App() {
   const [recentWallpapers, setRecentWallpapers] = useState<RecentWallpaper[]>([]);
   const [recentProjectPath, setRecentProjectPath] = useState<string | undefined>();
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [queueLoaded, setQueueLoaded] = useState(false);
+  const [jobs, setJobs] = useState<AutomationJob[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [focusFeature, setFocusFeature] = useState(0);
   const wallpaperInputRef = useRef<HTMLInputElement>(null);
@@ -167,9 +223,70 @@ function App() {
     })) as Stage[];
   }, [isRunning]);
 
-  function runPreview() {
-    setIsRunning(true);
-    window.setTimeout(() => setIsRunning(false), 2200);
+  const queueSummary = useMemo(() => {
+    const running = jobs.filter((job) => job.status === "running").length;
+    const queued = jobs.filter((job) => job.status === "queued").length;
+    if (running > 0) return `${running} 个执行中`;
+    if (queued > 0) return `${queued} 个排队`;
+    return jobs.length > 0 ? "队列就绪" : "暂无任务";
+  }, [jobs]);
+
+  async function persistJob(job: AutomationJob) {
+    if (isTauriRuntime()) {
+      await invoke("save_queue_job", { job });
+    }
+  }
+
+  function saveLocalQueue(nextJobs: AutomationJob[]) {
+    if (!isTauriRuntime()) localStorage.setItem(QUEUE_KEY, JSON.stringify(nextJobs));
+  }
+
+  function upsertJob(nextJob: AutomationJob) {
+    setJobs((items) => {
+      const exists = items.some((item) => item.id === nextJob.id);
+      const next = exists ? items.map((item) => (item.id === nextJob.id ? nextJob : item)) : [nextJob, ...items].slice(0, 8);
+      saveLocalQueue(next);
+      return next;
+    });
+    void persistJob(nextJob);
+  }
+
+  function updateJob(id: string, updater: (job: AutomationJob) => AutomationJob) {
+    let changedJob: AutomationJob | undefined;
+    setJobs((items) => {
+      const next = items.map((item) => {
+        if (item.id !== id) return item;
+        changedJob = updater(item);
+        return changedJob;
+      });
+      saveLocalQueue(next);
+      return next;
+    });
+    if (changedJob) void persistJob(changedJob);
+  }
+
+  function simulateJob(job: AutomationJob) {
+    window.setTimeout(() => {
+      updateJob(job.id, (item) => ({ ...item, status: "running", progress: 18, updatedAt: new Date().toISOString() }));
+      setIsRunning(true);
+    }, 220);
+    window.setTimeout(() => {
+      updateJob(job.id, (item) => (item.status === "cancelled" ? item : { ...item, status: "running", progress: 62, updatedAt: new Date().toISOString() }));
+    }, 1200);
+    window.setTimeout(() => {
+      updateJob(job.id, (item) => (item.status === "cancelled" ? item : { ...item, status: "passed", progress: 100, updatedAt: new Date().toISOString() }));
+      setIsRunning(false);
+    }, 2300);
+  }
+
+  function enqueueAutomation(kind: AutomationJobKind, projectPath?: string) {
+    const job = createJob(kind, projectPath);
+    upsertJob(job);
+    if (!isTauriRuntime()) simulateJob(job);
+  }
+
+  function cancelJob(id: string) {
+    updateJob(id, (item) => ({ ...item, status: "cancelled", progress: 0, updatedAt: new Date().toISOString() }));
   }
 
   function rememberWallpaper(path: string) {
@@ -232,7 +349,10 @@ function App() {
   }
 
   async function chooseProjectFile() {
-    if (!isTauriRuntime()) return;
+    if (!isTauriRuntime()) {
+      enqueueAutomation("import_model");
+      return;
+    }
 
     const selected = await openDialog({
       multiple: false,
@@ -246,6 +366,7 @@ function App() {
 
     if (!selected || Array.isArray(selected)) return;
     setRecentProjectPath(selected);
+    enqueueAutomation("import_model", selected);
   }
 
   function importWallpaper(event: ChangeEvent<HTMLInputElement>) {
@@ -285,6 +406,46 @@ function App() {
     }
     setSettingsLoaded(true);
   }, []);
+
+  useEffect(() => {
+    let disposed = false;
+
+    async function loadQueue() {
+      if (!isTauriRuntime()) {
+        setJobs(loadLocalQueue());
+        setQueueLoaded(true);
+        return;
+      }
+
+      try {
+        const savedJobs = await invoke<AutomationJob[]>("read_queue_jobs");
+        if (disposed) return;
+        setJobs(
+          savedJobs
+            .filter((job) => typeof job.id === "string")
+            .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""))
+            .slice(0, 8),
+        );
+      } finally {
+        if (!disposed) setQueueLoaded(true);
+      }
+    }
+
+    void loadQueue();
+    if (!isTauriRuntime()) return () => {
+      disposed = true;
+    };
+
+    const timer = window.setInterval(() => void loadQueue(), 1400);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    setIsRunning(jobs.some((job) => job.status === "running"));
+  }, [jobs]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
@@ -509,7 +670,7 @@ function App() {
               <p className="subtitle">拖入草图、参数表或模型文件，生成可打印外壳、国标图纸和交付包。</p>
             </div>
             <div className="command-row">
-              <motion.button className="primary-button shine" onClick={runPreview} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.975 }}>
+              <motion.button className="primary-button shine" onClick={() => enqueueAutomation("create_shell", recentProjectPath)} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.975 }}>
                 <FilePlus size={18} weight="duotone" />
                 新建外壳
               </motion.button>
@@ -517,7 +678,7 @@ function App() {
                 <FolderOpen size={18} weight="duotone" />
                 导入模型
               </motion.button>
-              <motion.button className="ghost-button" whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.975 }}>
+              <motion.button className="ghost-button" onClick={() => enqueueAutomation("delivery_package", recentProjectPath)} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.975 }}>
                 <Archive size={18} weight="duotone" />
                 生成交付包
               </motion.button>
@@ -630,7 +791,7 @@ function App() {
                 ["运行模式", "本地桌面", Lightning],
                 ["图纸门禁", "GB/T P0", ShieldCheck],
                 ["制造场景", "3D 打印", Aperture],
-                ["当前壁纸", activeWallpaperName, ImageSquare],
+                ["任务队列", queueLoaded ? queueSummary : "加载中", Graph],
               ].map(([label, value, Icon]) => (
                 <motion.div className="metric-card" key={label as string} whileHover={reducedMotion ? undefined : { y: -2 }}>
                   <Icon size={19} weight="duotone" />
@@ -639,6 +800,42 @@ function App() {
                 </motion.div>
               ))}
             </div>
+
+            <section className="queue-panel">
+              <div className="queue-head">
+                <div>
+                  <p className="eyebrow">AUTOMATION QUEUE</p>
+                  <h2>本地自动化队列</h2>
+                </div>
+                <span>{queueLoaded ? queueSummary : "加载中"}</span>
+              </div>
+              <div className="queue-list">
+                {jobs.length === 0 ? (
+                  <div className="queue-empty">
+                    <Sparkle size={19} weight="duotone" />
+                    <span>点击新建外壳、导入模型或生成交付包后，任务会出现在这里。</span>
+                  </div>
+                ) : (
+                  jobs.slice(0, 4).map((job) => (
+                    <motion.article className={`queue-job ${job.status}`} key={job.id} layout>
+                      <div>
+                        <strong>{job.title}</strong>
+                        <small>{job.detail}</small>
+                      </div>
+                      <span>{jobStatusLabel(job.status)}</span>
+                      <div className="job-progress" aria-label={`${job.title} 进度 ${job.progress}%`}>
+                        <i style={{ width: `${job.progress}%` }} />
+                      </div>
+                      {job.status === "queued" || job.status === "running" ? (
+                        <button type="button" onClick={() => cancelJob(job.id)}>
+                          取消
+                        </button>
+                      ) : null}
+                    </motion.article>
+                  ))
+                )}
+              </div>
+            </section>
 
             <div className="stage-row">
               {visualStages.map((stage, index) => (
@@ -662,7 +859,7 @@ function App() {
 
       <div className="software-roadmap" aria-label="桌面部署计划">
         <WarningCircle size={16} weight="duotone" />
-        <span>后续接入 Tauri / Electron：本地配置持久化、真实文件路径、系统托盘和离线自动化队列。</span>
+        <span>已接入 Tauri 本地队列：桌面端创建任务，Python worker 可离线接单，后续替换为真实 CAD 执行器。</span>
       </div>
     </main>
   );
