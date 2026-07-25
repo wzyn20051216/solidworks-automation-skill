@@ -101,6 +101,7 @@ Codex Bridge 扩展字段:
 queued -> running -> passed
 queued -> running -> failed
 queued -> cancelled
+queued -> approval_required -> queued
 ```
 
 约定:
@@ -110,6 +111,18 @@ queued -> cancelled
 - `passed`、`failed`、`cancelled` 是终态。
 - worker 回写 `workerLog`、`lastMessage`、`result` 或 `error`，前端可以直接展示这些字段。
 - 真实 CAD handler 必须在写入 `passed` 前完成文件存在性检查，不能把占位文件标为可制造交付。
+
+## 可靠队列状态机
+
+当前仍使用本地 JSON 文件队列，但 worker 已具备最小可靠性语义:
+
+- 领取任务前创建 `{job}.json.lock`，使用原子创建避免多 worker 重复接单。
+- 领取后写入 `runnerId`、`workerPid`、`attempt`、`heartbeatAt`、`leaseUntil`。
+- worker 结束后释放 `.lock`。
+- 启动或轮询时会恢复 `leaseUntil` 过期的 `running` 任务，将其重新置为 `queued`。
+- 损坏 JSON 会被移动到 `queue/quarantine`，并生成同名 `.error.txt`，不会中断 watch 循环。
+
+这些字段是 worker 管理字段，UI 可展示但不要手动修改。
 
 ## Codex Bridge
 

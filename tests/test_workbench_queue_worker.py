@@ -2,7 +2,17 @@ from pathlib import Path
 import subprocess
 
 from apps.desktop.cad_workbench.agent_contracts import DEFAULT_PROFILE, codex_output_path, resolve_workspace, validate_codex_job
-from apps.desktop.cad_workbench.queue_worker import build_codex_prompt, process_queue, read_job, run_codex_job, write_job
+from apps.desktop.cad_workbench.queue_worker import (
+    acquire_lock,
+    build_codex_prompt,
+    lock_path_for,
+    process_queue,
+    read_job,
+    recover_stale_jobs,
+    release_lock,
+    run_codex_job,
+    write_job,
+)
 
 
 def _queued_job(job_id: str = "job-1", kind: str = "create_shell") -> dict:
@@ -32,6 +42,11 @@ def test_queue_worker_processes_queued_job(tmp_path: Path) -> None:
     assert saved["progress"] == 100
     assert saved["result"]["mode"] == "mock"
     assert [event["status"] for event in saved["workerLog"]] == ["running", "passed"]
+    assert saved["attempt"] == 1
+    assert saved["runnerId"].startswith("cad-workbench-python-worker-")
+    assert saved["heartbeatAt"]
+    assert saved["leaseUntil"]
+    assert not lock_path_for(job_path).exists()
 
 
 def test_queue_worker_marks_unknown_kind_failed(tmp_path: Path) -> None:
@@ -58,6 +73,60 @@ def test_queue_worker_skips_terminal_jobs(tmp_path: Path) -> None:
 
     assert processed == []
     assert read_job(queue_dir / "job-3.json")["status"] == "cancelled"
+
+
+def test_queue_worker_skips_locked_job(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job_path = queue_dir / "job-locked.json"
+    write_job(job_path, _queued_job("job-locked"))
+    lock_path = acquire_lock(job_path, "other-worker")
+
+    try:
+        processed = process_queue(queue_dir)
+    finally:
+        release_lock(lock_path)
+
+    assert processed == []
+    assert read_job(job_path)["status"] == "queued"
+
+
+def test_queue_worker_quarantines_invalid_json(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    bad_path = queue_dir / "bad.json"
+    bad_path.parent.mkdir(parents=True)
+    bad_path.write_text("{bad json", encoding="utf-8")
+
+    processed = process_queue(queue_dir)
+
+    assert processed == []
+    assert not bad_path.exists()
+    quarantined = list((queue_dir / "quarantine").glob("bad_*.json"))
+    assert len(quarantined) == 1
+    assert quarantined[0].with_suffix(".error.txt").exists()
+
+
+def test_queue_worker_recovers_stale_running_job(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job_path = queue_dir / "job-stale.json"
+    job = _queued_job("job-stale")
+    job.update(
+        {
+            "status": "running",
+            "progress": 34,
+            "leaseUntil": "2020-01-01T00:00:00+08:00",
+            "runnerId": "dead-worker",
+            "workerPid": 123,
+        }
+    )
+    write_job(job_path, job)
+
+    recovered = recover_stale_jobs(queue_dir)
+
+    saved = read_job(job_path)
+    assert recovered == 1
+    assert saved["status"] == "queued"
+    assert "runnerId" not in saved
+    assert "workerPid" not in saved
 
 
 def test_codex_prompt_contains_ui_configuration() -> None:

@@ -40,6 +40,22 @@
     "createdByAppVersion": {
       "type": "string"
     },
+    "attempt": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "runnerId": {
+      "type": "string"
+    },
+    "workerPid": {
+      "type": "integer"
+    },
+    "heartbeatAt": {
+      "type": "string"
+    },
+    "leaseUntil": {
+      "type": "string"
+    },
     "policy": {
       "type": "object",
       "additionalProperties": false,

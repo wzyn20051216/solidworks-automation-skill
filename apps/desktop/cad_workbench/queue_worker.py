@@ -7,11 +7,14 @@ import json
 import os
 import subprocess
 import time
+import uuid
+import shutil
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from .agent_contracts import DEFAULT_PROFILE, codex_output_path, compile_codex_prompt, validate_codex_job
-from .core import now_iso
+from .core import CN_TZ, now_iso
 
 
 JobHandler = Callable[[dict[str, Any]], dict[str, Any]]
@@ -21,6 +24,7 @@ WORKER_NAME = "cad-workbench-python-worker"
 KNOWN_JOB_KINDS = {"create_shell", "import_model", "delivery_package", "codex_task"}
 TERMINAL_STATES = {"passed", "failed", "cancelled"}
 DEFAULT_CODEX_TIMEOUT_SECONDS = 1800
+DEFAULT_LEASE_SECONDS = 900
 
 
 def default_tauri_queue_dir(identifier: str = "com.wzyn.cadstudio") -> Path:
@@ -47,6 +51,123 @@ def write_job(path: Path, job: dict[str, Any]) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
     temporary.replace(path)
+
+
+def worker_id() -> str:
+    """@brief 返回当前 worker 进程的短标识。"""
+    return f"{WORKER_NAME}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+
+
+def lock_path_for(path: Path) -> Path:
+    """@brief 返回任务文件对应的领取锁路径。"""
+    return Path(str(path) + ".lock")
+
+
+def quarantine_dir(queue_dir: Path) -> Path:
+    """@brief 返回坏任务隔离目录。"""
+    directory = Path(queue_dir) / "quarantine"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def parse_iso(value: Any) -> datetime | None:
+    """@brief 解析 ISO 时间，失败返回 None。"""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def lease_until(seconds: int = DEFAULT_LEASE_SECONDS) -> str:
+    """@brief 返回 lease 过期时间。"""
+    return (datetime.now(CN_TZ) + timedelta(seconds=seconds)).isoformat(timespec="seconds")
+
+
+def is_expired(value: Any) -> bool:
+    """@brief 判断 lease 是否过期。"""
+    parsed = parse_iso(value)
+    if parsed is None:
+        return True
+    return parsed <= datetime.now(CN_TZ)
+
+
+def quarantine_bad_job(path: Path, error: Exception) -> Path:
+    """@brief 隔离无法解析的任务文件，避免 watch 循环中断。"""
+    path = Path(path)
+    target = quarantine_dir(path.parent) / f"{path.stem}_{datetime.now(CN_TZ).strftime('%Y%m%d_%H%M%S')}.json"
+    shutil.move(str(path), str(target))
+    report = target.with_suffix(".error.txt")
+    report.write_text(str(error), encoding="utf-8")
+    return target
+
+
+def acquire_lock(path: Path, runner_id: str, lease_seconds: int = DEFAULT_LEASE_SECONDS) -> Path | None:
+    """@brief 使用 O_EXCL 原子创建领取锁。"""
+    lock_path = lock_path_for(path)
+    payload = json.dumps(
+        {
+            "runnerId": runner_id,
+            "pid": os.getpid(),
+            "lockedAt": now_iso(),
+            "leaseUntil": lease_until(lease_seconds),
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    try:
+        descriptor = os.open(str(lock_path), flags)
+    except FileExistsError:
+        try:
+            lock = read_job(lock_path)
+            if is_expired(lock.get("leaseUntil")):
+                lock_path.unlink(missing_ok=True)
+                return acquire_lock(path, runner_id, lease_seconds)
+        except Exception:
+            lock_path.unlink(missing_ok=True)
+            return acquire_lock(path, runner_id, lease_seconds)
+        return None
+
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(payload)
+    return lock_path
+
+
+def release_lock(lock_path: Path | None) -> None:
+    """@brief 释放领取锁。"""
+    if lock_path is not None:
+        Path(lock_path).unlink(missing_ok=True)
+
+
+def mark_job_claimed(job: dict[str, Any], runner_id: str, lease_seconds: int) -> None:
+    """@brief 写入任务领取信息。"""
+    job["runnerId"] = runner_id
+    job["workerPid"] = os.getpid()
+    job["heartbeatAt"] = now_iso()
+    job["leaseUntil"] = lease_until(lease_seconds)
+    job["attempt"] = int(job.get("attempt") or 0) + 1
+
+
+def recover_stale_jobs(queue_dir: Path) -> int:
+    """@brief 将 lease 过期的 running 任务恢复为 queued。"""
+    recovered = 0
+    for path in sorted(Path(queue_dir).glob("*.json")):
+        try:
+            job = read_job(path)
+        except Exception as error:
+            quarantine_bad_job(path, error)
+            continue
+        if job.get("status") != "running" or not is_expired(job.get("leaseUntil")):
+            continue
+        set_job_state(job, "queued", int(job.get("progress") or 0), "worker lease 已过期，任务已恢复排队。")
+        job.pop("runnerId", None)
+        job.pop("workerPid", None)
+        write_job(path, job)
+        release_lock(lock_path_for(path))
+        recovered += 1
+    return recovered
 
 
 def append_worker_event(job: dict[str, Any], status: str, message: str) -> None:
@@ -173,7 +294,12 @@ DEFAULT_HANDLERS: Mapping[str, JobHandler] = {
 }
 
 
-def process_job(path: Path, handlers: Mapping[str, JobHandler] | None = None) -> dict[str, Any] | None:
+def process_job(
+    path: Path,
+    handlers: Mapping[str, JobHandler] | None = None,
+    runner_id: str | None = None,
+    lease_seconds: int = DEFAULT_LEASE_SECONDS,
+) -> dict[str, Any] | None:
     """@brief 执行一个 queued 任务，终态任务会被跳过。"""
     path = Path(path)
     job = read_job(path)
@@ -196,6 +322,7 @@ def process_job(path: Path, handlers: Mapping[str, JobHandler] | None = None) ->
         if kind not in active_handlers:
             raise ValueError(f"任务类型未配置 handler: {kind}")
 
+        mark_job_claimed(job, runner_id or worker_id(), lease_seconds)
         set_job_state(job, "running", 12, "worker 已接单，正在准备本地 CAD 执行环境。")
         write_job(path, job)
 
@@ -218,28 +345,50 @@ def build_handlers(enable_codex: bool = False, codex_full_access: bool = False) 
     return handlers
 
 
-def process_queue(queue_dir: Path, limit: int | None = None, handlers: Mapping[str, JobHandler] | None = None) -> list[dict[str, Any]]:
+def process_queue(
+    queue_dir: Path,
+    limit: int | None = None,
+    handlers: Mapping[str, JobHandler] | None = None,
+    lease_seconds: int = DEFAULT_LEASE_SECONDS,
+) -> list[dict[str, Any]]:
     """@brief 扫描队列目录并执行 queued 任务。"""
     queue_dir = Path(queue_dir)
     queue_dir.mkdir(parents=True, exist_ok=True)
+    recover_stale_jobs(queue_dir)
     processed: list[dict[str, Any]] = []
+    runner_id = worker_id()
 
     for path in sorted(queue_dir.glob("*.json")):
         if limit is not None and len(processed) >= limit:
             break
-        job = read_job(path)
+        try:
+            job = read_job(path)
+        except Exception as error:
+            quarantine_bad_job(path, error)
+            continue
         if job.get("status") in TERMINAL_STATES or job.get("status") != "queued":
             continue
-        result = process_job(path, handlers=handlers)
-        if result is not None:
-            processed.append(result)
+        lock_path = acquire_lock(path, runner_id, lease_seconds)
+        if lock_path is None:
+            continue
+        try:
+            result = process_job(path, handlers=handlers, runner_id=runner_id, lease_seconds=lease_seconds)
+            if result is not None:
+                processed.append(result)
+        finally:
+            release_lock(lock_path)
     return processed
 
 
-def watch_queue(queue_dir: Path, interval_seconds: float = 1.0, handlers: Mapping[str, JobHandler] | None = None) -> None:
+def watch_queue(
+    queue_dir: Path,
+    interval_seconds: float = 1.0,
+    handlers: Mapping[str, JobHandler] | None = None,
+    lease_seconds: int = DEFAULT_LEASE_SECONDS,
+) -> None:
     """@brief 持续监听队列目录，适合后续做成后台进程。"""
     while True:
-        process_queue(queue_dir, handlers=handlers)
+        process_queue(queue_dir, handlers=handlers, lease_seconds=lease_seconds)
         time.sleep(interval_seconds)
 
 
@@ -250,16 +399,17 @@ def main() -> int:
     parser.add_argument("--watch", action="store_true", help="持续监听队列")
     parser.add_argument("--limit", type=int, default=None, help="单次最多处理任务数")
     parser.add_argument("--interval", type=float, default=1.0, help="监听轮询间隔秒数")
+    parser.add_argument("--lease-seconds", type=int, default=DEFAULT_LEASE_SECONDS, help="任务领取 lease 秒数")
     parser.add_argument("--enable-codex", action="store_true", help="允许 worker 调用 codex exec 执行任务")
     parser.add_argument("--codex-full-access", action="store_true", help="允许 Codex 使用 danger-full-access 沙箱")
     args = parser.parse_args()
     handlers = build_handlers(enable_codex=args.enable_codex, codex_full_access=args.codex_full_access)
 
     if args.watch:
-        watch_queue(args.queue_dir, interval_seconds=args.interval, handlers=handlers)
+        watch_queue(args.queue_dir, interval_seconds=args.interval, handlers=handlers, lease_seconds=args.lease_seconds)
         return 0
 
-    processed = process_queue(args.queue_dir, limit=args.limit, handlers=handlers)
+    processed = process_queue(args.queue_dir, limit=args.limit, handlers=handlers, lease_seconds=args.lease_seconds)
     print(f"processed {len(processed)} job(s) from {args.queue_dir}")
     return 0
 

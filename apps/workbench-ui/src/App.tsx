@@ -55,7 +55,7 @@ type CodexConfig = {
   commitAndPush: boolean;
 };
 type AutomationJobKind = "create_shell" | "import_model" | "delivery_package" | "codex_task";
-type AutomationJobStatus = "queued" | "running" | "passed" | "failed" | "cancelled";
+type AutomationJobStatus = "queued" | "running" | "passed" | "failed" | "cancelled" | "approval_required";
 type AutomationJob = {
   schemaVersion: "1.0";
   id: string;
@@ -181,6 +181,7 @@ function jobStatusLabel(status: AutomationJobStatus) {
   if (status === "passed") return "完成";
   if (status === "failed") return "失败";
   if (status === "cancelled") return "已取消";
+  if (status === "approval_required") return "待审批";
   return "排队";
 }
 
