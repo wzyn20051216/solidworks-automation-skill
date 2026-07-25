@@ -32,7 +32,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -977,6 +978,182 @@ input {
   gap: 12px;
 }
 
+.codex-bridge {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(220px, 0.72fr) minmax(320px, 1.35fr) minmax(280px, 0.9fr);
+  gap: 14px;
+  margin-top: 14px;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.74);
+  border-radius: 24px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.48)),
+    color-mix(in srgb, var(--accent) 7%, transparent);
+  box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.bridge-copy {
+  align-self: stretch;
+  display: grid;
+  align-content: space-between;
+  gap: 14px;
+  min-width: 0;
+}
+
+.bridge-copy h2 {
+  margin: 6px 0 0;
+  font-size: 24px;
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
+.bridge-copy p:last-child {
+  max-width: 280px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.bridge-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.bridge-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.bridge-field.wide {
+  grid-column: 1 / -1;
+}
+
+.bridge-field > span,
+.prompt-preview > span,
+.runtime-line span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.bridge-field textarea {
+  width: 100%;
+  min-height: 78px;
+  resize: vertical;
+  border: 1px solid rgba(57, 76, 104, 0.1);
+  border-radius: 16px;
+  padding: 12px 13px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.68);
+  outline: none;
+  font-size: 13px;
+  line-height: 1.45;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.bridge-field textarea:focus {
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  box-shadow: 0 0 0 4px var(--accent-soft), inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.segmented-control button,
+.toggle-pill {
+  min-height: 34px;
+  border: 0;
+  border-radius: 999px;
+  color: #526071;
+  background: rgba(255, 255, 255, 0.66);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  transition: transform 180ms ease, background 180ms ease, color 180ms ease, box-shadow 180ms ease;
+}
+
+.segmented-control button:hover,
+.toggle-pill:hover {
+  transform: translateY(-1px);
+}
+
+.segmented-control button.active,
+.toggle-pill.active {
+  color: color-mix(in srgb, var(--accent) 74%, #173151);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.84);
+}
+
+.bridge-toggles {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.toggle-pill {
+  padding: 0 13px;
+}
+
+.bridge-runtime {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.runtime-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.runtime-line strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-preview {
+  overflow: hidden;
+  min-height: 126px;
+  padding: 12px;
+  border-radius: 18px;
+  background: rgba(23, 32, 51, 0.06);
+}
+
+.prompt-preview p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  overflow: hidden;
+  margin: 8px 0 0;
+  color: #29394f;
+  font-family: "SF Mono", "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.48;
+  white-space: pre-wrap;
+}
+
+.bridge-run {
+  width: 100%;
+  justify-content: center;
+}
+
 .queue-panel {
   display: grid;
   gap: 12px;
@@ -1153,7 +1330,7 @@ input {
   grid-column: 1 / -1;
   overflow: hidden;
   font-size: 18px;
-  letter-spacing: -0.025em;
+  letter-spacing: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1265,6 +1442,10 @@ input {
     grid-template-columns: 1fr;
   }
 
+  .codex-bridge {
+    grid-template-columns: 1fr;
+  }
+
   .metric-row,
   .stage-row,
   .queue-list {
@@ -1335,6 +1516,8 @@ input {
   }
 
   .wallpaper-grid,
+  .bridge-controls,
+  .segmented-control,
   .metric-row,
   .stage-row,
   .queue-list {

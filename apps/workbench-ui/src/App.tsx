@@ -38,7 +38,15 @@ type AppSettings = {
   recentWallpapers: RecentWallpaper[];
   recentProjectPath?: string;
 };
-type AutomationJobKind = "create_shell" | "import_model" | "delivery_package";
+type CodexConfig = {
+  objective: string;
+  target: "shell" | "drawing" | "skill" | "package";
+  expectedOutput: "cad_files" | "drawing_package" | "skill_update" | "research_report";
+  strictGbDrawing: boolean;
+  realCutouts: boolean;
+  commitAndPush: boolean;
+};
+type AutomationJobKind = "create_shell" | "import_model" | "delivery_package" | "codex_task";
 type AutomationJobStatus = "queued" | "running" | "passed" | "failed" | "cancelled";
 type AutomationJob = {
   id: string;
@@ -50,6 +58,21 @@ type AutomationJob = {
   createdAt: string;
   updatedAt: string;
   projectPath?: string;
+  executor?: "mock" | "codex";
+  objective?: string;
+  target?: string;
+  expectedOutput?: string;
+  strictRules?: string[];
+  prompt?: string;
+  cwd?: string;
+  skillPath?: string;
+  lastMessage?: string;
+  result?: {
+    mode?: string;
+    outputPath?: string;
+    message?: string;
+  };
+  error?: string;
 };
 
 type Stage = {
@@ -98,6 +121,22 @@ const reviewItems = [
 
 const SETTINGS_KEY = "cad-studio.settings.v1";
 const QUEUE_KEY = "cad-studio.queue.v1";
+const CODEX_CWD = "C:/Users/23201/.codex/skills/solidworks-automation";
+const CODEX_SKILL_PATH = `${CODEX_CWD}/SKILL.md`;
+
+const codexTargets: Record<CodexConfig["target"], string> = {
+  shell: "3D 打印外壳建模",
+  drawing: "国标 CAD 图纸",
+  skill: "Skills 规范沉淀",
+  package: "交付包整理",
+};
+
+const codexOutputs: Record<CodexConfig["expectedOutput"], string> = {
+  cad_files: "SLDPRT / STEP / STL",
+  drawing_package: "DWG / DXF / PDF 图纸包",
+  skill_update: "Skill 更新 + GitHub 推送",
+  research_report: "调研报告 / 执行建议",
+};
 
 function stateLabel(state: StageState) {
   if (state === "passed") return "通过";
@@ -117,6 +156,7 @@ function jobStatusLabel(status: AutomationJobStatus) {
 function jobKindDetail(kind: AutomationJobKind) {
   if (kind === "create_shell") return { title: "新建外壳", detail: "生成参数化壳体、开孔和基础检查任务" };
   if (kind === "import_model") return { title: "导入模型", detail: "读取本地 CAD 模型并创建项目上下文" };
+  if (kind === "codex_task") return { title: "Codex 执行", detail: "把图形化配置转换为 Codex 非交互执行任务" };
   return { title: "生成交付包", detail: "整理 STEP、STL、PDF、DWG 和交付清单" };
 }
 
@@ -180,7 +220,7 @@ function loadLocalQueue(): AutomationJob[] {
   }
 }
 
-function createJob(kind: AutomationJobKind, projectPath?: string): AutomationJob {
+function createJob(kind: AutomationJobKind, projectPath?: string, overrides: Partial<AutomationJob> = {}): AutomationJob {
   const now = new Date().toISOString();
   const copy = jobKindDetail(kind);
   return {
@@ -193,7 +233,34 @@ function createJob(kind: AutomationJobKind, projectPath?: string): AutomationJob
     createdAt: now,
     updatedAt: now,
     projectPath,
+    ...overrides,
   };
+}
+
+function buildCodexPrompt(config: CodexConfig, projectPath?: string) {
+  const strictRules = [
+    config.realCutouts ? "3D 打印开孔必须是真实几何切除，不能只画线或只做外观标记。" : "如果涉及开孔，需要明确说明当前是否已真实切除。",
+    config.strictGbDrawing ? "CAD 图纸必须按中国机械制图常用格式复核，尺寸链、孔表、技术要求、图框标题栏要完整。" : "图纸输出需要标明当前规范覆盖范围。",
+    config.commitAndPush ? "完成后运行验证，使用中文 commit，并推送 GitHub。" : "完成后运行验证并说明未提交的原因。",
+  ];
+
+  return [
+    "你是 Codex，请执行由 CAD Studio 图形化界面生成的任务。",
+    "",
+    `任务目标: ${config.objective}`,
+    `任务类型: ${codexTargets[config.target]}`,
+    `期望输出: ${codexOutputs[config.expectedOutput]}`,
+    `项目/模型路径: ${projectPath || "未指定"}`,
+    `Skill 路径: ${CODEX_SKILL_PATH}`,
+    "",
+    "强制规则:",
+    ...strictRules.map((rule) => `- ${rule}`),
+    "",
+    "执行方式:",
+    "- 优先使用 solidworks-automation skill 及其子技能。",
+    "- 先检查现有文件和规范，再小步实现。",
+    "- 结束时用中文说明改动、验证结果和输出位置。",
+  ].join("\n");
 }
 
 function App() {
@@ -209,6 +276,14 @@ function App() {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [queueLoaded, setQueueLoaded] = useState(false);
   const [jobs, setJobs] = useState<AutomationJob[]>([]);
+  const [codexConfig, setCodexConfig] = useState<CodexConfig>({
+    objective: "根据当前配置生成可 3D 打印的外壳，并严格检查真实开孔和图纸标注。",
+    target: "shell",
+    expectedOutput: "cad_files",
+    strictGbDrawing: true,
+    realCutouts: true,
+    commitAndPush: true,
+  });
   const [isRunning, setIsRunning] = useState(false);
   const [focusFeature, setFocusFeature] = useState(0);
   const wallpaperInputRef = useRef<HTMLInputElement>(null);
@@ -230,6 +305,12 @@ function App() {
     if (queued > 0) return `${queued} 个排队`;
     return jobs.length > 0 ? "队列就绪" : "暂无任务";
   }, [jobs]);
+
+  const codexPrompt = useMemo(() => buildCodexPrompt(codexConfig, recentProjectPath), [codexConfig, recentProjectPath]);
+
+  function updateCodexConfig(patch: Partial<CodexConfig>) {
+    setCodexConfig((config) => ({ ...config, ...patch }));
+  }
 
   async function persistJob(job: AutomationJob) {
     if (isTauriRuntime()) {
@@ -281,6 +362,28 @@ function App() {
 
   function enqueueAutomation(kind: AutomationJobKind, projectPath?: string) {
     const job = createJob(kind, projectPath);
+    upsertJob(job);
+    if (!isTauriRuntime()) simulateJob(job);
+  }
+
+  function enqueueCodexTask() {
+    const strictRules = [
+      codexConfig.realCutouts ? "3D 打印开孔必须真实切除" : "明确说明开孔实现状态",
+      codexConfig.strictGbDrawing ? "必须按中国机械制图常用格式复核 CAD 图纸" : "说明当前图纸规范覆盖范围",
+      codexConfig.commitAndPush ? "完成验证后中文提交并推送 GitHub" : "完成验证并保留本地结果",
+    ];
+    const job = createJob("codex_task", recentProjectPath, {
+      executor: "codex",
+      title: "Codex 执行",
+      detail: `${codexTargets[codexConfig.target]} · ${codexOutputs[codexConfig.expectedOutput]}`,
+      objective: codexConfig.objective,
+      target: codexTargets[codexConfig.target],
+      expectedOutput: codexOutputs[codexConfig.expectedOutput],
+      strictRules,
+      prompt: codexPrompt,
+      cwd: CODEX_CWD,
+      skillPath: CODEX_SKILL_PATH,
+    });
     upsertJob(job);
     if (!isTauriRuntime()) simulateJob(job);
   }
@@ -785,6 +888,84 @@ function App() {
             </aside>
           </section>
 
+          <section className="codex-bridge">
+            <div className="bridge-copy">
+              <p className="eyebrow">CODEX BRIDGE</p>
+              <h2>图形化配置，Codex 执行</h2>
+              <p>把按钮、选项和工程规则转换成稳定提示词，交给本机 Codex CLI 执行，结果再回写任务队列。</p>
+            </div>
+
+            <div className="bridge-controls">
+              <label className="bridge-field wide">
+                <span>任务目标</span>
+                <textarea value={codexConfig.objective} onChange={(event) => updateCodexConfig({ objective: event.target.value })} />
+              </label>
+
+              <div className="bridge-field">
+                <span>目标模块</span>
+                <div className="segmented-control">
+                  {(Object.keys(codexTargets) as Array<CodexConfig["target"]>).map((target) => (
+                    <button
+                      type="button"
+                      className={codexConfig.target === target ? "active" : ""}
+                      key={target}
+                      onClick={() => updateCodexConfig({ target })}
+                    >
+                      {codexTargets[target]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bridge-field">
+                <span>输出物</span>
+                <div className="segmented-control">
+                  {(Object.keys(codexOutputs) as Array<CodexConfig["expectedOutput"]>).map((output) => (
+                    <button
+                      type="button"
+                      className={codexConfig.expectedOutput === output ? "active" : ""}
+                      key={output}
+                      onClick={() => updateCodexConfig({ expectedOutput: output })}
+                    >
+                      {codexOutputs[output]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="bridge-toggles">
+                <button type="button" className={codexConfig.realCutouts ? "toggle-pill active" : "toggle-pill"} onClick={() => updateCodexConfig({ realCutouts: !codexConfig.realCutouts })}>
+                  真实开孔
+                </button>
+                <button type="button" className={codexConfig.strictGbDrawing ? "toggle-pill active" : "toggle-pill"} onClick={() => updateCodexConfig({ strictGbDrawing: !codexConfig.strictGbDrawing })}>
+                  严格图纸规范
+                </button>
+                <button type="button" className={codexConfig.commitAndPush ? "toggle-pill active" : "toggle-pill"} onClick={() => updateCodexConfig({ commitAndPush: !codexConfig.commitAndPush })}>
+                  提交并推送
+                </button>
+              </div>
+            </div>
+
+            <div className="bridge-runtime">
+              <div className="runtime-line">
+                <span>Executor</span>
+                <strong>Codex CLI</strong>
+              </div>
+              <div className="runtime-line">
+                <span>Skill</span>
+                <strong>solidworks-automation</strong>
+              </div>
+              <div className="prompt-preview">
+                <span>Prompt Preview</span>
+                <p>{codexPrompt}</p>
+              </div>
+              <motion.button className="primary-button bridge-run shine" onClick={enqueueCodexTask} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.975 }}>
+                <Lightning size={18} weight="duotone" />
+                交给 Codex 执行
+              </motion.button>
+            </div>
+          </section>
+
           <footer className="status-strip">
             <div className="metric-row">
               {[
@@ -820,7 +1001,7 @@ function App() {
                     <motion.article className={`queue-job ${job.status}`} key={job.id} layout>
                       <div>
                         <strong>{job.title}</strong>
-                        <small>{job.detail}</small>
+                        <small>{job.lastMessage || job.result?.outputPath || job.error || job.detail}</small>
                       </div>
                       <span>{jobStatusLabel(job.status)}</span>
                       <div className="job-progress" aria-label={`${job.title} 进度 ${job.progress}%`}>

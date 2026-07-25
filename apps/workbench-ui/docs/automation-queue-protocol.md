@@ -59,6 +59,22 @@ python -m apps.desktop.cad_workbench.queue_worker --watch --queue-dir "<队列�
 - `create_shell`: 新建参数化外壳、开孔和基础检查。
 - `import_model`: 导入本地 CAD 模型并建立项目上下文。
 - `delivery_package`: 生成 STEP、STL、PDF、DWG 等交付包。
+- `codex_task`: 图形化配置生成的 Codex 非交互执行任务。
+
+Codex Bridge 扩展字段:
+
+```json
+{
+  "executor": "codex",
+  "objective": "根据当前配置生成可 3D 打印外壳",
+  "target": "3D 打印外壳建模",
+  "expectedOutput": "SLDPRT / STEP / STL",
+  "strictRules": ["3D 打印开孔必须真实切除", "必须按中国机械制图常用格式复核 CAD 图纸"],
+  "prompt": "你是 Codex，请执行由 CAD Studio 图形化界面生成的任务...",
+  "cwd": "C:/Users/23201/.codex/skills/solidworks-automation",
+  "skillPath": "C:/Users/23201/.codex/skills/solidworks-automation/SKILL.md"
+}
+```
 
 状态流转:
 
@@ -75,6 +91,32 @@ queued -> cancelled
 - `passed`、`failed`、`cancelled` 是终态。
 - worker 回写 `workerLog`、`lastMessage`、`result` 或 `error`，前端可以直接展示这些字段。
 - 真实 CAD handler 必须在写入 `passed` 前完成文件存在性检查，不能把占位文件标为可制造交付。
+
+## Codex Bridge
+
+软件定位是“AI 辅助 CAD 自动化控制台”:
+
+```text
+图形化配置 -> 结构化任务 JSON -> Python worker -> codex exec -> 回写队列结果
+```
+
+启用 Codex 执行:
+
+```powershell
+python -m apps.desktop.cad_workbench.queue_worker --watch --enable-codex --queue-dir "<队列目录>"
+```
+
+worker 会调用:
+
+```powershell
+codex exec -C "<cwd>" -a never -s danger-full-access -o "<输出文件>" "<prompt>"
+```
+
+注意:
+
+- `--enable-codex` 是显式开关，避免普通 mock 调试误触发真实 Codex 执行。
+- UI 负责生成 prompt 和执行约束，Codex 负责实际读写文件、调用 skill、运行验证、提交推送。
+- Codex 输出会写入 `ai_team/{job_id}_codex_result.md`，同时在任务 JSON 的 `result.outputPath` 中回写路径。
 
 ## 接入真实执行器
 

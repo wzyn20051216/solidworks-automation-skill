@@ -1,6 +1,7 @@
 from pathlib import Path
+import subprocess
 
-from apps.desktop.cad_workbench.queue_worker import process_queue, read_job, write_job
+from apps.desktop.cad_workbench.queue_worker import build_codex_prompt, process_queue, read_job, run_codex_job, write_job
 
 
 def _queued_job(job_id: str = "job-1", kind: str = "create_shell") -> dict:
@@ -56,3 +57,59 @@ def test_queue_worker_skips_terminal_jobs(tmp_path: Path) -> None:
 
     assert processed == []
     assert read_job(queue_dir / "job-3.json")["status"] == "cancelled"
+
+
+def test_codex_prompt_contains_ui_configuration() -> None:
+    job = _queued_job("job-4", "create_shell")
+    job.update(
+        {
+            "executor": "codex",
+            "objective": "按配置生成带真实 USB-C 开孔的外壳",
+            "expectedOutput": "输出 SLDPRT、STEP、STL 和 GB/T 图纸",
+            "strictRules": ["真实开孔必须切透实体", "提交并推送 GitHub"],
+        }
+    )
+
+    prompt = build_codex_prompt(job)
+
+    assert "按配置生成带真实 USB-C 开孔的外壳" in prompt
+    assert "真实开孔必须切透实体" in prompt
+    assert "solidworks-automation skill" in prompt
+
+
+def test_codex_executor_requires_enable_flag(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job = _queued_job("job-5", "create_shell")
+    job["executor"] = "codex"
+    write_job(queue_dir / "job-5.json", job)
+
+    process_queue(queue_dir)
+
+    saved = read_job(queue_dir / "job-5.json")
+    assert saved["status"] == "failed"
+    assert "--enable-codex" in saved["error"]
+
+
+def test_codex_executor_invokes_codex_exec_with_prompt(tmp_path: Path) -> None:
+    job = _queued_job("job-6", "create_shell")
+    job.update(
+        {
+            "executor": "codex",
+            "cwd": str(tmp_path),
+            "prompt": "执行一次可控 Codex 桥接测试",
+            "codexOutputPath": str(tmp_path / "codex_result.md"),
+        }
+    )
+    calls = []
+
+    def fake_runner(command, cwd, timeout_seconds):
+        calls.append((command, cwd, timeout_seconds))
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    result = run_codex_job(job, runner=fake_runner, timeout_seconds=3)
+
+    assert result["mode"] == "codex"
+    assert calls[0][0][:2] == ["codex", "exec"]
+    assert "执行一次可控 Codex 桥接测试" in calls[0][0]
+    assert calls[0][1] == tmp_path
+    assert calls[0][2] == 3

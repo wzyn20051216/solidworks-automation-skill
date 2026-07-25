@@ -18,6 +18,7 @@ Apple-style 本地工程软件，浅色悬浮窗口、外观中心、本地壁�
 - 右上角外观浮层，支持导入本地图片、GIF、视频壁纸，并可调节亮度、模糊和暗角。
 - 本地配置持久化，自动记住当前壁纸、最近壁纸、亮度、模糊、暗角和最近导入模型路径。
 - 本地自动化队列，桌面端把新建外壳、导入模型、生成交付包任务保存为 JSON。
+- Codex Bridge 面板，把图形化配置转换为 `codex exec` 可执行任务。
 - 4 套默认壁纸: Aurora、Blueprint、Studio、Mist。
 - macOS 风格窗口栏、浅色 Dock 导航、项目工作台和右侧 Inspector 参数面板。
 - 按钮 hover、按压反馈和主按钮光泽扫过效果。
@@ -100,3 +101,16 @@ python -m apps.desktop.cad_workbench.queue_worker --watch --queue-dir "<队列�
 ```
 
 当前 worker 使用 mock handler，只验证任务流转和文件回写。后续真实接入时替换 `create_shell`、`import_model`、`delivery_package` 三类 handler。
+
+启用 Codex 执行器:
+
+```powershell
+python -m apps.desktop.cad_workbench.queue_worker --watch --enable-codex --queue-dir "<队列目录>"
+```
+
+Codex Bridge 的职责边界:
+
+- UI 负责收集点击配置、工程规则、目标输出和 prompt 预览。
+- 队列负责把任务持久化为 JSON。
+- worker 负责调用 `codex exec`。
+- Codex 负责真正执行 skill、修改文件、运行验证、提交和推送。
