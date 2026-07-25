@@ -62,8 +62,8 @@ class MainWindow(QMainWindow):
 
         body = QWidget()
         body_layout = QHBoxLayout(body)
-        body_layout.setContentsMargins(24, 22, 24, 22)
-        body_layout.setSpacing(18)
+        body_layout.setContentsMargins(28, 24, 28, 24)
+        body_layout.setSpacing(20)
 
         main_column = QWidget()
         main_layout = QVBoxLayout(main_column)
@@ -74,24 +74,28 @@ class MainWindow(QMainWindow):
         title_box = QVBoxLayout()
         self.title = QLabel("3D 打印外壳自动交付")
         self.title.setObjectName("PageTitle")
-        self.subtitle = QLabel("项目、参数、复核和交付目录先跑顺；CAD 引擎后续接入。")
+        self.subtitle = QLabel("先跑顺本地交付，后续接真实 CAD。")
         self.subtitle.setObjectName("Muted")
         title_box.addWidget(self.title)
         title_box.addWidget(self.subtitle)
         title_row.addLayout(title_box)
         title_row.addStretch()
 
-        self.open_button = QPushButton("打开项目")
+        self.open_button = QPushButton("打开")
         self.open_button.setObjectName("QuietButton")
+        self.open_button.setToolTip("打开已有项目")
         self.open_button.clicked.connect(self.pick_project_file)
-        self.save_button = QPushButton("保存参数")
+        self.save_button = QPushButton("保存")
         self.save_button.setObjectName("QuietButton")
+        self.save_button.setToolTip("保存当前参数")
         self.save_button.clicked.connect(self.save_project)
-        self.check_button = QPushButton("检查参数")
+        self.check_button = QPushButton("检查")
         self.check_button.setObjectName("QuietButton")
+        self.check_button.setToolTip("检查参数完整性")
         self.check_button.clicked.connect(self.check_parameters_only)
-        self.run_button = QPushButton("Mock 执行")
+        self.run_button = QPushButton("执行 Mock")
         self.run_button.setObjectName("PrimaryButton")
+        self.run_button.setToolTip("运行当前 mock 交付流水线")
         self.run_button.clicked.connect(self.run_mock_pipeline)
         title_row.addWidget(self.open_button)
         title_row.addWidget(self.save_button)
@@ -99,6 +103,7 @@ class MainWindow(QMainWindow):
         title_row.addWidget(self.run_button)
 
         main_layout.addLayout(title_row)
+        main_layout.addWidget(self._build_summary_strip())
         self.tabs = self._build_tabs()
         main_layout.addWidget(self.tabs, 1)
 
@@ -111,10 +116,10 @@ class MainWindow(QMainWindow):
     def _build_sidebar(self) -> QWidget:
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(228)
+        sidebar.setFixedWidth(248)
         layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(18, 22, 18, 18)
-        layout.setSpacing(10)
+        layout.setContentsMargins(22, 24, 22, 20)
+        layout.setSpacing(11)
 
         brand = QLabel("CAD 工作台")
         brand.setObjectName("BrandTitle")
@@ -122,7 +127,11 @@ class MainWindow(QMainWindow):
         sub.setObjectName("BrandSub")
         layout.addWidget(brand)
         layout.addWidget(sub)
-        layout.addSpacing(18)
+        layout.addSpacing(10)
+        divider = QLabel("")
+        divider.setObjectName("AccentLine")
+        layout.addWidget(divider)
+        layout.addSpacing(12)
 
         nav_actions = [
             ("项目", lambda: self.tabs.setCurrentIndex(0)),
@@ -144,6 +153,35 @@ class MainWindow(QMainWindow):
         foot.setObjectName("BrandSub")
         layout.addWidget(foot)
         return sidebar
+
+    def _build_summary_strip(self) -> QWidget:
+        strip = QFrame()
+        strip.setObjectName("SummaryStrip")
+        layout = QHBoxLayout(strip)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(10)
+        for label, value in [
+            ("运行方式", "本地桌面"),
+            ("图纸门禁", "GB/T P0"),
+            ("制造场景", "3D 打印外壳"),
+            ("当前引擎", "Mock 流水线"),
+        ]:
+            layout.addWidget(self._summary_item(label, value))
+        return strip
+
+    def _summary_item(self, label: str, value: str) -> QWidget:
+        item = QFrame()
+        item.setObjectName("SummaryItem")
+        item_layout = QVBoxLayout(item)
+        item_layout.setContentsMargins(12, 8, 12, 8)
+        item_layout.setSpacing(2)
+        label_widget = QLabel(label)
+        label_widget.setObjectName("SummaryLabel")
+        value_widget = QLabel(value)
+        value_widget.setObjectName("SummaryValue")
+        item_layout.addWidget(label_widget)
+        item_layout.addWidget(value_widget)
+        return item
 
     def _panel(self, title: str) -> tuple[QFrame, QVBoxLayout]:
         panel = QFrame()
@@ -379,6 +417,7 @@ class MainWindow(QMainWindow):
         checks_title.setObjectName("SectionTitle")
         layout.addWidget(checks_title)
         self.review_summary = QTextEdit()
+        self.review_summary.setObjectName("ReviewSummary")
         self.review_summary.setReadOnly(True)
         self.review_summary.setFixedHeight(160)
         self.review_summary.setPlaceholderText("检查后显示 P0/P1 复核结果")
