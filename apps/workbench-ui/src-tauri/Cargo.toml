@@ -1,6 +1,6 @@
 [package]
 name = "cad-studio"
-version = "0.1.0"
+version = "0.1.1"
 description = "A Tauri App"
 authors = ["wzyn20051216"]
 license = ""

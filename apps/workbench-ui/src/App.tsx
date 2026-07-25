@@ -451,7 +451,7 @@ function App() {
   const [jobs, setJobs] = useState<AutomationJob[]>([]);
   const [jobEvents, setJobEvents] = useState<Record<string, QueueEvent[]>>({});
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus>({ running: false, message: "桌面端可启动" });
-  const [windowHint, setWindowHint] = useState("桌面窗口控制");
+  const [windowHint, setWindowHint] = useState("窗口控制就绪");
   const [codexConfig, setCodexConfig] = useState<CodexConfig>({
     objective: "根据用户输入自动判断最佳 CAD 任务类型、制造方式、材料和交付格式，生成可制造结果并解释选择理由。",
     target: "auto",
@@ -805,18 +805,26 @@ function App() {
   async function controlWindow(action: "close" | "minimize" | "maximize") {
     const labels = { close: "关闭", minimize: "最小化", maximize: "最大化/还原" };
     if (!isTauriRuntime()) {
-      setWindowHint("浏览器预览不控制窗口，请打开桌面版使用");
+      setWindowHint("浏览器预览不控制窗口，桌面版可用");
       return;
     }
     try {
       const appWindow = getCurrentWindow();
-      setWindowHint(`正在${labels[action]}窗口`);
+      setWindowHint(`正在${labels[action]}`);
       if (action === "close") await appWindow.close();
       if (action === "minimize") await appWindow.minimize();
-      if (action === "maximize") await appWindow.toggleMaximize();
-      if (action !== "close") setWindowHint(`已${labels[action]}`);
+      if (action === "maximize") {
+        if (await appWindow.isMaximized()) {
+          await appWindow.unmaximize();
+          setWindowHint("窗口已还原");
+          return;
+        }
+        await appWindow.maximize();
+      }
+      if (action !== "close") setWindowHint(`窗口已${labels[action]}`);
     } catch (error) {
-      setWindowHint(`窗口控制失败: ${String(error)}`);
+      console.error(error);
+      setWindowHint("窗口控制失败，请重启桌面版后再试");
     }
   }
 
@@ -1003,7 +1011,21 @@ function App() {
 
         <section className="main-window liquid">
           <header className="window-bar app-toolbar">
-            <div className="window-controls" aria-label="窗口控制">
+            <div className="project-title">
+              <strong>{currentPage.title}</strong>
+              <span>{recentProjectPath ? `${displayNameFromPath(recentProjectPath)} · SolidWorks 已连接 · 规范库 GB/T` : "本地工作区 · SolidWorks 已连接 · 规范库 GB/T"}</span>
+              <small>{windowHint}</small>
+            </div>
+            <div className="toolbar-actions">
+              <motion.button className="icon-button" onClick={() => setAppearanceOpen((value) => !value)} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.96 }}>
+                <Aperture size={18} weight="duotone" />
+                <span>外观</span>
+              </motion.button>
+              <motion.button className="icon-button" whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.96 }}>
+                <GearSix size={18} weight="duotone" />
+              </motion.button>
+            </div>
+            <div className="window-controls" role="group" aria-label="窗口控制">
               <motion.button
                 className="window-control minimize"
                 type="button"
@@ -1039,20 +1061,6 @@ function App() {
               >
                 <X size={13} weight="bold" />
                 <span>关闭</span>
-              </motion.button>
-              <small>{windowHint}</small>
-            </div>
-            <div className="project-title">
-              <strong>{currentPage.title}</strong>
-              <span>{recentProjectPath ? `${displayNameFromPath(recentProjectPath)} · SolidWorks 已连接 · 规范库 GB/T` : "本地工作区 · SolidWorks 已连接 · 规范库 GB/T"}</span>
-            </div>
-            <div className="toolbar-actions">
-              <motion.button className="icon-button" onClick={() => setAppearanceOpen((value) => !value)} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.96 }}>
-                <Aperture size={18} weight="duotone" />
-                <span>外观</span>
-              </motion.button>
-              <motion.button className="icon-button" whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.96 }}>
-                <GearSix size={18} weight="duotone" />
               </motion.button>
             </div>
 
