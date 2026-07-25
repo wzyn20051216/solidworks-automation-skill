@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 from pathlib import Path
@@ -27,7 +26,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -37,7 +35,7 @@ from PySide6.QtWidgets import (
 )
 
 from .core import create_project, default_output_root, ensure_project_tree, read_json, write_json
-from .mock_runner import run_mock
+from .mock_runner import run_mock, validate_parameters
 from .style import APP_STYLE
 
 
@@ -76,24 +74,33 @@ class MainWindow(QMainWindow):
         title_box = QVBoxLayout()
         self.title = QLabel("3D 打印外壳自动交付")
         self.title.setObjectName("PageTitle")
-        self.subtitle = QLabel("先把项目、参数、复核和交付目录跑顺，真实 CAD 引擎后续接入。")
+        self.subtitle = QLabel("项目、参数、复核和交付目录先跑顺；CAD 引擎后续接入。")
         self.subtitle.setObjectName("Muted")
         title_box.addWidget(self.title)
         title_box.addWidget(self.subtitle)
         title_row.addLayout(title_box)
         title_row.addStretch()
 
+        self.open_button = QPushButton("打开项目")
+        self.open_button.setObjectName("QuietButton")
+        self.open_button.clicked.connect(self.pick_project_file)
         self.save_button = QPushButton("保存参数")
         self.save_button.setObjectName("QuietButton")
         self.save_button.clicked.connect(self.save_project)
+        self.check_button = QPushButton("检查参数")
+        self.check_button.setObjectName("QuietButton")
+        self.check_button.clicked.connect(self.check_parameters_only)
         self.run_button = QPushButton("Mock 执行")
         self.run_button.setObjectName("PrimaryButton")
         self.run_button.clicked.connect(self.run_mock_pipeline)
+        title_row.addWidget(self.open_button)
         title_row.addWidget(self.save_button)
+        title_row.addWidget(self.check_button)
         title_row.addWidget(self.run_button)
 
         main_layout.addLayout(title_row)
-        main_layout.addWidget(self._build_tabs(), 1)
+        self.tabs = self._build_tabs()
+        main_layout.addWidget(self.tabs, 1)
 
         body_layout.addWidget(main_column, 1)
         body_layout.addWidget(self._build_status_panel())
@@ -117,10 +124,19 @@ class MainWindow(QMainWindow):
         layout.addWidget(sub)
         layout.addSpacing(18)
 
-        for text in ["项目", "外壳参数", "孔槽与螺丝柱", "执行与复核", "输出交付", "Skills 管理"]:
+        nav_actions = [
+            ("项目", lambda: self.tabs.setCurrentIndex(0)),
+            ("外壳参数", lambda: self.tabs.setCurrentIndex(1)),
+            ("孔槽与螺丝柱", lambda: self.tabs.setCurrentIndex(2)),
+            ("执行与复核", lambda: self.tabs.setCurrentIndex(3)),
+            ("输出交付", self.open_project_dir),
+            ("Skills 管理", self.open_repo_dir),
+        ]
+        for text, action in nav_actions:
             button = QPushButton(text)
             button.setObjectName("NavButton")
             button.setCursor(Qt.PointingHandCursor)
+            button.clicked.connect(action)
             layout.addWidget(button)
 
         layout.addStretch()
@@ -359,6 +375,16 @@ class MainWindow(QMainWindow):
             layout.addWidget(item)
 
         layout.addSpacing(8)
+        checks_title = QLabel("关键问题")
+        checks_title.setObjectName("SectionTitle")
+        layout.addWidget(checks_title)
+        self.review_summary = QTextEdit()
+        self.review_summary.setReadOnly(True)
+        self.review_summary.setFixedHeight(160)
+        self.review_summary.setPlaceholderText("检查后显示 P0/P1 复核结果")
+        layout.addWidget(self.review_summary)
+
+        layout.addSpacing(8)
         output_title = QLabel("输出")
         output_title.setObjectName("SectionTitle")
         layout.addWidget(output_title)
@@ -391,6 +417,12 @@ class MainWindow(QMainWindow):
         if folder:
             self.output_root.setText(folder)
 
+    def pick_project_file(self) -> None:
+        start = self.output_root.text() or str(default_output_root())
+        file_path, _ = QFileDialog.getOpenFileName(self, "打开项目", start, "Project JSON (project.json)")
+        if file_path:
+            self.load_project(Path(file_path).parent)
+
     def append_log(self, message: str) -> None:
         self.log_box.append(message)
         self.log_box.verticalScrollBar().setValue(self.log_box.verticalScrollBar().maximum())
@@ -421,11 +453,19 @@ class MainWindow(QMainWindow):
 
     def _float_cell(self, table: QTableWidget, row: int, column: int) -> float:
         text = self._cell(table, row, column)
-        return float(text) if text else 0.0
+        try:
+            return float(text) if text else 0.0
+        except ValueError as exc:
+            header = table.horizontalHeaderItem(column).text()
+            raise ValueError(f"第 {row + 1} 行「{header}」必须是数字") from exc
 
     def _int_cell(self, table: QTableWidget, row: int, column: int) -> int:
         text = self._cell(table, row, column)
-        return int(float(text)) if text else 0
+        try:
+            return int(float(text)) if text else 0
+        except ValueError as exc:
+            header = table.horizontalHeaderItem(column).text()
+            raise ValueError(f"第 {row + 1} 行「{header}」必须是整数") from exc
 
     def _bool_cell(self, table: QTableWidget, row: int, column: int) -> bool:
         return self._cell(table, row, column).lower() in {"true", "1", "yes", "是"}
@@ -530,6 +570,20 @@ class MainWindow(QMainWindow):
             },
         }
 
+    def check_parameters_only(self) -> None:
+        """@brief 仅检查当前表单参数，不生成任何文件。"""
+        try:
+            parameters = self.collect_parameters()
+            checks = validate_parameters(parameters)
+            review = {
+                "overall_status": "fail" if any(check["status"] == "fail" for check in checks) else "warning",
+                "checks": checks,
+            }
+            self.update_status(review)
+            self.append_log("参数检查完成。右侧会显示最关键的 P0/P1 结果。")
+        except Exception as exc:
+            QMessageBox.critical(self, "检查失败", str(exc))
+
     def save_project(self) -> None:
         try:
             name = self.project_name.text().strip()
@@ -589,11 +643,146 @@ class MainWindow(QMainWindow):
         labels = {"model": "模型", "drawing": "图纸", "printing": "打印", "package": "交付"}
         for key, label in labels.items():
             self.status_labels[key].setText(f"{label}: {targets.get(key, '等待')}")
+        self.render_review_summary(review.get("checks", []))
+
+    def render_review_summary(self, checks: list[dict[str, Any]]) -> None:
+        """@brief 在右侧摘要区展示最需要用户处理的复核结果。"""
+        if not checks:
+            self.review_summary.setPlainText("暂无检查结果。")
+            return
+        priority = {"fail": 0, "warning": 1, "pass": 2}
+        sorted_checks = sorted(checks, key=lambda item: priority.get(item.get("status", "pass"), 3))
+        status_labels = {"fail": "失败", "warning": "提醒", "pass": "通过"}
+        lines: list[str] = []
+        for check in sorted_checks[:8]:
+            status = status_labels.get(check.get("status"), "未知")
+            lines.append(f"[{status}] {check.get('message', '')}")
+            suggestion = check.get("suggestion")
+            if suggestion:
+                lines.append(f"  建议: {suggestion}")
+        self.review_summary.setPlainText("\n".join(lines))
+
+    def load_project(self, project_dir: Path) -> None:
+        """@brief 从已有项目目录载入 project.json 和 parameters.json。"""
+        try:
+            project_path = project_dir / "project.json"
+            parameter_path = project_dir / "parameters.json"
+            if not project_path.exists() or not parameter_path.exists():
+                raise ValueError("请选择包含 project.json 和 parameters.json 的项目目录")
+            project = read_json(project_path)
+            parameters = read_json(parameter_path)
+            self.project_dir = project_dir
+            self.project_name.setText(project.get("project_name", ""))
+            self.output_root.setText(project.get("output_root", str(project_dir.parent)))
+            self.standard.setCurrentIndex(0 if project.get("drawing_standard") == "GB_T_style" else 1)
+            self.apply_parameters(parameters)
+            self.project_path_label.setText(str(project_dir))
+            self.append_log(f"已打开项目: {project_dir}")
+        except Exception as exc:
+            QMessageBox.critical(self, "打开失败", str(exc))
+
+    def apply_parameters(self, parameters: dict[str, Any]) -> None:
+        """@brief 将 parameters.json 内容回填到表单。"""
+        shell = parameters.get("shell", {})
+        self.outer_length.setValue(float(shell.get("outer_length", self.outer_length.value())))
+        self.outer_width.setValue(float(shell.get("outer_width", self.outer_width.value())))
+        self.outer_height.setValue(float(shell.get("outer_height", self.outer_height.value())))
+        self.wall_thickness.setValue(float(shell.get("wall_thickness", self.wall_thickness.value())))
+        self.bottom_thickness.setValue(float(shell.get("bottom_thickness", self.bottom_thickness.value())))
+        self.corner_radius.setValue(float(shell.get("corner_radius", self.corner_radius.value())))
+        self.edge_chamfer.setValue(float(shell.get("edge_chamfer", self.edge_chamfer.value())))
+        self.open_direction.setCurrentText(str(shell.get("open_direction", "top")))
+
+        printing = parameters.get("printing", {})
+        self.print_process.setCurrentText(str(printing.get("process", "FDM")))
+        self.nozzle_diameter.setValue(float(printing.get("nozzle_diameter", self.nozzle_diameter.value())))
+        self.hole_compensation.setValue(float(printing.get("hole_compensation", self.hole_compensation.value())))
+        self.fit_clearance.setValue(float(printing.get("fit_clearance", self.fit_clearance.value())))
+        self.min_wall_warning.setValue(float(printing.get("min_wall_warning", self.min_wall_warning.value())))
+
+        drawing = parameters.get("drawing", {})
+        self.material.setText(str(drawing.get("material", "PLA/PETG")))
+        exports = set(drawing.get("required_exports", []))
+        self.need_dwg.setChecked("dwg" in exports)
+        self.need_dxf.setChecked("dxf" in exports)
+        self.need_pdf.setChecked("pdf" in exports)
+        self.need_stl.setChecked("stl" in exports)
+        self.need_step.setChecked("step" in exports)
+
+        features = parameters.get("features", {})
+        self.fill_table(
+            self.holes_table,
+            [
+                [
+                    item.get("id", ""),
+                    item.get("name", ""),
+                    item.get("hole_type", ""),
+                    item.get("face", ""),
+                    item.get("diameter", 0),
+                    item.get("quantity", 0),
+                    item.get("datum_x", ""),
+                    item.get("datum_y", ""),
+                    item.get("center_x", 0),
+                    item.get("center_y", 0),
+                    item.get("pitch_x", 0),
+                    item.get("pitch_y", 0),
+                    str(item.get("through", True)).lower(),
+                ]
+                for item in features.get("holes", [])
+            ],
+        )
+        self.fill_table(
+            self.cutouts_table,
+            [
+                [
+                    item.get("id", ""),
+                    item.get("interface_type", ""),
+                    item.get("face", ""),
+                    item.get("cutout_width", 0),
+                    item.get("cutout_height", 0),
+                    item.get("cutout_diameter", 0),
+                    item.get("corner_radius", 0),
+                    item.get("center_x", 0),
+                    item.get("center_y", 0),
+                    item.get("quantity", 0),
+                    item.get("clearance", 0),
+                ]
+                for item in features.get("cutouts", [])
+            ],
+        )
+        self.fill_table(
+            self.bosses_table,
+            [
+                [
+                    item.get("id", ""),
+                    item.get("screw_size", ""),
+                    item.get("boss_outer_diameter", 0),
+                    item.get("hole_diameter", 0),
+                    item.get("boss_height", 0),
+                    item.get("face", ""),
+                    item.get("center_x", 0),
+                    item.get("center_y", 0),
+                    item.get("quantity", 0),
+                    str(item.get("rib_enabled", False)).lower(),
+                ]
+                for item in features.get("bosses", [])
+            ],
+        )
+
+    def fill_table(self, table: QTableWidget, rows: list[list[Any]]) -> None:
+        """@brief 用二维数组刷新表格内容。"""
+        table.setRowCount(0)
+        for row in rows:
+            self._set_table_row(table, row)
 
     def open_project_dir(self) -> None:
         if not self.project_dir:
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.project_dir)))
+
+    def open_repo_dir(self) -> None:
+        repo_dir = Path(__file__).resolve().parents[3]
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(repo_dir)))
 
     def open_final_review(self) -> None:
         if not self.project_dir:

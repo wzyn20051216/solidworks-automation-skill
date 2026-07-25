@@ -11,7 +11,9 @@ def test_mock_runner_creates_review_and_delivery(tmp_path: Path) -> None:
 
     assert review["overall_status"] == "warning"
     assert (project_dir / "reviews" / "final_review.json").exists()
+    assert (project_dir / "outputs" / "manifest.json").exists()
     assert (project_dir / "outputs" / "package" / "demo_shell_delivery").exists()
+    assert (project_dir / "outputs" / "package" / "demo_shell_delivery" / "manifest.json").exists()
 
 
 def test_validate_parameters_fails_missing_hole_position(tmp_path: Path) -> None:

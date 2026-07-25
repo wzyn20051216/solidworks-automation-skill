@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import json
 import shutil
 from pathlib import Path
 from typing import Any, Callable
@@ -26,6 +25,14 @@ STAGES = [
 PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
 )
+
+
+def _assert_inside(parent: Path, child: Path) -> None:
+    """@brief 确保递归操作目标位于项目目录内。"""
+    parent_resolved = parent.resolve()
+    child_resolved = child.resolve()
+    if parent_resolved not in [child_resolved, *child_resolved.parents]:
+        raise RuntimeError(f"拒绝操作项目目录外路径: {child_resolved}")
 
 
 def _log(callback: LogCallback | None, message: str) -> None:
@@ -206,6 +213,23 @@ def run_mock(project_dir: Path, callback: LogCallback | None = None) -> dict[str
     }
     write_json(reviews_dir / "final_review.json", final_review)
 
+    manifest = {
+        "schema_version": "0.1",
+        "generated_at": now_iso(),
+        "project_name": project.get("project_name", "CAD 项目"),
+        "status": final_review["overall_status"],
+        "files": [
+            {"kind": key, "path": str(path.relative_to(project_dir)), "exists": path.exists()}
+            for key, path in outputs.items()
+        ]
+        + [
+            {"kind": "review", "path": "reviews/final_review.json", "exists": True},
+            {"kind": "source", "path": "parameters.json", "exists": True},
+            {"kind": "source", "path": "project.json", "exists": True},
+        ],
+    }
+    write_json(project_dir / "outputs" / "manifest.json", manifest)
+
     readme = project_dir / "README_交付说明.md"
     readme.write_text(
         "\n".join(
@@ -225,9 +249,10 @@ def run_mock(project_dir: Path, callback: LogCallback | None = None) -> dict[str
 
     delivery = package_dir / f"{stem}_delivery"
     if delivery.exists():
+        _assert_inside(project_dir, delivery)
         shutil.rmtree(delivery)
     delivery.mkdir(parents=True)
-    for rel in ["project.json", "parameters.json", "README_交付说明.md"]:
+    for rel in ["project.json", "parameters.json", "README_交付说明.md", "outputs/manifest.json"]:
         shutil.copy2(project_dir / rel, delivery / Path(rel).name)
     shutil.copytree(reviews_dir, delivery / "reviews")
 
