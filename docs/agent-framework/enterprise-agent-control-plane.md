@@ -55,6 +55,8 @@ Codex 仍然是最终执行者，`solidworks-automation` skill 是核心能力�
 - 审批范围复核: 批准后若任务风险原因变化，worker 会重新拦截。
 - Artifact Ledger: 成功任务自动记录交付物路径、存在性、大小和 SHA-256。
 - Worker Control: 桌面端可启动/停止本地 Python worker，并显示运行状态和 PID。
+- Worker Health: worker 写入健康心跳、队列统计、恢复数量和最近错误。
+- Reviewer Gate: 基于 Artifact Ledger 输出最小交付物复核报告。
 
 未实现:
 
@@ -98,10 +100,18 @@ Artifact Ledger 是 Reviewer Gate 的前置基础。任务成功后，worker 会
 
 Ledger 只记录事实，不替代制造级验收。真实 CAD handler 仍需在写入 `passed` 前检查 STEP/STL/DWG/PDF 等 P0 文件是否真实存在、可打开、可制造。
 
+## Worker Health
+
+worker 会写入 `queue/worker_health.json`，记录运行心跳、进程 PID、队列状态统计、本轮处理数量、stale running 恢复数量和最近错误。桌面端读取这个文件后，可以把进程状态和队列健康分开展示: 进程活着不代表任务健康，队列有失败或待审批也需要明确提示。
+
+## Reviewer Gate
+
+Reviewer Gate 当前提供最小交付物检查，报告路径为 `queue/reviews/{job_id}.review.json`。它会检查交付物是否声明、是否存在、是否为空文件、是否具备 SHA-256。当前阶段只做文件事实复核；后续要继续接入 STEP/STL/DWG/PDF 打开性检查、图纸尺寸链检查、3D 打印真实开孔检查。
+
 ## 近期路线
 
 1. Queue Store: 增加事件流 UI 时间线、运行中重试策略和队列健康状态。
-2. Worker Health: 增加 worker 心跳、崩溃原因和队列健康评分。
-3. Reviewer Gate: 基于 Artifact Ledger 增加交付物完整性和制造规则复核。
+2. Reviewer Gate: 增加 STEP/STL/DWG/PDF 打开性检查和制造规则复核。
+3. Worker Health: 增加崩溃原因持久化、队列健康评分和 UI 时间线。
 4. UI: 把 Prompt Preview 改为执行计划、门禁和影响范围，prompt 放到高级详情。
 5. Multi-Agent: 增加 Planner/Executor/Reviewer 三阶段，不追求多进程炫技，先追求可追溯和可验收。

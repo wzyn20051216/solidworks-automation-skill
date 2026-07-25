@@ -161,6 +161,12 @@ fn worker_status_from_child(child: &mut Child) -> Result<Value, String> {
     }
 }
 
+fn read_worker_health(app: &AppHandle) -> Option<Value> {
+    let path = queue_dir(app).ok()?.join("worker_health.json");
+    let raw = fs::read_to_string(path).ok()?;
+    serde_json::from_str::<Value>(&raw).ok()
+}
+
 #[tauri::command]
 fn save_queue_job(app: AppHandle, job: Value) -> Result<(), String> {
     let id = job
@@ -217,10 +223,16 @@ fn approve_queue_job(app: AppHandle, id: String) -> Result<Value, String> {
 }
 
 #[tauri::command]
-fn worker_status(state: State<'_, WorkerState>) -> Result<Value, String> {
+fn worker_status(app: AppHandle, state: State<'_, WorkerState>) -> Result<Value, String> {
     let mut guard = state.child.lock().map_err(|error| error.to_string())?;
     if let Some(child) = guard.as_mut() {
-        let status = worker_status_from_child(child)?;
+        let mut status = worker_status_from_child(child)?;
+        if let Some(object) = status.as_object_mut() {
+            object.insert(
+                "health".to_string(),
+                read_worker_health(&app).unwrap_or(Value::Null),
+            );
+        }
         if status.get("running").and_then(Value::as_bool) == Some(false) {
             *guard = None;
         }
@@ -229,7 +241,8 @@ fn worker_status(state: State<'_, WorkerState>) -> Result<Value, String> {
     Ok(json!({
         "running": false,
         "pid": null,
-        "message": "worker 未启动"
+        "message": "worker 未启动",
+        "health": read_worker_health(&app)
     }))
 }
 

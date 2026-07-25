@@ -86,6 +86,12 @@
     "artifactLedgerPath": {
       "type": "string"
     },
+    "reviewGatePath": {
+      "type": "string"
+    },
+    "reviewGate": {
+      "type": "object"
+    },
     "policy": {
       "type": "object",
       "additionalProperties": false,

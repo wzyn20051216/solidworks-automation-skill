@@ -114,6 +114,7 @@ queued -> approval_required -> queued
 - `passed`、`failed`、`cancelled` 是终态。
 - worker 回写 `workerLog`、`lastMessage`、`result` 或 `error`，前端可以直接展示这些字段。
 - 成功任务会回写 `artifactLedgerPath` 和 `artifacts`，用于展示交付物存在性、大小和 hash。
+- 成功任务会回写 `reviewGatePath` 和 `reviewGate`，用于展示交付物复核状态。
 - 真实 CAD handler 必须在写入 `passed` 前完成文件存在性检查，不能把占位文件标为可制造交付。
 
 ## Policy Gate
@@ -162,8 +163,28 @@ worker 会重新计算当前任务的审批原因，并要求它与 `approvedPol
 - 每个任务会写入 `queue/events/{job_id}.jsonl` 事件流。
 - 托管子进程 stdout/stderr 会写入 `queue/logs/{job_id}.stdout.log` 与 `queue/logs/{job_id}.stderr.log`。
 - 成功任务会写入 `queue/ledgers/{job_id}.ledger.json` 交付物账本。
+- 成功任务会写入 `queue/reviews/{job_id}.review.json` Reviewer Gate 报告。
+- worker 会写入 `queue/worker_health.json` 健康心跳。
 
 这些字段是 worker 管理字段，UI 可展示但不要手动修改。
+
+## Worker Health
+
+worker 每轮队列扫描后会写入:
+
+```text
+queue/worker_health.json
+```
+
+字段包括:
+
+- `status`: `healthy`、`attention`、`warning` 或 `error`。
+- `heartbeatAt`: 最近一次心跳时间。
+- `processedCount`: 本轮处理任务数量。
+- `recoveredCount`: 本轮恢复 stale running 任务数量。
+- `queue`: 按任务状态统计的队列数量。
+
+桌面端 `worker_status` 会同时返回托管进程 PID 和最近健康心跳。浏览器预览模式不会启动 worker。
 
 ## Artifact Ledger
 
@@ -197,6 +218,24 @@ queue/ledgers/{job_id}.ledger.json
 ```
 
 相对输出路径会优先按任务 `cwd` 解析；没有 `cwd` 时按 `projectPath` 所在目录或项目目录解析。同一信息会摘要回写到任务 JSON 的 `artifactLedgerPath` 和 `artifacts` 字段，并追加 `artifact.ledger_written` 事件。真实 CAD handler 仍然必须自己判断 P0 交付物是否齐全；Ledger 负责记录事实，不替代制造级验收。
+
+## Reviewer Gate
+
+Reviewer Gate 基于 Artifact Ledger 生成最小交付物复核报告:
+
+```text
+queue/reviews/{job_id}.review.json
+```
+
+当前规则:
+
+- 没有声明交付物: `warning`，说明只能确认流程完成，不能确认制造文件齐全。
+- 声明的交付物不存在: `fail`。
+- 交付物为空文件: `fail`。
+- 交付物是目录: `warning`，当前不递归校验目录内容。
+- 普通文件存在且有 SHA-256: `pass`。
+
+报告摘要会回写到任务 JSON 的 `reviewGate` 和 `reviewGatePath`，并追加 `review.gate_completed` 事件。它是后续制造级 Reviewer Gate 的基础，真实 CAD 阶段还需要继续检查 STEP/STL/DWG/PDF 是否可打开、尺寸链是否完整、3D 打印真实开孔是否成立。
 
 ## Codex Bridge
 

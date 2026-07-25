@@ -23,6 +23,8 @@ from .agent_contracts import (
 )
 from .artifact_ledger import write_artifact_ledger
 from .core import CN_TZ, now_iso
+from .reviewer_gate import write_reviewer_gate
+from .worker_health import QUEUE_METADATA_FILES, write_worker_health
 
 
 JobHandler = Callable[[dict[str, Any]], dict[str, Any]]
@@ -271,6 +273,8 @@ def recover_stale_jobs(queue_dir: Path) -> int:
     """@brief 将 lease 过期的 running 任务恢复为 queued。"""
     recovered = 0
     for path in sorted(Path(queue_dir).glob("*.json")):
+        if path.name in QUEUE_METADATA_FILES:
+            continue
         try:
             job = read_job(path)
         except Exception as error:
@@ -529,6 +533,10 @@ def process_job(
         job["artifactLedgerPath"] = ledger["ledgerPath"]
         job["artifacts"] = ledger["artifacts"]
         append_event(path.parent, job, "artifact.ledger_written", "交付物账本已写入", {"ledgerPath": ledger["ledgerPath"]})
+        review = write_reviewer_gate(path.parent, ledger)
+        job["reviewGate"] = review
+        job["reviewGatePath"] = review["reviewPath"]
+        append_event(path.parent, job, "review.gate_completed", "Reviewer Gate 已完成", {"status": review["status"], "reviewPath": review["reviewPath"]})
         append_event(path.parent, job, "run.passed", str(result.get("message", "任务完成")))
     except JobCancelled as error:
         job.pop("_runtime", None)
@@ -562,11 +570,14 @@ def process_queue(
     """@brief 扫描队列目录并执行 queued 任务。"""
     queue_dir = Path(queue_dir)
     queue_dir.mkdir(parents=True, exist_ok=True)
-    recover_stale_jobs(queue_dir)
+    recovered = recover_stale_jobs(queue_dir)
     processed: list[dict[str, Any]] = []
     runner_id = worker_id()
+    last_error: str | None = None
 
     for path in sorted(queue_dir.glob("*.json")):
+        if path.name in QUEUE_METADATA_FILES:
+            continue
         if limit is not None and len(processed) >= limit:
             break
         try:
@@ -583,8 +594,11 @@ def process_queue(
             result = process_job(path, handlers=handlers, runner_id=runner_id, lease_seconds=lease_seconds)
             if result is not None:
                 processed.append(result)
+                if result.get("status") == "failed":
+                    last_error = str(result.get("error") or result.get("lastMessage") or "任务失败")
         finally:
             release_lock(lock_path)
+    write_worker_health(queue_dir, runner_id, processed_count=len(processed), recovered_count=recovered, last_error=last_error)
     return processed
 
 
@@ -595,8 +609,10 @@ def watch_queue(
     lease_seconds: int = DEFAULT_LEASE_SECONDS,
 ) -> None:
     """@brief 持续监听队列目录，适合后续做成后台进程。"""
+    runner_id = worker_id()
     while True:
-        process_queue(queue_dir, handlers=handlers, lease_seconds=lease_seconds)
+        processed = process_queue(queue_dir, handlers=handlers, lease_seconds=lease_seconds)
+        write_worker_health(queue_dir, runner_id, processed_count=len(processed))
         time.sleep(interval_seconds)
 
 

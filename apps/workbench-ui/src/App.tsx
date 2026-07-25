@@ -101,6 +101,11 @@ type AutomationJob = {
   approvedBy?: string;
   approvedPolicyReasons?: string[];
   artifactLedgerPath?: string;
+  reviewGatePath?: string;
+  reviewGate?: {
+    status?: "pass" | "warning" | "fail";
+    checks?: Array<Record<string, unknown>>;
+  };
   error?: string;
 };
 type QueueEvent = {
@@ -114,6 +119,11 @@ type WorkerStatus = {
   running: boolean;
   pid?: number | null;
   message: string;
+  health?: {
+    status?: string;
+    heartbeatAt?: string;
+    queue?: Record<string, number>;
+  } | null;
 };
 
 type Stage = {
@@ -387,6 +397,13 @@ function App() {
     if (queued > 0) return `${queued} 个排队`;
     return jobs.length > 0 ? "队列就绪" : "暂无任务";
   }, [jobs]);
+
+  const workerLabel = useMemo(() => {
+    const health = workerStatus.health?.status;
+    if (workerStatus.running) return health ? `Worker ${health}` : `Worker ${workerStatus.pid ?? ""}`;
+    if (health) return `上次 ${health}`;
+    return workerStatus.message;
+  }, [workerStatus]);
 
   const codexPrompt = useMemo(() => buildCodexPrompt(codexConfig, recentProjectPath), [codexConfig, recentProjectPath]);
 
@@ -1221,7 +1238,7 @@ function App() {
                 </div>
                 <div className="queue-actions">
                   <span className={workerStatus.running ? "worker-pill running" : "worker-pill"}>
-                    {workerStatus.running ? `Worker ${workerStatus.pid ?? ""}` : workerStatus.message}
+                    {workerLabel}
                   </span>
                   <button type="button" onClick={() => void (workerStatus.running ? stopLocalWorker() : startLocalWorker())}>
                     {workerStatus.running ? "停止" : "启动"}
@@ -1243,6 +1260,7 @@ function App() {
                         <small>
                           {(job.status === "approval_required" ? job.approvalReasons?.[0] : undefined) ||
                             jobEvents[job.id]?.[jobEvents[job.id].length - 1]?.message ||
+                            (job.reviewGate?.status ? `Reviewer Gate: ${job.reviewGate.status}` : undefined) ||
                             job.lastMessage ||
                             job.result?.outputPath ||
                             job.error ||

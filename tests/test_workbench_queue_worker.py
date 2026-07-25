@@ -30,6 +30,7 @@ from apps.desktop.cad_workbench.queue_worker import (
     run_codex_job,
     write_job,
 )
+from apps.desktop.cad_workbench.worker_health import read_worker_health
 
 
 def _queued_job(job_id: str = "job-1", kind: str = "create_shell") -> dict:
@@ -64,11 +65,32 @@ def test_queue_worker_processes_queued_job(tmp_path: Path) -> None:
     assert saved["heartbeatAt"]
     assert saved["leaseUntil"]
     assert Path(saved["artifactLedgerPath"]).exists()
+    assert Path(saved["reviewGatePath"]).exists()
+    assert saved["reviewGate"]["status"] == "warning"
     assert not lock_path_for(job_path).exists()
+    health = read_worker_health(queue_dir)
+    assert health is not None
+    assert health["status"] == "healthy"
+    assert health["processedCount"] == 1
     event_path = event_path_for(queue_dir, "job-1")
     assert event_path.exists()
     assert "artifact.ledger_written" in event_path.read_text(encoding="utf-8")
+    assert "review.gate_completed" in event_path.read_text(encoding="utf-8")
     assert "run.passed" in event_path.read_text(encoding="utf-8")
+
+
+def test_worker_health_ignores_health_metadata_file(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job_path = queue_dir / "job-health.json"
+    write_job(job_path, _queued_job("job-health"))
+
+    process_queue(queue_dir)
+    process_queue(queue_dir)
+
+    health = read_worker_health(queue_dir)
+    assert health is not None
+    assert "healthy" not in health["queue"]
+    assert health["queue"]["passed"] == 1
 
 
 def test_queue_worker_marks_unknown_kind_failed(tmp_path: Path) -> None:
@@ -110,6 +132,26 @@ def test_artifact_ledger_records_output_hash(tmp_path: Path) -> None:
     assert artifact["sizeBytes"] == len("artifact\n".encode("utf-8"))
     assert artifact["sha256"] == hashlib.sha256(b"artifact\n").hexdigest()
     assert saved["artifacts"][0]["sha256"] == artifact["sha256"]
+    assert saved["reviewGate"]["status"] == "pass"
+
+
+def test_reviewer_gate_fails_missing_artifact(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job_path = queue_dir / "job-missing-artifact.json"
+    project_dir = tmp_path / "project"
+    job = _queued_job("job-missing-artifact")
+    job["projectPath"] = str(project_dir)
+    write_job(job_path, job)
+
+    def handler(job: dict) -> dict:
+        return {"mode": "mock", "message": "声明了不存在的交付物", "outputs": {"step": "outputs/missing.step"}}
+
+    process_queue(queue_dir, handlers={"create_shell": handler})
+
+    saved = read_job(job_path)
+    review = saved["reviewGate"]
+    assert review["status"] == "fail"
+    assert any(check["status"] == "fail" for check in review["checks"])
 
 
 def test_queue_worker_skips_terminal_jobs(tmp_path: Path) -> None:
