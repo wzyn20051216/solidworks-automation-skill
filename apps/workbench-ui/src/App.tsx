@@ -28,7 +28,17 @@ import { type CSSProperties, type ChangeEvent, type DragEvent, useEffect, useMem
 type StageState = "ready" | "running" | "passed" | "attention";
 type PresetWallpaperId = "aurora" | "blueprint" | "studio" | "mist";
 type WallpaperId = PresetWallpaperId | "custom";
-type WallpaperFile = { url: string; name: string; kind: "image" | "video" };
+type WallpaperFile = { url: string; name: string; kind: "image" | "video"; sourcePath?: string };
+type RecentWallpaper = { path: string; name: string; kind: "image" | "video" };
+type AppSettings = {
+  activeWallpaper: WallpaperId;
+  customWallpaperPath?: string;
+  wallpaperBrightness: number;
+  wallpaperBlur: number;
+  wallpaperVignette: number;
+  recentWallpapers: RecentWallpaper[];
+  recentProjectPath?: string;
+};
 
 type Stage = {
   key: string;
@@ -74,6 +84,8 @@ const reviewItems = [
   { label: "交付清单", state: "注意", note: "等待真实导出器" },
 ];
 
+const SETTINGS_KEY = "cad-studio.settings.v1";
+
 function stateLabel(state: StageState) {
   if (state === "passed") return "通过";
   if (state === "running") return "执行中";
@@ -97,6 +109,39 @@ function revokeObjectUrl(url?: string) {
   if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
 }
 
+function wallpaperFromPath(path: string): WallpaperFile {
+  return {
+    url: convertFileSrc(path),
+    name: displayNameFromPath(path),
+    kind: isVideoPath(path) ? "video" : "image",
+    sourcePath: path,
+  };
+}
+
+function clampNumber(value: unknown, fallback: number, min: number, max: number) {
+  if (typeof value !== "number" || Number.isNaN(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
+function loadSettings(): AppSettings | null {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<AppSettings>;
+    return {
+      activeWallpaper: parsed.customWallpaperPath ? parsed.activeWallpaper ?? "aurora" : parsed.activeWallpaper === "custom" ? "aurora" : parsed.activeWallpaper ?? "aurora",
+      customWallpaperPath: parsed.customWallpaperPath,
+      wallpaperBrightness: clampNumber(parsed.wallpaperBrightness, 94, 72, 112),
+      wallpaperBlur: clampNumber(parsed.wallpaperBlur, 3, 0, 14),
+      wallpaperVignette: clampNumber(parsed.wallpaperVignette, 18, 0, 42),
+      recentWallpapers: Array.isArray(parsed.recentWallpapers) ? parsed.recentWallpapers.slice(0, 6) : [],
+      recentProjectPath: parsed.recentProjectPath,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState("project");
   const [activeWallpaper, setActiveWallpaper] = useState<WallpaperId>("aurora");
@@ -105,6 +150,9 @@ function App() {
   const [wallpaperBrightness, setWallpaperBrightness] = useState(94);
   const [wallpaperBlur, setWallpaperBlur] = useState(3);
   const [wallpaperVignette, setWallpaperVignette] = useState(18);
+  const [recentWallpapers, setRecentWallpapers] = useState<RecentWallpaper[]>([]);
+  const [recentProjectPath, setRecentProjectPath] = useState<string | undefined>();
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [focusFeature, setFocusFeature] = useState(0);
   const wallpaperInputRef = useRef<HTMLInputElement>(null);
@@ -124,6 +172,16 @@ function App() {
     window.setTimeout(() => setIsRunning(false), 2200);
   }
 
+  function rememberWallpaper(path: string) {
+    const nextWallpaper = {
+      path,
+      name: displayNameFromPath(path),
+      kind: isVideoPath(path) ? "video" : "image",
+    } satisfies RecentWallpaper;
+
+    setRecentWallpapers((items) => [nextWallpaper, ...items.filter((item) => item.path !== path)].slice(0, 6));
+  }
+
   function useWallpaperFile(file?: File) {
     if (!file) return;
     const isImage = file.type.startsWith("image/");
@@ -138,6 +196,16 @@ function App() {
         kind: isVideo ? "video" : "image",
       };
     });
+    setActiveWallpaper("custom");
+    setAppearanceOpen(true);
+  }
+
+  function applyWallpaperPath(path: string) {
+    setCustomWallpaper((previous) => {
+      revokeObjectUrl(previous?.url);
+      return wallpaperFromPath(path);
+    });
+    rememberWallpaper(path);
     setActiveWallpaper("custom");
     setAppearanceOpen(true);
   }
@@ -160,16 +228,24 @@ function App() {
 
     if (!selected || Array.isArray(selected)) return;
 
-    setCustomWallpaper((previous) => {
-      revokeObjectUrl(previous?.url);
-      return {
-        url: convertFileSrc(selected),
-        name: displayNameFromPath(selected),
-        kind: isVideoPath(selected) ? "video" : "image",
-      };
+    applyWallpaperPath(selected);
+  }
+
+  async function chooseProjectFile() {
+    if (!isTauriRuntime()) return;
+
+    const selected = await openDialog({
+      multiple: false,
+      filters: [
+        {
+          name: "CAD Models",
+          extensions: ["step", "stp", "sldprt", "sldasm", "stl", "iges", "igs", "dxf", "dwg"],
+        },
+      ],
     });
-    setActiveWallpaper("custom");
-    setAppearanceOpen(true);
+
+    if (!selected || Array.isArray(selected)) return;
+    setRecentProjectPath(selected);
   }
 
   function importWallpaper(event: ChangeEvent<HTMLInputElement>) {
@@ -195,6 +271,34 @@ function App() {
       revokeObjectUrl(customWallpaper?.url);
     };
   }, [customWallpaper?.url]);
+
+  useEffect(() => {
+    const settings = loadSettings();
+    if (settings) {
+      setActiveWallpaper(settings.activeWallpaper);
+      setWallpaperBrightness(settings.wallpaperBrightness);
+      setWallpaperBlur(settings.wallpaperBlur);
+      setWallpaperVignette(settings.wallpaperVignette);
+      setRecentWallpapers(settings.recentWallpapers);
+      setRecentProjectPath(settings.recentProjectPath);
+      if (settings.customWallpaperPath) setCustomWallpaper(wallpaperFromPath(settings.customWallpaperPath));
+    }
+    setSettingsLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    const settings: AppSettings = {
+      activeWallpaper: activeWallpaper === "custom" && !customWallpaper?.sourcePath ? "aurora" : activeWallpaper,
+      customWallpaperPath: customWallpaper?.sourcePath,
+      wallpaperBrightness,
+      wallpaperBlur,
+      wallpaperVignette,
+      recentWallpapers,
+      recentProjectPath,
+    };
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  }, [activeWallpaper, customWallpaper?.sourcePath, recentProjectPath, recentWallpapers, settingsLoaded, wallpaperBlur, wallpaperBrightness, wallpaperVignette]);
 
   const activeWallpaperName =
     activeWallpaper === "custom" ? customWallpaper?.name ?? "我的壁纸" : wallpapers.find((item) => item.id === activeWallpaper)?.name ?? "Aurora";
@@ -302,7 +406,7 @@ function App() {
             </div>
             <div className="project-title">
               <strong>智能外壳项目</strong>
-              <span>本地工作区 · SolidWorks 已连接 · 规范库 GB/T</span>
+              <span>{recentProjectPath ? `${displayNameFromPath(recentProjectPath)} · SolidWorks 已连接 · 规范库 GB/T` : "本地工作区 · SolidWorks 已连接 · 规范库 GB/T"}</span>
             </div>
             <div className="toolbar-actions">
               <motion.button className="icon-button" onClick={() => setAppearanceOpen((value) => !value)} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.96 }}>
@@ -368,6 +472,17 @@ function App() {
                       </motion.button>
                     ) : null}
                   </div>
+                  {recentWallpapers.length > 0 ? (
+                    <div className="recent-wallpapers">
+                      <span>最近使用</span>
+                      {recentWallpapers.map((wallpaper) => (
+                        <button key={wallpaper.path} type="button" onClick={() => applyWallpaperPath(wallpaper.path)}>
+                          <ImageSquare size={15} weight="duotone" />
+                          <strong>{wallpaper.name}</strong>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                   <div className="wallpaper-controls">
                     <label>
                       <span>亮度</span>
@@ -398,7 +513,7 @@ function App() {
                 <FilePlus size={18} weight="duotone" />
                 新建外壳
               </motion.button>
-              <motion.button className="ghost-button" whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.975 }}>
+              <motion.button className="ghost-button" onClick={chooseProjectFile} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.975 }}>
                 <FolderOpen size={18} weight="duotone" />
                 导入模型
               </motion.button>

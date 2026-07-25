@@ -580,6 +580,47 @@ input {
   background: rgba(255, 255, 255, 0.54);
 }
 
+.recent-wallpapers {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.recent-wallpapers > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.recent-wallpapers button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  color: #26374c;
+  background: rgba(255, 255, 255, 0.68);
+  cursor: pointer;
+  text-align: left;
+}
+
+.recent-wallpapers button svg {
+  color: var(--accent);
+}
+
+.recent-wallpapers button strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .wallpaper-controls label {
   display: grid;
   grid-template-columns: 44px 1fr;
