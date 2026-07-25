@@ -22,7 +22,7 @@ Apple-style 本地工程软件，浅色悬浮窗口、外观中心、本地壁�
 - Policy Gate 审批门禁，危险任务会先进入待审批状态。
 - Artifact Ledger 交付物账本，记录输出文件存在性、大小和 SHA-256。
 - 队列面板可在桌面端启动/停止本地 Python worker，并显示运行状态和 PID。
-- Worker Health 健康心跳和 Reviewer Gate 最小交付物复核。
+- Worker Health 健康心跳和 Reviewer Gate 交付物/格式特征复核。
 - 4 套默认壁纸: Aurora、Blueprint、Studio、Mist。
 - macOS 风格窗口栏、浅色 Dock 导航、项目工作台和右侧 Inspector 参数面板。
 - 按钮 hover、按压反馈和主按钮光泽扫过效果。

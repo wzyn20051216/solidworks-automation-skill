@@ -135,6 +135,68 @@ def test_artifact_ledger_records_output_hash(tmp_path: Path) -> None:
     assert saved["reviewGate"]["status"] == "pass"
 
 
+def test_reviewer_gate_passes_known_cad_file_signatures(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job_path = queue_dir / "job-cad-signatures.json"
+    project_dir = tmp_path / "project"
+    outputs_dir = project_dir / "outputs"
+    job = _queued_job("job-cad-signatures")
+    job["projectPath"] = str(project_dir)
+    write_job(job_path, job)
+
+    def handler(job: dict) -> dict:
+        outputs_dir.mkdir(parents=True)
+        (outputs_dir / "model.step").write_text("ISO-10303-21;\nEND-ISO-10303-21;\n", encoding="utf-8")
+        (outputs_dir / "model.stl").write_text("solid demo\nendsolid demo\n", encoding="utf-8")
+        (outputs_dir / "drawing.dxf").write_text("0\nSECTION\n2\nENTITIES\n0\nENDSEC\n0\nEOF\n", encoding="utf-8")
+        (outputs_dir / "drawing.pdf").write_bytes(b"%PDF-1.7\n%demo\n")
+        (outputs_dir / "drawing.dwg").write_bytes(b"AC1032 demo")
+        return {
+            "mode": "mock",
+            "message": "生成 CAD 交付物",
+            "outputs": {
+                "step": "outputs/model.step",
+                "stl": "outputs/model.stl",
+                "dxf": "outputs/drawing.dxf",
+                "pdf": "outputs/drawing.pdf",
+                "dwg": "outputs/drawing.dwg",
+            },
+        }
+
+    process_queue(queue_dir, handlers={"create_shell": handler})
+
+    saved = read_job(job_path)
+    checks = saved["reviewGate"]["checks"]
+    assert saved["reviewGate"]["status"] == "pass"
+    assert any(check["id"] == "artifact-format-step" and check["status"] == "pass" for check in checks)
+    assert any(check["id"] == "artifact-format-stl" and check["status"] == "pass" for check in checks)
+    assert any(check["id"] == "artifact-format-dxf" and check["status"] == "pass" for check in checks)
+    assert any(check["id"] == "artifact-format-pdf" and check["status"] == "pass" for check in checks)
+    assert any(check["id"] == "artifact-format-dwg" and check["status"] == "pass" for check in checks)
+
+
+def test_reviewer_gate_fails_invalid_known_format(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job_path = queue_dir / "job-invalid-format.json"
+    project_dir = tmp_path / "project"
+    output_path = project_dir / "outputs" / "drawing.pdf"
+    job = _queued_job("job-invalid-format")
+    job["projectPath"] = str(project_dir)
+    write_job(job_path, job)
+
+    def handler(job: dict) -> dict:
+        output_path.parent.mkdir(parents=True)
+        output_path.write_text("not a pdf", encoding="utf-8")
+        return {"mode": "mock", "message": "生成伪 PDF", "outputs": {"pdf": "outputs/drawing.pdf"}}
+
+    process_queue(queue_dir, handlers={"create_shell": handler})
+
+    saved = read_job(job_path)
+    checks = saved["reviewGate"]["checks"]
+    assert saved["reviewGate"]["status"] == "fail"
+    assert any(check["id"] == "artifact-format-pdf" and check["status"] == "fail" for check in checks)
+
+
 def test_reviewer_gate_fails_missing_artifact(tmp_path: Path) -> None:
     queue_dir = tmp_path / "queue"
     job_path = queue_dir / "job-missing-artifact.json"

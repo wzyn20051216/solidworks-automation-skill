@@ -234,6 +234,12 @@ queue/reviews/{job_id}.review.json
 - 交付物为空文件: `fail`。
 - 交付物是目录: `warning`，当前不递归校验目录内容。
 - 普通文件存在且有 SHA-256: `pass`。
+- STEP/STP 必须包含 `ISO-10303-21` 和 `END-ISO-10303-21` 标记。
+- STL 必须具备可识别的 ASCII `solid/endsolid` 或 Binary STL 基础结构。
+- DXF 必须包含 `SECTION` 并以 `EOF` 结束。
+- PDF 必须包含 `%PDF-` 文件头。
+- DWG 必须包含 AutoCAD `AC10` 版本头。
+- SLDPRT 属于专有格式，当前只能给出 `warning`，后续由 SolidWorks 打开复核。
 
 报告摘要会回写到任务 JSON 的 `reviewGate` 和 `reviewGatePath`，并追加 `review.gate_completed` 事件。它是后续制造级 Reviewer Gate 的基础，真实 CAD 阶段还需要继续检查 STEP/STL/DWG/PDF 是否可打开、尺寸链是否完整、3D 打印真实开孔是否成立。
 
