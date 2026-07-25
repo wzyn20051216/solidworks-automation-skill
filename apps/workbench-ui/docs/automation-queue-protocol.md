@@ -30,6 +30,8 @@ python -m apps.desktop.cad_workbench.queue_worker --queue-dir "<队列目录>"
 python -m apps.desktop.cad_workbench.queue_worker --watch --queue-dir "<队列目录>"
 ```
 
+桌面端也提供 Worker Control，队列面板右上角可以启动/停止由软件托管的 Python worker。浏览器预览模式不会启动 worker。
+
 ## 任务 JSON
 
 每个任务一个文件，文件名来自安全化后的 `id`:
@@ -209,6 +211,14 @@ queue/ledgers/{job_id}.ledger.json
 ```powershell
 python -m apps.desktop.cad_workbench.queue_worker --watch --enable-codex --queue-dir "<队列目录>"
 ```
+
+软件内点击“启动”时等价于启动:
+
+```powershell
+python -m apps.desktop.cad_workbench.queue_worker --watch --enable-codex --queue-dir "<Tauri 队列目录>"
+```
+
+该入口默认不会加 `--codex-full-access`，全权限仍需要人工审批和显式命令开关。
 
 worker 会调用:
 

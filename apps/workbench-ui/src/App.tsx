@@ -110,6 +110,11 @@ type QueueEvent = {
   message?: string;
   at?: string;
 };
+type WorkerStatus = {
+  running: boolean;
+  pid?: number | null;
+  message: string;
+};
 
 type Stage = {
   key: string;
@@ -342,6 +347,7 @@ function App() {
   const [queueLoaded, setQueueLoaded] = useState(false);
   const [jobs, setJobs] = useState<AutomationJob[]>([]);
   const [jobEvents, setJobEvents] = useState<Record<string, QueueEvent[]>>({});
+  const [workerStatus, setWorkerStatus] = useState<WorkerStatus>({ running: false, message: "桌面端可启动" });
   const [codexConfig, setCodexConfig] = useState<CodexConfig>({
     objective: "根据当前配置生成可 3D 打印的外壳，并严格检查真实开孔和图纸标注。",
     target: "shell",
@@ -420,6 +426,46 @@ function App() {
       return next;
     });
     if (changedJob) void persistJob(changedJob);
+  }
+
+  async function refreshWorkerStatus() {
+    if (!isTauriRuntime()) {
+      setWorkerStatus({ running: false, message: "浏览器预览不启动 worker" });
+      return;
+    }
+    try {
+      const status = await invoke<WorkerStatus>("worker_status");
+      setWorkerStatus(status);
+    } catch (error) {
+      setWorkerStatus({ running: false, message: `worker 状态读取失败: ${String(error)}` });
+    }
+  }
+
+  async function startLocalWorker() {
+    if (!isTauriRuntime()) {
+      setWorkerStatus({ running: false, message: "请在桌面端启动 worker" });
+      return;
+    }
+    try {
+      const status = await invoke<WorkerStatus>("start_worker", {
+        repoPath: CODEX_CWD,
+        enableCodex: true,
+        codexFullAccess: false,
+      });
+      setWorkerStatus(status);
+    } catch (error) {
+      setWorkerStatus({ running: false, message: `worker 启动失败: ${String(error)}` });
+    }
+  }
+
+  async function stopLocalWorker() {
+    if (!isTauriRuntime()) return;
+    try {
+      const status = await invoke<WorkerStatus>("stop_worker");
+      setWorkerStatus(status);
+    } catch (error) {
+      setWorkerStatus({ running: false, message: `worker 停止失败: ${String(error)}` });
+    }
   }
 
   function simulateJob(job: AutomationJob) {
@@ -679,6 +725,13 @@ function App() {
       disposed = true;
       window.clearInterval(timer);
     };
+  }, []);
+
+  useEffect(() => {
+    void refreshWorkerStatus();
+    if (!isTauriRuntime()) return;
+    const timer = window.setInterval(() => void refreshWorkerStatus(), 2200);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -1166,7 +1219,15 @@ function App() {
                   <p className="eyebrow">AUTOMATION QUEUE</p>
                   <h2>本地自动化队列</h2>
                 </div>
-                <span>{queueLoaded ? queueSummary : "加载中"}</span>
+                <div className="queue-actions">
+                  <span className={workerStatus.running ? "worker-pill running" : "worker-pill"}>
+                    {workerStatus.running ? `Worker ${workerStatus.pid ?? ""}` : workerStatus.message}
+                  </span>
+                  <button type="button" onClick={() => void (workerStatus.running ? stopLocalWorker() : startLocalWorker())}>
+                    {workerStatus.running ? "停止" : "启动"}
+                  </button>
+                  <span>{queueLoaded ? queueSummary : "加载中"}</span>
+                </div>
               </div>
               <div className="queue-list">
                 {jobs.length === 0 ? (

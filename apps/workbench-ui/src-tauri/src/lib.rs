@@ -1,8 +1,20 @@
 use serde_json::{json, Value};
 use std::io::Write;
+use std::process::{Child, Command};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{fs, fs::OpenOptions, path::PathBuf};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, State};
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+struct WorkerState {
+    child: Mutex<Option<Child>>,
+}
 
 fn queue_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
@@ -134,6 +146,21 @@ fn append_queue_event(
     .map_err(|error| error.to_string())
 }
 
+fn worker_status_from_child(child: &mut Child) -> Result<Value, String> {
+    match child.try_wait().map_err(|error| error.to_string())? {
+        Some(status) => Ok(json!({
+            "running": false,
+            "pid": null,
+            "message": format!("worker 已退出: {}", status)
+        })),
+        None => Ok(json!({
+            "running": true,
+            "pid": child.id(),
+            "message": "worker 正在运行"
+        })),
+    }
+}
+
 #[tauri::command]
 fn save_queue_job(app: AppHandle, job: Value) -> Result<(), String> {
     let id = job
@@ -190,6 +217,87 @@ fn approve_queue_job(app: AppHandle, id: String) -> Result<Value, String> {
 }
 
 #[tauri::command]
+fn worker_status(state: State<'_, WorkerState>) -> Result<Value, String> {
+    let mut guard = state.child.lock().map_err(|error| error.to_string())?;
+    if let Some(child) = guard.as_mut() {
+        let status = worker_status_from_child(child)?;
+        if status.get("running").and_then(Value::as_bool) == Some(false) {
+            *guard = None;
+        }
+        return Ok(status);
+    }
+    Ok(json!({
+        "running": false,
+        "pid": null,
+        "message": "worker 未启动"
+    }))
+}
+
+#[tauri::command]
+fn start_worker(
+    app: AppHandle,
+    state: State<'_, WorkerState>,
+    repo_path: String,
+    enable_codex: bool,
+    codex_full_access: bool,
+) -> Result<Value, String> {
+    let mut guard = state.child.lock().map_err(|error| error.to_string())?;
+    if let Some(child) = guard.as_mut() {
+        let status = worker_status_from_child(child)?;
+        if status.get("running").and_then(Value::as_bool) == Some(true) {
+            return Ok(status);
+        }
+        *guard = None;
+    }
+
+    let queue = queue_dir(&app)?;
+    let mut command = Command::new("python");
+    command
+        .current_dir(repo_path)
+        .arg("-m")
+        .arg("apps.desktop.cad_workbench.queue_worker")
+        .arg("--watch")
+        .arg("--queue-dir")
+        .arg(queue);
+    if enable_codex {
+        command.arg("--enable-codex");
+    }
+    if codex_full_access {
+        command.arg("--codex-full-access");
+    }
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    let child = command.spawn().map_err(|error| error.to_string())?;
+    let pid = child.id();
+    *guard = Some(child);
+    Ok(json!({
+        "running": true,
+        "pid": pid,
+        "message": "worker 已启动"
+    }))
+}
+
+#[tauri::command]
+fn stop_worker(state: State<'_, WorkerState>) -> Result<Value, String> {
+    let mut guard = state.child.lock().map_err(|error| error.to_string())?;
+    if let Some(mut child) = guard.take() {
+        child.kill().map_err(|error| error.to_string())?;
+        let status = child.wait().map_err(|error| error.to_string())?;
+        return Ok(json!({
+            "running": false,
+            "pid": null,
+            "message": format!("worker 已停止: {}", status)
+        }));
+    }
+    Ok(json!({
+        "running": false,
+        "pid": null,
+        "message": "worker 未启动"
+    }))
+}
+
+#[tauri::command]
 fn read_queue_jobs(app: AppHandle) -> Result<Vec<Value>, String> {
     let dir = queue_dir(&app)?;
     let mut jobs = Vec::new();
@@ -231,10 +339,16 @@ fn read_queue_events(app: AppHandle, id: String) -> Result<Vec<Value>, String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(WorkerState {
+            child: Mutex::new(None),
+        })
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             save_queue_job,
             approve_queue_job,
+            worker_status,
+            start_worker,
+            stop_worker,
             read_queue_jobs,
             read_queue_events
         ])

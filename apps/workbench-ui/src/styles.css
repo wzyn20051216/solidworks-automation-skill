@@ -1228,6 +1228,52 @@ textarea {
   white-space: nowrap;
 }
 
+.queue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.queue-actions > span,
+.queue-actions button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.queue-actions > span:not(.worker-pill) {
+  color: color-mix(in srgb, var(--accent) 72%, #22354d);
+  background: var(--accent-soft);
+}
+
+.worker-pill {
+  max-width: 220px;
+  overflow: hidden;
+  color: #546174;
+  background: rgba(255, 255, 255, 0.62);
+  text-overflow: ellipsis;
+}
+
+.worker-pill.running {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 13%, #ffffff);
+}
+
+.queue-actions button {
+  border: 1px solid rgba(37, 53, 74, 0.1);
+  color: #27384f;
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  cursor: pointer;
+}
+
 .queue-list {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
