@@ -455,7 +455,7 @@ fn unix_timestamp_label() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .unwrap_or_default();
-    format!("unix:{}", seconds)
+    format!("unix:{seconds}")
 }
 
 fn append_queue_event(
@@ -1784,8 +1784,8 @@ fn tail_text(path: PathBuf, max_chars: usize) -> String {
 fn read_queue_log_tail(app: AppHandle, id: String) -> Result<Value, String> {
     let safe_id = safe_id(&id)?;
     let log_dir = queue_dir(&app)?.join("logs");
-    let stdout_path = log_dir.join(format!("{}.stdout.log", safe_id));
-    let stderr_path = log_dir.join(format!("{}.stderr.log", safe_id));
+    let stdout_path = log_dir.join(format!("{safe_id}.stdout.log"));
+    let stderr_path = log_dir.join(format!("{safe_id}.stderr.log"));
     Ok(json!({
         "stdoutPath": stdout_path.to_string_lossy(),
         "stderrPath": stderr_path.to_string_lossy(),
