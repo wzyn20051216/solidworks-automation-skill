@@ -16,6 +16,8 @@
 
 [English](#english) | [中文](#中文)
 
+> **CAD Studio 桌面版**：下载、环境要求和完整操作流程见 [CAD Studio 用户说明书](docs/CAD_STUDIO_USER_MANUAL.md)。Windows 安装包与便携 ZIP 发布在 [GitHub Releases](https://github.com/wzyn20051216/solidworks-automation-skill/releases)。
+
 ---
 
 ## 中文
@@ -187,24 +189,27 @@ solidworks-automation-skill/
 └── README.md
 ```
 
-### 🖥️ 桌面软件原型
+### 🖥️ CAD Studio 桌面软件
 
-第一版桌面端位于 `apps/desktop/`，当前先跑通“新建项目 -> 保存参数 -> mock 执行 -> 生成复核报告和交付目录”的本地流程。
+正式桌面端位于 `apps/workbench-ui/`，采用 React + Tauri。它支持 Codex、Claude Code、Gemini CLI、OpenCode，读取 CC Switch 模型路由，并通过本地 Python worker 执行 SolidWorks / AutoCAD skill、阶段编排、审批、产物账本和人工复核。
 
-```powershell
-python -m pip install -r apps/desktop/requirements.txt
-python apps/desktop/run.py
-```
-
-当前 mock 输出不是可制造 CAD 文件；真实 SolidWorks / AutoCAD 自动化会在后续版本接入同一条执行流水线。
-
-更高质感的 React / Motion 前端界面位于 `apps/workbench-ui/`，用于后续嵌入 Tauri、Electron 或 PySide WebEngine:
+开发预览：
 
 ```powershell
 cd apps/workbench-ui
 npm install
 npm run dev
 ```
+
+构建 Windows 安装包：
+
+```powershell
+cd apps/workbench-ui
+npm ci
+npm run desktop:bundle
+```
+
+安装包内置运行所需的 skill、脚本和规范文档，但真实 CAD 自动化仍需要用户合法安装 Python、对应 Agent CLI、SolidWorks 或 AutoCAD。完整说明见 [用户说明书](docs/CAD_STUDIO_USER_MANUAL.md)。
 
 ### 🧩 子技能矩阵
 
@@ -254,7 +259,7 @@ claude mcp list
     "solidworks": {
       "command": "python",
       "args": [
-        "C:\\Users\\23201\\.codex\\skills\\solidworks-automation\\mcp-server\\server.py"
+        "C:\\path\\to\\solidworks-automation-skill\\mcp-server\\server.py"
       ]
     }
   }

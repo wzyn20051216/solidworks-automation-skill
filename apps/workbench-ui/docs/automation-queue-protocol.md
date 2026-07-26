@@ -2,7 +2,7 @@
 
 ## 目标
 
-CAD Studio 桌面端通过 Tauri 把任务保存为本机 JSON 文件，Python worker 读取队列并执行。第一版 worker 使用 mock handler，后续把 handler 替换为 SolidWorks / AutoCAD 自动化即可。
+CAD Studio 桌面端通过 Tauri 把任务保存为本机 JSON 文件，Python worker 读取队列并调用本机 Codex。正式桌面启动只启用 Codex handler；mock handler 仅供显式开发测试。
 
 ## 队列目录
 
@@ -23,6 +23,8 @@ worker 默认也会读取该目录。调试时可以显式指定:
 ```powershell
 python -m apps.desktop.cad_workbench.queue_worker --queue-dir "<队列目录>"
 ```
+
+桌面集成测试可在启动前设置 `CAD_STUDIO_QUEUE_DIR` 覆盖 Tauri 队列目录；正式运行不设置时仍使用应用数据目录。
 
 持续监听:
 
@@ -93,8 +95,8 @@ Codex Bridge 扩展字段:
   "expectedOutput": "AI 自动选择输出",
   "strictRules": ["未指定字段由 AI 自动选择最佳工程方案", "孔槽必须真实几何切除", "必须按中国机械制图常用格式复核 CAD 图纸"],
   "prompt": "你是 Codex，请执行由 CAD Studio 图形化界面生成的任务...",
-  "cwd": "C:/Users/23201/.codex/skills/solidworks-automation",
-  "skillPath": "C:/Users/23201/.codex/skills/solidworks-automation/SKILL.md",
+  "cwd": "C:/path/to/solidworks-automation-skill",
+  "skillPath": "C:/path/to/solidworks-automation-skill/SKILL.md",
   "uiConfig": {
     "selection": {
       "mode": "auto_best",
@@ -118,21 +120,26 @@ Codex Bridge 扩展字段:
 状态流转:
 
 ```text
-queued -> running -> passed
+queued -> running -> passed | review_required | failed | cancelled
 queued -> running -> failed
 queued -> cancelled
-queued -> approval_required -> queued
+queued -> approval_required -> queued | cancelled
+review_required -> passed | failed
 ```
 
 约定:
 
-- UI 只创建任务和取消任务。
+- UI 通过只创建接口写入新任务；取消、执行前审批和执行后人工复核分别走专用命令，不能用通用保存覆盖任务状态。
 - worker 只处理 `status == "queued"` 的任务。
-- `passed`、`failed`、`cancelled` 是终态。
+- `passed`、`failed`、`cancelled` 是终态；`review_required` 必须由用户明确“通过复核”或“驳回”。
 - worker 回写 `workerLog`、`lastMessage`、`result` 或 `error`，前端可以直接展示这些字段。
 - 成功任务会回写 `artifactLedgerPath` 和 `artifacts`，用于展示交付物存在性、大小和 hash。
 - 成功任务会回写 `reviewGatePath` 和 `reviewGate`，用于展示交付物复核状态。
-- 真实 CAD handler 必须在写入 `passed` 前完成文件存在性检查，不能把占位文件标为可制造交付。
+- Reviewer Gate 为 `warning` 时写入 `review_required`，不能显示“完成”；只有门禁为 `pass` 才写入 `passed`。
+- 真实 CAD handler 必须在写入 `passed` 前完成文件存在性检查，不能把占位文件、AI JSON 回执或旧文件标为可制造交付。
+- `save_queue_job` 仅接受不存在的 `queued` 新任务；已存在任务一律拒绝覆盖。
+
+人工复核通过前必须填写具体说明并完成当前任务要求的复核清单。通过后会写入 `reviewedBy`、`reviewedAt`、`reviewDecision = "approved"`，并把人工检查项、告警列表及交付物路径/大小/SHA-256 快照写入 `reviewGate.manualReview` 和审计事件 `review.manual_approved`；驳回必须填写问题说明，并写入 `reviewDecision = "rejected"`、明确错误和 `review.manual_rejected`。
 
 ## Policy Gate
 
@@ -170,12 +177,13 @@ worker 会重新计算当前任务的审批原因，并要求它与 `approvedPol
 
 当前仍使用本地 JSON 文件队列，但 worker 已具备最小可靠性语义:
 
-- 领取任务前创建 `{job}.json.lock`，使用原子创建避免多 worker 重复接单。
+- 领取任务前打开 `{job}.json.lock`，Windows 使用 `msvcrt.locking`、Unix 使用 `fcntl.flock` 获取操作系统排他锁，避免多 worker 重复接单。
 - 领取后写入 `runnerId`、`workerPid`、`attempt`、`heartbeatAt`、`leaseUntil`。
 - 运行中 worker 会定期刷新 `heartbeatAt` 和 `leaseUntil`，防止长任务被误判为 stale。
-- worker 结束后释放 `.lock`。
+- worker 结束后释放操作系统锁；`.lock` 文件作为诊断记录保留，进程异常退出时操作系统也会自动释放锁。
 - UI 可把任务写为 `status: "cancelled"` 或 `cancelRequested: true`，worker 会终止托管中的 Codex 子进程。
 - 启动或轮询时会恢复 `leaseUntil` 过期的 `running` 任务，将其重新置为 `queued`。
+- 软件主动停止 Worker、Alt+F4、系统关闭或原生退出时，会先终止 Worker 进程树，再按 `workerPid` 把该 Worker 未完成的 `running` 任务立即恢复为 `queued`；已有取消请求的任务保持 `cancelled`。
 - 损坏 JSON 会被移动到 `queue/quarantine`，并生成同名 `.error.txt`，不会中断 watch 循环。
 - 每个任务会写入 `queue/events/{job_id}.jsonl` 事件流。
 - 托管子进程 stdout/stderr 会写入 `queue/logs/{job_id}.stdout.log` 与 `queue/logs/{job_id}.stderr.log`。
@@ -251,12 +259,15 @@ queue/reviews/{job_id}.review.json
 - 交付物为空文件: `fail`。
 - 交付物是目录: `warning`，当前不递归校验目录内容。
 - 普通文件存在且有 SHA-256: `pass`。
+- Codex 自报验证为 `failed` 时，Reviewer Gate 必须 `fail`；没有验证记录或存在残余风险时至少为 `warning`。
+- `SLDPRT / STEP / STL`、`DWG / DXF / PDF` 等明确格式清单按逐项门禁检查，不能用其中一个文件代替整个交付包。
+- Codex 交付物必须位于任务工作区、用户输出目录或输入文件目录内。执行前会记录 CAD 文件的大小、纳秒级修改时间和 SHA-256；执行后只有新文件或内容哈希发生变化的文件才标记 `producedThisRun = true`，仅修改时间戳不能冒充本轮产物；AI 回执和未变化旧文件不计为本轮 CAD 产物。
 - STEP/STP 必须包含 `ISO-10303-21` 和 `END-ISO-10303-21` 标记。
 - STL 必须具备可识别的 ASCII `solid/endsolid` 或 Binary STL 基础结构。
 - DXF 必须包含 `SECTION` 并以 `EOF` 结束。
 - PDF 必须包含 `%PDF-` 文件头。
 - DWG 必须包含 AutoCAD `AC10` 版本头。
-- SLDPRT 属于专有格式，当前只能给出 `warning`，后续由 SolidWorks 打开复核。
+- SLDPRT、SLDASM 属于专有格式，当前只能给出 `warning`，后续由 SolidWorks 打开复核。
 
 报告摘要会回写到任务 JSON 的 `reviewGate` 和 `reviewGatePath`，并追加 `review.gate_completed` 事件。它是后续制造级 Reviewer Gate 的基础，真实 CAD 阶段还需要继续检查 STEP/STL/DWG/PDF 是否可打开、尺寸链是否完整、3D 打印真实开孔是否成立。
 
@@ -267,6 +278,8 @@ queue/reviews/{job_id}.review.json
 ```text
 图形化配置 -> 结构化任务 JSON -> Python worker -> codex exec -> 回写队列结果
 ```
+
+Worker 在编译 Prompt 前会执行本地优先 RAG：默认检索主 Skill、`references/` 和子技能知识文件，并把来源、SHA-256 与片段注入 Prompt。`uiConfig.knowledgeBase.cloudEnabled=true` 时，Tauri 会服务端派生 `external_network` 能力；只有人工审批完成后才允许调用 HTTPS 云检索端点。
 
 启用 Codex 执行:
 
@@ -285,16 +298,20 @@ python -m apps.desktop.cad_workbench.queue_worker --watch --enable-codex --queue
 worker 会调用:
 
 ```powershell
-codex exec -C "<cwd>" -a never -s workspace-write -o "<输出文件>" --output-schema "<schema>" "<prompt>"
+node.exe "<npm>/node_modules/@openai/codex/bin/codex.js" exec -C "<cwd>" -s workspace-write -c "approval_policy=\"never\"" -o "<输出文件>" --output-schema "<schema>" "<prompt>"
 ```
 
 注意:
 
 - `--enable-codex` 是显式开关，避免普通 mock 调试误触发真实 Codex 执行。
 - 默认只允许 `workspace-write`。若确需全权限，任务必须先经过 Policy Gate 审批，并且 worker 启动时额外传 `--codex-full-access`。
-- worker 会校验 `cwd` 必须位于仓库白名单内，并强制输出到 `<cwd>/ai_team/{job_id}_codex_result.md`。
+- Windows npm 安装优先使用 `node.exe + codex.js`，不经 `cmd.exe` 解析用户 prompt。
+- Codex 版本、登录状态和 SolidWorks preflight 健康检测均有 5～10 秒超时；超时会终止进程树并返回明确错误，不阻塞桌面界面。
+- worker 会校验 `cwd` 必须位于仓库白名单内，并强制输出到 `<cwd>/ai_team/{job_id}_codex_result.json`；执行前删除同名旧回执，缺失或非法 JSON 直接失败。
 - UI 负责生成 prompt 和执行约束，Codex 负责实际读写文件、调用 skill、运行验证、提交推送。
-- Codex 输出会写入 `ai_team/{job_id}_codex_result.md`，同时在任务 JSON 的 `result.outputPath` 中回写路径。
+- Worker 在执行前运行本地机械知识检索，并将带来源路径、SHA-256 和评分的片段注入企业 Prompt。
+- 设置页可添加本地标准库；云 RAG 默认关闭，启用后由 Tauri 服务端派生 `external_network` 危险能力并要求审批。
+- Codex 输出会写入 `ai_team/{job_id}_codex_result.json`，同时在任务 JSON 的 `result.outputPath` 中回写路径。
 
 ### CAD 软件路由
 
@@ -313,8 +330,8 @@ UI 会把目标软件写入 `targetSoftware` 和 `uiConfig.cadRuntime`:
       "application": "auto",
       "applicationLabel": "AI 自动选软件",
       "localCadAutomation": true,
-      "solidworksSkillPath": "C:/Users/23201/.codex/skills/solidworks-automation/SKILL.md",
-      "autocadSkillPath": "C:/Users/23201/.codex/skills/solidworks-automation/subskills/autocad-automation/SKILL.md"
+      "solidworksSkillPath": "C:/path/to/solidworks-automation-skill/SKILL.md",
+      "autocadSkillPath": "C:/path/to/solidworks-automation-skill/subskills/autocad-automation/SKILL.md"
     }
   }
 }

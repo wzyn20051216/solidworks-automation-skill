@@ -1,0 +1,71 @@
+name: Windows Release Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test-and-build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/workbench-ui/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.88.0"
+          components: rustfmt, clippy
+      - name: Install Python test dependencies
+        run: python -m pip install pytest pywin32 comtypes
+      - name: Run Python tests
+        run: |
+          python -m pytest -q
+          python scripts/validate_skill.py
+          python scripts/validate_mcp.py
+      - name: Install frontend dependencies
+        working-directory: apps/workbench-ui
+        run: npm ci
+      - name: Build frontend
+        working-directory: apps/workbench-ui
+        run: npm run build
+      - name: Test Rust backend
+        working-directory: apps/workbench-ui/src-tauri
+        run: |
+          cargo fmt -- --check
+          cargo test
+          cargo clippy -- -D warnings
+      - name: Build release packages
+        run: powershell -File scripts/build_windows_release.ps1
+      - name: Install Playwright browser
+        working-directory: apps/workbench-ui
+        run: npx playwright install chromium
+      - name: Test portable and installer packages
+        run: |
+          node ai_team/release-portable-e2e.cjs
+          powershell -NoProfile -File ai_team/nsis-install-e2e.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cad-studio-windows-x64
+          path: release-output/*
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release-output/CAD-Studio-*-Setup-x64.exe
+            release-output/CAD-Studio-*-Portable.zip
+            release-output/SHA256SUMS.txt

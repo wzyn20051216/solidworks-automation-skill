@@ -476,7 +476,7 @@ P0 规则失败时，总状态必须为 `fail`。
   "drawing_standard": "GB_T_style",
   "created_at": "2026-07-25T20:00:00+08:00",
   "updated_at": "2026-07-25T20:00:00+08:00",
-  "output_root": "E:/desktop/xiagao/output",
+  "output_root": "C:/Users/current/Documents/CADAutomationWorkbench",
   "status": "draft"
 }
 ```

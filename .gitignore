@@ -16,6 +16,16 @@ node_modules/
 npm-debug.log*
 vite-dev*.log
 *.tsbuildinfo
+apps/workbench-ui/src-tauri/resources/
+release-output/
+ai_team/*
+!ai_team/provider-ui-e2e.cjs
+!ai_team/release-portable-e2e.cjs
+!ai_team/nsis-install-e2e.ps1
+!ai_team/ui-layout-check.cjs
+!ai_team/workbench-e2e-final.cjs
+apps/workbench-ui/ai_team/
+.spec-workflow/
 
 # SolidWorks files
 *.SLDPRT
