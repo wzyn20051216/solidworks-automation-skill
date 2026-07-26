@@ -230,12 +230,12 @@ const wallpapers: Array<{ id: PresetWallpaperId; name: string; hint: string }> =
 ];
 
 const navItems = [
-  ["project", "项目", Layout],
-  ["model", "建模", CubeFocus],
-  ["holes", "开孔", Ruler],
-  ["drawing", "图纸", FilePlus],
-  ["check", "检查", ShieldCheck],
-  ["export", "导出", Export],
+  ["project", "01 总览", Layout],
+  ["model", "02 建模", CubeFocus],
+  ["holes", "03 特征", Ruler],
+  ["drawing", "04 图纸", FilePlus],
+  ["check", "05 复核", ShieldCheck],
+  ["export", "06 交付", Export],
   ["settings", "设置", GearSix],
 ] as const;
 type ActiveTab = (typeof navItems)[number][0];
@@ -339,14 +339,6 @@ const taskTemplates: Array<{
   { key: "tolerance", tab: "drawing", title: "公差标注", detail: "尺寸公差、形位公差、表面粗糙度、基准符号和技术要求", target: "drawing", output: "drawing_package", icon: Ruler },
   { key: "bom", tab: "drawing", title: "装配明细", detail: "装配图、爆炸图、BOM、序号球标和采购/加工清单", target: "assembly", output: "drawing_package", icon: Layout },
   { key: "drawing-convert", tab: "drawing", title: "图纸转换", detail: "DWG、DXF、PDF、PNG 预览输出和国标图框检查", target: "drawing", output: "drawing_package", icon: Export },
-  { key: "check", tab: "check", title: "制造复核", detail: "真实开孔、壁厚、格式特征、文件 hash 和 Reviewer Gate", target: "package", output: "research_report", icon: ShieldCheck },
-  { key: "print-check", tab: "check", title: "3D 打印检查", detail: "壁厚、悬垂、孔径、支撑、装配间隙和 STL 格式特征", target: "package", output: "research_report", icon: Aperture },
-  { key: "cnc-check", tab: "check", title: "CNC 检查", detail: "刀具可达性、内圆角、装夹基准、薄壁风险和孔深比", target: "fixture", output: "research_report", icon: CubeFocus },
-  { key: "drawing-check", tab: "check", title: "图纸检查", detail: "尺寸链、孔表、标题栏、技术要求、比例和 GB/T 风格复核", target: "drawing", output: "research_report", icon: ShieldCheck },
-  { key: "export", tab: "export", title: "一键交付", detail: "STEP、STL、DWG、DXF、PDF、PNG、报告和 Git 记录打包", target: "package", output: "drawing_package", icon: Export },
-  { key: "print-export", tab: "export", title: "打印包", detail: "STL、STEP、切片备注、材料建议、方向建议和打印检查报告", target: "package", output: "cad_files", icon: Archive },
-  { key: "machining-export", tab: "export", title: "加工包", detail: "STEP、PDF 图纸、DXF 展开、材料规格、表面处理和检验清单", target: "package", output: "drawing_package", icon: Export },
-  { key: "audit-export", tab: "export", title: "审计包", detail: "Artifact Ledger、Reviewer Gate、Codex 输出、验证命令和 Git 记录", target: "package", output: "research_report", icon: ShieldCheck },
 ];
 
 const codexOutputs: Record<CodexConfig["expectedOutput"], string> = {
@@ -372,6 +364,8 @@ const materialLabels: Record<CodexConfig["material"], string> = {
   Al6061: "Al6061",
 };
 
+const deliveryFormats = ["STEP", "STL", "SLDPRT", "DWG", "DXF", "PDF", "PNG", "复核报告"];
+
 function jobStatusLabel(status: AutomationJobStatus) {
   if (status === "running") return "执行中";
   if (status === "passed") return "完成";
@@ -383,7 +377,7 @@ function jobStatusLabel(status: AutomationJobStatus) {
 
 function jobKindDetail(kind: AutomationJobKind) {
   if (kind === "create_shell") return { title: "新建 CAD 任务", detail: "生成零件、装配、外壳、孔槽和基础检查任务" };
-  if (kind === "import_model") return { title: "导入模型", detail: "读取本地 CAD 模型并创建项目上下文" };
+  if (kind === "import_model") return { title: "导入已有文件", detail: "读取 CAD 模型、工程图或图片草图作为参考" };
   if (kind === "codex_task") return { title: "Codex 执行", detail: "把图形化配置转换为 Codex 非交互执行任务" };
   return { title: "生成交付包", detail: "整理 STEP、STL、PDF、DWG 和交付清单" };
 }
@@ -512,8 +506,19 @@ function workerLogTime(entry: WorkerLogEntry | string) {
   return typeof entry === "string" ? "" : entry.at;
 }
 
+function readableExecutionMessage(message?: string, job?: AutomationJob) {
+  if (!message) return "";
+  if (message.includes("WinError 2") || message.includes("系统找不到指定的文件")) {
+    if (job?.executor === "codex" || job?.kind === "codex_task") {
+      return "找不到 Codex CLI。请到设置里同步 CC Switch，或确认 Codex 已安装并能在命令行运行。";
+    }
+    return "找不到要启动的本地程序。请检查 Python、SolidWorks、AutoCAD 或相关执行器是否已安装。";
+  }
+  return message;
+}
+
 function compactJobMessage(job: AutomationJob, events?: QueueEvent[]) {
-  return (
+  const message =
     (job.status === "approval_required" ? job.approvalReasons?.[0] : undefined) ||
     events?.[events.length - 1]?.message ||
     (job.reviewGate?.status ? `复核结果: ${job.reviewGate.status}` : undefined) ||
@@ -521,8 +526,8 @@ function compactJobMessage(job: AutomationJob, events?: QueueEvent[]) {
     job.result?.message ||
     job.result?.outputPath ||
     job.error ||
-    job.detail
-  );
+    job.detail;
+  return readableExecutionMessage(message, job);
 }
 
 function buildChatPrompt(config: CodexConfig, api: ApiIntegrationConfig, userText: string, history: AgentChatMessage[], projectPath?: string) {
@@ -790,9 +795,8 @@ function App() {
   }, [workerStatus]);
 
   const currentPage = pageCopy[activeTab];
-  const visibleTemplates = useMemo(() => {
-    if (activeTab === "project") return taskTemplates.slice(0, 6);
-    if (activeTab === "settings") return taskTemplates.filter((item) => item.target === "skill" || item.target === "package");
+  const workspaceTemplates = useMemo(() => {
+    if (!["model", "holes", "drawing"].includes(activeTab)) return [];
     return taskTemplates.filter((item) => item.tab === activeTab);
   }, [activeTab]);
 
@@ -809,6 +813,7 @@ function App() {
   const resultChecks = resultJob?.reviewGate?.checks ?? resultJob?.result?.checks ?? [];
   const resultFeatures = realFeatureRows(resultJob);
   const codexPrompt = useMemo(() => buildCodexPrompt(codexConfig, recentProjectPath), [codexConfig, recentProjectPath]);
+  const recentJobs = useMemo(() => jobs.slice(0, 5), [jobs]);
 
   function updateCodexConfig(patch: Partial<CodexConfig>) {
     setCodexConfig((config) => ({ ...config, ...patch }));
@@ -1188,8 +1193,8 @@ function App() {
       multiple: false,
       filters: [
         {
-          name: "CAD Models",
-          extensions: ["step", "stp", "sldprt", "sldasm", "stl", "iges", "igs", "dxf", "dwg"],
+          name: "CAD / Drawing / Sketch",
+          extensions: ["step", "stp", "sldprt", "sldasm", "stl", "iges", "igs", "dxf", "dwg", "pdf", "png", "jpg", "jpeg", "webp", "bmp"],
         },
       ],
     });
@@ -1389,6 +1394,291 @@ function App() {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
   }, [activeWallpaper, apiConfig, customWallpaper?.sourcePath, recentProjectPath, recentWallpapers, settingsLoaded, wallpaperBlur, wallpaperBrightness, wallpaperVignette]);
 
+  function renderTemplatePanel() {
+    return (
+      <section className="capability-board">
+        {workspaceTemplates.map((template, index) => {
+          const Icon = template.icon;
+          return (
+            <motion.button
+              className="capability-card"
+              key={template.key}
+              onClick={() => enqueueTemplateTask(template)}
+              initial={reducedMotion ? false : { y: 12, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: 0.35, delay: index * 0.04 }}
+              whileHover={reducedMotion ? undefined : { y: -3 }}
+              whileTap={{ scale: 0.985 }}
+            >
+              <Icon size={22} weight="duotone" />
+              <span>{codexTargets[template.target]}</span>
+              <strong>{template.title}</strong>
+              <p>{template.detail}</p>
+            </motion.button>
+          );
+        })}
+      </section>
+    );
+  }
+
+  function renderProjectPanel() {
+    return (
+      <section className="project-console">
+        <article className="project-brief">
+          <div className="panel-heading compact">
+            <div>
+              <p className="eyebrow">PROJECT</p>
+              <h2>{recentProjectPath ? displayNameFromPath(recentProjectPath) : "新项目"}</h2>
+            </div>
+            <span className="status-pill">{workerStatus.running ? "可执行" : "待启动"}</span>
+          </div>
+          <div className="project-quick-grid">
+            <button type="button" onClick={() => setActiveTab("model")}>
+              <CubeFocus size={19} weight="duotone" />
+              <strong>从零建模</strong>
+              <span>不需要先导入文件</span>
+            </button>
+            <button type="button" onClick={chooseProjectFile}>
+              <FolderOpen size={19} weight="duotone" />
+              <strong>导入已有文件</strong>
+              <span>STEP / STL / DWG / PDF / 图片</span>
+            </button>
+            <button type="button" onClick={() => setActiveTab("drawing")}>
+              <FilePlus size={19} weight="duotone" />
+              <strong>出工程图</strong>
+              <span>GB/T 图框、尺寸、孔表</span>
+            </button>
+          </div>
+        </article>
+
+        <aside className="project-list-panel">
+          <div className="panel-heading compact">
+            <div>
+              <p className="eyebrow">TASKS</p>
+              <h2>最近任务</h2>
+            </div>
+          </div>
+          <div className="project-task-list">
+            {recentJobs.length > 0 ? (
+              recentJobs.map((job) => (
+                <button type="button" key={job.id} onClick={() => setActiveAgentJobId(job.id)}>
+                  <span>{jobStatusLabel(job.status)}</span>
+                  <strong>{job.title}</strong>
+                  <small>{compactJobMessage(job, jobEvents[job.id])}</small>
+                </button>
+              ))
+            ) : (
+              <div className="inspector-empty">
+                <strong>还没有任务</strong>
+                <p>直接输入需求、选择模板，或在需要参考资料时导入已有文件。</p>
+              </div>
+            )}
+          </div>
+        </aside>
+      </section>
+    );
+  }
+
+  function renderCheckPanel() {
+    return (
+      <section className="review-workspace">
+        <article className="review-summary-card">
+          <div className="panel-heading compact">
+            <div>
+              <p className="eyebrow">REVIEW</p>
+              <h2>{resultJob ? resultJob.title : "等待任务完成"}</h2>
+            </div>
+            <span className="status-pill">{resultJob?.reviewGate?.status ? reviewStatusLabel(resultJob.reviewGate.status) : "未复核"}</span>
+          </div>
+          <div className="review-table">
+            {resultChecks.length > 0 ? (
+              resultChecks.map((check, index) => (
+                <div className={`review-row ${check.status || "pending"}`} key={check.id || index}>
+                  <span>{check.severity || "CHECK"}</span>
+                  <strong>{reviewStatusLabel(check.status)}</strong>
+                  <small>{check.message || "复核项已返回，但没有说明。"}</small>
+                </div>
+              ))
+            ) : (
+              <div className="inspector-empty">
+                <strong>没有真实复核数据</strong>
+                <p>任务完成后会在这里显示文件存在性、格式、孔槽、图纸规范和制造风险。</p>
+              </div>
+            )}
+          </div>
+        </article>
+
+        <aside className="review-summary-card compact-side">
+          <div className="panel-heading compact">
+            <div>
+              <p className="eyebrow">FEATURES</p>
+              <h2>几何特征</h2>
+            </div>
+          </div>
+          <div className="hole-list">
+            {resultFeatures.length > 0 ? (
+              resultFeatures.map((feature, index) => (
+                <div className="hole-row" key={index}>
+                  <span>{recordText(feature, ["name", "type", "label"], `特征 ${index + 1}`)}</span>
+                  <strong>{recordText(feature, ["spec", "size", "dimension", "value"], "")}</strong>
+                  <small>{recordText(feature, ["position", "pos", "location", "note"], "已由任务结果返回")}</small>
+                  <em>{recordText(feature, ["status"], "待复核")}</em>
+                </div>
+              ))
+            ) : (
+              <div className="inspector-empty">
+                <strong>暂无特征表</strong>
+                <p>AI 返回真实孔、槽、螺纹或装配特征后会自动列出。</p>
+              </div>
+            )}
+          </div>
+        </aside>
+      </section>
+    );
+  }
+
+  function renderExportPanel() {
+    return (
+      <section className="delivery-console">
+        <article className="delivery-main">
+          <div className="panel-heading compact">
+            <div>
+              <p className="eyebrow">DELIVERY</p>
+              <h2>本地交付清单</h2>
+            </div>
+            <motion.button className="primary-button compact-action shine" type="button" onClick={() => enqueueAutomation("delivery_package", recentProjectPath)} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.975 }}>
+              <Archive size={17} weight="duotone" />
+              生成交付包
+            </motion.button>
+          </div>
+          <div className="artifact-list delivery-artifacts">
+            {resultArtifacts.length > 0 ? (
+              resultArtifacts.map((artifact, index) => (
+                <div className={artifact.exists === false ? "artifact-row missing" : "artifact-row"} key={`${artifact.path}-${index}`}>
+                  <div>
+                    <strong>{artifactKindLabel(artifact.kind, artifact.path)}</strong>
+                    <span>{artifact.path}</span>
+                  </div>
+                  <small>{formatBytes(artifact.sizeBytes) || artifactStatusLabel(artifact)}</small>
+                </div>
+              ))
+            ) : (
+              <div className="inspector-empty">
+                <strong>还没有可交付文件</strong>
+                <p>先让 AI 完成建模、出图或转换任务，交付中心会读取真实输出物。</p>
+              </div>
+            )}
+          </div>
+        </article>
+
+        <aside className="delivery-side">
+          <div className="delivery-path">
+            <span>输出目录</span>
+            <strong>{codexConfig.outputDir}</strong>
+            <button type="button" onClick={chooseOutputDir}>更改目录</button>
+          </div>
+          <div className="format-strip">
+            {deliveryFormats.map((format) => (
+              <span key={format}>{format}</span>
+            ))}
+          </div>
+          <div className="review-mini">
+            <span>复核状态</span>
+            <strong>{resultJob?.reviewGate?.status ? reviewStatusLabel(resultJob.reviewGate.status) : "等待生成后复核"}</strong>
+          </div>
+        </aside>
+      </section>
+    );
+  }
+
+  function renderSettingsPanel() {
+    return (
+      <section className="tab-surface">
+        <div className="settings-studio">
+          <article className="setting-card api-card primary-setting">
+            <div className="setting-title">
+              <span>AI 接入</span>
+              <strong>{apiModeLabel(apiConfig.mode)}</strong>
+              <p>决定 CAD Agent 底层接谁。默认可用 Codex CLI，也可以一键同步 CC Switch 的 provider、模型和接口配置。</p>
+            </div>
+            <div className="api-mode-grid">
+              {(["codex_cli", "cc_switch", "openai_compatible", "manual"] as ApiIntegrationMode[]).map((mode) => (
+                <button type="button" className={apiConfig.mode === mode ? "active" : ""} key={mode} onClick={() => setApiConfig((config) => ({ ...config, mode }))}>
+                  {apiModeLabel(mode)}
+                </button>
+              ))}
+            </div>
+            <div className="api-form-grid">
+              <label>
+                <span>Provider</span>
+                <input value={apiConfig.providerName} onChange={(event) => setApiConfig((config) => ({ ...config, providerName: event.target.value }))} />
+              </label>
+              <label>
+                <span>Model</span>
+                <input value={apiConfig.model} onChange={(event) => setApiConfig((config) => ({ ...config, model: event.target.value }))} />
+              </label>
+              <label className="wide">
+                <span>Base URL / 执行入口</span>
+                <input value={apiConfig.endpoint} onChange={(event) => setApiConfig((config) => ({ ...config, endpoint: event.target.value }))} />
+              </label>
+            </div>
+            <div className="api-sync-row">
+              <button type="button" onClick={() => void syncCcSwitchConfig()}>
+                同步 CC Switch
+              </button>
+              <span>{apiSyncMessage}</span>
+            </div>
+            <div className="api-status-strip">
+              <span>密钥状态: {keyStatusLabel(apiConfig.keyStatus)}</span>
+              <span>配置来源: {apiConfig.sourcePath || "CAD Studio 本地设置"}</span>
+              <span>同步时间: {formatTimeLabel(apiConfig.lastSyncAt)}</span>
+            </div>
+            {ccSwitchSync?.codexProviders?.length ? (
+              <div className="provider-list">
+                {ccSwitchSync.codexProviders.slice(0, 4).map((provider) => (
+                  <div className={provider.active ? "provider-row active" : "provider-row"} key={provider.id || provider.name}>
+                    <strong>{provider.name || provider.id}</strong>
+                    <span>{provider.model || "模型跟随 CC Switch"}</span>
+                    <small>{provider.hasApiKey ? `Key ${provider.redactedApiKey || "已配置"}` : "未检测到 Key"}</small>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </article>
+
+          <article className="setting-card status-setting">
+            <span>本地执行</span>
+            <strong>{workerStatus.running ? `运行中 · PID ${workerStatus.pid ?? "-"}` : "未启动"}</strong>
+            <p>{workerStatus.health?.heartbeatAt ? `最近心跳 ${workerStatus.health.heartbeatAt}` : workerStatus.message}</p>
+            <button type="button" onClick={() => void (workerStatus.running ? stopLocalWorker() : startLocalWorker())}>
+              {workerStatus.running ? "停止本地执行器" : "启动本地执行器"}
+            </button>
+          </article>
+          <article className="setting-card status-setting amber">
+            <span>本地输出</span>
+            <strong>只保存到本机</strong>
+            <p>{codexConfig.outputDir}</p>
+            <button type="button" onClick={chooseOutputDir}>选择输出文件夹</button>
+          </article>
+          <article className="setting-card status-setting dark">
+            <span>外观</span>
+            <strong>{activeWallpaperName}</strong>
+            <p>支持本地图片、GIF 和视频壁纸。建议用低饱和背景，避免影响 CAD 信息阅读。</p>
+            <button type="button" onClick={() => setAppearanceOpen(true)}>打开外观设置</button>
+          </article>
+        </div>
+      </section>
+    );
+  }
+
+  function renderWorkspacePanel() {
+    if (activeTab === "project") return renderProjectPanel();
+    if (activeTab === "check") return renderCheckPanel();
+    if (activeTab === "export") return renderExportPanel();
+    if (activeTab === "settings") return renderSettingsPanel();
+    return renderTemplatePanel();
+  }
+
   const activeWallpaperName =
     activeWallpaper === "custom" ? customWallpaper?.name ?? "我的壁纸" : wallpapers.find((item) => item.id === activeWallpaper)?.name ?? "Aurora";
   const activeAgentEvents = activeAgentJob ? jobEvents[activeAgentJob.id] ?? [] : [];
@@ -1433,21 +1723,6 @@ function App() {
             )
           ) : null}
         </AnimatePresence>
-        <motion.span
-          className="orb orb-one"
-          animate={reducedMotion ? undefined : { x: [0, 32, -18, 0], y: [0, -26, 18, 0] }}
-          transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
-        />
-        <motion.span
-          className="orb orb-two"
-          animate={reducedMotion ? undefined : { x: [0, -24, 18, 0], y: [0, 28, -16, 0] }}
-          transition={{ duration: 22, repeat: Infinity, ease: "easeInOut" }}
-        />
-        <motion.span
-          className="orb orb-three"
-          animate={reducedMotion ? undefined : { scale: [1, 1.08, 0.96, 1], opacity: [0.48, 0.66, 0.5, 0.48] }}
-          transition={{ duration: 16, repeat: Infinity, ease: "easeInOut" }}
-        />
       </div>
 
       <motion.section
@@ -1494,6 +1769,13 @@ function App() {
               <strong>{currentPage.title}</strong>
               <span>{recentProjectPath ? `${displayNameFromPath(recentProjectPath)} · 规范库 GB/T` : "本地工作区 · 规范库 GB/T"}</span>
               <small>{windowHint}</small>
+            </div>
+            <div className="top-menu" role="menubar" aria-label="应用菜单">
+              <button type="button" onClick={chooseProjectFile}>文件</button>
+              <button type="button" onClick={() => setActiveTab("project")}>编辑</button>
+              <button type="button" onClick={enqueueCodexTask}>运行</button>
+              <button type="button" onClick={() => setActiveTab("export")}>交付</button>
+              <button type="button" onClick={() => setActiveTab("settings")}>设置</button>
             </div>
             <div className="toolbar-actions">
               <motion.button className="icon-button" onClick={() => setAppearanceOpen((value) => !value)} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.96 }}>
@@ -1629,7 +1911,7 @@ function App() {
 
           <section className="workbench-head">
             <div>
-              <p className="eyebrow">LOCAL CAD WORKBENCH</p>
+              <p className="eyebrow">CAD STUDIO</p>
               <h1>{currentPage.title}</h1>
               <p className="subtitle">{currentPage.subtitle}</p>
             </div>
@@ -1640,7 +1922,7 @@ function App() {
               </motion.button>
               <motion.button className="ghost-button" onClick={chooseProjectFile} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.975 }}>
                 <FolderOpen size={18} weight="duotone" />
-                导入模型
+                导入已有文件
               </motion.button>
               <motion.button className="ghost-button" onClick={() => enqueueAutomation("delivery_package", recentProjectPath)} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.975 }}>
                 <Archive size={18} weight="duotone" />
@@ -1649,114 +1931,11 @@ function App() {
             </div>
           </section>
 
-          {activeTab === "settings" ? (
-            <section className="tab-surface">
-              <div className="settings-studio">
-                <article className="setting-card api-card primary-setting">
-                  <div className="setting-title">
-                    <span>AI 接入</span>
-                    <strong>{apiModeLabel(apiConfig.mode)}</strong>
-                    <p>决定 CAD Agent 底层接谁。默认可用 Codex CLI，也可以一键同步 CC Switch 的 provider、模型和接口配置。</p>
-                  </div>
-                  <div className="api-mode-grid">
-                    {(["codex_cli", "cc_switch", "openai_compatible", "manual"] as ApiIntegrationMode[]).map((mode) => (
-                      <button
-                        type="button"
-                        className={apiConfig.mode === mode ? "active" : ""}
-                        key={mode}
-                        onClick={() => setApiConfig((config) => ({ ...config, mode }))}
-                      >
-                        {apiModeLabel(mode)}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="api-form-grid">
-                    <label>
-                      <span>Provider</span>
-                      <input value={apiConfig.providerName} onChange={(event) => setApiConfig((config) => ({ ...config, providerName: event.target.value }))} />
-                    </label>
-                    <label>
-                      <span>Model</span>
-                      <input value={apiConfig.model} onChange={(event) => setApiConfig((config) => ({ ...config, model: event.target.value }))} />
-                    </label>
-                    <label className="wide">
-                      <span>Base URL / 执行入口</span>
-                      <input value={apiConfig.endpoint} onChange={(event) => setApiConfig((config) => ({ ...config, endpoint: event.target.value }))} />
-                    </label>
-                  </div>
-                  <div className="api-sync-row">
-                    <button type="button" onClick={() => void syncCcSwitchConfig()}>
-                      同步 CC Switch
-                    </button>
-                    <span>{apiSyncMessage}</span>
-                  </div>
-                  <div className="api-status-strip">
-                    <span>密钥状态: {keyStatusLabel(apiConfig.keyStatus)}</span>
-                    <span>配置来源: {apiConfig.sourcePath || "CAD Studio 本地设置"}</span>
-                    <span>同步时间: {formatTimeLabel(apiConfig.lastSyncAt)}</span>
-                  </div>
-                  {ccSwitchSync?.codexProviders?.length ? (
-                    <div className="provider-list">
-                      {ccSwitchSync.codexProviders.slice(0, 4).map((provider) => (
-                        <div className={provider.active ? "provider-row active" : "provider-row"} key={provider.id || provider.name}>
-                          <strong>{provider.name || provider.id}</strong>
-                          <span>{provider.model || "模型跟随 CC Switch"}</span>
-                          <small>{provider.hasApiKey ? `Key ${provider.redactedApiKey || "已配置"}` : "未检测到 Key"}</small>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                </article>
-
-                <article className="setting-card status-setting">
-                  <span>本地执行</span>
-                  <strong>{workerStatus.running ? `运行中 · PID ${workerStatus.pid ?? "-"}` : "未启动"}</strong>
-                  <p>{workerStatus.health?.heartbeatAt ? `最近心跳 ${workerStatus.health.heartbeatAt}` : workerStatus.message}</p>
-                  <button type="button" onClick={() => void (workerStatus.running ? stopLocalWorker() : startLocalWorker())}>
-                    {workerStatus.running ? "停止本地执行器" : "启动本地执行器"}
-                  </button>
-                </article>
-                <article className="setting-card status-setting amber">
-                  <span>本地输出</span>
-                  <strong>只保存到本机</strong>
-                  <p>{codexConfig.outputDir}</p>
-                  <button type="button" onClick={chooseOutputDir}>选择输出文件夹</button>
-                </article>
-                <article className="setting-card status-setting dark">
-                  <span>外观</span>
-                  <strong>{activeWallpaperName}</strong>
-                  <p>支持本地图片、GIF 和视频壁纸。建议用低饱和背景，避免影响 CAD 信息阅读。</p>
-                  <button type="button" onClick={() => setAppearanceOpen(true)}>打开外观设置</button>
-                </article>
-              </div>
-            </section>
-          ) : (
-            <section className="capability-board">
-              {visibleTemplates.map((template, index) => {
-                const Icon = template.icon;
-                return (
-                  <motion.button
-                    className="capability-card"
-                    key={template.key}
-                    onClick={() => enqueueTemplateTask(template)}
-                    initial={reducedMotion ? false : { y: 12, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    transition={{ duration: 0.35, delay: index * 0.04 }}
-                    whileHover={reducedMotion ? undefined : { y: -3 }}
-                    whileTap={{ scale: 0.985 }}
-                  >
-                    <Icon size={22} weight="duotone" />
-                    <span>{codexTargets[template.target]}</span>
-                    <strong>{template.title}</strong>
-                    <p>{template.detail}</p>
-                  </motion.button>
-                );
-              })}
-            </section>
-          )}
+          {renderWorkspacePanel()}
 
           {activeTab !== "settings" ? (
             <>
+          {["project", "model", "holes", "drawing"].includes(activeTab) ? (
           <section className="content-grid workbench-grid">
             <motion.article className="preview-card result-card" layout>
               <div className="panel-heading">
@@ -1772,9 +1951,9 @@ function App() {
                   <div className="result-empty">
                     <Sparkle size={24} weight="duotone" />
                     <strong>还没有真实任务结果</strong>
-                    <p>导入模型、选择模板，或直接在 AI 对话里发起任务。</p>
+                    <p>从零建模不需要导入文件；需要参考已有资料时再导入 STEP、STL、DWG、PDF 或图片草图。</p>
                     <div>
-                      <button type="button" onClick={chooseProjectFile}>导入模型</button>
+                      <button type="button" onClick={chooseProjectFile}>导入已有文件</button>
                       <button type="button" onClick={() => setActiveTab("model")}>选择模板</button>
                     </div>
                   </div>
@@ -1873,7 +2052,9 @@ function App() {
               </section>
             </aside>
           </section>
+          ) : null}
 
+          {["project", "model", "holes", "drawing"].includes(activeTab) ? (
           <section className="codex-bridge">
             <div className="bridge-copy">
               <p className="eyebrow">CODEX BRIDGE</p>
@@ -2067,6 +2248,7 @@ function App() {
               </motion.button>
             </div>
           </section>
+          ) : null}
 
           <footer className="status-strip">
             <div className="metric-row">
@@ -2185,7 +2367,7 @@ function App() {
                 {jobs.length === 0 ? (
                   <div className="queue-empty">
                     <Sparkle size={19} weight="duotone" />
-                    <span>点击模板、发送 AI 对话或导入模型后，任务会出现在这里。</span>
+                    <span>点击模板、发送 AI 对话或导入已有文件后，任务会出现在这里。</span>
                   </div>
                 ) : (
                   jobs.slice(0, 4).map((job) => {

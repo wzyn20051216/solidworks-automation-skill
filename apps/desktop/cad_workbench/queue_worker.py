@@ -42,6 +42,45 @@ class JobCancelled(RuntimeError):
     """@brief 任务被用户取消。"""
 
 
+def _codex_windowsapps_candidates() -> list[Path]:
+    """@brief 返回 Windows Store 版 Codex 的候选 exe 路径。"""
+    candidates: list[Path] = []
+    windows_apps = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "WindowsApps"
+    try:
+        candidates.extend(sorted(windows_apps.glob("OpenAI.Codex_*/*/resources/codex.exe")))
+        candidates.extend(sorted(windows_apps.glob("OpenAI.Codex_*/app/resources/codex.exe")))
+    except OSError:
+        return []
+    return candidates
+
+
+def resolve_codex_command() -> list[str]:
+    """@brief 解析可由 Python worker 可靠启动的 Codex CLI 命令。"""
+    env_path = os.environ.get("CODEX_BIN")
+    candidates: list[Path] = [Path(env_path)] if env_path else []
+    for name in ("codex.exe", "codex.cmd", "codex.bat", "codex"):
+        found = shutil.which(name)
+        if found:
+            candidates.append(Path(found))
+
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        candidates.extend([Path(appdata) / "npm" / "codex.cmd", Path(appdata) / "npm" / "codex.exe"])
+    candidates.extend(_codex_windowsapps_candidates())
+
+    for candidate in candidates:
+        if not candidate or not candidate.exists():
+            continue
+        suffix = candidate.suffix.lower()
+        if suffix in {".cmd", ".bat"}:
+            return ["cmd.exe", "/d", "/c", str(candidate)]
+        return [str(candidate)]
+
+    raise FileNotFoundError(
+        "没有找到 Codex CLI。请在设置里同步 CC Switch 或确认已安装 Codex，并把 codex.exe/codex.cmd 加入 PATH。"
+    )
+
+
 def default_tauri_queue_dir(identifier: str = "com.wzyn.cadstudio") -> Path:
     """@brief 返回 Tauri 默认应用数据队列目录。"""
     if os.name == "nt" and os.environ.get("APPDATA"):
@@ -365,7 +404,7 @@ def run_codex_job(
     sandbox = "danger-full-access" if allow_full_access and requested_sandbox == "danger-full-access" else "workspace-write"
 
     command = [
-        "codex",
+        *(["codex"] if runner is not None else resolve_codex_command()),
         "exec",
         "-C",
         str(cwd),

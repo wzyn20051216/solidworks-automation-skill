@@ -27,6 +27,7 @@ from apps.desktop.cad_workbench.queue_worker import (
     recover_stale_jobs,
     release_lock,
     request_cancel,
+    resolve_codex_command,
     run_codex_job,
     write_job,
 )
@@ -386,6 +387,31 @@ def test_codex_executor_requires_enable_flag(tmp_path: Path) -> None:
     saved = read_job(queue_dir / "job-5.json")
     assert saved["status"] == "failed"
     assert "--enable-codex" in saved["error"]
+
+
+def test_resolve_codex_command_wraps_cmd_launcher(tmp_path: Path, monkeypatch) -> None:
+    codex_cmd = tmp_path / "codex.cmd"
+    codex_cmd.write_text("@echo off\n", encoding="utf-8")
+    monkeypatch.setenv("CODEX_BIN", str(codex_cmd))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    monkeypatch.setattr("apps.desktop.cad_workbench.queue_worker._codex_windowsapps_candidates", lambda: [])
+
+    command = resolve_codex_command()
+
+    assert command == ["cmd.exe", "/d", "/c", str(codex_cmd)]
+
+
+def test_resolve_codex_command_uses_path_exe(tmp_path: Path, monkeypatch) -> None:
+    codex_exe = tmp_path / "codex.exe"
+    codex_exe.write_text("demo", encoding="utf-8")
+    monkeypatch.delenv("CODEX_BIN", raising=False)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    monkeypatch.setattr("apps.desktop.cad_workbench.queue_worker.shutil.which", lambda name: str(codex_exe) if name == "codex.exe" else None)
+    monkeypatch.setattr("apps.desktop.cad_workbench.queue_worker._codex_windowsapps_candidates", lambda: [])
+
+    command = resolve_codex_command()
+
+    assert command == [str(codex_exe)]
 
 
 def test_codex_executor_invokes_codex_exec_with_prompt(tmp_path: Path) -> None:

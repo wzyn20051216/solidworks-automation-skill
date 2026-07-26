@@ -138,38 +138,6 @@ textarea {
     linear-gradient(135deg, #effaf7, #ffffff 66%);
 }
 
-.orb {
-  position: absolute;
-  display: block;
-  border-radius: 999px;
-  pointer-events: none;
-  filter: blur(12px);
-}
-
-.orb-one {
-  left: 7%;
-  top: 8%;
-  width: 310px;
-  height: 310px;
-  background: rgba(70, 202, 255, 0.22);
-}
-
-.orb-two {
-  right: 9%;
-  top: 18%;
-  width: 420px;
-  height: 420px;
-  background: rgba(111, 164, 255, 0.18);
-}
-
-.orb-three {
-  left: 44%;
-  bottom: -12%;
-  width: 520px;
-  height: 520px;
-  background: rgba(255, 255, 255, 0.74);
-}
-
 .desktop-frame {
   position: relative;
   z-index: 1;
@@ -336,13 +304,45 @@ textarea {
   position: relative;
   z-index: 5;
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) auto auto;
+  grid-template-columns: minmax(220px, 1fr) auto auto auto;
   gap: 10px;
   align-items: center;
   min-height: 56px;
   padding: 4px 0 12px;
   border-bottom: 1px solid rgba(39, 56, 79, 0.08);
   -webkit-app-region: drag;
+}
+
+.top-menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 4px;
+  border: 1px solid rgba(38, 52, 72, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.54);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  -webkit-app-region: no-drag;
+}
+
+.top-menu button {
+  min-height: 30px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 10px;
+  color: #3c4755;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.top-menu button:hover {
+  color: #141a20;
+  background: rgba(255, 255, 255, 0.78);
 }
 
 .window-controls {
@@ -802,6 +802,203 @@ textarea {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
+}
+
+.project-console,
+.review-workspace,
+.delivery-console {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(300px, 0.82fr);
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.project-brief,
+.project-list-panel,
+.review-summary-card,
+.delivery-main,
+.delivery-side {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid rgba(28, 35, 43, 0.08);
+  border-radius: 22px;
+  background: rgba(255, 255, 252, 0.68);
+  box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255, 255, 255, 0.84);
+}
+
+.project-brief {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 252, 0.82), rgba(235, 241, 234, 0.64)),
+    var(--surface);
+}
+
+.project-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.project-quick-grid button,
+.project-task-list button {
+  min-width: 0;
+  border: 0;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.62);
+  cursor: pointer;
+  text-align: left;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.project-quick-grid button {
+  display: grid;
+  gap: 7px;
+  min-height: 116px;
+  padding: 14px;
+  border-radius: 18px;
+}
+
+.project-quick-grid svg {
+  color: var(--accent);
+}
+
+.project-quick-grid strong,
+.project-task-list strong,
+.delivery-path strong,
+.review-mini strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-quick-grid span,
+.project-task-list span,
+.project-task-list small,
+.delivery-path span,
+.review-mini span,
+.format-strip span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.project-task-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.project-task-list button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 10px;
+  min-height: 58px;
+  padding: 11px 12px;
+  border-radius: 15px;
+}
+
+.project-task-list button > span {
+  grid-row: span 2;
+  align-self: center;
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: color-mix(in srgb, var(--accent) 76%, #173151);
+  background: var(--accent-soft);
+  white-space: nowrap;
+}
+
+.project-task-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-workspace {
+  grid-template-columns: minmax(0, 1fr) 340px;
+}
+
+.review-table,
+.delivery-artifacts {
+  display: grid;
+  gap: 9px;
+  margin-top: 14px;
+}
+
+.review-summary-card.compact-side {
+  align-self: start;
+}
+
+.delivery-console {
+  grid-template-columns: minmax(0, 1fr) 330px;
+}
+
+.delivery-main {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 252, 0.88), rgba(240, 238, 229, 0.62)),
+    var(--surface);
+}
+
+.delivery-side {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  background: linear-gradient(145deg, #232a31, #15191d);
+  color: #f7f4ea;
+}
+
+.delivery-path,
+.review-mini {
+  display: grid;
+  gap: 7px;
+  padding: 13px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.delivery-path span,
+.review-mini span {
+  color: rgba(247, 244, 234, 0.66);
+}
+
+.delivery-path strong,
+.review-mini strong {
+  color: #f7f4ea;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.delivery-path button {
+  justify-self: start;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  color: #152018;
+  background: #d8eac6;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.format-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.format-strip span {
+  min-height: 28px;
+  padding: 6px 9px;
+  border-radius: 999px;
+  color: #efe7d0;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.compact-action {
+  min-height: 36px;
+  padding: 0 13px;
+  font-size: 12px;
 }
 
 .settings-grid {
@@ -2300,6 +2497,12 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .project-console,
+  .review-workspace,
+  .delivery-console {
+    grid-template-columns: 1fr;
+  }
+
   .capability-board,
   .settings-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2362,6 +2565,16 @@ textarea {
     justify-content: center;
   }
 
+  .top-menu {
+    justify-content: stretch;
+    width: 100%;
+  }
+
+  .top-menu button {
+    flex: 1 1 0;
+    padding: 0 6px;
+  }
+
   .window-controls {
     justify-content: stretch;
     width: 100%;
@@ -2403,6 +2616,10 @@ textarea {
 
   .wallpaper-grid,
   .capability-board,
+  .project-console,
+  .project-quick-grid,
+  .review-workspace,
+  .delivery-console,
   .settings-grid,
   .settings-studio,
   .codex-bridge,
@@ -2489,7 +2706,11 @@ textarea {
   .preview-card,
   .compact-card,
   .metric-card,
-  .inspector-panel {
+  .inspector-panel,
+  .project-brief,
+  .project-list-panel,
+  .review-summary-card,
+  .delivery-main {
     background: rgba(255, 255, 255, 0.94);
   }
 }
