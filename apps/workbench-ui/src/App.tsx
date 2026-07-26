@@ -21,7 +21,6 @@ import {
   Sparkle,
   Square,
   UploadSimple,
-  WarningCircle,
   X,
 } from "@phosphor-icons/react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
@@ -30,7 +29,6 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { type CSSProperties, type ChangeEvent, type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 
-type StageState = "ready" | "running" | "passed" | "attention";
 type PresetWallpaperId = "aurora" | "blueprint" | "studio" | "mist";
 type WallpaperId = PresetWallpaperId | "custom";
 type WallpaperFile = { url: string; name: string; kind: "image" | "video"; sourcePath?: string };
@@ -109,6 +107,20 @@ type WorkerLogEntry = {
   runnerId?: string;
   data?: unknown;
 };
+type ArtifactRecord = {
+  kind?: string;
+  path?: string;
+  exists?: boolean;
+  isDirectory?: boolean;
+  sizeBytes?: number;
+  sha256?: string;
+};
+type ReviewCheck = {
+  id?: string;
+  severity?: string;
+  status?: "pass" | "warning" | "fail" | string;
+  message?: string;
+};
 type AutomationJob = {
   schemaVersion: "1.0";
   id: string;
@@ -143,6 +155,13 @@ type AutomationJob = {
     mode?: string;
     outputPath?: string;
     message?: string;
+    outputs?: Record<string, string> | Array<string | ArtifactRecord>;
+    artifacts?: Array<string | ArtifactRecord>;
+    verification?: Array<Record<string, unknown>>;
+    features?: Array<Record<string, unknown>>;
+    checks?: ReviewCheck[];
+    stdoutTail?: string;
+    stderrTail?: string;
   };
   uiConfig?: Record<string, unknown>;
   policy?: {
@@ -154,7 +173,7 @@ type AutomationJob = {
     requirePush: boolean;
     requireReviewerPass: boolean;
   };
-  artifacts?: Array<Record<string, unknown>>;
+  artifacts?: ArtifactRecord[];
   approvalReasons?: string[];
   approvedAt?: string;
   approvedBy?: string;
@@ -163,7 +182,7 @@ type AutomationJob = {
   reviewGatePath?: string;
   reviewGate?: {
     status?: "pass" | "warning" | "fail";
-    checks?: Array<Record<string, unknown>>;
+    checks?: ReviewCheck[];
   };
   error?: string;
 };
@@ -201,13 +220,6 @@ type WorkerStatus = {
     heartbeatAt?: string;
     queue?: Record<string, number>;
   } | null;
-};
-
-type Stage = {
-  key: string;
-  label: string;
-  state: StageState;
-  detail: string;
 };
 
 const wallpapers: Array<{ id: PresetWallpaperId; name: string; hint: string }> = [
@@ -258,27 +270,6 @@ const pageCopy: Record<ActiveTab, { title: string; subtitle: string }> = {
     subtitle: "管理本地 worker、Codex Bridge、审批策略、壁纸外观、默认规范库和输出目录。",
   },
 };
-
-const stages: Stage[] = [
-  { key: "preflight", label: "环境", state: "passed", detail: "SolidWorks COM 可用" },
-  { key: "model", label: "建模", state: "ready", detail: "等待参数输入" },
-  { key: "drawing", label: "图纸", state: "attention", detail: "缺少 DWG 实体复核" },
-  { key: "package", label: "交付", state: "ready", detail: "STEP / STL / PDF 打包" },
-];
-
-const features = [
-  { name: "通孔 H1", spec: "4 x Φ3.4", pos: "基准 A/B, pitch 100 x 60", status: "真实切除" },
-  { name: "长圆孔 S1", spec: "18 x 6 R3", pos: "Front, X60 Y15", status: "待复核" },
-  { name: "螺纹孔 T1", spec: "M3x0.5, 深 8", pos: "Boss / Plate", status: "已生成" },
-  { name: "接口槽 C1", spec: "10 x 4 R1", pos: "侧面居中", status: "待复核" },
-];
-
-const reviewItems = [
-  { label: "真实开孔", state: "通过", note: "孔槽将参与实体切除" },
-  { label: "壁厚检查", state: "通过", note: "最小壁厚 2.0 mm" },
-  { label: "国标图纸", state: "注意", note: "缺少完整尺寸链" },
-  { label: "交付清单", state: "注意", note: "等待真实导出器" },
-];
 
 const SETTINGS_KEY = "cad-studio.settings.v1";
 const QUEUE_KEY = "cad-studio.queue.v1";
@@ -380,13 +371,6 @@ const materialLabels: Record<CodexConfig["material"], string> = {
   ABS: "ABS",
   Al6061: "Al6061",
 };
-
-function stateLabel(state: StageState) {
-  if (state === "passed") return "通过";
-  if (state === "running") return "执行中";
-  if (state === "attention") return "注意";
-  return "待执行";
-}
 
 function jobStatusLabel(status: AutomationJobStatus) {
   if (status === "running") return "执行中";
@@ -577,6 +561,95 @@ function keyStatusLabel(status: ApiIntegrationConfig["keyStatus"]) {
   return "未配置";
 }
 
+function fileNameFromPath(path?: string) {
+  if (!path) return "未命名文件";
+  return path.split(/[\\/]/).pop() || path;
+}
+
+function artifactKindLabel(kind?: string, path?: string) {
+  const normalized = (kind || fileNameFromPath(path).split(".").pop() || "artifact").toLowerCase();
+  if (normalized.includes("sldprt")) return "SolidWorks 零件";
+  if (normalized.includes("sldasm")) return "SolidWorks 装配";
+  if (normalized.includes("step") || normalized.includes("stp")) return "STEP";
+  if (normalized.includes("stl")) return "STL";
+  if (normalized.includes("dwg")) return "DWG";
+  if (normalized.includes("dxf")) return "DXF";
+  if (normalized.includes("pdf")) return "PDF";
+  if (normalized.includes("png") || normalized.includes("preview")) return "预览图";
+  if (normalized.includes("codex")) return "AI 结果";
+  return kind || "交付物";
+}
+
+function formatBytes(value?: number) {
+  if (!value || value <= 0) return "";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function reviewStatusLabel(status?: string) {
+  if (status === "pass") return "通过";
+  if (status === "fail") return "失败";
+  if (status === "warning") return "注意";
+  return status || "待复核";
+}
+
+function artifactStatusLabel(artifact: ArtifactRecord) {
+  if (artifact.exists === false) return "缺失";
+  if (artifact.isDirectory) return "目录";
+  if (artifact.exists) return "已生成";
+  return "待确认";
+}
+
+function collectJobArtifacts(job?: AutomationJob): ArtifactRecord[] {
+  if (!job) return [];
+  const items: ArtifactRecord[] = [];
+  const pushArtifact = (kind: string, path?: string, extra: Partial<ArtifactRecord> = {}) => {
+    if (!path) return;
+    items.push({ kind, path, ...extra });
+  };
+
+  for (const artifact of job.artifacts ?? []) {
+    if (artifact?.path) items.push(artifact);
+  }
+  if (job.result?.outputPath) pushArtifact("codex_output", job.result.outputPath, { exists: true });
+  const outputs = job.result?.outputs;
+  if (Array.isArray(outputs)) {
+    outputs.forEach((item, index) => {
+      if (typeof item === "string") pushArtifact(`output_${index}`, item);
+      else if (item?.path) items.push(item);
+    });
+  } else if (outputs && typeof outputs === "object") {
+    Object.entries(outputs).forEach(([kind, path]) => pushArtifact(kind, path));
+  }
+
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = item.path || `${item.kind}-${seen.size}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function isPreviewArtifact(artifact: ArtifactRecord) {
+  return /\.(png|jpg|jpeg|webp|gif)$/i.test(artifact.path || "") || String(artifact.kind || "").toLowerCase().includes("preview");
+}
+
+function realFeatureRows(job?: AutomationJob): Array<Record<string, unknown>> {
+  const features = job?.result?.features;
+  return Array.isArray(features) ? features.filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null) : [];
+}
+
+function recordText(record: Record<string, unknown>, keys: string[], fallback = "") {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value;
+    if (typeof value === "number") return String(value);
+  }
+  return fallback;
+}
+
 function createJob(kind: AutomationJobKind, projectPath?: string, overrides: Partial<AutomationJob> = {}): AutomationJob {
   const now = new Date().toISOString();
   const copy = jobKindDetail(kind);
@@ -695,19 +768,9 @@ function App() {
     localCadAutomation: true,
   });
   const [isRunning, setIsRunning] = useState(false);
-  const [focusFeature, setFocusFeature] = useState(0);
   const wallpaperInputRef = useRef<HTMLInputElement>(null);
   const completedChatJobIdsRef = useRef<Set<string>>(new Set());
   const reducedMotion = useReducedMotion();
-
-  const visualStages = useMemo(() => {
-    if (!isRunning) return stages;
-    return stages.map((stage, index) => ({
-      ...stage,
-      state: index === 1 ? "running" : stage.state,
-      detail: index === 1 ? "正在生成 CAD 特征" : stage.detail,
-    })) as Stage[];
-  }, [isRunning]);
 
   const queueSummary = useMemo(() => {
     const approvalRequired = jobs.filter((job) => job.status === "approval_required").length;
@@ -734,6 +797,17 @@ function App() {
   }, [activeTab]);
 
   const activeAgentJob = useMemo(() => jobs.find((job) => job.id === activeAgentJobId) ?? jobs.find((job) => job.uiConfig?.agentChat === true) ?? jobs[0], [activeAgentJobId, jobs]);
+  const resultJob = useMemo(
+    () =>
+      jobs.find((job) => job.status === "running") ||
+      jobs.find((job) => collectJobArtifacts(job).length > 0 || job.reviewGate?.checks?.length || job.result?.message || job.error) ||
+      activeAgentJob,
+    [activeAgentJob, jobs],
+  );
+  const resultArtifacts = useMemo(() => collectJobArtifacts(resultJob), [resultJob]);
+  const resultPreview = useMemo(() => resultArtifacts.find(isPreviewArtifact), [resultArtifacts]);
+  const resultChecks = resultJob?.reviewGate?.checks ?? resultJob?.result?.checks ?? [];
+  const resultFeatures = realFeatureRows(resultJob);
   const codexPrompt = useMemo(() => buildCodexPrompt(codexConfig, recentProjectPath), [codexConfig, recentProjectPath]);
 
   function updateCodexConfig(patch: Partial<CodexConfig>) {
@@ -1418,7 +1492,7 @@ function App() {
           <header className="window-bar app-toolbar">
             <div className="project-title">
               <strong>{currentPage.title}</strong>
-              <span>{recentProjectPath ? `${displayNameFromPath(recentProjectPath)} · SolidWorks 已连接 · 规范库 GB/T` : "本地工作区 · SolidWorks 已连接 · 规范库 GB/T"}</span>
+              <span>{recentProjectPath ? `${displayNameFromPath(recentProjectPath)} · 规范库 GB/T` : "本地工作区 · 规范库 GB/T"}</span>
               <small>{windowHint}</small>
             </div>
             <div className="toolbar-actions">
@@ -1684,38 +1758,60 @@ function App() {
           {activeTab !== "settings" ? (
             <>
           <section className="content-grid workbench-grid">
-            <motion.article className="preview-card" layout>
+            <motion.article className="preview-card result-card" layout>
               <div className="panel-heading">
                 <div>
-                  <p className="eyebrow">MODEL PREVIEW</p>
-                  <h2>参数化 CAD 草案</h2>
+                  <p className="eyebrow">RESULT</p>
+                  <h2>{resultJob ? "任务结果" : "等待任务"}</h2>
                 </div>
-                <span className={isRunning ? "status-pill running" : "status-pill"}>{isRunning ? "建模中" : "待执行"}</span>
+                <span className={resultJob?.status === "running" ? "status-pill running" : "status-pill"}>{resultJob ? jobStatusLabel(resultJob.status) : "未开始"}</span>
               </div>
-              <div className={isRunning ? "cad-stage active" : "cad-stage"}>
-                <motion.div
-                  className="device-body"
-                  animate={
-                    reducedMotion
-                      ? undefined
-                      : {
-                          rotateX: isRunning ? [58, 62, 58] : 58,
-                          rotateZ: isRunning ? [-7, -4, -7] : -7,
-                          y: isRunning ? [0, -5, 0] : 0,
-                        }
-                  }
-                  transition={{ duration: 2.2, repeat: isRunning ? Infinity : 0, ease: "easeInOut" }}
-                >
-                  <span className="hole h1" />
-                  <span className="hole h2" />
-                  <span className="slot s1" />
-                  <span className="slot s2" />
-                  <span className="vent v1" />
-                  <span className="vent v2" />
-                  <span className="vent v3" />
-                </motion.div>
-                <div className="dimension-line horizontal">120.00 mm</div>
-                <div className="dimension-line vertical">80.00 mm</div>
+
+              <div className={resultJob?.status === "running" ? "result-stage running" : "result-stage"}>
+                {!resultJob ? (
+                  <div className="result-empty">
+                    <Sparkle size={24} weight="duotone" />
+                    <strong>还没有真实任务结果</strong>
+                    <p>导入模型、选择模板，或直接在 AI 对话里发起任务。</p>
+                    <div>
+                      <button type="button" onClick={chooseProjectFile}>导入模型</button>
+                      <button type="button" onClick={() => setActiveTab("model")}>选择模板</button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="result-summary">
+                      <span>{resultJob.title}</span>
+                      <strong>{compactJobMessage(resultJob, jobEvents[resultJob.id])}</strong>
+                      {resultJob.error ? <p className="result-error">{resultJob.error}</p> : null}
+                    </div>
+
+                    {resultPreview?.path ? (
+                      <div className="result-preview-image">
+                        <img src={convertFileSrc(resultPreview.path)} alt={fileNameFromPath(resultPreview.path)} />
+                      </div>
+                    ) : null}
+
+                    {resultArtifacts.length > 0 ? (
+                      <div className="artifact-list">
+                        {resultArtifacts.map((artifact, index) => (
+                          <div className={artifact.exists === false ? "artifact-row missing" : "artifact-row"} key={`${artifact.path}-${index}`}>
+                            <div>
+                              <strong>{artifactKindLabel(artifact.kind, artifact.path)}</strong>
+                              <span>{fileNameFromPath(artifact.path)}</span>
+                            </div>
+                            <small>{formatBytes(artifact.sizeBytes) || artifactStatusLabel(artifact)}</small>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="result-empty compact">
+                        <strong>{resultJob.status === "running" ? "任务正在执行" : "还没有交付物"}</strong>
+                        <p>{resultJob.status === "running" ? "完成后这里会显示真实文件。" : "当前任务没有返回 STEP、STL、DWG、PDF 或预览图。"}</p>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </motion.article>
 
@@ -1723,61 +1819,56 @@ function App() {
               <div className="inspector-head">
                 <div>
                   <p className="eyebrow">INSPECTOR</p>
-                  <h2>参数与检查</h2>
+                  <h2>真实复核</h2>
                 </div>
                 <SlidersHorizontal size={22} weight="duotone" />
               </div>
 
-              <section className="compact-card embedded">
+              {resultFeatures.length > 0 ? (
+                <section className="compact-card embedded">
                 <div className="panel-heading compact">
                   <div>
-                    <p className="eyebrow">HOLES</p>
-                    <h2>开孔列表</h2>
+                    <p className="eyebrow">FEATURES</p>
+                    <h2>几何特征</h2>
                   </div>
                   <Ruler size={21} weight="duotone" />
                 </div>
                 <div className="hole-list">
-                  {features.map((feature, index) => (
-                    <motion.button
-                      className={focusFeature === index ? "hole-row active" : "hole-row"}
-                      key={feature.name}
-                      onClick={() => setFocusFeature(index)}
-                      whileHover={reducedMotion ? undefined : { x: 3 }}
-                      whileTap={{ scale: 0.985 }}
-                    >
-                      <span>{feature.name}</span>
-                      <strong>{feature.spec}</strong>
-                      <small>{feature.pos}</small>
-                      <em>{feature.status}</em>
-                    </motion.button>
+                  {resultFeatures.map((feature, index) => (
+                    <div className="hole-row" key={index}>
+                      <span>{recordText(feature, ["name", "type", "label"], `特征 ${index + 1}`)}</span>
+                      <strong>{recordText(feature, ["spec", "size", "dimension", "value"], "")}</strong>
+                      <small>{recordText(feature, ["position", "pos", "location", "note"], "已由任务结果返回")}</small>
+                      <em>{recordText(feature, ["status"], "待复核")}</em>
+                    </div>
                   ))}
                 </div>
               </section>
+              ) : null}
 
               <section className="compact-card embedded">
                 <div className="panel-heading compact">
                   <div>
-                    <p className="eyebrow">P0 GATE</p>
-                    <h2>复核门禁</h2>
+                    <p className="eyebrow">REVIEW</p>
+                    <h2>{resultJob?.reviewGate?.status ? `复核 ${reviewStatusLabel(resultJob.reviewGate.status)}` : "复核结果"}</h2>
                   </div>
                   <ShieldCheck size={21} weight="duotone" />
                 </div>
                 <div className="review-list">
-                  {reviewItems.map((item, index) => (
-                    <motion.button
-                      className={item.state === "通过" ? "review-row passed" : "review-row attention"}
-                      key={item.label}
-                      initial={reducedMotion ? false : { x: 12, opacity: 0 }}
-                      animate={{ x: 0, opacity: 1 }}
-                      transition={{ duration: 0.35, delay: index * 0.05 }}
-                      whileHover={reducedMotion ? undefined : { x: 3 }}
-                      whileTap={{ scale: 0.985 }}
-                    >
-                      <span>{item.label}</span>
-                      <strong>{item.state}</strong>
-                      <small>{item.note}</small>
-                    </motion.button>
-                  ))}
+                  {resultChecks.length > 0 ? (
+                    resultChecks.map((check, index) => (
+                      <div className={`review-row ${check.status || "pending"}`} key={check.id || index}>
+                        <span>{check.severity || "CHECK"}</span>
+                        <strong>{reviewStatusLabel(check.status)}</strong>
+                        <small>{check.message || "复核项已返回，但没有说明。"}</small>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="inspector-empty">
+                      <strong>等待真实复核</strong>
+                      <p>{resultJob ? "任务完成并生成交付物后，这里会显示文件存在性、格式和 CAD 检查结果。" : "还没有可复核的任务。"}</p>
+                    </div>
+                  )}
                 </div>
               </section>
             </aside>
@@ -2220,32 +2311,11 @@ function App() {
               </div>
             </section>
 
-            <div className="stage-row">
-              {visualStages.map((stage, index) => (
-                <motion.div
-                  className={`stage-card ${stage.state}`}
-                  key={stage.key}
-                  initial={reducedMotion ? false : { y: 8, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  transition={{ duration: 0.3, delay: index * 0.04 }}
-                >
-                  <span className="stage-index">{String(index + 1).padStart(2, "0")}</span>
-                  <strong>{stage.label}</strong>
-                  <small>{stateLabel(stage.state)}</small>
-                  <p>{stage.detail}</p>
-                </motion.div>
-              ))}
-            </div>
           </footer>
             </>
           ) : null}
         </section>
       </motion.section>
-
-      <div className="software-roadmap" aria-label="桌面部署计划">
-        <WarningCircle size={16} weight="duotone" />
-        <span>已接入 Tauri 本地队列：桌面端创建任务，Python worker 可离线接单，后续替换为真实 CAD 执行器。</span>
-      </div>
     </main>
   );
 }

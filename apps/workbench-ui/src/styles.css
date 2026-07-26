@@ -277,9 +277,7 @@ textarea {
 .icon-button,
 .wallpaper-tile,
 .drop-wallpaper,
-.feature-chip,
-.hole-row,
-.review-row {
+.feature-chip {
   position: relative;
   isolation: isolate;
   border: 0;
@@ -497,8 +495,7 @@ textarea {
 
 .switcher-head small,
 .wallpaper-tile small,
-.review-row small,
-.stage-card p {
+.review-row small {
   color: var(--muted);
 }
 
@@ -1066,7 +1063,6 @@ textarea {
 .preview-card,
 .compact-card,
 .metric-card,
-.stage-card,
 .inspector-panel {
   border: 1px solid rgba(255, 255, 255, 0.75);
   background: rgba(255, 255, 255, 0.64);
@@ -1117,128 +1113,152 @@ textarea {
   background: var(--accent);
 }
 
-.cad-stage {
-  position: relative;
+.result-stage {
+  display: grid;
+  gap: 14px;
+  min-height: 342px;
+  margin-top: 18px;
+  align-content: start;
+}
+
+.result-stage.running {
+  border-left: 3px solid var(--accent);
+  padding-left: 14px;
+}
+
+.result-empty {
   display: grid;
   place-items: center;
-  min-height: 342px;
-  margin-top: 22px;
-  overflow: hidden;
-  border-radius: 24px;
-  border: 1px solid rgba(39, 67, 99, 0.08);
-  background:
-    linear-gradient(90deg, rgba(21, 48, 82, 0.055) 1px, transparent 1px),
-    linear-gradient(0deg, rgba(21, 48, 82, 0.055) 1px, transparent 1px),
-    linear-gradient(135deg, rgba(245, 249, 253, 0.88), rgba(255, 255, 255, 0.62));
-  background-size: 32px 32px, 32px 32px, auto;
-}
-
-.cad-stage.active::after {
-  content: "";
-  position: absolute;
-  inset: 18px;
+  gap: 10px;
+  min-height: 300px;
+  padding: 26px;
   border-radius: 20px;
-  border: 1px solid color-mix(in srgb, var(--accent) 42%, transparent);
-  animation: scanPulse 1.5s ease-in-out infinite;
+  color: var(--muted);
+  background: rgba(28, 35, 43, 0.035);
+  text-align: center;
 }
 
-.device-body {
-  position: relative;
-  width: min(58%, 430px);
-  aspect-ratio: 1.58;
-  border-radius: 32px;
-  transform: perspective(850px) rotateX(58deg) rotateZ(-7deg);
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(212, 224, 236, 0.62)),
-    #dfe8f1;
-  box-shadow: 0 46px 86px rgba(54, 80, 108, 0.24), inset 0 1px 0 white;
-  border: 1px solid rgba(255, 255, 255, 0.86);
+.result-empty.compact {
+  min-height: 120px;
+  place-items: start;
+  text-align: left;
 }
 
-.device-body::before {
-  content: "";
-  position: absolute;
-  inset: 17px;
-  border: 1px dashed rgba(22, 42, 66, 0.18);
-  border-radius: 23px;
+.result-empty svg {
+  color: var(--accent);
 }
 
-.hole,
-.slot,
-.vent {
-  position: absolute;
-  display: block;
-  background: rgba(18, 34, 52, 0.18);
-  box-shadow: inset 0 2px 6px rgba(18, 34, 52, 0.25);
+.result-empty strong {
+  color: var(--ink);
+  font-size: 18px;
 }
 
-.hole {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
+.result-empty p {
+  max-width: 360px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
-.h1 {
-  left: 10%;
-  top: 18%;
+.result-empty div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
 }
 
-.h2 {
-  right: 10%;
-  bottom: 18%;
-}
-
-.slot {
-  width: 82px;
-  height: 24px;
-  border-radius: 12px;
-}
-
-.s1 {
-  left: 50%;
-  top: 44%;
-  transform: translateX(-50%);
-}
-
-.s2 {
-  right: 12%;
-  top: 23%;
-  width: 42px;
-}
-
-.vent {
-  right: 18%;
-  bottom: 30%;
-  width: 54px;
-  height: 7px;
+.result-empty button {
+  min-height: 34px;
+  border: 0;
   border-radius: 999px;
-}
-
-.v2 {
-  transform: translateY(16px);
-}
-
-.v3 {
-  transform: translateY(32px);
-}
-
-.dimension-line {
-  position: absolute;
-  color: color-mix(in srgb, var(--accent) 82%, #1f3650);
-  font-family: "SF Mono", "Cascadia Mono", Consolas, monospace;
+  padding: 0 13px;
+  color: #f7f4ea;
+  background: #1f2a32;
+  cursor: pointer;
   font-size: 12px;
   font-weight: 900;
 }
 
-.dimension-line.horizontal {
-  left: 20%;
-  bottom: 24px;
+.result-summary {
+  display: grid;
+  gap: 6px;
+  padding: 13px 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 252, 0.68);
 }
 
-.dimension-line.vertical {
-  writing-mode: vertical-rl;
-  right: 26px;
-  top: 32%;
+.result-summary span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.result-summary strong {
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.result-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.result-preview-image {
+  overflow: hidden;
+  border-radius: 18px;
+  background: rgba(28, 35, 43, 0.05);
+}
+
+.result-preview-image img {
+  display: block;
+  width: 100%;
+  max-height: 340px;
+  object-fit: contain;
+}
+
+.artifact-list {
+  display: grid;
+  gap: 8px;
+}
+
+.artifact-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 58px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 252, 0.72);
+}
+
+.artifact-row.missing {
+  background: var(--danger-soft);
+}
+
+.artifact-row div {
+  min-width: 0;
+}
+
+.artifact-row strong,
+.artifact-row span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-row strong {
+  font-size: 14px;
+}
+
+.artifact-row span,
+.artifact-row small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
 }
 
 .inspector-panel {
@@ -1270,15 +1290,10 @@ textarea {
   gap: 3px 12px;
   min-height: 58px;
   padding: 12px 13px;
-  border-radius: 17px;
+  border-radius: 14px;
   color: var(--ink);
-  background: rgba(255, 255, 255, 0.68);
+  background: rgba(255, 255, 252, 0.62);
   text-align: left;
-}
-
-.hole-row.active {
-  background: color-mix(in srgb, var(--accent) 10%, white);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 .hole-row span,
@@ -1309,8 +1324,36 @@ textarea {
   color: var(--success);
 }
 
-.review-row.attention strong {
+.review-row.warning strong,
+.review-row.pending strong {
   color: var(--warning);
+}
+
+.review-row.fail strong {
+  color: var(--danger);
+}
+
+.review-row.pass strong {
+  color: var(--success);
+}
+
+.inspector-empty {
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+  border-radius: 14px;
+  color: var(--muted);
+  background: rgba(28, 35, 43, 0.035);
+}
+
+.inspector-empty strong {
+  color: var(--ink);
+}
+
+.inspector-empty p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .status-strip {
@@ -2176,15 +2219,13 @@ textarea {
   max-height: 240px;
 }
 
-.metric-row,
-.stage-row {
+.metric-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
-.metric-card,
-.stage-card {
+.metric-card {
   min-width: 0;
   border-radius: 20px;
 }
@@ -2213,69 +2254,6 @@ textarea {
   letter-spacing: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.stage-card {
-  min-height: 106px;
-  padding: 14px;
-}
-
-.stage-card.running {
-  background: color-mix(in srgb, var(--accent) 10%, white);
-  box-shadow: 0 16px 36px color-mix(in srgb, var(--accent) 18%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.84);
-}
-
-.stage-index {
-  color: var(--muted);
-  font-family: "SF Mono", "Cascadia Mono", Consolas, monospace;
-  font-size: 12px;
-}
-
-.stage-card strong,
-.stage-card small,
-.stage-card p {
-  display: block;
-}
-
-.stage-card strong {
-  margin-top: 12px;
-  font-size: 17px;
-}
-
-.stage-card small {
-  margin-top: 3px;
-  color: color-mix(in srgb, var(--accent) 78%, #1b334f);
-  font-weight: 900;
-}
-
-.stage-card p {
-  margin: 9px 0 0;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.software-roadmap {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  max-width: min(1480px, calc(100vw - 28px));
-  min-height: 34px;
-  margin: 12px auto 0;
-  padding: 0 13px;
-  border-radius: 999px;
-  color: #45576e;
-  background: rgba(255, 255, 255, 0.7);
-  box-shadow: 0 14px 34px rgba(76, 98, 124, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  font-size: 12px;
-}
-
-.software-roadmap svg {
-  flex: 0 0 auto;
-  color: var(--accent);
 }
 
 @keyframes buttonShine {
@@ -2332,7 +2310,6 @@ textarea {
   }
 
   .metric-row,
-  .stage-row,
   .process-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2437,7 +2414,6 @@ textarea {
   .software-control,
   .output-control,
   .metric-row,
-  .stage-row,
   .process-grid,
   .process-columns,
   .queue-list {
@@ -2494,17 +2470,6 @@ textarea {
     padding: 16px;
   }
 
-  .cad-stage {
-    min-height: 260px;
-  }
-
-  .device-body {
-    width: min(72%, 330px);
-  }
-
-  .software-roadmap {
-    border-radius: 18px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2524,7 +2489,6 @@ textarea {
   .preview-card,
   .compact-card,
   .metric-card,
-  .stage-card,
   .inspector-panel {
     background: rgba(255, 255, 255, 0.94);
   }
