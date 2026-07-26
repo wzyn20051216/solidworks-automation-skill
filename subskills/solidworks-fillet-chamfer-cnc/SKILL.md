@@ -22,7 +22,7 @@ description: SolidWorks 多圆角/倒角 CNC 零件自动化子技能。用于�
 
 ```python
 import sys
-sys.path.insert(0, r"C:\Users\23201\.codex\skills\solidworks-automation\scripts")
+sys.path.insert(0, r"C:\path\to\solidworks-automation-skill\scripts")
 
 from sw_connect import mm, get_com_member, create_empty_dispatch_variant
 from sw_session import SolidWorksSession

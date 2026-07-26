@@ -9,7 +9,7 @@ from typing import Any
 
 from .core import now_iso
 
-QUEUE_METADATA_FILES = {"worker_health.json"}
+QUEUE_METADATA_FILES = {"worker_health.json", "provider_verifications.json"}
 
 
 def health_path_for(queue_dir: Path) -> Path:
@@ -39,7 +39,7 @@ def health_level(counts: dict[str, int], last_error: str | None = None) -> str:
         return "error"
     if counts.get("unreadable", 0) > 0 or counts.get("failed", 0) > 0:
         return "warning"
-    if counts.get("approval_required", 0) > 0:
+    if counts.get("approval_required", 0) > 0 or counts.get("review_required", 0) > 0:
         return "attention"
     return "healthy"
 

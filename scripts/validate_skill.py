@@ -5,6 +5,7 @@
 CI 中快速发现语法错误、关键文件缺失、SKILL.md 元数据异常等问题。
 """
 import ast
+import json
 import pathlib
 import sys
 
@@ -33,6 +34,9 @@ REQUIRED_FILES = [
     "scripts/sw_drawing.py",
     "scripts/sw_export.py",
     "scripts/sw_review.py",
+    "scripts/sw_hole_features.py",
+    "scripts/sw_motion.py",
+    "scripts/sw_capability_probe.py",
     "scripts/sw_session.py",
     "scripts/validate_mcp.py",
     "mcp-server/server.py",
@@ -47,6 +51,11 @@ REQUIRED_FILES = [
     "references/drawing.md",
     "references/export.md",
     "references/review.md",
+    "references/complex-hole-features.md",
+    "references/motion-study.md",
+    "references/agent-provider-architecture.md",
+    "references/complex-mechanical-routing.md",
+    "references/enterprise-agent-rag.md",
     "references/api-lookup.md",
     "references/troubleshooting.md",
 ]
@@ -71,22 +80,38 @@ def check_skill_frontmatter():
 
 
 def check_python_syntax():
-    """检查 scripts 和 examples 下 Python 文件语法。"""
-    targets = (
-        list((ROOT / "scripts").glob("*.py"))
-        + list((ROOT / "examples").glob("*.py"))
-        + list((ROOT / "tests").glob("*.py"))
+    """检查主脚本、桌面后端、MCP、测试和全部子技能 Python 语法。"""
+    roots = ["scripts", "examples", "tests", "apps/desktop", "mcp-server", "subskills"]
+    targets = sorted(
+        path
+        for relative in roots
+        for path in (ROOT / relative).rglob("*.py")
+        if not {"__pycache__", "node_modules", "target", "ai_team"}.intersection(path.parts)
     )
     for path in targets:
         ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return len(targets)
+
+
+def check_json_files():
+    """检查任务契约、输出契约和设计计划 Schema 是否为有效 JSON。"""
+    targets = [
+        ROOT / "apps/desktop/cad_workbench/schemas/automation_job.schema.json",
+        ROOT / "apps/desktop/cad_workbench/schemas/codex_final_response.schema.json",
+        ROOT / "subskills/solidworks-vibecad/schemas/design_plan.schema.json",
+    ]
+    for path in targets:
+        json.loads(path.read_text(encoding="utf-8"))
+    return len(targets)
 
 
 def main():
     """执行全部静态检查。"""
     check_required_files()
     check_skill_frontmatter()
-    check_python_syntax()
-    print("验证通过: skill 文件完整，Python 语法正常。")
+    python_count = check_python_syntax()
+    json_count = check_json_files()
+    print(f"验证通过: skill 文件完整，{python_count} 个 Python 文件和 {json_count} 个 JSON Schema 正常。")
 
 
 if __name__ == "__main__":

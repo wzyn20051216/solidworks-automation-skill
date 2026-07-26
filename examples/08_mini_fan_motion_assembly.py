@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 from pathlib import Path
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "scripts")))
@@ -41,6 +42,7 @@ from sw_motion import (
     add_constant_speed_rotary_motor_by_cylinders,
     calculate_and_play,
     create_motion_study,
+    validate_motion_studies,
 )
 from sw_part import (
     extrude_boss,
@@ -244,10 +246,10 @@ def create_assembly(sw, part_paths: dict[str, Path]) -> Path:
     """
     asm = new_document(sw, "assembly")
 
-    base = add_component(asm, str(part_paths["base"]), 0, 0, 0)
-    stand = add_component(asm, str(part_paths["stand"]), 0, 0, 0)
-    impeller = add_component(asm, str(part_paths["impeller"]), 0, 0, mm(42))
-    front_guard = add_component(asm, str(part_paths["front_guard"]), 0, 0, mm(50))
+    base = add_component(asm, str(part_paths["base"]), 0, 0, 0, sw=sw)
+    stand = add_component(asm, str(part_paths["stand"]), 0, 0, 0, sw=sw)
+    impeller = add_component(asm, str(part_paths["impeller"]), 0, 0, mm(42), sw=sw)
+    front_guard = add_component(asm, str(part_paths["front_guard"]), 0, 0, mm(50), sw=sw)
 
     for component in (base, stand, impeller, front_guard):
         if component is None:
@@ -316,6 +318,18 @@ def create_assembly(sw, part_paths: dict[str, Path]) -> Path:
     )
     calculated = calculate_and_play(study, play=False)
     print(f"Motion Study 计算结果: {calculated}")
+    motion_audit = validate_motion_studies(
+        asm,
+        study_name="mini_fan_impeller_60RPM_loop",
+        minimum_duration_seconds=4.0,
+        minimum_motor_count=1,
+        require_results=True,
+    )
+    motion_audit_path = OUTPUT_DIR / "mini_fan_motion_audit.json"
+    motion_audit_path.write_text(json.dumps(motion_audit, ensure_ascii=False, indent=2), encoding="utf-8")
+    if motion_audit["validation"]["status"] != "pass":
+        raise RuntimeError(f"Motion Study 验收失败: {motion_audit['validation']['issues']}")
+    print(f"Motion Study 验收: {motion_audit_path}")
     print("Mate 摘要:")
     for item in collect_mate_feature_summary(asm):
         print(f"  - {item['name']} ({item['type']})")

@@ -1,10 +1,13 @@
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import threading
 import time
+
+import pytest
 
 from apps.desktop.cad_workbench.agent_contracts import (
     DEFAULT_PROFILE,
@@ -14,12 +17,16 @@ from apps.desktop.cad_workbench.agent_contracts import (
     resolve_workspace,
     validate_codex_job,
 )
+from apps.desktop.cad_workbench.artifact_ledger import build_artifact_ledger
 from apps.desktop.cad_workbench.queue_worker import (
     JobCancelled,
+    MOCK_HANDLERS,
     _run_command_with_runtime,
     acquire_lock,
     approve_job,
+    build_handlers,
     build_codex_prompt,
+    cancel_marker_path,
     event_path_for,
     lock_path_for,
     process_queue,
@@ -32,6 +39,35 @@ from apps.desktop.cad_workbench.queue_worker import (
     write_job,
 )
 from apps.desktop.cad_workbench.worker_health import read_worker_health
+from apps.desktop.cad_workbench.reviewer_gate import evaluate_ledger
+
+
+def test_build_handlers_registers_real_agent_tasks() -> None:
+    """@brief 桌面端启用 Agent 后必须真正注册 agent_task，不能只注册旧 Codex 类型。"""
+    handlers = build_handlers(enable_codex=True, enable_agent=True)
+
+    assert "codex_task" in handlers
+    assert "agent_task" in handlers
+
+
+def test_process_queue_dispatches_agent_executor_to_agent_task_handler(tmp_path: Path) -> None:
+    """@brief Claude 等 Agent 任务不得被内部强制改写为旧 codex_task。"""
+    queue_dir = tmp_path / "queue"
+    queue_dir.mkdir()
+    job = _queued_job("agent-dispatch", "agent_task")
+    job.update({"executor": "agent", "policy": {"sandbox": "workspace-write", "approval": "never"}})
+    write_job(queue_dir / "agent-dispatch.json", job)
+    called: list[str] = []
+
+    def handler(active_job: dict) -> dict:
+        called.append(str(active_job["id"]))
+        return {"mode": "agent", "message": "Claude 执行完成", "outputs": []}
+
+    processed = process_queue(queue_dir, handlers={"agent_task": handler})
+
+    assert called == ["agent-dispatch"]
+    assert processed[0]["status"] == "review_required"
+    assert processed[0]["result"]["mode"] == "agent"
 
 
 def _queued_job(job_id: str = "job-1", kind: str = "create_shell") -> dict:
@@ -53,14 +89,14 @@ def test_queue_worker_processes_queued_job(tmp_path: Path) -> None:
     job_path = queue_dir / "job-1.json"
     write_job(job_path, _queued_job())
 
-    processed = process_queue(queue_dir)
+    processed = process_queue(queue_dir, handlers=MOCK_HANDLERS)
 
     assert len(processed) == 1
     saved = read_job(job_path)
-    assert saved["status"] == "passed"
+    assert saved["status"] == "review_required"
     assert saved["progress"] == 100
     assert saved["result"]["mode"] == "mock"
-    assert [event["status"] for event in saved["workerLog"]] == ["running", "passed"]
+    assert [event["status"] for event in saved["workerLog"]] == ["running", "review_required"]
     assert saved["attempt"] == 1
     assert saved["runnerId"].startswith("cad-workbench-python-worker-")
     assert saved["heartbeatAt"]
@@ -68,16 +104,16 @@ def test_queue_worker_processes_queued_job(tmp_path: Path) -> None:
     assert Path(saved["artifactLedgerPath"]).exists()
     assert Path(saved["reviewGatePath"]).exists()
     assert saved["reviewGate"]["status"] == "warning"
-    assert not lock_path_for(job_path).exists()
+    assert lock_path_for(job_path).exists()
     health = read_worker_health(queue_dir)
     assert health is not None
-    assert health["status"] == "healthy"
+    assert health["status"] == "attention"
     assert health["processedCount"] == 1
     event_path = event_path_for(queue_dir, "job-1")
     assert event_path.exists()
     assert "artifact.ledger_written" in event_path.read_text(encoding="utf-8")
     assert "review.gate_completed" in event_path.read_text(encoding="utf-8")
-    assert "run.passed" in event_path.read_text(encoding="utf-8")
+    assert "run.review_required" in event_path.read_text(encoding="utf-8")
 
 
 def test_worker_health_ignores_health_metadata_file(tmp_path: Path) -> None:
@@ -85,13 +121,13 @@ def test_worker_health_ignores_health_metadata_file(tmp_path: Path) -> None:
     job_path = queue_dir / "job-health.json"
     write_job(job_path, _queued_job("job-health"))
 
-    process_queue(queue_dir)
-    process_queue(queue_dir)
+    process_queue(queue_dir, handlers=MOCK_HANDLERS)
+    process_queue(queue_dir, handlers=MOCK_HANDLERS)
 
     health = read_worker_health(queue_dir)
     assert health is not None
     assert "healthy" not in health["queue"]
-    assert health["queue"]["passed"] == 1
+    assert health["queue"]["review_required"] == 1
 
 
 def test_queue_worker_marks_unknown_kind_failed(tmp_path: Path) -> None:
@@ -194,6 +230,7 @@ def test_reviewer_gate_fails_invalid_known_format(tmp_path: Path) -> None:
 
     saved = read_job(job_path)
     checks = saved["reviewGate"]["checks"]
+    assert saved["status"] == "failed"
     assert saved["reviewGate"]["status"] == "fail"
     assert any(check["id"] == "artifact-format-pdf" and check["status"] == "fail" for check in checks)
 
@@ -213,8 +250,292 @@ def test_reviewer_gate_fails_missing_artifact(tmp_path: Path) -> None:
 
     saved = read_job(job_path)
     review = saved["reviewGate"]
+    assert saved["status"] == "failed"
     assert review["status"] == "fail"
     assert any(check["status"] == "fail" for check in review["checks"])
+
+
+def test_reviewer_gate_rejects_codex_receipt_as_cad_delivery(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job_path = queue_dir / "job-no-cad.json"
+    receipt = tmp_path / "codex-result.json"
+    receipt.write_text('{"summary":"只返回说明"}', encoding="utf-8")
+    job = _queued_job("job-no-cad", "codex_task")
+    job.update(
+        {
+            "executor": "codex",
+            "expectedOutput": "SLDPRT / STEP / STL",
+            "prompt": "生成模型",
+            "cwd": str(Path(__file__).resolve().parents[1]),
+        }
+    )
+    write_job(job_path, job)
+
+    def handler(_job: dict) -> dict:
+        return {
+            "mode": "codex",
+            "message": "Codex 已结束",
+            "outputPath": str(receipt),
+            "verification": [{"command": "echo", "status": "passed", "note": "仅检查回执"}],
+        }
+
+    process_queue(queue_dir, handlers={"codex_task": handler})
+
+    saved = read_job(job_path)
+    assert saved["status"] == "failed"
+    failed_ids = {check["id"] for check in saved["reviewGate"]["checks"] if check["status"] == "fail"}
+    assert {"expected-cad-deliverable-sldprt", "expected-cad-deliverable-step", "expected-cad-deliverable-stl"} <= failed_ids
+
+
+def test_reviewer_gate_rejects_failed_executor_verification(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job_path = queue_dir / "job-verification-failed.json"
+    model_path = tmp_path / "model.step"
+    model_path.write_text("ISO-10303-21;\nEND-ISO-10303-21;\n", encoding="utf-8")
+    job = _queued_job("job-verification-failed", "codex_task")
+    job.update(
+        {
+            "executor": "codex",
+            "expectedOutput": "SLDPRT / STEP / STL",
+            "prompt": "生成模型",
+            "cwd": str(Path(__file__).resolve().parents[1]),
+        }
+    )
+    write_job(job_path, job)
+
+    def handler(_job: dict) -> dict:
+        return {
+            "mode": "codex",
+            "message": "生成后检查失败",
+            "outputs": [{"kind": "step", "path": str(model_path)}],
+            "verification": [{"command": "几何检查", "status": "failed", "note": "孔未贯穿"}],
+        }
+
+    process_queue(queue_dir, handlers={"codex_task": handler})
+
+    saved = read_job(job_path)
+    assert saved["status"] == "failed"
+    assert any(check["id"] == "executor-verification-0" and check["status"] == "fail" for check in saved["reviewGate"]["checks"])
+
+
+def test_reviewer_gate_rejects_cad_spec_mismatch_from_validation_json(tmp_path: Path) -> None:
+    validation = tmp_path / "validation.json"
+    validation.write_text(
+        json.dumps(
+            {
+                "cad_spec": {
+                    "measurement_source": "SolidWorks API test fixture",
+                    "plate_mm": {"length": 120, "width": 80, "thickness": 8},
+                    "holes": [{"diameter_mm": 6}, {"diameter_mm": 12}],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    ledger = {
+        "executor": "codex",
+        "objective": "创建 60 x 40 x 12 mm 校准板，中心孔直径 10 mm，四角孔直径 4 mm。",
+        "strictRules": [],
+        "resultMessage": "已创建 120 x 80 x 8 mm 校准板。",
+        "verification": [{"command": "cad-check", "status": "passed", "note": "执行器自报通过"}],
+        "artifacts": [
+            {
+                "kind": "json",
+                "path": str(validation),
+                "exists": True,
+                "isDirectory": False,
+                "sizeBytes": validation.stat().st_size,
+                "sha256": hashlib.sha256(validation.read_bytes()).hexdigest(),
+                "producedThisRun": True,
+            }
+        ],
+    }
+
+    review = evaluate_ledger(ledger)
+
+    assert review["status"] == "fail"
+    assert any(check["id"] == "spec-envelope-dimensions" and check["status"] == "fail" for check in review["checks"])
+    assert any(check["id"] == "spec-hole-diameters" and check["status"] == "fail" for check in review["checks"])
+
+
+def test_reviewer_gate_accepts_matching_cad_spec_evidence(tmp_path: Path) -> None:
+    validation = tmp_path / "validation.json"
+    validation.write_text(
+        json.dumps(
+            {
+                "cad_spec": {
+                    "measurement_source": "SolidWorks API test fixture",
+                    "plate_mm": {"length": 60, "width": 40, "thickness": 12},
+                    "holes": [{"diameter_mm": 4}, {"diameter_mm": 10}],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    ledger = {
+        "executor": "codex",
+        "objective": "创建 60 x 40 x 12 mm 校准板，中心孔直径 10 mm，四角孔直径 4 mm。",
+        "strictRules": [],
+        "resultMessage": "已完成校准板。",
+        "verification": [{"command": "cad-check", "status": "passed", "note": "尺寸已读取"}],
+        "artifacts": [
+            {
+                "kind": "json",
+                "path": str(validation),
+                "exists": True,
+                "isDirectory": False,
+                "sizeBytes": validation.stat().st_size,
+                "sha256": hashlib.sha256(validation.read_bytes()).hexdigest(),
+                "producedThisRun": True,
+            }
+        ],
+    }
+
+    review = evaluate_ledger(ledger)
+
+    assert review["status"] == "pass"
+    assert any(check["id"] == "spec-envelope-dimensions" and check["status"] == "pass" for check in review["checks"])
+    assert any(check["id"] == "spec-hole-diameters" and check["status"] == "pass" for check in review["checks"])
+
+
+def test_reviewer_gate_accepts_envelope_with_different_axis_order(tmp_path: Path) -> None:
+    validation = tmp_path / "validation.json"
+    validation.write_text(
+        json.dumps(
+            {
+                "cad_spec": {
+                    "measurement_source": "SolidWorks API test fixture",
+                    "geometry": {"length_mm": 60, "width_mm": 12, "height_mm": 40},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    ledger = {
+        "executor": "codex",
+        "objective": "创建 60 x 40 x 12 mm 零件。",
+        "strictRules": [],
+        "verification": [{"command": "cad-check", "status": "passed", "note": "已读取包围盒"}],
+        "artifacts": [
+            {
+                "kind": "json",
+                "path": str(validation),
+                "exists": True,
+                "isDirectory": False,
+                "sizeBytes": validation.stat().st_size,
+                "sha256": hashlib.sha256(validation.read_bytes()).hexdigest(),
+                "producedThisRun": True,
+            }
+        ],
+    }
+
+    review = evaluate_ledger(ledger)
+
+    assert any(check["id"] == "spec-envelope-dimensions" and check["status"] == "pass" for check in review["checks"])
+
+
+def test_reviewer_gate_fails_when_machine_readable_spec_evidence_is_missing() -> None:
+    ledger = {
+        "executor": "codex",
+        "objective": "创建 60 x 40 x 12 mm 校准板，中心孔直径 10 mm。",
+        "strictRules": [],
+        "resultMessage": "已创建 60 x 40 x 12 mm 校准板，中心孔直径 10 mm。",
+        "verification": [{"command": "cad-check", "status": "passed", "note": "执行器自报通过"}],
+        "artifacts": [],
+    }
+
+    review = evaluate_ledger(ledger)
+
+    assert review["status"] == "fail"
+    assert any(check["id"] == "spec-envelope-dimensions" and check["status"] == "fail" for check in review["checks"])
+    assert any(check["id"] == "spec-hole-diameters" and check["status"] == "fail" for check in review["checks"])
+
+
+def test_reviewer_gate_rejects_untrusted_matching_numbers(tmp_path: Path) -> None:
+    validation = tmp_path / "agent_claim.json"
+    validation.write_text(
+        json.dumps(
+            {
+                "cad_spec": {
+                    "plate_mm": {"length": 60, "width": 40, "thickness": 12},
+                    "holes": [{"diameter_mm": 10}],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    ledger = {
+        "executor": "codex",
+        "objective": "创建 60 x 40 x 12 mm 校准板，中心孔直径 10 mm。",
+        "strictRules": [],
+        "verification": [{"command": "agent-claim", "status": "passed", "note": "仅由 Agent 声明"}],
+        "artifacts": [
+            {
+                "kind": "json",
+                "path": str(validation),
+                "exists": True,
+                "isDirectory": False,
+                "sizeBytes": validation.stat().st_size,
+                "sha256": hashlib.sha256(validation.read_bytes()).hexdigest(),
+                "producedThisRun": True,
+            }
+        ],
+    }
+
+    review = evaluate_ledger(ledger)
+
+    assert review["status"] == "fail"
+    assert any(check["id"] == "spec-envelope-dimensions" and "缺少独立" in check["message"] for check in review["checks"])
+    assert any(check["id"] == "spec-hole-diameters" and "缺少独立" in check["message"] for check in review["checks"])
+
+
+@pytest.mark.parametrize(
+    ("produced_this_run", "sha256"),
+    [(False, "actual"), (True, "tampered")],
+)
+def test_reviewer_gate_rejects_stale_or_tampered_measurement_report(
+    tmp_path: Path,
+    produced_this_run: bool,
+    sha256: str,
+) -> None:
+    """@brief 旧报告或账本哈希不一致时，机器测量证据不得进入规格门禁。"""
+    validation = tmp_path / "cad_review.json"
+    validation.write_text(
+        json.dumps(
+            {
+                "cad_spec": {
+                    "measurement_source": "SolidWorks API test fixture",
+                    "envelope_mm": {"length": 60, "width": 40, "height": 12},
+                    "holes": [{"diameter_mm": 10}],
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    actual_sha256 = hashlib.sha256(validation.read_bytes()).hexdigest()
+    ledger = {
+        "executor": "codex",
+        "objective": "创建 60 x 40 x 12 mm 零件，中心孔直径 10 mm。",
+        "strictRules": [],
+        "verification": [],
+        "artifacts": [
+            {
+                "kind": "json",
+                "path": str(validation),
+                "exists": True,
+                "isDirectory": False,
+                "sizeBytes": validation.stat().st_size,
+                "sha256": actual_sha256 if sha256 == "actual" else sha256,
+                "producedThisRun": produced_this_run,
+            }
+        ],
+    }
+
+    review = evaluate_ledger(ledger)
+
+    assert review["status"] == "fail"
+    assert any(check["id"] == "spec-envelope-dimensions" and check["status"] == "fail" for check in review["checks"])
+    assert any(check["id"] == "spec-hole-diameters" and check["status"] == "fail" for check in review["checks"])
 
 
 def test_queue_worker_skips_terminal_jobs(tmp_path: Path) -> None:
@@ -283,6 +604,39 @@ def test_queue_worker_recovers_stale_running_job(tmp_path: Path) -> None:
     assert "workerPid" not in saved
 
 
+def test_queue_worker_does_not_recover_stale_job_while_os_lock_is_held(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job_path = queue_dir / "job-stale-locked.json"
+    job = _queued_job("job-stale-locked")
+    job.update({"status": "running", "leaseUntil": "2020-01-01T00:00:00+08:00"})
+    write_job(job_path, job)
+    lock_path = acquire_lock(job_path, "live-worker")
+
+    try:
+        recovered = recover_stale_jobs(queue_dir)
+    finally:
+        release_lock(lock_path)
+
+    assert recovered == 0
+    assert read_job(job_path)["status"] == "running"
+
+
+def test_queue_worker_turns_stale_cancel_request_into_cancelled(tmp_path: Path) -> None:
+    queue_dir = tmp_path / "queue"
+    job_path = queue_dir / "job-stale-cancel.json"
+    job = _queued_job("job-stale-cancel")
+    job.update({"status": "running", "leaseUntil": "2020-01-01T00:00:00+08:00", "cancelRequested": True})
+    write_job(job_path, job)
+    cancel_marker_path(job_path).write_text("cancel\n", encoding="ascii")
+
+    recovered = recover_stale_jobs(queue_dir)
+
+    saved = read_job(job_path)
+    assert recovered == 1
+    assert saved["status"] == "cancelled"
+    assert saved["cancelRequested"] is True
+
+
 def test_managed_command_refreshes_heartbeat_and_writes_events(tmp_path: Path) -> None:
     queue_dir = tmp_path / "queue"
     job_path = queue_dir / "job-managed.json"
@@ -333,6 +687,7 @@ def test_managed_command_stops_when_cancel_requested(tmp_path: Path) -> None:
         thread.join(timeout=2)
 
     events = event_path_for(queue_dir, "job-cancel").read_text(encoding="utf-8")
+    assert cancel_marker_path(job_path).exists()
     assert "run.cancel_requested" in events
     assert "codex.cancelled" in events
 
@@ -352,8 +707,8 @@ def test_codex_prompt_contains_ui_configuration() -> None:
                     "applicationLabel": "AI 自动选软件",
                     "route": "三维优先 SolidWorks，二维图纸优先 AutoCAD。",
                     "localCadAutomation": True,
-                    "solidworksSkillPath": "C:/Users/23201/.codex/skills/solidworks-automation/SKILL.md",
-                    "autocadSkillPath": "C:/Users/23201/.codex/skills/solidworks-automation/subskills/autocad-automation/SKILL.md",
+                    "solidworksSkillPath": "C:/Users/test-user/.codex/skills/solidworks-automation/SKILL.md",
+                    "autocadSkillPath": "C:/Users/test-user/.codex/skills/solidworks-automation/subskills/autocad-automation/SKILL.md",
                 },
                 "selection": {"mode": "auto_best"},
                 "manufacturing": {"process": "auto"},
@@ -389,16 +744,26 @@ def test_codex_executor_requires_enable_flag(tmp_path: Path) -> None:
     assert "--enable-codex" in saved["error"]
 
 
-def test_resolve_codex_command_wraps_cmd_launcher(tmp_path: Path, monkeypatch) -> None:
+def test_resolve_codex_command_uses_node_for_cmd_launcher(tmp_path: Path, monkeypatch) -> None:
     codex_cmd = tmp_path / "codex.cmd"
     codex_cmd.write_text("@echo off\n", encoding="utf-8")
+    codex_js = tmp_path / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
+    codex_js.parent.mkdir(parents=True)
+    codex_js.write_text("", encoding="utf-8")
+    node_exe = tmp_path / "node.exe"
+    node_exe.write_text("", encoding="utf-8")
     monkeypatch.setenv("CODEX_BIN", str(codex_cmd))
     monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
     monkeypatch.setattr("apps.desktop.cad_workbench.queue_worker._codex_windowsapps_candidates", lambda: [])
+    monkeypatch.setattr(
+        "apps.desktop.cad_workbench.queue_worker.shutil.which",
+        lambda name: str(node_exe) if name in {"node", "node.exe"} else None,
+    )
 
     command = resolve_codex_command()
 
-    assert command == ["cmd.exe", "/d", "/c", str(codex_cmd)]
+    assert command == [str(node_exe), str(codex_js)]
+    assert "cmd.exe" not in command
 
 
 def test_resolve_codex_command_uses_path_exe(tmp_path: Path, monkeypatch) -> None:
@@ -414,13 +779,16 @@ def test_resolve_codex_command_uses_path_exe(tmp_path: Path, monkeypatch) -> Non
     assert command == [str(codex_exe)]
 
 
-def test_codex_executor_invokes_codex_exec_with_prompt(tmp_path: Path) -> None:
+def test_codex_executor_invokes_codex_exec_with_prompt(tmp_path: Path, monkeypatch) -> None:
+    output_path = tmp_path / "codex-result.json"
+    monkeypatch.setattr("apps.desktop.cad_workbench.queue_worker.codex_output_path", lambda job, cwd: output_path)
     job = _queued_job("job-6", "create_shell")
     job.update(
         {
             "executor": "codex",
             "cwd": str(Path(__file__).resolve().parents[1]),
             "prompt": "执行一次可控 Codex 桥接测试",
+            "objective": "目标尺寸与企业任务上下文不能被用户补充 prompt 覆盖",
             "codexOutputPath": str(tmp_path / "ignored.md"),
         }
     )
@@ -428,6 +796,13 @@ def test_codex_executor_invokes_codex_exec_with_prompt(tmp_path: Path) -> None:
 
     def fake_runner(command, cwd, timeout_seconds):
         calls.append((command, cwd, timeout_seconds))
+        output_path.write_text(
+            json.dumps(
+                {"summary": "完成", "changedFiles": [], "verification": [], "risks": [], "nextSteps": []},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
         return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
 
     result = run_codex_job(job, runner=fake_runner, timeout_seconds=3)
@@ -435,13 +810,233 @@ def test_codex_executor_invokes_codex_exec_with_prompt(tmp_path: Path) -> None:
     assert result["mode"] == "codex"
     assert result["sandbox"] == "workspace-write"
     assert calls[0][0][:2] == ["codex", "exec"]
-    assert "执行一次可控 Codex 桥接测试" in calls[0][0]
+    assert "执行一次可控 Codex 桥接测试" in calls[0][0][-1]
+    assert "目标尺寸与企业任务上下文不能被用户补充 prompt 覆盖" in calls[0][0][-1]
+    assert "【用户补充 prompt】" in calls[0][0][-1]
     assert "-s" in calls[0][0]
     assert "workspace-write" in calls[0][0]
+    assert "-a" not in calls[0][0]
+    assert "-c" in calls[0][0]
+    assert 'approval_policy="never"' in calls[0][0]
     assert "--output-schema" in calls[0][0]
     assert str(DEFAULT_PROFILE.policy.output_schema_path) in calls[0][0]
     assert str(tmp_path / "ignored.md") not in calls[0][0]
     assert calls[0][2] == 3
+
+
+def test_codex_executor_fails_when_structured_output_is_missing(tmp_path: Path, monkeypatch) -> None:
+    output_path = tmp_path / "missing.json"
+    monkeypatch.setattr("apps.desktop.cad_workbench.queue_worker.codex_output_path", lambda job, cwd: output_path)
+    job = _queued_job("job-no-result", "codex_task")
+    job.update({"executor": "codex", "cwd": str(Path(__file__).resolve().parents[1]), "prompt": "不写结果"})
+
+    def fake_runner(command, cwd, timeout_seconds):
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    try:
+        run_codex_job(job, runner=fake_runner, timeout_seconds=3)
+    except RuntimeError as error:
+        assert "未生成结构化结果文件" in str(error)
+    else:
+        raise AssertionError("Codex 未写结构化结果时必须失败")
+
+
+def test_codex_executor_parses_structured_artifacts(tmp_path: Path, monkeypatch) -> None:
+    output_path = tmp_path / "codex-result.json"
+    generated = tmp_path / "model.step"
+    generated.write_text("ISO-10303-21;\nEND-ISO-10303-21;\n", encoding="utf-8")
+    monkeypatch.setattr("apps.desktop.cad_workbench.queue_worker.codex_output_path", lambda job, cwd: output_path)
+    job = _queued_job("job-structured", "codex_task")
+    job.update(
+        {
+            "executor": "codex",
+            "cwd": str(Path(__file__).resolve().parents[1]),
+            "prompt": "结构化结果测试",
+            "uiConfig": {"outputDir": str(tmp_path)},
+        }
+    )
+
+    def fake_runner(command, cwd, timeout_seconds):
+        output_path.write_text(
+            json.dumps(
+                {
+                    "summary": "已生成模型",
+                    "changedFiles": [str(generated)],
+                    "verification": [{"command": "check", "status": "passed", "note": "ok"}],
+                    "risks": [],
+                    "nextSteps": [],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    result = run_codex_job(job, runner=fake_runner, timeout_seconds=3)
+
+    assert result["message"] == "已生成模型"
+    assert any(item["path"] == str(generated) for item in result["artifacts"])
+    assert result["verification"][0]["status"] == "passed"
+
+
+def _evaluate_codex_artifact_run(
+    tmp_path: Path,
+    monkeypatch,
+    expected_output: str,
+    changed_files: list[Path],
+    mutate_artifacts,
+) -> dict:
+    output_path = tmp_path / "codex-result.json"
+    monkeypatch.setattr("apps.desktop.cad_workbench.queue_worker.validate_codex_job", lambda job: tmp_path)
+    monkeypatch.setattr("apps.desktop.cad_workbench.queue_worker.codex_output_path", lambda job, cwd: output_path)
+    job = _queued_job("job-artifact-proof", "codex_task")
+    job.update(
+        {
+            "executor": "codex",
+            "cwd": str(tmp_path),
+            "prompt": "本轮交付物证明测试",
+            "expectedOutput": expected_output,
+            "uiConfig": {"outputDir": str(tmp_path), "cadRuntime": {"localCadAutomation": True}},
+        }
+    )
+
+    def fake_runner(command, cwd, timeout_seconds):
+        mutate_artifacts()
+        output_path.write_text(
+            json.dumps(
+                {
+                    "summary": "已生成交付文件",
+                    "changedFiles": [str(path) for path in changed_files],
+                    "verification": [{"command": "cad-check", "status": "passed", "note": "ok"}],
+                    "risks": [],
+                    "nextSteps": [],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    result = run_codex_job(job, runner=fake_runner, timeout_seconds=3)
+    ledger = build_artifact_ledger(tmp_path / "queue", job, result)
+    return evaluate_ledger(ledger)
+
+
+def test_codex_old_step_without_change_fails_current_run_proof(tmp_path: Path, monkeypatch) -> None:
+    step_path = tmp_path / "old-model.step"
+    step_path.write_text("ISO-10303-21;\nEND-ISO-10303-21;\n", encoding="utf-8")
+
+    review = _evaluate_codex_artifact_run(tmp_path, monkeypatch, "STEP", [step_path], lambda: None)
+
+    assert review["status"] == "fail"
+    assert any(check["id"] == "expected-cad-deliverable-step" and check["status"] == "fail" for check in review["checks"])
+
+
+def test_codex_touch_only_does_not_pass_current_run_proof(tmp_path: Path, monkeypatch) -> None:
+    step_path = tmp_path / "touched-model.step"
+    step_path.write_text("ISO-10303-21;\nEND-ISO-10303-21;\n", encoding="utf-8")
+
+    review = _evaluate_codex_artifact_run(
+        tmp_path,
+        monkeypatch,
+        "STEP",
+        [step_path],
+        lambda: os.utime(step_path, None),
+    )
+
+    assert review["status"] == "fail"
+
+
+def test_codex_new_step_passes_current_run_proof(tmp_path: Path, monkeypatch) -> None:
+    step_path = tmp_path / "new-model.step"
+
+    review = _evaluate_codex_artifact_run(
+        tmp_path,
+        monkeypatch,
+        "STEP",
+        [step_path],
+        lambda: step_path.write_text("ISO-10303-21;\nEND-ISO-10303-21;\n", encoding="utf-8"),
+    )
+
+    assert review["status"] == "pass"
+
+
+def test_codex_modified_step_passes_current_run_proof(tmp_path: Path, monkeypatch) -> None:
+    step_path = tmp_path / "revised-model.step"
+    step_path.write_text("old", encoding="utf-8")
+
+    review = _evaluate_codex_artifact_run(
+        tmp_path,
+        monkeypatch,
+        "STEP",
+        [step_path],
+        lambda: step_path.write_text("ISO-10303-21;\nUPDATED\nEND-ISO-10303-21;\n", encoding="utf-8"),
+    )
+
+    assert review["status"] == "pass"
+
+
+def test_codex_assembly_package_proves_sldasm_step_and_stl(tmp_path: Path, monkeypatch) -> None:
+    assembly_path = tmp_path / "assembly.sldasm"
+    step_path = tmp_path / "assembly.step"
+    stl_path = tmp_path / "assembly.stl"
+
+    def create_package() -> None:
+        assembly_path.write_bytes(b"SolidWorks assembly test payload")
+        step_path.write_text("ISO-10303-21;\nEND-ISO-10303-21;\n", encoding="utf-8")
+        stl_path.write_text("solid assembly\nendsolid assembly\n", encoding="utf-8")
+
+    review = _evaluate_codex_artifact_run(
+        tmp_path,
+        monkeypatch,
+        "SLDASM / STEP / STL",
+        [assembly_path, step_path, stl_path],
+        create_package,
+    )
+
+    expected_checks = [check for check in review["checks"] if check["id"].startswith("expected-cad-deliverable-")]
+    assert len(expected_checks) == 3
+    assert all(check["status"] == "pass" for check in expected_checks)
+    assert review["status"] == "warning"
+
+
+def test_codex_executor_rejects_artifact_outside_allowed_roots(tmp_path: Path, monkeypatch) -> None:
+    output_path = tmp_path / "codex-result.json"
+    allowed = tmp_path / "allowed"
+    rejected = tmp_path / "outside" / "old-model.step"
+    rejected.parent.mkdir(parents=True)
+    rejected.write_text("ISO-10303-21;\nEND-ISO-10303-21;\n", encoding="utf-8")
+    monkeypatch.setattr("apps.desktop.cad_workbench.queue_worker.codex_output_path", lambda job, cwd: output_path)
+    job = _queued_job("job-rejected-artifact", "codex_task")
+    job.update(
+        {
+            "executor": "codex",
+            "cwd": str(Path(__file__).resolve().parents[1]),
+            "prompt": "越界交付物测试",
+            "uiConfig": {"outputDir": str(allowed)},
+        }
+    )
+
+    def fake_runner(command, cwd, timeout_seconds):
+        output_path.write_text(
+            json.dumps(
+                {
+                    "summary": "声明旧文件",
+                    "changedFiles": [str(rejected)],
+                    "verification": [],
+                    "risks": [],
+                    "nextSteps": [],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    result = run_codex_job(job, runner=fake_runner, timeout_seconds=3)
+
+    assert all(item["path"] != str(rejected) for item in result["artifacts"])
+    assert any("已拒绝" in risk and str(rejected) in risk for risk in result["risks"])
 
 
 def test_policy_gate_requires_approval_for_git_push(tmp_path: Path) -> None:
@@ -498,7 +1093,7 @@ def test_policy_gate_allows_approved_job(tmp_path: Path) -> None:
 
     saved = read_job(job_path)
     assert len(processed) == 1
-    assert saved["status"] == "passed"
+    assert saved["status"] == "review_required"
     assert saved["result"]["mode"] == "codex"
 
 
@@ -576,6 +1171,13 @@ def test_codex_full_access_requires_policy_and_cli_flag(tmp_path: Path) -> None:
 
     def fake_runner(command, cwd, timeout_seconds):
         calls.append(command)
+        Path(command[command.index("-o") + 1]).write_text(
+            json.dumps(
+                {"summary": "完成", "changedFiles": [], "verification": [], "risks": [], "nextSteps": []},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
         return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
 
     job = _queued_job("job-full-cli", "codex_task")
@@ -623,4 +1225,4 @@ def test_codex_output_path_is_forced_inside_workspace() -> None:
     cwd = resolve_workspace(job)
     output = codex_output_path(job, cwd)
 
-    assert output == repo / "ai_team" / "job-8_codex_result.md"
+    assert output == repo / "ai_team" / "job-8_codex_result.json"

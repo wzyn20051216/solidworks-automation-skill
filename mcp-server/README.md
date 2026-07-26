@@ -80,7 +80,7 @@ powershell -ExecutionPolicy Bypass -File .\mcp-server\register_codex_mcp.ps1 -In
     "solidworks": {
       "command": "python",
       "args": [
-        "C:\\Users\\23201\\.codex\\skills\\solidworks-automation\\mcp-server\\server.py"
+        "C:\\path\\to\\solidworks-automation-skill\\mcp-server\\server.py"
       ]
     }
   }
@@ -90,8 +90,8 @@ powershell -ExecutionPolicy Bypass -File .\mcp-server\register_codex_mcp.ps1 -In
 如果你的客户端支持命令行注册，也可以使用类似命令：
 
 ```powershell
-codex mcp add solidworks -- python C:\Users\23201\.codex\skills\solidworks-automation\mcp-server\server.py
-claude mcp add --scope user solidworks -- python C:\Users\23201\.codex\skills\solidworks-automation\mcp-server\server.py
+codex mcp add solidworks -- python C:\path\to\solidworks-automation-skill\mcp-server\server.py
+claude mcp add --scope user solidworks -- python C:\path\to\solidworks-automation-skill\mcp-server\server.py
 ```
 
 ## 已暴露工具
@@ -113,7 +113,11 @@ claude mcp add --scope user solidworks -- python C:\Users\23201\.codex\skills\so
 | `solidworks_set_appearance` | 设置活动文档或指定组件外观颜色 | 是 |
 | `solidworks_export_active` | 导出活动文档为 STEP/STL/IGES/Parasolid/PDF/DXF | 是，写输出文件 |
 | `solidworks_review_active` | 导出多视角 BMP 预览和 JSON 审查报告 | 是，写输出文件 |
+| `solidworks_create_hole_feature` | 创建盲孔、通孔、沉孔、沉头孔或半圆端槽，并返回参数证据 | 是 |
+| `solidworks_inspect_hole_features` | 读取 B-Rep 孔段、复合孔、槽端圆弧并验证孔位 | 否 |
 | `solidworks_add_rotary_motor` | 在活动装配体中新建 Motion Study 并添加匀速旋转马达 | 是 |
+| `solidworks_inspect_motion_studies` | 读取算例、马达/外力数量和结果新鲜度 | 否 |
+| `solidworks_validate_motion_study` | 对时长、类型、马达数量、结果存在性和过期状态执行交付门禁 | 否 |
 
 ## 基础装配工具示例
 
@@ -190,6 +194,33 @@ claude mcp add --scope user solidworks -- python C:\Users\23201\.codex\skills\so
 }
 ```
 
+创建复杂沉孔：
+
+```json
+{
+  "feature_kind": "counterbore",
+  "center_x_mm": 20,
+  "center_y_mm": 15,
+  "diameter_mm": 6,
+  "secondary_diameter_mm": 12,
+  "secondary_depth_mm": 4,
+  "plane_name": "Front Plane",
+  "feature_name": "H1_沉孔"
+}
+```
+
+验证 Motion Study：
+
+```json
+{
+  "study_name": "叶轮_60RPM_循环转动",
+  "expected_study_type": 1,
+  "minimum_duration_seconds": 4,
+  "minimum_motor_count": 1,
+  "require_results": true
+}
+```
+
 ## 设计原则
 
 - 不开放任意 Python/VBA 执行工具，避免 MCP 客户端直接执行不受控脚本。
@@ -199,6 +230,6 @@ claude mcp add --scope user solidworks -- python C:\Users\23201\.codex\skills\so
 
 ## 已知限制
 
-- 当前是第一阶段工具集，重点覆盖文档、导出、审查、Motion Study 旋转马达。
-- MCP 已覆盖基础盒体/圆柱、添加组件、常用 Mate、固定/浮动、外观、导出、审查和旋转马达；复杂草图、放样、扫描和可靠圆角/倒角仍建议通过 Python 脚本分步实现并审查。
+- MCP 已覆盖基础盒体/圆柱、复杂孔槽、添加组件、常用 Mate、固定/浮动、外观、导出、审查、旋转马达和 Motion 结果门禁。
+- 放样、扫描、自由曲面和通用圆角/倒角仍建议通过 Python 脚本分步实现并审查。
 - SolidWorks Motion / Simulation 许可证差异可能影响 Motion Study 的计算能力。

@@ -26,7 +26,7 @@
 
 ```powershell
 py subskills\solidworks-fillet-chamfer-cnc\scripts\create_cnc_mount_template.py `
-  --output-dir E:\desktop\CAD\solidworks_fillet_chamfer_output
+  --output-dir C:\CADAutomationWorkbench\solidworks_fillet_chamfer_output
 ```
 
 ## 目录

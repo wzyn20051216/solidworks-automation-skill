@@ -286,3 +286,199 @@ def calculate_and_play(motion_study, play=True):
         except Exception:
             pass
     return calculated
+
+
+def _collect_motion_features(motion_study):
+    """@brief 读取 Motion 特征名称和类型，用于识别旋转马达等真实特征。"""
+    try:
+        raw_features = motion_member(motion_study, "GetMotionFeatures") or []
+    except Exception:
+        raw_features = []
+    if not isinstance(raw_features, (list, tuple)):
+        raw_features = [raw_features]
+    features = []
+    for feature in raw_features:
+        try:
+            type_name = None
+            for member_name in ("GetTypeName2", "GetTypeName"):
+                try:
+                    type_name = motion_member(feature, member_name)
+                    if type_name:
+                        break
+                except Exception:
+                    continue
+            features.append({
+                "name": str(motion_member(feature, "Name") or ""),
+                "type_id": int(motion_member(feature, "GetType") or 0),
+                "type_name": str(type_name or ""),
+            })
+        except Exception as exc:
+            features.append({"name": "", "type_id": 0, "type_name": "", "error": str(exc)})
+    return features
+
+
+def collect_motion_study_summary(asm_model):
+    """
+    @brief 收集装配体全部 Motion Study 的机器可读摘要。
+    @param asm_model 装配体 IModelDoc2/IAssemblyDoc。
+    @return 包含算例名称、类型、时长、马达/外力数量和结果状态的字典。
+
+    本函数只读取官方类型库已公开的成员，不修改算例，也不把“存在算例”误报成
+    “运动结果正确”。`results_out_of_date` 为 True 时必须重新 Calculate。
+    """
+    manager = get_motion_study_manager(asm_model)
+    count = int(motion_member(manager, "GetMotionStudyCount") or 0)
+    names = motion_member(manager, "GetMotionStudyNames") or []
+    if isinstance(names, str):
+        names = [names]
+    names = [str(name) for name in list(names)[:count]]
+    studies = []
+    for name in names:
+        study = motion_member(manager, "GetMotionStudy", name)
+        if study is None:
+            studies.append({"name": name, "available": False})
+            continue
+        study_type = int(motion_member(study, "StudyType") or 0)
+        results = None
+        results_error = None
+        try:
+            results = motion_member(study, "GetResults", study_type)
+        except Exception as exc:
+            results_error = str(exc)
+        motion_features = _collect_motion_features(study)
+        reported_motor_count = int(motion_member(study, "GetNumOfExternalMotors") or 0)
+        motor_feature_count = sum("motor" in item.get("type_name", "").lower() for item in motion_features)
+        item = {
+            "name": str(motion_member(study, "Name") or name),
+            "available": True,
+            "study_type": study_type,
+            "duration_seconds": float(motion_member(study, "GetDuration") or 0.0),
+            "motor_count": max(reported_motor_count, motor_feature_count),
+            "reported_motor_count": reported_motor_count,
+            "motor_feature_count": motor_feature_count,
+            "external_force_count": int(motion_member(study, "GetNumOfExternalForces") or 0),
+            "feature_count": int(motion_member(study, "GetMotionFeaturesCount") or 0),
+            "active": bool(motion_member(study, "IsActive")),
+            "playing": bool(motion_member(study, "IsPlaying")),
+            "results_available": results is not None,
+            "motion_features": motion_features,
+        }
+        if results is not None:
+            item["results_out_of_date"] = bool(motion_member(results, "IsOutOfDate"))
+        if results_error:
+            item["results_error"] = results_error
+        studies.append(item)
+    return {
+        "motion_type_library": ensure_motion_type_library(raise_on_error=False),
+        "study_count": count,
+        "studies": studies,
+    }
+
+
+def validate_motion_study_summary(
+    summary,
+    study_name=None,
+    expected_study_type=None,
+    minimum_duration_seconds=0.001,
+    minimum_motor_count=1,
+    require_results=True,
+):
+    """
+    @brief 验证 Motion Study 是否具备可交付的机器证据。
+    @param summary collect_motion_study_summary() 的结果。
+    @param study_name 可选目标算例名；None 时验证全部可用算例。
+    @param expected_study_type 可选期望 StudyType 枚举值。
+    @param minimum_duration_seconds 最小时长。
+    @param minimum_motor_count 最少马达数量。
+    @param require_results 是否强制要求已计算且结果不过期。
+    @return 包含 status、checks、issues 和 matched_studies 的字典。
+    """
+    checks = []
+    issues = []
+
+    def check(check_id, passed, failure_message, study=None, success_message=None):
+        """@brief 追加单条验收检查。"""
+        message = success_message if passed and success_message else failure_message
+        item = {"id": check_id, "passed": bool(passed), "message": message}
+        if study:
+            item["study"] = study
+        checks.append(item)
+        if not passed:
+            issues.append(failure_message)
+
+    studies = [item for item in summary.get("studies", []) if item.get("available")]
+    if study_name is not None:
+        studies = [item for item in studies if item.get("name") == study_name]
+    check(
+        "study-present",
+        bool(studies),
+        f"未找到可用 Motion Study: {study_name or '任意算例'}",
+        success_message=f"已找到 Motion Study: {study_name or '任意算例'}",
+    )
+    check(
+        "type-library",
+        bool(summary.get("motion_type_library")),
+        "未确认 swmotionstudy.tlb，Motion 结果读取可能不完整",
+        success_message="已确认 swmotionstudy.tlb",
+    )
+
+    for study in studies:
+        name = str(study.get("name") or "未命名算例")
+        duration = float(study.get("duration_seconds") or 0.0)
+        motor_count = int(study.get("motor_count") or 0)
+        check(
+            "duration",
+            duration >= float(minimum_duration_seconds),
+            f"{name} 时长 {duration:g}s 小于要求 {minimum_duration_seconds:g}s",
+            name,
+            f"{name} 时长 {duration:g}s 满足要求",
+        )
+        check(
+            "motor-count",
+            motor_count >= int(minimum_motor_count),
+            f"{name} 马达数量 {motor_count} 小于要求 {minimum_motor_count}",
+            name,
+            f"{name} 检测到 {motor_count} 个马达特征",
+        )
+        if expected_study_type is not None:
+            actual_type = int(study.get("study_type") or 0)
+            check(
+                "study-type",
+                actual_type == int(expected_study_type),
+                f"{name} StudyType={actual_type}，期望 {expected_study_type}",
+                name,
+                f"{name} StudyType={actual_type} 符合要求",
+            )
+        if require_results:
+            available = bool(study.get("results_available"))
+            check("results-present", available, f"{name} 没有可读取的计算结果", name, f"{name} 计算结果可读取")
+            check(
+                "results-fresh",
+                available and study.get("results_out_of_date") is False,
+                f"{name} 结果不存在或已经过期，必须重新 Calculate",
+                name,
+                f"{name} 结果存在且未过期",
+            )
+        if study.get("results_error"):
+            check("results-readable", False, f"{name} 结果读取失败: {study['results_error']}", name)
+
+    return {
+        "status": "pass" if checks and all(item["passed"] for item in checks) else "fail",
+        "checks": checks,
+        "issues": issues,
+        "matched_studies": [item.get("name") for item in studies],
+        "requirements": {
+            "study_name": study_name,
+            "expected_study_type": expected_study_type,
+            "minimum_duration_seconds": float(minimum_duration_seconds),
+            "minimum_motor_count": int(minimum_motor_count),
+            "require_results": bool(require_results),
+        },
+    }
+
+
+def validate_motion_studies(asm_model, **requirements):
+    """@brief 读取装配体 Motion 摘要并执行交付门禁。"""
+    summary = collect_motion_study_summary(asm_model)
+    validation = validate_motion_study_summary(summary, **requirements)
+    return {"summary": summary, "validation": validation}

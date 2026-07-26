@@ -8,6 +8,7 @@ SolidWorks 结果自审查工具。
 import os
 import json
 import argparse
+import math
 from pathlib import Path
 
 try:
@@ -238,6 +239,200 @@ def collect_model_summary(model):
     return summary
 
 
+def _unit_vector(values):
+    """@brief 返回三维单位向量；零向量返回 None。"""
+    vector = [float(value) for value in values[:3]]
+    length = math.sqrt(sum(value * value for value in vector))
+    if length <= 1e-12:
+        return None
+    return [value / length for value in vector]
+
+
+def _axis_distance_mm(point_mm, origin_mm, axis):
+    """@brief 计算毫米点到空间轴线的垂直距离。"""
+    direction = _unit_vector(axis)
+    if direction is None:
+        return float("inf")
+    offset = [float(point_mm[index]) - float(origin_mm[index]) for index in range(3)]
+    projection = sum(offset[index] * direction[index] for index in range(3))
+    perpendicular = [offset[index] - projection * direction[index] for index in range(3)]
+    return math.sqrt(sum(value * value for value in perpendicular))
+
+
+def group_coaxial_hole_segments(segments, position_tolerance_mm=0.05, axis_tolerance=1e-5):
+    """
+    @brief 把同轴圆柱孔段归并为简单孔或复合孔证据。
+    @param segments collect_geometry_measurements() 生成的孔段。
+    @param position_tolerance_mm 同轴线距离容差。
+    @param axis_tolerance 轴向平行容差。
+    @return 带 segment_count、diameters_mm 和 feature_kind 的孔组。
+    """
+    groups = []
+    for segment in segments:
+        axis = _unit_vector(segment.get("axis") or [])
+        origin = segment.get("position_mm") or segment.get("origin_mm") or []
+        if axis is None or len(origin) < 3:
+            continue
+        matched = None
+        for group in groups:
+            group_axis = group["axis"]
+            parallel = abs(sum(axis[index] * group_axis[index] for index in range(3)))
+            distance = _axis_distance_mm(origin, group["position_mm"], group_axis)
+            if abs(1.0 - parallel) <= axis_tolerance and distance <= position_tolerance_mm:
+                matched = group
+                break
+        if matched is None:
+            matched = {"position_mm": list(origin[:3]), "axis": axis, "segments": []}
+            groups.append(matched)
+        matched["segments"].append(segment)
+
+    normalized = []
+    for group in groups:
+        diameters = sorted({round(float(item.get("diameter_mm", 0.0)), 6) for item in group["segments"]})
+        normalized.append({
+            "position_mm": [round(float(value), 6) for value in group["position_mm"]],
+            "axis": [round(float(value), 9) for value in group["axis"]],
+            "segment_count": len(group["segments"]),
+            "diameters_mm": diameters,
+            "feature_kind": "compound" if len(diameters) > 1 else "simple",
+            "segments": group["segments"],
+        })
+    return normalized
+
+
+def validate_hole_positions(measurements, expected_holes, position_tolerance_mm=0.1, diameter_tolerance_mm=0.05):
+    """
+    @brief 用孔轴线验证期望孔径和孔位，返回逐孔机器验收结果。
+
+    该函数只证明孔径与轴线位置。盲孔深度、通孔状态和沉头类型必须继续使用
+    特征参数回读或创建函数返回的 feature_evidence 交叉验证。
+    """
+    actual = measurements.get("holes") or []
+    checks = []
+    used = set()
+    for index, expected in enumerate(expected_holes):
+        expected_position = expected.get("position_mm") or []
+        expected_diameter = float(expected.get("diameter_mm", 0.0))
+        best = None
+        for actual_index, candidate in enumerate(actual):
+            if actual_index in used or len(expected_position) < 3:
+                continue
+            diameter_error = abs(float(candidate.get("diameter_mm", 0.0)) - expected_diameter)
+            position_error = _axis_distance_mm(expected_position, candidate.get("position_mm") or [], candidate.get("axis") or [])
+            score = diameter_error + position_error
+            if best is None or score < best[0]:
+                best = (score, actual_index, candidate, diameter_error, position_error)
+        passed = bool(best and best[3] <= diameter_tolerance_mm and best[4] <= position_tolerance_mm)
+        if passed:
+            used.add(best[1])
+        checks.append({
+            "id": expected.get("id") or f"hole-{index + 1}",
+            "passed": passed,
+            "expected_diameter_mm": expected_diameter,
+            "expected_position_mm": list(expected_position),
+            "actual_diameter_mm": best[2].get("diameter_mm") if best else None,
+            "diameter_error_mm": round(best[3], 6) if best else None,
+            "position_error_mm": round(best[4], 6) if best else None,
+            "evidence_scope": "B-Rep diameter and axis position only",
+        })
+    return {
+        "status": "pass" if checks and all(item["passed"] for item in checks) else "fail",
+        "position_tolerance_mm": float(position_tolerance_mm),
+        "diameter_tolerance_mm": float(diameter_tolerance_mm),
+        "checks": checks,
+        "unmatched_actual_count": max(0, len(actual) - len(used)),
+    }
+
+
+def collect_geometry_measurements(model):
+    """
+    @brief 从零件 B-Rep 读取包围盒和内部圆柱面，生成制造级机器证据。
+    @param model SolidWorks IModelDoc2/IPartDoc 对象。
+    @return 包含 envelope_mm、holes 和 cylindrical_faces 的字典。
+
+    `FaceInSurfaceSense=True` 的圆柱面按内部孔壁记录；False 的外圆柱面仍保留在
+    `cylindrical_faces`，但不会被 Reviewer Gate 当作孔径证据。
+    """
+    measurements = {
+        "units": "mm",
+        "measurement_source": "SolidWorks API GetPartBox(True) + B-Rep cylindrical faces",
+        "envelope_mm": None,
+        "holes": [],
+        "compound_holes": [],
+        "slot_arc_candidates": [],
+        "cylindrical_faces": [],
+        "errors": [],
+    }
+    try:
+        box = list(get_com_member(model, "GetPartBox", True) or [])
+        if len(box) >= 6:
+            sizes = [abs(float(box[index + 3]) - float(box[index])) * 1000.0 for index in range(3)]
+            measurements["envelope_mm"] = {
+                "length": round(sizes[0], 6),
+                "width": round(sizes[1], 6),
+                "height": round(sizes[2], 6),
+                "axis_order": "model_xyz",
+            }
+        else:
+            measurements["errors"].append("GetPartBox(True) 未返回 6 个坐标值")
+    except Exception as exc:
+        measurements["errors"].append(f"包围盒读取失败: {exc}")
+
+    try:
+        bodies = get_com_member(model, "GetBodies2", 0, False) or []
+        for body_index, body in enumerate(bodies):
+            for face_index, face in enumerate(get_com_member(body, "GetFaces") or []):
+                try:
+                    surface = get_com_member(face, "GetSurface")
+                    if not surface or not get_com_member(surface, "IsCylinder"):
+                        continue
+                    params = list(get_com_member(surface, "CylinderParams") or [])
+                    if len(params) < 7:
+                        continue
+                    internal = bool(get_com_member(face, "FaceInSurfaceSense"))
+                    area_mm2 = float(get_com_member(face, "GetArea") or 0.0) * 1_000_000.0
+                    diameter_mm = float(params[6]) * 2000.0
+                    circumference_mm = 3.141592653589793 * diameter_mm
+                    cylinder = {
+                        "diameter_mm": round(diameter_mm, 6),
+                        "origin_mm": [round(float(value) * 1000.0, 6) for value in params[:3]],
+                        "axis": [round(float(value), 9) for value in params[3:6]],
+                        "area_mm2": round(area_mm2, 6),
+                        "axial_length_mm": round(area_mm2 / circumference_mm, 6) if circumference_mm else None,
+                        "internal": internal,
+                        "loop_count": int(get_com_member(face, "GetLoopCount") or 0),
+                        "edge_count": int(get_com_member(face, "GetEdgeCount") or 0),
+                        "body_index": body_index,
+                        "face_index": face_index,
+                    }
+                    measurements["cylindrical_faces"].append(cylinder)
+                    if internal:
+                        evidence = {
+                            "diameter_mm": cylinder["diameter_mm"],
+                            "position_mm": cylinder["origin_mm"],
+                            "axis": cylinder["axis"],
+                            "axial_length_mm": cylinder["axial_length_mm"],
+                            "through_state": "unknown",
+                            "through_evidence": "B-Rep cylinder boundaries cannot distinguish blind from through",
+                            "measurement_source": "B-Rep internal cylindrical face",
+                        }
+                        if cylinder["edge_count"] <= 2:
+                            measurements["holes"].append(evidence)
+                        else:
+                            evidence["classification_reason"] = "internal cylinder has more than two boundary edges"
+                            measurements["slot_arc_candidates"].append(evidence)
+                except Exception as exc:
+                    measurements["errors"].append(f"圆柱面读取失败 body={body_index} face={face_index}: {exc}")
+    except Exception as exc:
+        measurements["errors"].append(f"实体拓扑读取失败: {exc}")
+    measurements["hole_count"] = len(measurements["holes"])
+    measurements["hole_groups"] = group_coaxial_hole_segments(measurements["holes"])
+    measurements["compound_holes"] = [
+        group for group in measurements["hole_groups"] if group["feature_kind"] == "compound"
+    ]
+    return measurements
+
+
 def build_review_report(model, output_dir, basename="review", views=None, expected_outputs=None):
     """
     生成结构化审查报告数据。
@@ -263,6 +458,7 @@ def build_review_report(model, output_dir, basename="review", views=None, expect
     previews = [inspect_bmp_preview(path) for path in preview_paths]
     expected = [_file_info(path) for path in (expected_outputs or [])]
     summary = collect_model_summary(model)
+    geometry = collect_geometry_measurements(model)
 
     checks = {
         "model_available": model is not None,
@@ -270,6 +466,8 @@ def build_review_report(model, output_dir, basename="review", views=None, expect
         "previews_not_blank": all(not item["likely_blank"] for item in previews),
         "expected_outputs_exist": all(item["exists"] and item["size_bytes"] > 0 for item in expected) if expected else None,
         "feature_summary_available": "feature_error" not in summary,
+        "geometry_measurements_available": geometry.get("envelope_mm") is not None,
+        "geometry_measurements_error_free": not geometry.get("errors"),
     }
 
     review_notes = [
@@ -280,6 +478,7 @@ def build_review_report(model, output_dir, basename="review", views=None, expect
 
     report = {
         "model": summary,
+        "cad_spec": geometry,
         "previews": previews,
         "expected_outputs": expected,
         "checks": checks,

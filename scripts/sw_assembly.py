@@ -29,6 +29,14 @@ SW_COMPONENT_LIGHTWEIGHT = 1
 SW_COMPONENT_FULLY_RESOLVED = 2
 SW_COMPONENT_RESOLVED = 3
 SW_SOLID_BODY = 0
+PLANE_NAME_ALIASES = {
+    "Front Plane": ["Front Plane", "前视基准面"],
+    "Top Plane": ["Top Plane", "上视基准面"],
+    "Right Plane": ["Right Plane", "右视基准面"],
+    "前视基准面": ["前视基准面", "Front Plane"],
+    "上视基准面": ["上视基准面", "Top Plane"],
+    "右视基准面": ["右视基准面", "Right Plane"],
+}
 
 
 def _empty_callout():
@@ -233,7 +241,11 @@ def get_component_feature(component, aliases, resolve=True):
     @return IFeature 对象。
     """
     model = get_component_model(component, resolve=resolve)
-    names = _as_alias_list(aliases)
+    names = []
+    for alias in _as_alias_list(aliases):
+        for candidate in PLANE_NAME_ALIASES.get(alias, [alias]):
+            if candidate not in names:
+                names.append(candidate)
     for name in names:
         feature = safe_get_com_member(model, "FeatureByName", name)
         if feature:

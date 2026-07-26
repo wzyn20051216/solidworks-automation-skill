@@ -22,7 +22,7 @@ SolidWorks COM 创建真实 `ThreadFeatureData` 在不同版本和语言环境�
 
 ```python
 import sys
-sys.path.insert(0, r"C:\Users\23201\.codex\skills\solidworks-automation\scripts")
+sys.path.insert(0, r"C:\path\to\solidworks-automation-skill\scripts")
 
 from sw_connect import mm, get_com_member, create_empty_dispatch_variant
 from sw_session import SolidWorksSession
@@ -62,7 +62,7 @@ subskills/solidworks-threaded-holes/references/threaded-hole-lessons.md
 
 ```powershell
 python subskills/solidworks-threaded-holes/scripts/create_threaded_hole_template.py `
-  --output-dir E:\desktop\CAD\solidworks_threaded_hole_output
+  --output-dir C:\CADAutomationWorkbench\solidworks_threaded_hole_output
 ```
 
 生成 M8x1.25 螺纹孔并自定义块尺寸：
@@ -74,7 +74,7 @@ python subskills/solidworks-threaded-holes/scripts/create_threaded_hole_template
   --block-width 36 `
   --block-thickness 20 `
   --thread-depth 16 `
-  --output-dir E:\desktop\CAD\m8_threaded_hole_output
+  --output-dir C:\CADAutomationWorkbench\m8_threaded_hole_output
 ```
 
 默认 `--hole-face top`，即从安装座上表面向实体内部打孔；需要侧面螺纹孔时传 `--hole-face front` 或 `--hole-face right`。

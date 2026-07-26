@@ -47,6 +47,46 @@ print(report["checks"])
 
 注意：结构化报告只能抓明显失败，不能替代人工或视觉模型对几何意图的判断。
 
+制造级任务还必须单独输出机器可读规格证据，例如：
+
+```json
+{
+  "cad_spec": {
+    "envelope_mm": {"length": 60, "width": 40, "thickness": 12},
+    "holes": [
+      {"diameter_mm": 10, "count": 1, "positions_xy_mm": [[0, 0]]},
+      {"diameter_mm": 4, "count": 4, "positions_xy_mm": [[-24, -14], [24, -14], [-24, 14], [24, 14]]}
+    ]
+  },
+  "measurement_source": "SolidWorks API/B-Rep/参数回读",
+  "units": "mm"
+}
+```
+
+任务中明确给出外形或孔径，但交付物没有独立 JSON 证据时，Reviewer Gate 必须失败；Codex 的文字总结和“执行器自报通过”不能替代证据。孔数量、孔位、边距、中心距、圆角、壁厚和装配自由度也应按任务逐项记录。
+
+复杂孔槽使用 `collect_geometry_measurements()` 时还会输出：
+
+- `hole_groups`：按空间轴线归并的孔段。
+- `compound_holes`：同轴但直径不同的沉孔/复合孔候选。
+- `slot_arc_candidates`：内部圆柱面具有多条边界边的槽端圆弧，不计入圆孔数量。
+- `validate_hole_positions()`：按孔轴线距离和孔径公差逐孔验收。
+
+```python
+from sw_review import collect_geometry_measurements, validate_hole_positions
+
+measurements = collect_geometry_measurements(model)
+position_checks = validate_hole_positions(
+    measurements,
+    [{"id": "H1", "diameter_mm": 8, "position_mm": [20, 20, 0]}],
+    position_tolerance_mm=0.1,
+    diameter_tolerance_mm=0.05,
+)
+assert position_checks["status"] == "pass"
+```
+
+注意：圆柱面 B-Rep 可以证明孔径、轴线和圆柱段长度，但不能单独可靠区分盲孔/通孔。盲孔深度、沉头角度和孔型必须与 `sw_hole_features.py` 返回的创建参数证据或特征定义回读交叉验证。
+
 ## 命令行一键审查
 
 ```bash

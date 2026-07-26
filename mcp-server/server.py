@@ -9,6 +9,7 @@ a single-user desktop automation surface.
 from __future__ import annotations
 
 import json
+import importlib
 import os
 import platform
 import sys
@@ -28,56 +29,77 @@ SCRIPTS_DIR = REPO_DIR / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from sw_connect import (  # noqa: E402
-    connect_solidworks,
-    create_empty_dispatch_variant,
-    get_com_member,
-    mm,
-    new_document,
-    open_document,
-    save_document,
-)
 from sw_preflight import missing_com_dependencies, solidworks_installed  # noqa: E402
-from sw_part import (  # noqa: E402
-    extrude_boss,
-    sketch,
-    sketch_circle,
-    sketch_rectangle,
-)
-from sw_appearance import set_component_appearance, set_document_appearance  # noqa: E402
-from sw_export import (  # noqa: E402
-    export_to_dxf,
-    export_to_iges,
-    export_to_parasolid,
-    export_to_pdf,
-    export_to_step,
-    export_to_stl,
-)
-from sw_review import run_review  # noqa: E402
-from sw_assembly import (  # noqa: E402
-    SW_MATE_COINCIDENT,
-    SW_MATE_DISTANCE,
-    add_component as assembly_add_component,
-    add_concentric_mate_by_cylinders,
-    add_mate5_checked,
-    collect_mate_feature_summary,
-    find_component_by_name,
-    get_component_feature_entity,
-    get_components,
-    resolve_component,
-    select_entities_for_mate,
-)
-from sw_motion import (  # noqa: E402
-    add_constant_speed_rotary_motor_by_cylinders,
-    calculate_and_play,
-    create_motion_study,
-    ensure_motion_type_library,
-)
 
-try:
-    import pythoncom
-except Exception:  # pragma: no cover - surfaced by preflight when tools run
-    pythoncom = None
+
+pythoncom = None
+_automation_loaded = False
+
+
+def _load_automation_modules() -> None:
+    """Lazy-load COM modules so the health tool can start without pywin32/comtypes."""
+    global pythoncom, _automation_loaded
+    if _automation_loaded:
+        return
+
+    connect = importlib.import_module("sw_connect")
+    part = importlib.import_module("sw_part")
+    appearance = importlib.import_module("sw_appearance")
+    export = importlib.import_module("sw_export")
+    review = importlib.import_module("sw_review")
+    assembly = importlib.import_module("sw_assembly")
+    motion = importlib.import_module("sw_motion")
+    holes = importlib.import_module("sw_hole_features")
+
+    exports = {
+        "connect_solidworks": connect.connect_solidworks,
+        "create_empty_dispatch_variant": connect.create_empty_dispatch_variant,
+        "get_com_member": connect.get_com_member,
+        "mm": connect.mm,
+        "new_document": connect.new_document,
+        "open_document": connect.open_document,
+        "save_document": connect.save_document,
+        "extrude_boss": part.extrude_boss,
+        "sketch": part.sketch,
+        "sketch_circle": part.sketch_circle,
+        "sketch_rectangle": part.sketch_rectangle,
+        "set_component_appearance": appearance.set_component_appearance,
+        "set_document_appearance": appearance.set_document_appearance,
+        "export_to_dxf": export.export_to_dxf,
+        "export_to_iges": export.export_to_iges,
+        "export_to_parasolid": export.export_to_parasolid,
+        "export_to_pdf": export.export_to_pdf,
+        "export_to_step": export.export_to_step,
+        "export_to_stl": export.export_to_stl,
+        "run_review": review.run_review,
+        "collect_geometry_measurements": review.collect_geometry_measurements,
+        "validate_hole_positions": review.validate_hole_positions,
+        "SW_MATE_COINCIDENT": assembly.SW_MATE_COINCIDENT,
+        "SW_MATE_DISTANCE": assembly.SW_MATE_DISTANCE,
+        "assembly_add_component": assembly.add_component,
+        "add_concentric_mate_by_cylinders": assembly.add_concentric_mate_by_cylinders,
+        "add_mate5_checked": assembly.add_mate5_checked,
+        "collect_mate_feature_summary": assembly.collect_mate_feature_summary,
+        "find_component_by_name": assembly.find_component_by_name,
+        "get_component_feature_entity": assembly.get_component_feature_entity,
+        "get_components": assembly.get_components,
+        "resolve_component": assembly.resolve_component,
+        "select_entities_for_mate": assembly.select_entities_for_mate,
+        "add_constant_speed_rotary_motor_by_cylinders": motion.add_constant_speed_rotary_motor_by_cylinders,
+        "calculate_and_play": motion.calculate_and_play,
+        "create_motion_study": motion.create_motion_study,
+        "collect_motion_study_summary": motion.collect_motion_study_summary,
+        "ensure_motion_type_library": motion.ensure_motion_type_library,
+        "validate_motion_studies": motion.validate_motion_studies,
+        "create_blind_hole": holes.create_blind_hole,
+        "create_through_hole": holes.create_through_hole,
+        "create_counterbore_hole": holes.create_counterbore_hole,
+        "create_countersink_hole": holes.create_countersink_hole,
+        "create_semicircular_slot": holes.create_semicircular_slot,
+    }
+    globals().update(exports)
+    pythoncom = importlib.import_module("pythoncom")
+    _automation_loaded = True
 
 
 mcp = FastMCP(
@@ -130,6 +152,16 @@ class AppearanceTarget(str, Enum):
 
     DOCUMENT = "document"
     COMPONENT = "component"
+
+
+class HoleFeatureKind(str, Enum):
+    """Supported hole and slot feature kinds."""
+
+    BLIND = "blind"
+    THROUGH = "through"
+    COUNTERBORE = "counterbore"
+    COUNTERSINK = "countersink"
+    SEMICIRCULAR_SLOT = "semicircular_slot"
 
 
 class BaseInput(BaseModel):
@@ -251,6 +283,41 @@ class SolidWorksReviewInput(BaseInput):
     response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
 
 
+class SolidWorksHoleFeatureInput(BaseInput):
+    """Input for creating a constrained hole or semicircular slot on the active part."""
+
+    feature_kind: HoleFeatureKind = Field(..., description="Hole or slot kind.")
+    center_x_mm: float = Field(default=0.0, description="Hole center X on the sketch plane, mm.")
+    center_y_mm: float = Field(default=0.0, description="Hole center Y on the sketch plane, mm.")
+    diameter_mm: float = Field(default=5.0, gt=0.0, le=1000.0, description="Main hole diameter, mm.")
+    depth_mm: Optional[float] = Field(default=None, gt=0.0, le=5000.0, description="Blind depth, mm.")
+    secondary_diameter_mm: Optional[float] = Field(default=None, gt=0.0, le=2000.0, description="Counterbore/countersink diameter, mm.")
+    secondary_depth_mm: Optional[float] = Field(default=None, gt=0.0, le=5000.0, description="Counterbore depth, mm.")
+    included_angle_deg: float = Field(default=90.0, ge=10.0, lt=170.0, description="Countersink included angle, degrees.")
+    slot_end_x_mm: Optional[float] = Field(default=None, description="Slot end X on the sketch plane, mm.")
+    slot_end_y_mm: Optional[float] = Field(default=None, description="Slot end Y on the sketch plane, mm.")
+    plane_name: str = Field(default="Front Plane", min_length=1, max_length=120, description="Standard sketch plane.")
+    feature_name: str = Field(default="MCP_孔槽", min_length=1, max_length=120, description="Feature tree name.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+
+class HoleExpectationInput(BaseInput):
+    """Expected B-Rep hole diameter and axis position in millimeters."""
+
+    id: str = Field(..., min_length=1, max_length=80)
+    diameter_mm: float = Field(..., gt=0.0, le=2000.0)
+    position_mm: tuple[float, float, float]
+
+
+class SolidWorksHoleInspectionInput(BaseInput):
+    """Input for inspecting B-Rep holes and optional expected positions."""
+
+    expected_holes: list[HoleExpectationInput] = Field(default_factory=list)
+    position_tolerance_mm: float = Field(default=0.1, gt=0.0, le=10.0)
+    diameter_tolerance_mm: float = Field(default=0.05, gt=0.0, le=10.0)
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+
 class SolidWorksPlaneCoincidentMateInput(BaseInput):
     """Input for adding a coincident mate between two component planes/features."""
 
@@ -343,6 +410,23 @@ class SolidWorksRotaryMotorInput(BaseInput):
         return value
 
 
+class SolidWorksMotionAuditInput(BaseInput):
+    """Input for auditing Motion Study definitions and result freshness."""
+
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+
+class SolidWorksMotionValidationInput(BaseInput):
+    """Input for enforcing Motion Study delivery requirements."""
+
+    study_name: Optional[str] = Field(default=None, max_length=120)
+    expected_study_type: Optional[int] = Field(default=None, ge=0, le=10)
+    minimum_duration_seconds: float = Field(default=0.001, gt=0.0, le=3600.0)
+    minimum_motor_count: int = Field(default=1, ge=0, le=1000)
+    require_results: bool = Field(default=True)
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+
 def _coinitialize() -> None:
     """Initialize COM for the current MCP worker thread."""
     if pythoncom is not None:
@@ -363,6 +447,14 @@ def _active_assembly_required():
     sw, model = _active_model_required()
     if int(get_com_member(model, "GetType")) != 2:
         raise RuntimeError("Active document must be an assembly (.SLDASM).")
+    return sw, model
+
+
+def _active_part_required():
+    """Return the active SolidWorks part document or raise a helpful error."""
+    sw, model = _active_model_required()
+    if int(get_com_member(model, "GetType")) != 1:
+        raise RuntimeError("Active document must be a part (.SLDPRT).")
     return sw, model
 
 
@@ -445,10 +537,12 @@ def _tool_error(exc: Exception, response_format: ResponseFormat = ResponseFormat
     return _result(payload, response_format)
 
 
-def _run_locked(operation, response_format: ResponseFormat):
+def _run_locked(operation, response_format: ResponseFormat, load_automation: bool = True):
     """Run one SolidWorks COM operation under the global lock."""
     with _sw_lock:
         try:
+            if load_automation:
+                _load_automation_modules()
             _coinitialize()
             with redirect_stdout(sys.stderr):
                 payload = operation()
@@ -495,19 +589,25 @@ def solidworks_health_check(params: SolidWorksHealthCheckInput = SolidWorksHealt
     """Check Python dependencies, SolidWorks COM registration, optional live connection, and Motion typelib."""
 
     def op():
+        missing = missing_com_dependencies()
         checks: Dict[str, Any] = {
             "python_executable": sys.executable,
             "python_version": sys.version.split()[0],
             "platform": platform.platform(),
-            "missing_com_dependencies": missing_com_dependencies(),
+            "missing_com_dependencies": missing,
             "solidworks_detected": solidworks_installed(),
             "server_path": str(SERVER_DIR / "server.py"),
         }
-        if params.check_motion_type_library:
+        if params.check_motion_type_library and not missing:
+            _load_automation_modules()
             motion_tlb = ensure_motion_type_library(raise_on_error=False)
             checks["motion_type_library"] = motion_tlb
             checks["motion_type_library_ready"] = bool(motion_tlb)
-        if params.start_solidworks:
+        elif params.check_motion_type_library:
+            checks["motion_type_library"] = None
+            checks["motion_type_library_ready"] = False
+        if params.start_solidworks and not missing:
+            _load_automation_modules()
             sw, model = connect_solidworks(wait_seconds=1)
             checks["solidworks_revision"] = get_com_member(sw, "RevisionNumber")
             checks["active_document"] = _model_summary(model) if model else None
@@ -524,7 +624,7 @@ def solidworks_health_check(params: SolidWorksHealthCheckInput = SolidWorksHealt
             "issues": issues,
         }
 
-    return _run_locked(op, params.response_format)
+    return _run_locked(op, params.response_format, load_automation=False)
 
 
 @mcp.tool(
@@ -958,6 +1058,103 @@ def solidworks_review_active(params: SolidWorksReviewInput) -> str:
 
 
 @mcp.tool(
+    name="solidworks_create_hole_feature",
+    title="Create SolidWorks Hole or Semicircular Slot",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+def solidworks_create_hole_feature(params: SolidWorksHoleFeatureInput) -> str:
+    """Create a constrained blind/through/compound hole or semicircular slot on the active part."""
+
+    def op():
+        _sw, model = _active_part_required()
+        center = (mm(params.center_x_mm), mm(params.center_y_mm))
+        common = {"plane_name": params.plane_name, "name": params.feature_name}
+        if params.feature_kind == HoleFeatureKind.BLIND:
+            if params.depth_mm is None:
+                raise ValueError("depth_mm is required for a blind hole")
+            evidence = create_blind_hole(model, center, mm(params.diameter_mm), mm(params.depth_mm), **common)
+        elif params.feature_kind == HoleFeatureKind.THROUGH:
+            evidence = create_through_hole(model, center, mm(params.diameter_mm), **common)
+        elif params.feature_kind == HoleFeatureKind.COUNTERBORE:
+            if params.secondary_diameter_mm is None or params.secondary_depth_mm is None:
+                raise ValueError("secondary_diameter_mm and secondary_depth_mm are required for a counterbore")
+            evidence = create_counterbore_hole(
+                model,
+                center,
+                mm(params.diameter_mm),
+                mm(params.secondary_diameter_mm),
+                mm(params.secondary_depth_mm),
+                **common,
+            )
+        elif params.feature_kind == HoleFeatureKind.COUNTERSINK:
+            if params.secondary_diameter_mm is None:
+                raise ValueError("secondary_diameter_mm is required for a countersink")
+            evidence = create_countersink_hole(
+                model,
+                center,
+                mm(params.diameter_mm),
+                mm(params.secondary_diameter_mm),
+                included_angle_deg=params.included_angle_deg,
+                **common,
+            )
+        else:
+            if params.slot_end_x_mm is None or params.slot_end_y_mm is None:
+                raise ValueError("slot_end_x_mm and slot_end_y_mm are required for a semicircular slot")
+            evidence = create_semicircular_slot(
+                model,
+                center,
+                (mm(params.slot_end_x_mm), mm(params.slot_end_y_mm)),
+                width=mm(params.diameter_mm),
+                depth=mm(params.depth_mm) if params.depth_mm is not None else 0.0,
+                **common,
+            )
+        get_com_member(model, "ForceRebuild3", False)
+        return {"status": "ok", "feature_evidence": evidence, "document": _model_summary(model)}
+
+    return _run_locked(op, params.response_format)
+
+
+@mcp.tool(
+    name="solidworks_inspect_hole_features",
+    title="Inspect SolidWorks Hole Geometry",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+def solidworks_inspect_hole_features(params: SolidWorksHoleInspectionInput = SolidWorksHoleInspectionInput()) -> str:
+    """Read B-Rep holes, compound segments, slot arcs, and optional hole-position acceptance."""
+
+    def op():
+        _sw, model = _active_part_required()
+        measurements = collect_geometry_measurements(model)
+        expected = [item.model_dump() for item in params.expected_holes]
+        position_checks = None
+        if expected:
+            position_checks = validate_hole_positions(
+                measurements,
+                expected,
+                position_tolerance_mm=params.position_tolerance_mm,
+                diameter_tolerance_mm=params.diameter_tolerance_mm,
+            )
+        return {
+            "status": "ok" if position_checks is None or position_checks["status"] == "pass" else "failed",
+            "measurements": measurements,
+            "position_checks": position_checks,
+            "document": _model_summary(model),
+        }
+
+    return _run_locked(op, params.response_format)
+
+
+@mcp.tool(
     name="solidworks_add_rotary_motor",
     title="Add Motion Study Rotary Motor",
     annotations={
@@ -1002,6 +1199,62 @@ def solidworks_add_rotary_motor(params: SolidWorksRotaryMotorInput) -> str:
             "rpm": params.rpm,
             "shaft_component": get_com_member(shaft_comp, "Name2"),
             "rotor_component": get_com_member(rotor_comp, "Name2"),
+            "document": _model_summary(asm),
+        }
+
+    return _run_locked(op, params.response_format)
+
+
+@mcp.tool(
+    name="solidworks_inspect_motion_studies",
+    title="Inspect Motion Studies",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+def solidworks_inspect_motion_studies(params: SolidWorksMotionAuditInput = SolidWorksMotionAuditInput()) -> str:
+    """Inspect Motion Study definitions, motor/force counts, and whether results are stale."""
+
+    def op():
+        _sw, asm = _active_assembly_required()
+        return {
+            "status": "ok",
+            "motion": collect_motion_study_summary(asm),
+            "document": _model_summary(asm),
+        }
+
+    return _run_locked(op, params.response_format)
+
+
+@mcp.tool(
+    name="solidworks_validate_motion_study",
+    title="Validate Motion Study Delivery Evidence",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+def solidworks_validate_motion_study(params: SolidWorksMotionValidationInput = SolidWorksMotionValidationInput()) -> str:
+    """Enforce Motion Study type, duration, motor count, result presence, and freshness requirements."""
+
+    def op():
+        _sw, asm = _active_assembly_required()
+        audit = validate_motion_studies(
+            asm,
+            study_name=params.study_name,
+            expected_study_type=params.expected_study_type,
+            minimum_duration_seconds=params.minimum_duration_seconds,
+            minimum_motor_count=params.minimum_motor_count,
+            require_results=params.require_results,
+        )
+        return {
+            "status": audit["validation"]["status"],
+            "motion": audit,
             "document": _model_summary(asm),
         }
 

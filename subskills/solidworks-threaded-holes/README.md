@@ -27,7 +27,7 @@ SolidWorks COM 创建真实 Thread 特征在不同版本和语言环境下不稳
 ```powershell
 py subskills\solidworks-threaded-holes\scripts\create_threaded_hole_template.py `
   --thread M6 `
-  --output-dir E:\desktop\CAD\solidworks_threaded_hole_output
+  --output-dir C:\CADAutomationWorkbench\solidworks_threaded_hole_output
 ```
 
 ## 目录

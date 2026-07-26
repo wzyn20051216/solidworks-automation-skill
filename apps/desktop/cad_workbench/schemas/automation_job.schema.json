@@ -19,15 +19,29 @@
     },
     "kind": {
       "type": "string",
-      "enum": ["create_shell", "import_model", "delivery_package", "codex_task"]
+      "enum": ["create_shell", "import_model", "delivery_package", "codex_task", "agent_task"]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "detail": {
+      "type": "string",
+      "minLength": 1
+    },
+    "createdAt": {
+      "type": "string"
+    },
+    "updatedAt": {
+      "type": "string"
     },
     "executor": {
       "type": "string",
-      "enum": ["mock", "codex"]
+      "enum": ["mock", "codex", "agent"]
     },
     "status": {
       "type": "string",
-      "enum": ["queued", "running", "passed", "failed", "cancelled", "approval_required"]
+      "enum": ["queued", "running", "passed", "review_required", "failed", "cancelled", "approval_required"]
     },
     "progress": {
       "type": "integer",
@@ -35,6 +49,40 @@
       "maximum": 100
     },
     "requestedBy": {
+      "type": "string"
+    },
+    "objective": {
+      "type": "string"
+    },
+    "target": {
+      "type": "string"
+    },
+    "expectedOutput": {
+      "type": "string"
+    },
+    "strictRules": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "prompt": {
+      "type": "string",
+      "maxLength": 24000
+    },
+    "cwd": {
+      "type": "string"
+    },
+    "skillPath": {
+      "type": "string"
+    },
+    "projectPath": {
+      "type": "string"
+    },
+    "lastMessage": {
+      "type": "string"
+    },
+    "error": {
       "type": "string"
     },
     "targetSoftware": {
@@ -86,6 +134,19 @@
         "type": "string"
       }
     },
+    "reviewedAt": {
+      "type": "string"
+    },
+    "reviewedBy": {
+      "type": "string"
+    },
+    "reviewDecision": {
+      "type": "string",
+      "enum": ["approved", "rejected"]
+    },
+    "reviewNote": {
+      "type": "string"
+    },
     "artifactLedgerPath": {
       "type": "string"
     },
@@ -125,7 +186,67 @@
       }
     },
     "uiConfig": {
+      "type": "object",
+      "properties": {
+        "agentRuntime": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["provider", "providerName", "protocol"],
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": ["codex", "claude", "gemini", "opencode"]
+            },
+            "providerName": {
+              "type": "string"
+            },
+            "protocol": {
+              "type": "string",
+              "enum": ["codex-exec-v1", "claude-print-v1", "gemini-headless-v1", "opencode-jsonl-v1"]
+            },
+            "model": {
+              "type": "string"
+            }
+          }
+        },
+        "knowledgeBase": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cloudEnabled": {
+              "type": "boolean"
+            },
+            "localRoots": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "string"
+              }
+            },
+            "endpoint": {
+              "type": "string"
+            },
+            "namespace": {
+              "type": "string"
+            },
+            "tokenEnv": {
+              "type": "string",
+              "const": "CAD_STUDIO_RAG_TOKEN"
+            },
+            "topK": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 12
+            }
+          }
+        }
+      }
+    },
+    "result": {
       "type": "object"
+    },
+    "workerLog": {
+      "type": "array"
     },
     "artifacts": {
       "type": "array",

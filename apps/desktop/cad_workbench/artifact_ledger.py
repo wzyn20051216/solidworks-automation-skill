@@ -91,7 +91,7 @@ def collect_artifact_paths(job: dict[str, Any], result: dict[str, Any]) -> list[
     return unique
 
 
-def describe_artifact(kind: str, path: Path) -> dict[str, Any]:
+def describe_artifact(kind: str, path: Path, artifact_baseline: dict[str, Any] | None = None) -> dict[str, Any]:
     """@brief 返回单个交付物的存在性、大小和 hash。"""
     resolved = Path(path).expanduser()
     exists = resolved.exists()
@@ -105,23 +105,42 @@ def describe_artifact(kind: str, path: Path) -> dict[str, Any]:
         stat = resolved.stat()
         item["sizeBytes"] = stat.st_size
         item["sha256"] = sha256_file(resolved)
+        if artifact_baseline is not None:
+            before = artifact_baseline.get(str(resolved.resolve()))
+            if isinstance(before, dict) and before.get("sha256"):
+                item["producedThisRun"] = before.get("sha256") != item["sha256"]
+            else:
+                item["producedThisRun"] = before is None
     return item
 
 
 def build_artifact_ledger(queue_dir: Path, job: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
     """@brief 构建任务交付物账本对象。"""
-    artifacts = [describe_artifact(kind, path) for kind, path in collect_artifact_paths(job, result)]
+    baseline = result.get("artifactBaseline") if isinstance(result.get("artifactBaseline"), dict) else None
+    artifacts = [describe_artifact(kind, path, baseline) for kind, path in collect_artifact_paths(job, result)]
     return {
         "schemaVersion": "1.0",
         "jobId": job.get("id"),
         "runId": job.get("runId"),
         "kind": job.get("kind"),
         "executor": job.get("executor", "mock"),
+        "target": job.get("target"),
+        "objective": job.get("objective"),
+        "detail": job.get("detail"),
+        "strictRules": job.get("strictRules") if isinstance(job.get("strictRules"), list) else [],
+        "expectedOutput": job.get("expectedOutput"),
+        "localCadAutomation": bool(
+            job.get("uiConfig", {}).get("cadRuntime", {}).get("localCadAutomation")
+            if isinstance(job.get("uiConfig"), dict)
+            and isinstance(job.get("uiConfig", {}).get("cadRuntime"), dict)
+            else False
+        ),
         "status": job.get("status"),
         "generatedAt": now_iso(),
         "queueDir": str(Path(queue_dir)),
         "artifacts": artifacts,
         "verification": result.get("verification", []),
+        "risks": result.get("risks", []),
         "resultMessage": result.get("message"),
     }
 

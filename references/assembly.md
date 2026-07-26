@@ -34,7 +34,7 @@ component = asm_model.AddComponent5(
 `AddComponent4` / `AddComponent5` 失败时，先检查零件文件是否真实存在、装配体是否为活动文档、零件是否已保存到磁盘；必要时先打开零件再切回装配体。真实回归验证：
 
 ```powershell
-py -3.13 tests\solidworks_add_component_regression.py --output-dir E:\desktop\CAD\solidworks_add_component_regression
+py -3.13 tests\solidworks_add_component_regression.py --output-dir C:\CADAutomationWorkbench\solidworks_add_component_regression
 ```
 
 ## 运动型装配工作流

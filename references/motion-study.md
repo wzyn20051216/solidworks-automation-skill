@@ -24,6 +24,7 @@
 7. 调用 `sw_motion.create_motion_study()` 创建算例。
 8. 调用 `add_constant_speed_rotary_motor_by_cylinders()` 添加匀速旋转马达。
 9. 调用 `calculate_and_play()` 计算并播放。
+10. 调用 `validate_motion_studies()`，只有 `validation.status == "pass"` 才能进入交付。
 
 ## 最小示例
 
@@ -36,6 +37,7 @@ from sw_motion import (
     create_motion_study,
     add_constant_speed_rotary_motor_by_cylinders,
     calculate_and_play,
+    validate_motion_studies,
 )
 
 # 前提：asm 是装配体文档；stand_comp 是静止轴/支架；impeller_comp 是叶轮。
@@ -57,8 +59,29 @@ motor = add_constant_speed_rotary_motor_by_cylinders(
 )
 
 ok = calculate_and_play(study)
-print(ok)
+audit = validate_motion_studies(
+    asm,
+    study_name="叶轮_60RPM_循环转动",
+    minimum_duration_seconds=4.0,
+    minimum_motor_count=1,
+    require_results=True,
+)
+print(ok, audit["validation"])
 ```
+
+## 结果验收门禁
+
+`validate_motion_studies()` 会同时检查：
+
+- 目标算例真实存在且可读取。
+- `swmotionstudy.tlb` 已加载。
+- 算例时长不小于要求。
+- 马达数量不小于要求。
+- 可选的 `StudyType` 与任务一致。
+- `GetResults()` 返回结果对象。
+- `results_out_of_date` 明确为 `False`。
+
+只看到时间轴、马达图标、播放动画或 `Calculate=True` 都不能替代这组结果证据。任何检查失败时，Reviewer Gate 必须阻止交付并要求重新计算或修复装配自由度。
 
 ## 类型库与动态 COM 坑
 
