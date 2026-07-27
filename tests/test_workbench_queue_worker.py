@@ -84,6 +84,27 @@ def _queued_job(job_id: str = "job-1", kind: str = "create_shell") -> dict:
     }
 
 
+def test_write_job_retries_transient_windows_access_denied(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """@brief 队列文件被 Windows 短暂占用时，worker 必须重试而不是直接失败。"""
+    original_replace = Path.replace
+    attempts = {"denied": 0}
+
+    def flaky_replace(self: Path, target: Path) -> Path:
+        if Path(target).name == "job-retry.json" and attempts["denied"] < 2:
+            attempts["denied"] += 1
+            raise PermissionError(5, "拒绝访问", str(self))
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", flaky_replace)
+    job_path = tmp_path / "queue" / "job-retry.json"
+
+    write_job(job_path, _queued_job("job-retry"))
+
+    assert attempts["denied"] == 2
+    assert read_job(job_path)["id"] == "job-retry"
+    assert list(job_path.parent.glob("*.tmp")) == []
+
+
 def test_queue_worker_processes_queued_job(tmp_path: Path) -> None:
     queue_dir = tmp_path / "queue"
     job_path = queue_dir / "job-1.json"

@@ -3,6 +3,7 @@ use serde_json::{json, Value};
 use std::io::Write;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::Mutex;
+use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{
     fs,
@@ -77,33 +78,7 @@ fn atomic_write(path: &Path, payload: &[u8]) -> Result<(), String> {
         })
         .map_err(|error| error.to_string())?;
 
-    #[cfg(windows)]
-    {
-        let source = temporary
-            .as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect::<Vec<_>>();
-        let target = path
-            .as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect::<Vec<_>>();
-        let moved = unsafe {
-            MoveFileExW(
-                source.as_ptr(),
-                target.as_ptr(),
-                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-            )
-        };
-        if moved == 0 {
-            let error = std::io::Error::last_os_error().to_string();
-            let _ = fs::remove_file(&temporary);
-            return Err(error);
-        }
-    }
-    #[cfg(not(windows))]
-    fs::rename(&temporary, path).map_err(|error| error.to_string())?;
+    replace_with_retry(&temporary, path, true)?;
 
     Ok(())
 }
@@ -135,15 +110,85 @@ fn atomic_create(path: &Path, payload: &[u8]) -> Result<(), String> {
         })
         .map_err(|error| error.to_string())?;
 
-    let result = fs::hard_link(&temporary, path).map_err(|error| {
-        if path.exists() {
-            "任务已存在，拒绝通过创建接口覆盖。".to_string()
-        } else {
-            format!("原子创建任务失败: {error}")
-        }
-    });
+    let result = create_link_with_retry(&temporary, path);
     let _ = fs::remove_file(&temporary);
     result
+}
+
+fn retry_delay(attempt: usize) -> Duration {
+    Duration::from_millis(25 + (attempt as u64 * 25).min(250))
+}
+
+#[cfg(windows)]
+fn move_file_ex(source: &Path, target: &Path, replace: bool) -> Result<(), std::io::Error> {
+    let source_wide = source
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let target_wide = target
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let mut flags = MOVEFILE_WRITE_THROUGH;
+    if replace {
+        flags |= MOVEFILE_REPLACE_EXISTING;
+    }
+    let moved = unsafe { MoveFileExW(source_wide.as_ptr(), target_wide.as_ptr(), flags) };
+    if moved == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+fn replace_with_retry(source: &Path, target: &Path, replace: bool) -> Result<(), String> {
+    let mut last_error = String::new();
+    for attempt in 0..24 {
+        #[cfg(windows)]
+        let result = move_file_ex(source, target, replace);
+        #[cfg(not(windows))]
+        let result = fs::rename(source, target);
+
+        match result {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                last_error = error.to_string();
+                thread::sleep(retry_delay(attempt));
+            }
+        }
+    }
+    let _ = fs::remove_file(source);
+    Err(format!(
+        "队列文件写入失败，Windows 暂时拒绝访问 {}。请关闭重复运行的 CAD Studio/Worker，或稍后重试。底层错误: {}",
+        target.display(),
+        last_error
+    ))
+}
+
+fn create_link_with_retry(source: &Path, target: &Path) -> Result<(), String> {
+    let mut last_error = String::new();
+    for attempt in 0..24 {
+        if target.exists() {
+            return Err("任务已存在，拒绝通过创建接口覆盖。".to_string());
+        }
+        match fs::hard_link(source, target) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                if target.exists() {
+                    return Err("任务已存在，拒绝通过创建接口覆盖。".to_string());
+                }
+                last_error = error.to_string();
+                thread::sleep(retry_delay(attempt));
+            }
+        }
+    }
+    Err(format!(
+        "原子创建任务失败，Windows 暂时拒绝访问 {}。请关闭重复运行的 CAD Studio/Worker，或稍后重试。底层错误: {}",
+        target.display(),
+        last_error
+    ))
 }
 
 fn job_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {

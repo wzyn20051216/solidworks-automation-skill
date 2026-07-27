@@ -56,6 +56,7 @@ CAD_ARTIFACT_EXTENSIONS = {".sldprt", ".sldasm", ".step", ".stp", ".stl", ".dwg"
 PROVIDER_VERIFICATION_FILE = "provider_verifications.json"
 _ACTIVE_LOCKS: dict[Path, BinaryIO] = {}
 _ACTIVE_LOCKS_GUARD = threading.Lock()
+QUEUE_WRITE_RETRIES = 24
 
 
 class JobCancelled(RuntimeError):
@@ -141,9 +142,45 @@ def write_job(path: Path, job: dict[str, Any]) -> None:
     """@brief 原子回写单个队列任务 JSON。"""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(path)
+    atomic_write_json(path, job)
+
+
+def _queue_write_delay(attempt: int) -> float:
+    """@brief 返回 Windows 队列文件被短暂占用时的退避时间。"""
+    return min(0.025 + attempt * 0.025, 0.25)
+
+
+def atomic_replace_with_retry(temporary: Path, target: Path) -> None:
+    """@brief 用重试机制替换队列文件，规避 Windows 瞬时文件锁。"""
+    last_error: OSError | None = None
+    for attempt in range(QUEUE_WRITE_RETRIES):
+        try:
+            temporary.replace(target)
+            return
+        except OSError as error:
+            last_error = error
+            time.sleep(_queue_write_delay(attempt))
+    try:
+        temporary.unlink(missing_ok=True)
+    except OSError:
+        pass
+    raise OSError(
+        f"队列文件写入失败，Windows 暂时拒绝访问 {target}。"
+        "请关闭重复运行的 CAD Studio/Worker，或稍后重试。"
+    ) from last_error
+
+
+def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    """@brief 使用唯一临时文件写入 JSON，再原子替换目标文件。"""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False, indent=2))
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    atomic_replace_with_retry(temporary, path)
 
 
 def cancel_marker_path(path: Path) -> Path:
@@ -577,13 +614,7 @@ def record_provider_verification(queue_dir: Path, provider: AgentProvider) -> Pa
         "protocol": provider.protocol,
         "resultSchema": "codex_final_response.schema.json",
     }
-    verification_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = verification_path.with_suffix(".json.tmp")
-    temporary.write_text(
-        json.dumps({"schemaVersion": "1.0", "providers": providers}, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    temporary.replace(verification_path)
+    atomic_write_json(verification_path, {"schemaVersion": "1.0", "providers": providers})
     return verification_path
 
 
