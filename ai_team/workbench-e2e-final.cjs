@@ -9,6 +9,7 @@ const executable = process.env.CAD_STUDIO_E2E_EXE
   || path.join(repo, "apps", "workbench-ui", "src-tauri", "target", "debug", "cad-studio.exe");
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const readJob = (file) => JSON.parse(fs.readFileSync(path.join(queue, file), "utf8"));
+const jobFiles = () => fs.readdirSync(queue).filter((file) => file.startsWith("job-") && file.endsWith(".json"));
 
 async function waitUntil(check, label, timeout = 20_000) {
   const deadline = Date.now() + timeout;
@@ -62,6 +63,15 @@ async function main() {
     solidworks: document.body.innerText.includes("SolidWorks 可用"),
     autocad: document.body.innerText.includes("AutoCAD 可用"),
   }));
+
+  await page.getByRole("button", { name: "修改项目名称", exact: true }).click();
+  const projectNameInput = page.getByRole("textbox", { name: "项目名称", exact: true });
+  await projectNameInput.fill("桌面交互回归项目");
+  await projectNameInput.press("Enter");
+  await waitUntil(
+    () => page.evaluate(() => JSON.parse(localStorage.getItem("cad-studio.settings.v1") || "{}").projectName === "桌面交互回归项目"),
+    "project name persisted",
+  );
 
   await queuePanel.getByRole("button", { name: "启动", exact: true }).click();
   let lastWorkerStatus = null;
@@ -232,10 +242,18 @@ async function main() {
   await page.waitForTimeout(1_600);
 
   await page.getByRole("button", { name: "建模", exact: true }).click();
+  const beforeTemplateFiles = jobFiles();
   await page.locator(".capability-card").filter({ hasText: "通用零件" }).first().click();
+  await page.waitForTimeout(800);
+  const afterTemplateFiles = jobFiles();
+  if (afterTemplateFiles.length !== beforeTemplateFiles.length) {
+    throw new Error(`template click created a queue job: ${JSON.stringify(afterTemplateFiles)}`);
+  }
+  const selectedTemplate = await page.locator(".capability-card.selected").filter({ hasText: "通用零件" }).first().innerText();
+  await page.locator(".bridge-run").click();
   const createdFile = await waitUntil(
-    () => fs.readdirSync(queue).find((file) => file.startsWith("job-") && file.endsWith(".json")),
-    "template job file",
+    () => jobFiles().find((file) => !beforeTemplateFiles.includes(file)),
+    "confirmed template job file",
   );
   await waitUntil(() => readJob(createdFile).status === "approval_required", "policy approval");
   await queuePanel.getByRole("button", { name: "停止", exact: true }).click();
@@ -245,6 +263,11 @@ async function main() {
   await waitUntil(() => readJob(createdFile).status === "queued", "approved queued");
   await createdCard.getByRole("button", { name: "取消", exact: true }).click();
   await waitUntil(() => readJob(createdFile).status === "cancelled", "queued cancelled");
+  const createdStatusBeforeDelete = readJob(createdFile).status;
+  const sidebarCreatedItem = page.locator(".project-sequence-item").filter({ hasText: "通用零件" }).first();
+  await sidebarCreatedItem.locator(".project-sequence-delete").click();
+  await sidebarCreatedItem.locator(".project-sequence-delete.confirm").click();
+  await waitUntil(() => !fs.existsSync(path.join(queue, createdFile)), "cancelled job deleted");
 
   const artifact = path.join(queue, "e2e-model.step");
   fs.writeFileSync(artifact, "ISO-10303-21;\nEND-ISO-10303-21;\n");
@@ -284,6 +307,11 @@ async function main() {
     ),
   );
   await page.waitForTimeout(1_900);
+  const sidebarReviewItem = page.locator(".project-sequence-item").filter({ hasText: "人工复核测试" }).first();
+  const sidebarReviewText = await sidebarReviewItem.innerText();
+  if (!sidebarReviewText.includes("已完成 · 100%") || sidebarReviewText.includes("待复核")) {
+    throw new Error(`sidebar completion label is incorrect: ${sidebarReviewText}`);
+  }
   let manualReviewBypassRejected = false;
   try {
     await invoke("approve_review_job", {
@@ -301,16 +329,27 @@ async function main() {
   const form = page.locator(".manual-review-form");
   await form.waitFor({ state: "visible" });
   for (const checkbox of await form.locator('input[type="checkbox"]').all()) await checkbox.check();
-  await page.waitForTimeout(500);
+  await waitUntil(
+    async () => {
+      const checked = await form.locator('input[type="checkbox"]:checked').count();
+      const total = await form.locator('input[type="checkbox"]').count();
+      return checked === total;
+    },
+    "manual review checklist state",
+  );
   await form
     .locator("textarea")
     .fill("已在 SolidWorks 原生打开，核对关键尺寸、真实孔槽和 STEP 文件版本，未发现异常。");
-  await form.getByRole("button", { name: "通过复核", exact: true }).click();
-  await page.waitForTimeout(1_000);
-  if (readJob(reviewFile).status !== "passed") {
-    throw new Error(`manual review did not pass: ${await page.locator('.live-summary').innerText()}`);
-  }
-  const reviewed = readJob(reviewFile);
+  const approveReviewButton = form.getByRole("button", { name: "通过复核", exact: true });
+  await waitUntil(() => approveReviewButton.isEnabled(), "manual review action enabled");
+  await approveReviewButton.click();
+  const reviewed = await waitUntil(
+    () => {
+      const job = readJob(reviewFile);
+      return job.status === "passed" ? job : false;
+    },
+    "manual review pass",
+  );
 
   let duplicateRejected = false;
   try {
@@ -320,7 +359,7 @@ async function main() {
   }
 
   const tabResults = {};
-  for (const label of ["总览", "建模", "特征", "图纸", "复核", "交付", "设置"]) {
+  for (const label of ["总览", "建模", "特征", "图纸", "复核", "交付", "设置", "帮助"]) {
     await page.getByRole("button", { name: label, exact: true }).click();
     await page.waitForTimeout(120);
     tabResults[label] = await page.evaluate(() => ({
@@ -354,7 +393,14 @@ async function main() {
       cancelledStatus: cancelledRecovery.status,
       cancelledEvent: cancelledRecoveryEvent.includes("run.cancelled"),
     },
-    created: { id: createdId, status: readJob(createdFile).status },
+    projectName: await page.locator(".project-name-row strong").innerText(),
+    template: {
+      selected: selectedTemplate.includes("已载入配置"),
+      createdOnSelect: afterTemplateFiles.length !== beforeTemplateFiles.length,
+      createdAfterConfirm: Boolean(createdFile),
+    },
+    created: { id: createdId, statusBeforeDelete: createdStatusBeforeDelete, deleted: !fs.existsSync(path.join(queue, createdFile)) },
+    sidebarReviewText,
     reviewed: {
       status: reviewed.status,
       decision: reviewed.reviewDecision,

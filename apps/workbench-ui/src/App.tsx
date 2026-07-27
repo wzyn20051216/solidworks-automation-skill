@@ -4,6 +4,7 @@ import {
   ArrowClockwise,
   CaretDown,
   ChatCircleText,
+  Check,
   CubeFocus,
   Export,
   FilePlus,
@@ -16,11 +17,14 @@ import {
   Lightning,
   Minus,
   PaperPlaneTilt,
+  PencilSimple,
   Play,
   Ruler,
   ShieldCheck,
   Sparkle,
+  SpinnerGap,
   Square,
+  Trash,
   UploadSimple,
   X,
 } from "@phosphor-icons/react";
@@ -28,7 +32,7 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { type CSSProperties, type ChangeEvent, type DragEvent, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type ChangeEvent, type DragEvent, type PointerEvent as ReactPointerEvent, startTransition, useEffect, useMemo, useRef, useState } from "react";
 
 const DEFAULT_WALLPAPER_URL = new URL("./assets/default-blossom-wallpaper.mp4", import.meta.url).href;
 const DEFAULT_WALLPAPER_POSTER_URL = new URL("./assets/default-blossom-poster.webp", import.meta.url).href;
@@ -53,6 +57,7 @@ type AppSettings = {
   defaultWallpaperVersion?: number;
   panelOpacityVersion?: number;
   recentWallpapers: RecentWallpaper[];
+  projectName?: string;
   recentProjectPath?: string;
   apiConfig?: ApiIntegrationConfig;
   knowledgeBase?: KnowledgeBaseConfig;
@@ -262,6 +267,8 @@ type ManualReviewDraft = {
   note: string;
   checks: string[];
 };
+type HelpTopicId = "start" | "projects" | "status" | "delivery" | "troubleshooting";
+type SubmissionKind = "task" | "chat" | null;
 type WorkerStatus = {
   running: boolean;
   pid?: number | null;
@@ -355,13 +362,81 @@ const pageCopy: Record<ActiveTab, { title: string; subtitle: string }> = {
 const SETTINGS_KEY = "cad-studio.settings.v1";
 const QUEUE_KEY = "cad-studio.queue.v1";
 const CHAT_KEY = "cad-studio.agent-chat.v1";
-const APP_VERSION = "0.1.1";
+const APP_VERSION = "0.2.0";
 const manualReviewOptions = [
   ["native-open", "已用目标 CAD 软件原生打开并确认无报错"],
   ["dimensions", "已核对关键尺寸、公差、基准和定位尺寸"],
   ["features", "已核对孔槽、螺纹、装配和真实几何特征"],
   ["artifacts", "已核对本轮交付文件、格式、路径和版本"],
 ] as const;
+const helpTopics: Array<{
+  id: HelpTopicId;
+  label: string;
+  title: string;
+  summary: string;
+  items: Array<{ title: string; detail: string }>;
+}> = [
+  {
+    id: "start",
+    label: "快速开始",
+    title: "从需求到第一次执行",
+    summary: "先确认环境，再选择模板或直接输入需求。模板只负责填写配置，只有点击执行才会创建任务。",
+    items: [
+      { title: "检查环境", detail: "在设置页确认 Python、Agent CLI，以及需要使用的 SolidWorks 或 AutoCAD。" },
+      { title: "准备需求", detail: "写清用途、关键尺寸、材料、工艺和输出格式；安全参数和装配接口不要交给 AI 猜测。" },
+      { title: "选择模板", detail: "建模、孔槽和图纸卡片用于预填任务类型。检查下方配置后，再点击执行按钮。" },
+      { title: "批准与执行", detail: "桌面 CAD、全权限或跨目录访问会进入审批；批准后由本地 Worker 执行。" },
+    ],
+  },
+  {
+    id: "projects",
+    label: "项目与任务",
+    title: "管理左侧任务历史",
+    summary: "项目名保存在本机。左侧每一项是一轮独立任务，选择任务可以查看对话、过程、日志和产物。",
+    items: [
+      { title: "修改项目名", detail: "点击当前项目名称旁的编辑图标，输入名称后按 Enter 或点击确认。" },
+      { title: "新建任务", detail: "新建任务只打开配置区，不会自动执行，也不会污染任务历史。" },
+      { title: "删除记录", detail: "任务行右侧的删除按钮需要二次确认。删除任务记录不会删除已经导出的 CAD 文件。" },
+      { title: "运行中任务", detail: "执行中的任务需要先取消，待状态变为已取消后才能删除。" },
+    ],
+  },
+  {
+    id: "status",
+    label: "状态说明",
+    title: "理解任务状态",
+    summary: "侧边栏强调是否已经产出结果，任务监视器保留更严格的审批、复核和错误状态。",
+    items: [
+      { title: "排队 / 执行中", detail: "任务已进入本地队列，或已被 Worker 领取。长时间无心跳可重启执行器。" },
+      { title: "待审批", detail: "任务请求桌面 CAD、全权限、网络或跨目录能力，需要用户明确批准。" },
+      { title: "已完成", detail: "任务已经生成结果和交付物；若存在工程警告，任务详情仍会要求人工确认。" },
+      { title: "失败 / 已取消", detail: "失败任务可以重新执行；取消任务不会自动删除其历史记录。" },
+    ],
+  },
+  {
+    id: "delivery",
+    label: "复核与交付",
+    title: "确认文件可以交付",
+    summary: "生成文件不等于制造验收。关键尺寸、孔槽、装配和工程图仍要在目标 CAD 软件中复核。",
+    items: [
+      { title: "检查产物", detail: "确认 STEP、STL、SLDPRT、DWG、DXF 或 PDF 路径、大小和本轮生成标记。" },
+      { title: "原生打开", detail: "用 SolidWorks 或 AutoCAD 打开文件，确认无修复提示、缺失引用或版本异常。" },
+      { title: "核对几何", detail: "检查包络尺寸、孔径、孔位、壁厚、螺纹、装配干涉以及制造方向。" },
+      { title: "完成复核", detail: "在复核页勾选真实完成的检查项并填写说明，记录会写入本地任务元数据。" },
+    ],
+  },
+  {
+    id: "troubleshooting",
+    label: "故障处理",
+    title: "常见问题排查",
+    summary: "先看任务卡片错误、Worker 心跳和 Agent 输出，再决定重新执行或重启执行器。",
+    items: [
+      { title: "点击后停顿", detail: "等待按钮会立即显示当前阶段。首次环境检测可能较慢，之后使用缓存结果。" },
+      { title: "Worker 无心跳", detail: "点击重启执行器。运行中的任务会先恢复到队列，再由新 Worker 接管。" },
+      { title: "Windows 拒绝访问", detail: "关闭重复运行的 CAD Studio/Worker 后重试；队列写入会自动进行短时退避。" },
+      { title: "任务失败", detail: "展开任务查看错误和日志，修正输入或环境后点击重新执行。" },
+    ],
+  },
+];
 const defaultApiConfig: ApiIntegrationConfig = {
   mode: "codex_cli",
   agentProvider: "codex",
@@ -506,6 +581,15 @@ function jobStatusLabel(status: AutomationJobStatus) {
   return "排队";
 }
 
+function sidebarJobStatusLabel(job: AutomationJob) {
+  if (job.status === "review_required" && job.progress >= 100) return "已完成";
+  return jobStatusLabel(job.status);
+}
+
+function nextPaint() {
+  return new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+}
+
 function jobKindDetail(kind: AutomationJobKind) {
   if (kind === "create_shell") return { title: "新建 CAD 任务", detail: "生成零件、装配、外壳、孔槽和基础检查任务" };
   if (kind === "import_model") return { title: "导入已有文件", detail: "读取 CAD 模型、工程图或图片草图作为参考" };
@@ -579,6 +663,7 @@ function loadSettings(): AppSettings | null {
       defaultWallpaperVersion: 1,
       panelOpacityVersion: 1,
       recentWallpapers: Array.isArray(parsed.recentWallpapers) ? parsed.recentWallpapers.slice(0, 6) : [],
+      projectName: typeof parsed.projectName === "string" && parsed.projectName.trim() ? parsed.projectName.trim().slice(0, 48) : "未命名项目",
       recentProjectPath: parsed.recentProjectPath,
       apiConfig: parsed.apiConfig
         ? {
@@ -953,6 +1038,9 @@ function App() {
   const [wallpaperMotionStrength, setWallpaperMotionStrength] = useState(55);
   const [wallpaperShot, setWallpaperShot] = useState(0);
   const [recentWallpapers, setRecentWallpapers] = useState<RecentWallpaper[]>([]);
+  const [projectName, setProjectName] = useState("未命名项目");
+  const [projectNameDraft, setProjectNameDraft] = useState("未命名项目");
+  const [editingProjectName, setEditingProjectName] = useState(false);
   const [recentProjectPath, setRecentProjectPath] = useState<string | undefined>();
   const [apiConfig, setApiConfig] = useState<ApiIntegrationConfig>(defaultApiConfig);
   const [knowledgeBase, setKnowledgeBase] = useState<KnowledgeBaseConfig>(defaultKnowledgeBase);
@@ -971,6 +1059,11 @@ function App() {
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus>({ running: false, message: "桌面端可启动" });
   const [workerAction, setWorkerAction] = useState<"start" | "stop" | "restart" | null>(null);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
+  const [submissionKind, setSubmissionKind] = useState<SubmissionKind>(null);
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState<string | null>(null);
+  const [deleteCandidateJobId, setDeleteCandidateJobId] = useState<string | null>(null);
+  const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
+  const [activeHelpTopic, setActiveHelpTopic] = useState<HelpTopicId>("start");
   const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealth | null>(null);
   const [runtimeMessage, setRuntimeMessage] = useState("正在检测 Agent、skills 与 CAD 环境...");
   const [windowHint, setWindowHint] = useState("窗口控制就绪");
@@ -992,6 +1085,7 @@ function App() {
     localCadAutomation: true,
   });
   const wallpaperInputRef = useRef<HTMLInputElement>(null);
+  const bridgeRef = useRef<HTMLElement>(null);
   const completedChatJobIdsRef = useRef<Set<string>>(new Set());
   const reducedMotion = useReducedMotion();
 
@@ -1029,7 +1123,7 @@ function App() {
   const resultChecks = resultJob?.reviewGate?.checks ?? resultJob?.result?.checks ?? [];
   const resultFeatures = realFeatureRows(resultJob);
   const codexPrompt = useMemo(() => buildCodexPrompt(codexConfig, recentProjectPath, runtimeHealth), [codexConfig, recentProjectPath, runtimeHealth]);
-  const recentJobs = useMemo(() => jobs.slice(0, 5), [jobs]);
+  const recentJobs = useMemo(() => jobs.slice(0, 8), [jobs]);
   const selectedProvider = useMemo(
     () => runtimeHealth?.agentProviders?.find((provider) => provider.id === apiConfig.agentProvider),
     [apiConfig.agentProvider, runtimeHealth],
@@ -1176,6 +1270,7 @@ function App() {
   }
 
   function enqueueCodexTask() {
+    if (submissionKind) return;
     void enqueueCodexTaskWithConfig(codexConfig);
   }
 
@@ -1184,9 +1279,6 @@ function App() {
     if (!health?.skillRoot) {
       setRuntimeMessage("正在检测 Agent、skills 与 CAD 环境...");
       health = await invoke<RuntimeHealth>("runtime_health");
-    } else {
-      const providerHealth = await invoke<Pick<RuntimeHealth, "agentProviders">>("agent_provider_runtime_health");
-      health = { ...health, agentProviders: providerHealth.agentProviders };
     }
     setRuntimeHealth(health);
     const provider = health.agentProviders?.find((item) => item.id === apiConfig.agentProvider);
@@ -1206,11 +1298,16 @@ function App() {
       setAgentMessages((messages) => [...messages, createChatMessage("system", "浏览器仅用于界面预览，不会模拟任务成功。请启动 CAD Studio 桌面版执行真实任务。")].slice(-40));
       return;
     }
+    setSubmissionKind("task");
+    setWindowHint("正在准备任务...");
+    await nextPaint();
     let activeRuntime: RuntimeHealth;
     try {
       activeRuntime = await ensureRuntimeHealth();
     } catch (error) {
       setAgentMessages((messages) => [...messages, createChatMessage("system", `本地运行环境未就绪：${String(error)}`)].slice(-40));
+      setWindowHint("任务未创建 · 请检查本地环境");
+      setSubmissionKind(null);
       return;
     }
     const strictRules = [
@@ -1298,20 +1395,27 @@ function App() {
       },
     });
     try {
+      setWindowHint("正在写入本地队列...");
       await persistJob(job);
       upsertJob(job);
+      setActiveAgentJobId(job.id);
+      setExpandedJobId(job.id);
+      setWindowHint("任务已进入本地队列");
       if (!workerStatus.running) void startLocalWorker();
     } catch (error) {
       setAgentMessages((messages) => [
         ...messages,
         createChatMessage("system", `任务写入失败，没有进入执行队列：${String(error)}`),
       ].slice(-40));
+      setWindowHint("任务写入失败");
+    } finally {
+      setSubmissionKind(null);
     }
   }
 
   async function submitAgentMessage() {
     const text = agentInput.trim();
-    if (!text) return;
+    if (!text || submissionKind) return;
 
     const userMessage = createChatMessage("user", text);
     if (!isTauriRuntime()) {
@@ -1319,12 +1423,17 @@ function App() {
       setAgentInput("");
       return;
     }
+    setSubmissionKind("chat");
+    setWindowHint("正在准备对话任务...");
+    await nextPaint();
     let activeRuntime: RuntimeHealth;
     try {
       activeRuntime = await ensureRuntimeHealth();
     } catch (error) {
       setAgentMessages((messages) => [...messages, userMessage, createChatMessage("system", `本地环境未就绪：${String(error)}`)].slice(-40));
       setAgentInput("");
+      setWindowHint("对话任务未创建 · 请检查本地环境");
+      setSubmissionKind(null);
       return;
     }
     const prompt = buildChatPrompt(codexConfig, apiConfig, text, [...agentMessages, userMessage], recentProjectPath, activeRuntime);
@@ -1388,6 +1497,7 @@ function App() {
 
     setAgentInput("");
     try {
+      setWindowHint("正在写入对话任务...");
       await persistJob(job);
       setActiveAgentJobId(job.id);
       setExpandedJobId(job.id);
@@ -1397,6 +1507,7 @@ function App() {
         createChatMessage("assistant", `收到，我已经把这句话转成一条本地 ${providerMeta.name} 执行任务。你可以在下方看到公开步骤、审批、日志和结果；不满意就继续补充要求。`, job.id),
       ].slice(-40));
       upsertJob(job);
+      setWindowHint("对话任务已进入本地队列");
       if (!workerStatus.running) void startLocalWorker();
     } catch (error) {
       setAgentMessages((messages) => [
@@ -1404,10 +1515,13 @@ function App() {
         userMessage,
         createChatMessage("system", `任务写入失败，没有进入执行队列：${String(error)}`),
       ].slice(-40));
+      setWindowHint("对话任务写入失败");
+    } finally {
+      setSubmissionKind(null);
     }
   }
 
-  function enqueueTemplateTask(template: (typeof taskTemplates)[number]) {
+  function selectTemplate(template: (typeof taskTemplates)[number]) {
     const nextConfig = {
       ...codexConfig,
       target: template.target,
@@ -1415,7 +1529,74 @@ function App() {
       objective: `${template.title}: ${template.detail}。请根据用户导入的资料或当前配置生成可制造 CAD 结果，并输出必要的复核记录。`,
     } satisfies CodexConfig;
     setCodexConfig(nextConfig);
-    void enqueueCodexTaskWithConfig(nextConfig);
+    setSelectedTemplateKey(template.key);
+    setWindowHint(`已载入“${template.title}”配置 · 确认后再执行`);
+    requestAnimationFrame(() => bridgeRef.current?.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" }));
+  }
+
+  function commitProjectName() {
+    const nextName = projectNameDraft.replace(/\s+/g, " ").trim().slice(0, 48) || "未命名项目";
+    setProjectName(nextName);
+    setProjectNameDraft(nextName);
+    setEditingProjectName(false);
+    setWindowHint(`项目已命名为“${nextName}”`);
+  }
+
+  function removeJobFromUi(id: string) {
+    setJobs((items) => {
+      const next = items.filter((item) => item.id !== id);
+      saveLocalQueue(next);
+      return next;
+    });
+    setJobEvents((items) => {
+      const next = { ...items };
+      delete next[id];
+      return next;
+    });
+    setJobLogTails((items) => {
+      const next = { ...items };
+      delete next[id];
+      return next;
+    });
+    setManualReviewDrafts((items) => {
+      const next = { ...items };
+      delete next[id];
+      return next;
+    });
+    if (activeAgentJobId === id) setActiveAgentJobId(null);
+    if (expandedJobId === id) setExpandedJobId(null);
+  }
+
+  async function deleteJob(job: AutomationJob) {
+    if (deleteCandidateJobId !== job.id) {
+      setDeleteCandidateJobId(job.id);
+      setWindowHint("再次点击删除图标确认；CAD 交付文件不会被删除");
+      return;
+    }
+    setDeletingJobId(job.id);
+    try {
+      if (isTauriRuntime()) {
+        let current = job;
+        if (["queued", "running", "approval_required"].includes(current.status)) {
+          current = await invoke<AutomationJob>("cancel_queue_job", { id: job.id });
+          upsertJob(current);
+          if (current.status === "running") {
+            setWindowHint("已请求停止任务；状态变为已取消后可删除");
+            setDeleteCandidateJobId(null);
+            return;
+          }
+        }
+        await invoke("delete_queue_job", { id: job.id });
+      }
+      removeJobFromUi(job.id);
+      setWindowHint("任务记录已删除，CAD 交付文件保持不变");
+    } catch (error) {
+      updateJob(job.id, (item) => ({ ...item, lastMessage: `删除失败: ${String(error)}` }));
+      setWindowHint("任务记录删除失败");
+    } finally {
+      setDeletingJobId(null);
+      setDeleteCandidateJobId(null);
+    }
   }
 
   function enqueueDeliveryTask() {
@@ -1570,6 +1751,16 @@ function App() {
     }));
   }
 
+  function toggleManualReviewCheck(id: string, key: string, checked: boolean) {
+    setManualReviewDrafts((items) => {
+      const current = items[id] ?? { note: "", checks: [] };
+      const checks = checked
+        ? [...new Set([...current.checks, key])]
+        : current.checks.filter((item) => item !== key);
+      return { ...items, [id]: { ...current, checks } };
+    });
+  }
+
   function rememberWallpaper(path: string) {
     const nextWallpaper = {
       path,
@@ -1647,6 +1838,11 @@ function App() {
 
     if (!selected || Array.isArray(selected)) return;
     setRecentProjectPath(selected);
+    const importedName = displayNameFromPath(selected);
+    if (projectName === "未命名项目") {
+      setProjectName(importedName);
+      setProjectNameDraft(importedName);
+    }
     setAgentMessages((messages) => [
       ...messages,
       createChatMessage("system", `已把 ${displayNameFromPath(selected)} 加入当前任务上下文。请在对话中说明要新建、修改、出图还是检查。`),
@@ -1789,6 +1985,8 @@ function App() {
       setWallpaperMotionMode(settings.wallpaperMotionMode);
       setWallpaperMotionStrength(settings.wallpaperMotionStrength);
       setRecentWallpapers(settings.recentWallpapers);
+      setProjectName(settings.projectName ?? "未命名项目");
+      setProjectNameDraft(settings.projectName ?? "未命名项目");
       setRecentProjectPath(settings.recentProjectPath);
       setApiConfig(settings.apiConfig ?? defaultApiConfig);
       setKnowledgeBase(settings.knowledgeBase ?? defaultKnowledgeBase);
@@ -1824,7 +2022,7 @@ function App() {
           .filter((job) => typeof job.id === "string")
           .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""))
           .slice(0, 8);
-        setJobs(nextJobs);
+        startTransition(() => setJobs(nextJobs));
         const visibleJobIds = Array.from(new Set([...nextJobs.slice(0, 4).map((job) => job.id), activeAgentJobId, expandedJobId].filter(Boolean))) as string[];
         const eventPairs = await Promise.all(visibleJobIds.map(async (id) => [id, await invoke<QueueEvent[]>("read_queue_events", { id })] as const));
         const logPairs = await Promise.all(
@@ -1836,8 +2034,12 @@ function App() {
             }
           }),
         );
-        if (!disposed) setJobEvents(Object.fromEntries(eventPairs));
-        if (!disposed) setJobLogTails(Object.fromEntries(logPairs));
+        if (!disposed) {
+          startTransition(() => {
+            setJobEvents(Object.fromEntries(eventPairs));
+            setJobLogTails(Object.fromEntries(logPairs));
+          });
+        }
       } finally {
         if (!disposed) setQueueLoaded(true);
       }
@@ -1906,12 +2108,13 @@ function App() {
       defaultWallpaperVersion: 1,
       panelOpacityVersion: 1,
       recentWallpapers,
+      projectName,
       recentProjectPath,
       apiConfig,
       knowledgeBase,
     };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-  }, [activeWallpaper, apiConfig, customWallpaper?.sourcePath, knowledgeBase, recentProjectPath, recentWallpapers, settingsLoaded, wallpaperBlur, wallpaperBrightness, wallpaperMotionMode, wallpaperMotionStrength, wallpaperVignette, workspaceOpacity]);
+  }, [activeWallpaper, apiConfig, customWallpaper?.sourcePath, knowledgeBase, projectName, recentProjectPath, recentWallpapers, settingsLoaded, wallpaperBlur, wallpaperBrightness, wallpaperMotionMode, wallpaperMotionStrength, wallpaperVignette, workspaceOpacity]);
 
   function renderTemplatePanel() {
     return (
@@ -1920,9 +2123,9 @@ function App() {
           const Icon = template.icon;
           return (
             <motion.button
-              className="capability-card"
+              className={selectedTemplateKey === template.key ? "capability-card selected" : "capability-card"}
               key={template.key}
-              onClick={() => enqueueTemplateTask(template)}
+              onClick={() => selectTemplate(template)}
               initial={reducedMotion ? false : { y: 12, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ duration: 0.35, delay: index * 0.04 }}
@@ -1930,7 +2133,7 @@ function App() {
               whileTap={{ scale: 0.985 }}
             >
               <Icon size={22} weight="duotone" />
-              <span>{codexTargets[template.target]}</span>
+              <span>{selectedTemplateKey === template.key ? "已载入配置" : codexTargets[template.target]}</span>
               <strong>{template.title}</strong>
               <p>{template.detail}</p>
             </motion.button>
@@ -1947,7 +2150,7 @@ function App() {
           <div className="panel-heading compact">
             <div>
               <p className="eyebrow">PROJECT</p>
-              <h2>{recentProjectPath ? displayNameFromPath(recentProjectPath) : "新项目"}</h2>
+              <h2>{projectName}</h2>
             </div>
             <span className="status-pill">{workerStatus.running ? "可执行" : "待启动"}</span>
           </div>
@@ -2237,32 +2440,60 @@ function App() {
   function renderHelpPanel() {
     const providers = runtimeHealth?.agentProviders ?? [];
     const installedProviders = providers.filter((provider) => provider.installed).map((provider) => provider.name);
+    const topic = helpTopics.find((item) => item.id === activeHelpTopic) ?? helpTopics[0];
     return (
       <section className="help-workspace">
         <div className="help-intro">
-          <div>
-            <span>首次使用</span>
-            <strong>从一个明确需求开始</strong>
+          <div className="help-intro-title">
+            <Question size={22} weight="duotone" />
+            <div>
+              <span>使用手册</span>
+              <strong>CAD Studio 操作与排障</strong>
+            </div>
           </div>
-          <p>准备一个输出文件夹，选择可用 AI；需要真实建模时再启用本机 CAD 自动化。</p>
+          <p>根据当前环境状态整理的本机帮助。先选择左侧主题，再按步骤检查。</p>
         </div>
-        <ol className="help-steps">
-          <li><span>1</span><div><strong>检查环境</strong><p>在设置中确认 Python、至少一个 Agent CLI，以及需要使用的 SolidWorks 或 AutoCAD。</p></div></li>
-          <li><span>2</span><div><strong>选择 AI</strong><p>选择 Codex、Claude Code、Gemini CLI 或 OpenCode。使用 CC Switch 时读取对应模型路由。</p></div></li>
-          <li><span>3</span><div><strong>创建项目</strong><p>从零建模不必导入文件；修改现有设计时再导入 SLDPRT、STEP、DWG、PDF 或参考图片。</p></div></li>
-          <li><span>4</span><div><strong>描述目标</strong><p>写清用途、关键尺寸、材料、工艺和输出格式；未指定的普通参数由 AI 选择，安全参数必须确认。</p></div></li>
-          <li><span>5</span><div><strong>审批执行</strong><p>真实控制 CAD、访问外部目录或网络时，任务会等待人工批准。批准后本地执行器接单。</p></div></li>
-          <li><span>6</span><div><strong>复核交付</strong><p>在复核页检查尺寸、孔槽、装配和文件，再到交付页确认 STEP、STL、DWG、PDF 等产物。</p></div></li>
-        </ol>
         <div className="help-status-grid">
           <div><span>AI</span><strong>{installedProviders.length ? installedProviders.join("、") : "尚未检测到可用 CLI"}</strong></div>
           <div><span>Python</span><strong>{runtimeHealth?.python?.ok ? "已就绪" : "需要安装 Python 3"}</strong></div>
           <div><span>SolidWorks</span><strong>{runtimeHealth?.solidworks?.ok ? "可用" : "未检测到或待检查"}</strong></div>
           <div><span>AutoCAD</span><strong>{runtimeHealth?.autocad?.ok ? "可用" : "未检测到"}</strong></div>
         </div>
+        <div className="help-guide">
+          <nav className="help-topic-list" aria-label="帮助主题">
+            {helpTopics.map((item) => (
+              <button
+                type="button"
+                className={activeHelpTopic === item.id ? "active" : ""}
+                aria-current={activeHelpTopic === item.id ? "page" : undefined}
+                key={item.id}
+                onClick={() => setActiveHelpTopic(item.id)}
+              >
+                <strong>{item.label}</strong>
+                <span>{item.title}</span>
+              </button>
+            ))}
+          </nav>
+          <article className="help-topic-detail">
+            <p className="eyebrow">{topic.label}</p>
+            <h2>{topic.title}</h2>
+            <p className="help-topic-summary">{topic.summary}</p>
+            <ol>
+              {topic.items.map((item, index) => (
+                <li key={item.title}>
+                  <span>{String(index + 1).padStart(2, "0")}</span>
+                  <div>
+                    <strong>{item.title}</strong>
+                    <p>{item.detail}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </article>
+        </div>
         <div className="help-note">
           <ShieldCheck size={19} weight="duotone" />
-          <p>左侧是当前项目的任务历史。标题显示你的任务目标，不代表固定使用某个 AI；实际执行器以设置中的选择为准。</p>
+          <p>任务记录、审批和复核保存在本机。删除左侧任务只清理历史元数据，不会删除你已经导出的 CAD 文件。</p>
         </div>
       </section>
     );
@@ -2292,6 +2523,8 @@ function App() {
   const activeAgentLogs = activeAgentJob ? jobLogTails[activeAgentJob.id] ?? {} : {};
   const activeManualReviewDraft = activeAgentJob ? manualReviewDrafts[activeAgentJob.id] ?? { note: "", checks: [] } : { note: "", checks: [] };
   const activeManualReviewOptions = reviewOptionsFor(activeAgentJob);
+  const activeManualReviewReady = activeManualReviewDraft.note.trim().length >= 8
+    && activeManualReviewOptions.every(([key]) => activeManualReviewDraft.checks.includes(key));
 
   return (
     <main
@@ -2383,34 +2616,85 @@ function App() {
 
           <div className="sidebar-project-head">
             <span>当前项目</span>
-            <strong>{recentProjectPath ? displayNameFromPath(recentProjectPath) : "未命名项目"}</strong>
-            <button type="button" onClick={() => setActiveTab("model")}>
+            <div className="project-name-row">
+              {editingProjectName ? (
+                <input
+                  autoFocus
+                  value={projectNameDraft}
+                  maxLength={48}
+                  aria-label="项目名称"
+                  onChange={(event) => setProjectNameDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") commitProjectName();
+                    if (event.key === "Escape") {
+                      setProjectNameDraft(projectName);
+                      setEditingProjectName(false);
+                    }
+                  }}
+                />
+              ) : (
+                <strong title={projectName}>{projectName}</strong>
+              )}
+              <button
+                className="project-name-action"
+                type="button"
+                aria-label={editingProjectName ? "确认项目名称" : "修改项目名称"}
+                title={editingProjectName ? "确认项目名称" : "修改项目名称"}
+                onClick={() => {
+                  if (editingProjectName) commitProjectName();
+                  else {
+                    setProjectNameDraft(projectName);
+                    setEditingProjectName(true);
+                  }
+                }}
+              >
+                {editingProjectName ? <Check size={15} weight="bold" /> : <PencilSimple size={15} weight="duotone" />}
+              </button>
+            </div>
+            <small className="project-task-count">{jobs.length ? `${jobs.length} 条任务 · ${queueSummary}` : "尚无任务"}</small>
+            <button className="new-task-button" type="button" onClick={() => {
+              setSelectedTemplateKey(null);
+              setActiveTab("model");
+              setWindowHint("选择模板或填写需求；确认后再执行");
+            }}>
               <FilePlus size={16} weight="bold" />
               新建任务
             </button>
           </div>
 
           <nav className="project-sequence" aria-label="项目任务序列">
-            <span className="sidebar-label">任务</span>
+            <span className="sidebar-label">最近任务</span>
             {recentJobs.length ? recentJobs.map((job) => (
-              <button
-                type="button"
-                className={activeAgentJob?.id === job.id ? "project-sequence-item active" : "project-sequence-item"}
-                key={job.id}
-                onClick={() => {
-                  setActiveAgentJobId(job.id);
-                  setExpandedJobId(job.id);
-                  setActiveTab("project");
-                }}
-              >
-                <i className={job.status} />
-                <span>
-                  <strong>{jobDisplayTitle(job)}</strong>
-                  <small>{jobStatusLabel(job.status)} · {job.progress}%</small>
-                </span>
-              </button>
+              <div className={activeAgentJob?.id === job.id ? "project-sequence-item active" : "project-sequence-item"} key={job.id}>
+                <button
+                  className="project-sequence-select"
+                  type="button"
+                  onClick={() => {
+                    setDeleteCandidateJobId(null);
+                    setActiveAgentJobId(job.id);
+                    setExpandedJobId(job.id);
+                    setActiveTab("project");
+                  }}
+                >
+                  <i className={job.status === "review_required" && job.progress >= 100 ? "passed" : job.status} />
+                  <span>
+                    <strong>{jobDisplayTitle(job)}</strong>
+                    <small>{sidebarJobStatusLabel(job)} · {job.progress}%</small>
+                  </span>
+                </button>
+                <button
+                  className={deleteCandidateJobId === job.id ? "project-sequence-delete confirm" : "project-sequence-delete"}
+                  type="button"
+                  disabled={deletingJobId !== null}
+                  aria-label={deleteCandidateJobId === job.id ? `确认删除 ${jobDisplayTitle(job)}` : `删除 ${jobDisplayTitle(job)}`}
+                  title={deleteCandidateJobId === job.id ? "再次点击确认删除" : "删除任务记录"}
+                  onClick={() => void deleteJob(job)}
+                >
+                  {deletingJobId === job.id ? <SpinnerGap className="spin" size={15} /> : deleteCandidateJobId === job.id ? <Check size={15} weight="bold" /> : <Trash size={15} weight="duotone" />}
+                </button>
+              </div>
             )) : (
-              <div className="sidebar-empty">发送第一条需求后，任务会按时间排列在这里。</div>
+              <div className="sidebar-empty">这里会显示真正执行过的任务。选择模板不会新增记录。</div>
             )}
           </nav>
 
@@ -2424,7 +2708,7 @@ function App() {
           <header className="window-bar app-toolbar">
             <div className="project-title">
               <strong>{currentPage.title}</strong>
-              <span>{recentProjectPath ? `${displayNameFromPath(recentProjectPath)} · 规范库 GB/T` : "本地工作区 · 规范库 GB/T"}</span>
+              <span>{projectName} · 规范库 GB/T</span>
               <small>{windowHint}</small>
             </div>
             <div className="top-menu" role="toolbar" aria-label="工作区导航">
@@ -2607,7 +2891,7 @@ function App() {
           {["project", "model", "holes", "drawing"].includes(activeTab) ? (
             <>
           {["model", "holes", "drawing"].includes(activeTab) ? (
-          <section className="codex-bridge">
+          <section className="codex-bridge" ref={bridgeRef}>
             <div className="bridge-copy">
               <p className="eyebrow">AGENT BRIDGE</p>
               <h2>创建 CAD 任务</h2>
@@ -2798,9 +3082,17 @@ function App() {
                 <span>执行计划预览</span>
                 <p>{codexPrompt}</p>
               </div>
-              <motion.button className="primary-button bridge-run shine" onClick={enqueueCodexTask} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.975 }}>
-                <Lightning size={18} weight="duotone" />
-                交给 {agentProviderCatalog[apiConfig.agentProvider].name} 执行
+              <motion.button
+                className="primary-button bridge-run shine"
+                type="button"
+                disabled={submissionKind !== null}
+                aria-busy={submissionKind === "task"}
+                onClick={enqueueCodexTask}
+                whileHover={submissionKind || reducedMotion ? undefined : { y: -2 }}
+                whileTap={submissionKind ? undefined : { scale: 0.975 }}
+              >
+                {submissionKind === "task" ? <SpinnerGap className="spin" size={18} /> : <Lightning size={18} weight="duotone" />}
+                {submissionKind === "task" ? "正在创建任务" : `交给 ${agentProviderCatalog[apiConfig.agentProvider].name} 执行`}
               </motion.button>
             </div>
           </section>
@@ -2884,11 +3176,7 @@ function App() {
                             <input
                               type="checkbox"
                               checked={activeManualReviewDraft.checks.includes(key)}
-                              onChange={(event) => updateManualReviewDraft(activeAgentJob.id, {
-                                checks: event.target.checked
-                                  ? [...activeManualReviewDraft.checks, key]
-                                  : activeManualReviewDraft.checks.filter((item) => item !== key),
-                              })}
+                              onChange={(event) => toggleManualReviewCheck(activeAgentJob.id, key, event.target.checked)}
                             />
                             <span>{label}</span>
                           </label>
@@ -2900,7 +3188,13 @@ function App() {
                         placeholder="填写实际检查结果、发现的问题或放行依据"
                       />
                       <div className="review-action-row">
-                        <button className="approval-button" type="button" onClick={() => void reviewJob(activeAgentJob.id, true)}>
+                        <button
+                          className="approval-button"
+                          type="button"
+                          disabled={!activeManualReviewReady}
+                          title={activeManualReviewReady ? "通过人工复核" : "请完成全部检查项并填写至少 8 个字的复核说明"}
+                          onClick={() => void reviewJob(activeAgentJob.id, true)}
+                        >
                           通过复核
                         </button>
                         <button className="review-reject-button" type="button" onClick={() => void reviewJob(activeAgentJob.id, false)}>
@@ -2941,9 +3235,9 @@ function App() {
                   }}
                   placeholder="例如：把这个外壳的 USB 口改大 1mm，并重新导出 STL 和国标 PDF 图纸"
                 />
-                <button type="button" onClick={() => void submitAgentMessage()}>
-                  <PaperPlaneTilt size={18} weight="fill" />
-                  发送执行
+                <button type="button" disabled={submissionKind !== null} aria-busy={submissionKind === "chat"} onClick={() => void submitAgentMessage()}>
+                  {submissionKind === "chat" ? <SpinnerGap className="spin" size={18} /> : <PaperPlaneTilt size={18} weight="fill" />}
+                  {submissionKind === "chat" ? "正在发送" : "发送执行"}
                 </button>
               </div>
             </section>

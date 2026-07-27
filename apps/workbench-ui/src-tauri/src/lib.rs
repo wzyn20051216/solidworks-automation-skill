@@ -191,6 +191,26 @@ fn create_link_with_retry(source: &Path, target: &Path) -> Result<(), String> {
     ))
 }
 
+/// @brief 删除可能被 Windows 短暂占用的队列元数据文件。
+fn remove_file_with_retry(path: &Path) -> Result<(), String> {
+    let mut last_error = String::new();
+    for attempt in 0..16 {
+        match fs::remove_file(path) {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => {
+                last_error = error.to_string();
+                thread::sleep(retry_delay(attempt));
+            }
+        }
+    }
+    Err(format!(
+        "任务记录删除失败，Windows 暂时拒绝访问 {}。请稍后重试。底层错误: {}",
+        path.display(),
+        last_error
+    ))
+}
+
 fn job_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
     Ok(queue_dir(app)?.join(format!("{}.json", safe_id(id)?)))
 }
@@ -552,6 +572,13 @@ fn prepare_job_for_retry(
         object.remove(field);
     }
     Ok(())
+}
+
+fn can_delete_job(job: &Value) -> bool {
+    matches!(
+        job.get("status").and_then(Value::as_str),
+        Some("passed" | "failed" | "cancelled" | "review_required")
+    )
 }
 
 fn append_queue_event(
@@ -1577,6 +1604,32 @@ fn retry_queue_job(app: AppHandle, id: String) -> Result<Value, String> {
 }
 
 #[tauri::command]
+fn delete_queue_job(app: AppHandle, id: String) -> Result<Value, String> {
+    let safe_id = safe_id(&id)?;
+    let queue = queue_dir(&app)?;
+    let path = queue.join(format!("{safe_id}.json"));
+    let raw = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+    let job = serde_json::from_str::<Value>(&raw).map_err(|error| error.to_string())?;
+    if !can_delete_job(&job) {
+        return Err("任务仍在排队、审批或执行中，请先取消任务再删除。".to_string());
+    }
+
+    for metadata_path in [
+        queue.join("events").join(format!("{safe_id}.jsonl")),
+        queue.join("logs").join(format!("{safe_id}.stdout.log")),
+        queue.join("logs").join(format!("{safe_id}.stderr.log")),
+        queue.join("ledgers").join(format!("{safe_id}.ledger.json")),
+        queue.join("reviews").join(format!("{safe_id}.review.json")),
+        path.with_extension("json.cancel"),
+        PathBuf::from(format!("{}.lock", path.display())),
+    ] {
+        remove_file_with_retry(&metadata_path)?;
+    }
+    remove_file_with_retry(&path)?;
+    Ok(json!({ "id": safe_id, "deleted": true }))
+}
+
+#[tauri::command]
 fn worker_status(app: AppHandle, state: State<'_, WorkerState>) -> Result<Value, String> {
     let mut guard = state.child.lock().map_err(|error| error.to_string())?;
     if let Some(child) = guard.as_mut() {
@@ -2020,6 +2073,7 @@ pub fn run() {
             approve_review_job,
             reject_review_job,
             retry_queue_job,
+            delete_queue_job,
             worker_status,
             start_worker,
             stop_worker,
@@ -2057,8 +2111,8 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        database_provider_groups, derive_dangerous_capabilities, is_queue_metadata_path,
-        prepare_job_for_retry, validate_new_queue_job,
+        can_delete_job, database_provider_groups, derive_dangerous_capabilities,
+        is_queue_metadata_path, prepare_job_for_retry, validate_new_queue_job,
     };
     use rusqlite::{params, Connection};
     use serde_json::json;
@@ -2180,6 +2234,19 @@ mod tests {
                 .expect_err("queued job must not be retried");
 
         assert!(error.contains("只有失败任务"));
+    }
+
+    #[test]
+    fn delete_only_accepts_terminal_or_reviewable_jobs() {
+        let mut job = queued_job();
+        for status in ["queued", "running", "approval_required"] {
+            job["status"] = json!(status);
+            assert!(!can_delete_job(&job), "{status} must be cancelled first");
+        }
+        for status in ["passed", "failed", "cancelled", "review_required"] {
+            job["status"] = json!(status);
+            assert!(can_delete_job(&job), "{status} should be deletable");
+        }
     }
 
     #[test]

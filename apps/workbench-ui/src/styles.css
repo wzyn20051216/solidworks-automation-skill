@@ -956,6 +956,16 @@ textarea {
   line-height: 1.5;
 }
 
+.capability-card.selected {
+  border-color: color-mix(in srgb, var(--accent) 48%, rgba(255, 255, 255, 0.7));
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.58)),
+    color-mix(in srgb, var(--accent) 13%, transparent);
+  box-shadow:
+    0 8px 24px rgba(29, 38, 45, 0.1),
+    inset 3px 0 var(--accent);
+}
+
 .project-console,
 .review-workspace,
 .delivery-console {
@@ -1538,6 +1548,17 @@ textarea {
   display: block;
 }
 
+.help-intro-title {
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+}
+
+.help-intro-title > svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
 .help-intro span,
 .help-status-grid span {
   color: var(--muted);
@@ -1558,47 +1579,116 @@ textarea {
   line-height: 1.6;
 }
 
-.help-steps {
+.help-guide {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1px;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
+  grid-template-columns: minmax(180px, 0.3fr) minmax(0, 1fr);
+  min-height: 360px;
   border: 1px solid var(--hairline);
   border-radius: 8px;
-  background: var(--hairline);
+  background: rgba(252, 253, 250, calc(var(--workspace-opacity) + 0.02));
+}
+
+.help-topic-list {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  padding: 10px;
+  border-right: 1px solid var(--hairline);
+}
+
+.help-topic-list button {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.help-topic-list button:hover {
+  background: rgba(255, 255, 252, calc(var(--workspace-opacity) + 0.1));
+}
+
+.help-topic-list button:active {
+  transform: translateY(1px);
+}
+
+.help-topic-list button.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, rgba(255, 255, 252, 0.76));
+  box-shadow: inset 3px 0 var(--accent);
+}
+
+.help-topic-list strong,
+.help-topic-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.help-topic-list strong {
+  font-size: 12px;
+}
+
+.help-topic-list span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.help-topic-detail {
+  min-width: 0;
+  padding: 22px 24px 26px;
+}
+
+.help-topic-detail h2 {
+  margin: 5px 0 0;
+  font-size: 20px;
+}
+
+.help-topic-summary {
+  max-width: 65ch;
+  margin: 8px 0 20px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.help-topic-detail ol {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--hairline);
   list-style: none;
 }
 
-.help-steps li {
+.help-topic-detail li {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: 10px;
-  min-height: 132px;
-  padding: 18px;
-  background: rgba(252, 253, 250, calc(var(--workspace-opacity) + 0.08));
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--hairline);
 }
 
-.help-steps li > span {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  color: white;
-  background: var(--accent);
+.help-topic-detail li > span {
+  color: var(--accent);
+  font-family: "SF Mono", "Cascadia Mono", Consolas, monospace;
   font-size: 11px;
   font-weight: 900;
 }
 
-.help-steps strong {
-  font-size: 13px;
+.help-topic-detail li strong {
+  font-size: 12px;
 }
 
-.help-steps p,
+.help-topic-detail li p,
 .help-note p {
-  margin: 7px 0 0;
+  margin: 5px 0 0;
   color: var(--muted);
   font-size: 11px;
   line-height: 1.55;
@@ -2298,6 +2388,13 @@ textarea {
   justify-content: center;
 }
 
+.bridge-run:disabled,
+.agent-input-row button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+  transform: none;
+}
+
 .agent-console,
 .queue-panel {
   display: grid;
@@ -2900,10 +2997,15 @@ textarea {
 }
 
 .queue-actions button:disabled,
-.queue-job button:disabled {
+.queue-job button:disabled,
+.review-action-row button:disabled {
   cursor: wait;
   opacity: 0.58;
   transform: none;
+}
+
+.review-action-row button:disabled {
+  cursor: not-allowed;
 }
 
 .queue-job button.danger-action {
@@ -3079,8 +3181,8 @@ textarea {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .help-steps {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .help-guide {
+    grid-template-columns: minmax(170px, 0.34fr) minmax(0, 1fr);
   }
 
   .help-status-grid {
@@ -3156,9 +3258,33 @@ textarea {
     display: grid;
   }
 
-  .help-steps,
   .help-status-grid {
     grid-template-columns: 1fr;
+  }
+
+  .help-guide {
+    grid-template-columns: 1fr;
+  }
+
+  .help-topic-list {
+    display: flex;
+    gap: 5px;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--hairline);
+    scrollbar-width: thin;
+  }
+
+  .help-topic-list button {
+    flex: 0 0 150px;
+  }
+
+  .help-topic-list button.active {
+    box-shadow: inset 0 -3px var(--accent);
+  }
+
+  .help-topic-detail {
+    padding: 18px;
   }
 
   .help-status-grid > div {
@@ -3405,14 +3531,69 @@ textarea {
   font-weight: 800;
 }
 
-.sidebar-project-head > strong {
+.project-name-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: 4px;
+  align-items: center;
+}
+
+.project-name-row strong,
+.project-name-row input {
+  min-width: 0;
+}
+
+.project-name-row strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
 }
 
-.sidebar-project-head button {
+.project-name-row input {
+  height: 28px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--hairline));
+  border-radius: 5px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.74);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  outline: none;
+}
+
+.project-name-row input:focus-visible {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.project-name-action {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.project-name-action:hover {
+  color: var(--accent);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.project-task-count {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-project-head .new-task-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3443,22 +3624,70 @@ textarea {
 
 .project-sequence-item {
   display: grid;
-  grid-template-columns: 8px minmax(0, 1fr);
-  gap: 9px;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: 2px;
   align-items: center;
   min-height: 48px;
-  padding: 7px 8px;
-  border: 0;
+  padding: 3px;
   border-radius: 6px;
   color: var(--ink);
   background: transparent;
-  cursor: pointer;
-  text-align: left;
 }
 
 .project-sequence-item:hover,
 .project-sequence-item.active {
   background: rgba(255, 255, 255, 0.78);
+}
+
+.project-sequence-select {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  min-width: 0;
+  min-height: 42px;
+  padding: 4px 5px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.project-sequence-delete {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: #7b858f;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  transition: color 160ms ease, background 160ms ease, opacity 160ms ease, transform 160ms ease;
+}
+
+.project-sequence-item:hover .project-sequence-delete,
+.project-sequence-item:focus-within .project-sequence-delete,
+.project-sequence-delete.confirm {
+  opacity: 1;
+}
+
+.project-sequence-delete:hover {
+  color: #a43632;
+  background: rgba(180, 35, 24, 0.09);
+}
+
+.project-sequence-delete.confirm {
+  color: #fff;
+  background: #a43632;
+}
+
+.project-sequence-delete:disabled {
+  cursor: wait;
+  opacity: 0.55;
 }
 
 .project-sequence-item i {
@@ -3771,16 +4000,21 @@ textarea:focus-visible {
     grid-column: 1;
   }
 
-  .sidebar-project-head > strong {
+  .project-name-row,
+  .project-task-count {
     grid-column: 1;
   }
 
-  .sidebar-project-head button {
+  .sidebar-project-head .new-task-button {
     grid-column: 2;
-    grid-row: 1 / 3;
+    grid-row: 1 / 4;
     min-height: 36px;
     margin: 0;
     padding: 0 14px;
+  }
+
+  .project-sequence-delete {
+    opacity: 1;
   }
 
   .project-sequence {
