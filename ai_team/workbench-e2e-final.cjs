@@ -92,6 +92,77 @@ async function main() {
     throw new Error(`${error}; appExit=${app.exitCode}; pageClosed=${page.isClosed()}; lastStatus=${JSON.stringify(lastWorkerStatus)}; lastError=${lastWorkerError}; health=${health}; queue=${queueText}; logs=${browserLogs.join(" | ")}`);
   }
 
+  const firstWorker = started;
+  await queuePanel.getByRole("button", { name: "重启执行器", exact: true }).click();
+  const restarted = await waitUntil(async () => {
+    const status = await invoke("worker_status");
+    return status.running && status.pid !== firstWorker.pid ? status : false;
+  }, "worker restart");
+
+  await queuePanel.getByRole("button", { name: "停止", exact: true }).click();
+  await waitUntil(async () => !(await invoke("worker_status")).running, "worker stop before retry");
+  const retryFile = "e2e-retry.json";
+  fs.writeFileSync(
+    path.join(queue, retryFile),
+    JSON.stringify(
+      {
+        schemaVersion: "1.0",
+        id: "e2e-retry",
+        runId: "run-e2e-retry-old",
+        kind: "codex_task",
+        title: "失败任务重试测试",
+        detail: "验证失败任务重新排队",
+        status: "failed",
+        progress: 100,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        attempt: 1,
+        approvedAt: "unix:1",
+        approvedBy: "local-user",
+        approvedPolicyReasons: ["已批准"],
+        error: "Windows 拒绝访问",
+        result: { message: "旧结果" },
+        artifacts: [{ path: "old.step" }],
+        reviewGate: { status: "fail" },
+        workerLog: [{ status: "failed", message: "旧错误" }],
+      },
+      null,
+      2,
+    ),
+  );
+  await page.waitForTimeout(1_700);
+  const retryCard = queuePanel.locator(".queue-job").filter({ hasText: "失败任务重试测试" }).first();
+  await retryCard.getByRole("button", { name: "重新执行", exact: true }).click();
+  const retried = await waitUntil(() => {
+    const value = readJob(retryFile);
+    return value.status === "queued" ? value : false;
+  }, "failed job retry");
+  if (
+    retried.runId === "run-e2e-retry-old"
+    || retried.progress !== 0
+    || retried.error
+    || retried.result
+    || retried.reviewGate
+    || retried.workerLog
+    || retried.approvedBy !== "local-user"
+  ) {
+    throw new Error(`retry state was not reset safely: ${JSON.stringify(retried)}`);
+  }
+  const retryEvent = fs.readFileSync(path.join(queue, "events", "e2e-retry.jsonl"), "utf8");
+  for (const file of [
+    path.join(queue, retryFile),
+    path.join(queue, "events", "e2e-retry.jsonl"),
+    path.join(queue, `${retryFile}.cancel`),
+    path.join(queue, `${retryFile}.lock`),
+  ]) {
+    fs.rmSync(file, { force: true });
+  }
+  await page.waitForTimeout(1_600);
+  started = await waitUntil(async () => {
+    const status = await invoke("worker_status");
+    return status.running ? status : false;
+  }, "worker auto start after retry");
+
   const recoveryFile = "e2e-recovery.json";
   fs.writeFileSync(
     path.join(queue, recoveryFile),
@@ -263,6 +334,18 @@ async function main() {
   const result = {
     initial,
     started,
+    restarted: {
+      firstPid: firstWorker.pid,
+      nextPid: restarted.pid,
+      changed: firstWorker.pid !== restarted.pid,
+    },
+    retried: {
+      status: retried.status,
+      progress: retried.progress,
+      runIdChanged: retried.runId !== "run-e2e-retry-old",
+      approvalPreserved: retried.approvedBy === "local-user",
+      event: retryEvent.includes("run.requeued_by_user"),
+    },
     recovered: {
       status: recovered.status,
       runnerId: recovered.runnerId,

@@ -1,6 +1,7 @@
 import {
   Aperture,
   Archive,
+  ArrowClockwise,
   CaretDown,
   ChatCircleText,
   CubeFocus,
@@ -264,6 +265,7 @@ type ManualReviewDraft = {
 type WorkerStatus = {
   running: boolean;
   pid?: number | null;
+  recoveredJobs?: number;
   message: string;
   health?: {
     status?: string;
@@ -967,6 +969,8 @@ function App() {
   const [agentInput, setAgentInput] = useState("");
   const [manualReviewDrafts, setManualReviewDrafts] = useState<Record<string, ManualReviewDraft>>({});
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus>({ running: false, message: "桌面端可启动" });
+  const [workerAction, setWorkerAction] = useState<"start" | "stop" | "restart" | null>(null);
+  const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
   const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealth | null>(null);
   const [runtimeMessage, setRuntimeMessage] = useState("正在检测 Agent、skills 与 CAD 环境...");
   const [windowHint, setWindowHint] = useState("窗口控制就绪");
@@ -1087,6 +1091,7 @@ function App() {
       setWorkerStatus({ running: false, message: "请在桌面端启动 worker" });
       return;
     }
+    setWorkerAction("start");
     try {
       const status = await invoke<WorkerStatus>("start_worker", {
         repoPath: runtimeHealth?.skillRoot ?? "",
@@ -1096,16 +1101,46 @@ function App() {
       setWorkerStatus(status);
     } catch (error) {
       setWorkerStatus({ running: false, message: `worker 启动失败: ${String(error)}` });
+    } finally {
+      setWorkerAction(null);
     }
   }
 
   async function stopLocalWorker() {
     if (!isTauriRuntime()) return;
+    setWorkerAction("stop");
     try {
       const status = await invoke<WorkerStatus>("stop_worker");
       setWorkerStatus(status);
     } catch (error) {
       setWorkerStatus({ running: false, message: `worker 停止失败: ${String(error)}` });
+    } finally {
+      setWorkerAction(null);
+    }
+  }
+
+  async function restartLocalWorker() {
+    if (!isTauriRuntime()) {
+      setWorkerStatus({ running: false, message: "请在桌面端重启 worker" });
+      return;
+    }
+    setWorkerAction("restart");
+    try {
+      const stopped = await invoke<WorkerStatus>("stop_worker");
+      const status = await invoke<WorkerStatus>("start_worker", {
+        repoPath: runtimeHealth?.skillRoot ?? "",
+        enableCodex: true,
+        codexFullAccess: codexConfig.localCadAutomation,
+      });
+      const recovered = stopped.recoveredJobs ?? 0;
+      setWorkerStatus({
+        ...status,
+        message: recovered > 0 ? `worker 已重启，恢复任务 ${recovered} 个` : "worker 已重启",
+      });
+    } catch (error) {
+      setWorkerStatus({ running: false, message: `worker 重启失败: ${String(error)}` });
+    } finally {
+      setWorkerAction(null);
     }
   }
 
@@ -1406,6 +1441,51 @@ function App() {
       }
     }
     updateJob(id, (item) => ({ ...item, status: "cancelled", progress: 0, updatedAt: new Date().toISOString() }));
+  }
+
+  async function retryJob(id: string) {
+    if (retryingJobId) return;
+    setRetryingJobId(id);
+    try {
+      if (isTauriRuntime()) {
+        const retried = await invoke<AutomationJob>("retry_queue_job", { id });
+        upsertJob(retried);
+      } else {
+        updateJob(id, (item) => ({
+          ...item,
+          runId: `retry-${Date.now()}`,
+          status: "queued",
+          progress: 0,
+          updatedAt: new Date().toISOString(),
+          lastMessage: "用户已重新执行失败任务，等待 Worker 接单。",
+          result: undefined,
+          artifacts: [],
+          artifactLedgerPath: undefined,
+          reviewGatePath: undefined,
+          reviewGate: undefined,
+          reviewedAt: undefined,
+          reviewedBy: undefined,
+          reviewDecision: undefined,
+          reviewNote: undefined,
+          runnerId: undefined,
+          workerPid: undefined,
+          heartbeatAt: undefined,
+          leaseUntil: undefined,
+          workerLog: undefined,
+          error: undefined,
+        }));
+      }
+      setExpandedJobId(id);
+      if (!workerStatus.running) void startLocalWorker();
+    } catch (error) {
+      updateJob(id, (item) => ({
+        ...item,
+        lastMessage: `重新执行失败: ${String(error)}`,
+        updatedAt: new Date().toISOString(),
+      }));
+    } finally {
+      setRetryingJobId(null);
+    }
   }
 
   async function approveJob(id: string) {
@@ -2878,8 +2958,14 @@ function App() {
                   <span className={workerStatus.running ? "worker-pill running" : "worker-pill"}>
                     {workerLabel}
                   </span>
-                  <button type="button" onClick={() => void (workerStatus.running ? stopLocalWorker() : startLocalWorker())}>
-                    {workerStatus.running ? "停止" : "启动"}
+                  {workerStatus.running ? (
+                    <button type="button" disabled={workerAction !== null} onClick={() => void restartLocalWorker()} title="停止并重新启动本地执行器">
+                      <ArrowClockwise className={workerAction === "restart" ? "spin" : undefined} size={15} weight="bold" />
+                      {workerAction === "restart" ? "重启中" : "重启执行器"}
+                    </button>
+                  ) : null}
+                  <button type="button" disabled={workerAction !== null} onClick={() => void (workerStatus.running ? stopLocalWorker() : startLocalWorker())}>
+                    {workerAction === "start" ? "启动中" : workerAction === "stop" ? "停止中" : workerStatus.running ? "停止" : "启动"}
                   </button>
                   <span>{queueLoaded ? queueSummary : "加载中"}</span>
                 </div>
@@ -2909,7 +2995,7 @@ function App() {
                           <i style={{ width: `${job.progress}%` }} />
                         </div>
                         <div className="job-controls">
-                          <button type="button" onClick={() => setExpandedJobId(expanded ? null : job.id)}>
+                          <button className="expand-button" type="button" onClick={() => setExpandedJobId(expanded ? null : job.id)}>
                             <CaretDown size={15} weight="bold" />
                             {expanded ? "收起过程" : "查看过程"}
                           </button>
@@ -2929,6 +3015,12 @@ function App() {
                               setExpandedJobId(job.id);
                             }}>
                               填写复核
+                            </button>
+                          ) : null}
+                          {job.status === "failed" ? (
+                            <button type="button" disabled={retryingJobId !== null} onClick={() => void retryJob(job.id)}>
+                              <ArrowClockwise className={retryingJobId === job.id ? "spin" : undefined} size={15} weight="bold" />
+                              {retryingJobId === job.id ? "重新排队中" : "重新执行"}
                             </button>
                           ) : null}
                           {job.status === "queued" || job.status === "running" || job.status === "approval_required" ? (

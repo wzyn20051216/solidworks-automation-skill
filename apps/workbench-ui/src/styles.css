@@ -2899,6 +2899,13 @@ textarea {
   transform: translateY(-1px);
 }
 
+.queue-actions button:disabled,
+.queue-job button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+  transform: none;
+}
+
 .queue-job button.danger-action {
   color: #963a3a;
   background: rgba(255, 239, 239, 0.84);
@@ -2908,8 +2915,18 @@ textarea {
   transition: transform 180ms ease;
 }
 
-.queue-job.expanded button svg {
+.queue-job.expanded .expand-button svg {
   transform: rotate(180deg);
+}
+
+.spin {
+  animation: control-spin 900ms linear infinite;
+}
+
+@keyframes control-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .job-process {

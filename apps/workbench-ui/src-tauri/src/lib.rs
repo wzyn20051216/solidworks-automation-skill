@@ -503,6 +503,57 @@ fn unix_timestamp_label() -> String {
     format!("unix:{seconds}")
 }
 
+fn retry_run_id() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    format!("retry-{nanos}")
+}
+
+/// @brief 将失败任务重置为可安全重新领取的队列状态。
+fn prepare_job_for_retry(
+    job: &mut Value,
+    run_id: String,
+    updated_at: String,
+) -> Result<(), String> {
+    if job.get("status").and_then(Value::as_str) != Some("failed") {
+        return Err("只有失败任务可以重新执行。".to_string());
+    }
+    let object = job
+        .as_object_mut()
+        .ok_or_else(|| "job payload must be an object".to_string())?;
+    object.insert("runId".to_string(), Value::String(run_id));
+    object.insert("status".to_string(), Value::String("queued".to_string()));
+    object.insert("progress".to_string(), Value::Number(0.into()));
+    object.insert("updatedAt".to_string(), Value::String(updated_at));
+    object.insert(
+        "lastMessage".to_string(),
+        Value::String("用户已重新执行失败任务，等待 Worker 接单。".to_string()),
+    );
+    object.insert("artifacts".to_string(), Value::Array(Vec::new()));
+    for field in [
+        "error",
+        "result",
+        "artifactLedgerPath",
+        "reviewGatePath",
+        "reviewGate",
+        "reviewedAt",
+        "reviewedBy",
+        "reviewDecision",
+        "reviewNote",
+        "runnerId",
+        "workerPid",
+        "heartbeatAt",
+        "leaseUntil",
+        "cancelRequested",
+        "workerLog",
+    ] {
+        object.remove(field);
+    }
+    Ok(())
+}
+
 fn append_queue_event(
     app: &AppHandle,
     job: &Value,
@@ -1504,6 +1555,28 @@ fn approve_queue_job(app: AppHandle, id: String) -> Result<Value, String> {
 }
 
 #[tauri::command]
+fn retry_queue_job(app: AppHandle, id: String) -> Result<Value, String> {
+    let path = job_path(&app, &id)?;
+    let raw = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+    let mut job = serde_json::from_str::<Value>(&raw).map_err(|error| error.to_string())?;
+    let previous_run_id = job.get("runId").cloned().unwrap_or(Value::Null);
+    let next_run_id = retry_run_id();
+    prepare_job_for_retry(&mut job, next_run_id.clone(), unix_timestamp_label())?;
+
+    let _ = fs::remove_file(path.with_extension("json.cancel"));
+    let payload = serde_json::to_vec_pretty(&job).map_err(|error| error.to_string())?;
+    atomic_write(&path, &payload)?;
+    append_queue_event(
+        &app,
+        &job,
+        "run.requeued_by_user",
+        "用户已重新执行失败任务",
+        json!({ "previousRunId": previous_run_id, "runId": next_run_id }),
+    )?;
+    Ok(job)
+}
+
+#[tauri::command]
 fn worker_status(app: AppHandle, state: State<'_, WorkerState>) -> Result<Value, String> {
     let mut guard = state.child.lock().map_err(|error| error.to_string())?;
     if let Some(child) = guard.as_mut() {
@@ -1946,6 +2019,7 @@ pub fn run() {
             approve_queue_job,
             approve_review_job,
             reject_review_job,
+            retry_queue_job,
             worker_status,
             start_worker,
             stop_worker,
@@ -1984,7 +2058,7 @@ pub fn run() {
 mod tests {
     use super::{
         database_provider_groups, derive_dangerous_capabilities, is_queue_metadata_path,
-        validate_new_queue_job,
+        prepare_job_for_retry, validate_new_queue_job,
     };
     use rusqlite::{params, Connection};
     use serde_json::json;
@@ -2062,6 +2136,50 @@ mod tests {
         job["uiConfig"]["knowledgeBase"]["tokenEnv"] = json!("AWS_SECRET_ACCESS_KEY");
         let error = validate_new_queue_job(&job).expect_err("arbitrary env token must be rejected");
         assert!(error.contains("CAD_STUDIO_RAG_TOKEN"));
+    }
+
+    #[test]
+    fn retry_resets_failed_runtime_state_and_preserves_approval() {
+        let mut job = queued_job();
+        job["status"] = json!("failed");
+        job["progress"] = json!(100);
+        job["attempt"] = json!(2);
+        job["error"] = json!("Windows 拒绝访问");
+        job["result"] = json!({"message": "旧结果"});
+        job["artifacts"] = json!([{"path": "old.step"}]);
+        job["artifactLedgerPath"] = json!("old-ledger.json");
+        job["reviewGate"] = json!({"status": "fail"});
+        job["workerLog"] = json!([{"status": "failed"}]);
+        job["runnerId"] = json!("old-runner");
+        job["workerPid"] = json!(1234);
+        job["approvedAt"] = json!("unix:1");
+        job["approvedBy"] = json!("local-user");
+        job["approvedPolicyReasons"] = json!(["已批准"]);
+
+        prepare_job_for_retry(&mut job, "retry-test-1".to_string(), "unix:2".to_string())
+            .expect("failed job should be retryable");
+
+        assert_eq!(job["status"], "queued");
+        assert_eq!(job["progress"], 0);
+        assert_eq!(job["runId"], "retry-test-1");
+        assert_eq!(job["attempt"], 2);
+        assert_eq!(job["approvedBy"], "local-user");
+        assert!(job.get("error").is_none());
+        assert!(job.get("result").is_none());
+        assert!(job.get("reviewGate").is_none());
+        assert!(job.get("workerLog").is_none());
+        assert_eq!(job["artifacts"], json!([]));
+    }
+
+    #[test]
+    fn retry_rejects_non_failed_job() {
+        let mut job = queued_job();
+
+        let error =
+            prepare_job_for_retry(&mut job, "retry-test-2".to_string(), "unix:2".to_string())
+                .expect_err("queued job must not be retried");
+
+        assert!(error.contains("只有失败任务"));
     }
 
     #[test]
