@@ -63,6 +63,9 @@ async function main() {
     solidworks: document.body.innerText.includes("SolidWorks 可用"),
     autocad: document.body.innerText.includes("AutoCAD 可用"),
   }));
+  const originalSettingsRaw = await page.evaluate(() => localStorage.getItem("cad-studio.settings.v1"));
+  const originalChatRaw = await page.evaluate(() => localStorage.getItem("cad-studio.agent-chat.v1"));
+  const originalConversationsRaw = await page.evaluate(() => localStorage.getItem("cad-studio.agent-conversations.v1"));
 
   const originalProjectName = process.env.CAD_STUDIO_E2E_RESTORE_PROJECT
     || await page.locator(".project-name-row strong").innerText();
@@ -267,6 +270,8 @@ async function main() {
   await createdCard.getByRole("button", { name: "取消", exact: true }).click();
   await waitUntil(() => readJob(createdFile).status === "cancelled", "queued cancelled");
   const createdStatusBeforeDelete = readJob(createdFile).status;
+  const projectMenuTrigger = page.getByRole("button", { name: /切换项目，当前为/ });
+  if (await projectMenuTrigger.getAttribute("aria-expanded") === "true") await projectMenuTrigger.click();
   const sidebarCreatedItem = page.locator(".project-sequence-item").filter({ hasText: "通用零件" }).first();
   await sidebarCreatedItem.locator(".project-sequence-delete").click();
   await sidebarCreatedItem.locator(".project-sequence-delete.confirm").click();
@@ -371,6 +376,46 @@ async function main() {
     }));
   }
   await page.getByRole("button", { name: "总览", exact: true }).click();
+
+  const conversationSelect = page.getByLabel("切换 AI 对话", { exact: true });
+  await page.getByLabel("选择 AI 公司", { exact: true }).selectOption("codex");
+  await page.getByRole("button", { name: "新建 AI 对话", exact: true }).click();
+  const firstConversationId = await conversationSelect.inputValue();
+  await page.getByLabel("选择对话模型", { exact: true }).selectOption("gpt-5.6-sol");
+  await page.getByRole("button", { name: "新建 AI 对话", exact: true }).click();
+  const secondConversationId = await conversationSelect.inputValue();
+  await page.getByLabel("选择对话模型", { exact: true }).selectOption("gpt-5.6-terra");
+  await conversationSelect.selectOption(firstConversationId);
+  const conversationIsolation = {
+    separateIds: firstConversationId !== secondConversationId,
+    firstModelRestored: await page.getByLabel("选择对话模型", { exact: true }).inputValue() === "gpt-5.6-sol",
+    providerLabel: await page.getByLabel("选择 AI 公司", { exact: true }).locator("option:checked").innerText(),
+  };
+
+  await page.getByRole("button", { name: new RegExp(`切换项目，当前为 ${testProjectName}`) }).click();
+  await page.getByRole("menuitem", { name: "新建项目", exact: true }).click();
+  await page.getByRole("textbox", { name: "项目名称", exact: true }).fill("项目切换回归");
+  await page.getByRole("textbox", { name: "项目名称", exact: true }).press("Enter");
+  await waitUntil(() => page.locator(".project-sequence-item").count().then((count) => count === 0), "new project starts empty");
+  await page.getByRole("button", { name: /切换项目，当前为 项目切换回归/ }).click();
+  await page.getByRole("menuitem", { name: new RegExp(testProjectName) }).click();
+  await page.locator(".project-sequence-item").filter({ hasText: "人工复核测试" }).first().waitFor({ state: "visible" });
+  await page.getByRole("button", { name: new RegExp(`切换项目，当前为 ${testProjectName}`) }).click();
+  await page.getByRole("menuitem", { name: /项目切换回归/ }).click();
+  await waitUntil(() => page.locator(".project-sequence-item").count().then((count) => count === 0), "switched project remains empty");
+  await page.getByRole("button", { name: /切换项目，当前为 项目切换回归/ }).click();
+  await page.getByRole("button", { name: "删除项目 项目切换回归", exact: true }).click();
+  await page.getByRole("button", { name: "确认删除项目 项目切换回归", exact: true }).click();
+  await page.getByRole("button", { name: new RegExp(`切换项目，当前为 ${testProjectName}`) }).waitFor({ state: "visible" });
+  await page.locator(".project-sequence-item").filter({ hasText: "人工复核测试" }).first().waitFor({ state: "visible" });
+  await page.getByRole("button", { name: new RegExp(`切换项目，当前为 ${testProjectName}`) }).click();
+  const deletedProjectAbsent = await page.getByRole("menuitem", { name: /项目切换回归/ }).count() === 0;
+  await page.keyboard.press("Escape");
+  const projectSwitch = {
+    newProjectEmpty: true,
+    restoredProject: await page.locator(".project-switcher-trigger strong").innerText(),
+    deletedProjectAbsent,
+  };
   await page.screenshot({ path: path.join(repo, "ai_team", "ui_review", "final-e2e-desktop.png") });
 
   const verifiedProjectName = await page.locator(".project-name-row strong").innerText();
@@ -381,6 +426,48 @@ async function main() {
     () => page.evaluate((expected) => JSON.parse(localStorage.getItem("cad-studio.settings.v1") || "{}").projectName === expected, originalProjectName),
     "project name restored",
   );
+
+  const wallpaperSource = path.join(repo, "apps", "workbench-ui", "src-tauri", "icons", "128x128.png");
+  const importedWallpaper = await invoke("import_wallpaper", { sourcePath: wallpaperSource });
+  const customWallpaperLayer = page.locator(".app-shell.theme-custom div.custom-wallpaper-layer").first();
+  let wallpaperDiagnostics;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.waitForTimeout(attempt === 0 ? 600 : 2_500);
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "domcontentloaded" }),
+      page.evaluate((wallpaper) => {
+        const settings = JSON.parse(localStorage.getItem("cad-studio.settings.v1") || "{}");
+        settings.activeWallpaper = "custom";
+        settings.customWallpaperPath = wallpaper.path;
+        localStorage.setItem("cad-studio.settings.v1", JSON.stringify(settings));
+        location.reload();
+      }, importedWallpaper),
+    ]);
+    if (await customWallpaperLayer.waitFor({ state: "visible", timeout: 15_000 }).then(() => true).catch(() => false)) break;
+    wallpaperDiagnostics = await page.evaluate(() => ({
+      shellClass: document.querySelector(".app-shell")?.className,
+      settings: JSON.parse(localStorage.getItem("cad-studio.settings.v1") || "{}"),
+      hint: document.querySelector(".window-hint")?.textContent,
+      layers: Array.from(document.querySelectorAll(".custom-wallpaper-layer")).map((element) => ({
+        tag: element.tagName,
+        style: element.getAttribute("style"),
+        backgroundImage: getComputedStyle(element).backgroundImage,
+      })),
+    }));
+  }
+  if (!(await customWallpaperLayer.isVisible())) {
+    throw new Error(`custom wallpaper did not become visible; wallpaper=${JSON.stringify(wallpaperDiagnostics)}; logs=${browserLogs.join(" | ")}`);
+  }
+  const wallpaperBackground = await customWallpaperLayer.evaluate((element) => getComputedStyle(element).backgroundImage);
+  if (!wallpaperBackground || wallpaperBackground === "none") {
+    throw new Error(`custom wallpaper did not render: ${wallpaperBackground}`);
+  }
+  const wallpaper = {
+    cached: fs.existsSync(importedWallpaper.path),
+    rendered: wallpaperBackground !== "none",
+    kind: importedWallpaper.kind,
+  };
+  conversationIsolation.modelAfterReload = await page.getByLabel("选择对话模型", { exact: true }).inputValue() === "gpt-5.6-sol";
 
   const result = {
     initial,
@@ -406,6 +493,10 @@ async function main() {
       cancelledEvent: cancelledRecoveryEvent.includes("run.cancelled"),
     },
     projectName: { verified: verifiedProjectName, restored: originalProjectName },
+    projectSwitch,
+    conversationIsolation,
+    wallpaper,
+    settingsRestored: false,
     template: {
       selected: selectedTemplate.includes("已载入配置"),
       createdOnSelect: afterTemplateFiles.length !== beforeTemplateFiles.length,
@@ -425,11 +516,22 @@ async function main() {
     tabResults,
   };
 
-  try {
-    await page.getByRole("button", { name: "关闭" }).click();
-  } catch (error) {
-    if (!String(error).includes("Target page, context or browser has been closed")) throw error;
-  }
+  result.settingsRestored = await page.evaluate((original) => {
+    for (const [key, raw] of Object.entries(original)) {
+      if (raw === null) localStorage.removeItem(key);
+      else localStorage.setItem(key, raw);
+    }
+    const restored = Object.entries(original).every(([key, raw]) => localStorage.getItem(key) === raw);
+    void window.__TAURI_INTERNALS__.invoke("plugin:window|close", { label: "main" });
+    return restored;
+  }, {
+    "cad-studio.settings.v1": originalSettingsRaw,
+    "cad-studio.agent-chat.v1": originalChatRaw,
+    "cad-studio.agent-conversations.v1": originalConversationsRaw,
+  }).catch((error) => {
+    if (String(error).includes("Target page, context or browser has been closed")) return true;
+    throw error;
+  });
   await waitUntil(() => app.exitCode !== null, "app exit", 10_000);
   result.closed = { exitCode: app.exitCode };
   const escapedExecutable = executable.replaceAll("'", "''");

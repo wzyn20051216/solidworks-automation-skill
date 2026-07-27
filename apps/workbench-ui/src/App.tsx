@@ -45,6 +45,13 @@ type WallpaperId = PresetWallpaperId | "custom";
 type WallpaperMotionMode = "still" | "breathe" | "cinematic" | "follow";
 type WallpaperFile = { url: string; name: string; kind: "image" | "video"; sourcePath?: string };
 type RecentWallpaper = { path: string; name: string; kind: "image" | "video" };
+type ProjectRecord = {
+  id: string;
+  name: string;
+  sourcePath?: string;
+  createdAt: string;
+  updatedAt: string;
+};
 type AppSettings = {
   activeWallpaper: WallpaperId;
   customWallpaperPath?: string;
@@ -57,6 +64,8 @@ type AppSettings = {
   defaultWallpaperVersion?: number;
   panelOpacityVersion?: number;
   recentWallpapers: RecentWallpaper[];
+  projects?: ProjectRecord[];
+  activeProjectId?: string;
   projectName?: string;
   recentProjectPath?: string;
   apiConfig?: ApiIntegrationConfig;
@@ -172,6 +181,8 @@ type AutomationJob = {
   updatedAt: string;
   requestedBy: string;
   createdByAppVersion: string;
+  projectId?: string;
+  conversationId?: string;
   projectPath?: string;
   executor?: "mock" | "codex" | "agent";
   objective?: string;
@@ -262,6 +273,17 @@ type AgentChatMessage = {
   content: string;
   at: string;
   jobId?: string;
+  projectId?: string;
+  conversationId?: string;
+};
+type AgentConversation = {
+  id: string;
+  projectId: string;
+  title: string;
+  provider: AgentProviderId;
+  model: string;
+  createdAt: string;
+  updatedAt: string;
 };
 type ManualReviewDraft = {
   note: string;
@@ -300,6 +322,11 @@ type RuntimeHealth = {
   }>;
   solidworks?: { ok?: boolean; message?: string };
   autocad?: { ok?: boolean; path?: string };
+};
+type ImportedWallpaper = {
+  path: string;
+  name: string;
+  kind: "image" | "video";
 };
 
 const wallpapers: Array<{ id: PresetWallpaperId; name: string; hint: string; assetUrl?: string; credit?: string }> = [
@@ -362,7 +389,16 @@ const pageCopy: Record<ActiveTab, { title: string; subtitle: string }> = {
 const SETTINGS_KEY = "cad-studio.settings.v1";
 const QUEUE_KEY = "cad-studio.queue.v1";
 const CHAT_KEY = "cad-studio.agent-chat.v1";
+const CONVERSATIONS_KEY = "cad-studio.agent-conversations.v1";
 const APP_VERSION = "0.2.0";
+const LEGACY_PROJECT_ID = "project-default";
+const LEGACY_CONVERSATION_ID = "conversation-legacy";
+const DEFAULT_PROJECT: ProjectRecord = {
+  id: LEGACY_PROJECT_ID,
+  name: "未命名项目",
+  createdAt: "",
+  updatedAt: "",
+};
 const manualReviewOptions = [
   ["native-open", "已用目标 CAD 软件原生打开并确认无报错"],
   ["dimensions", "已核对关键尺寸、公差、基准和定位尺寸"],
@@ -392,11 +428,12 @@ const helpTopics: Array<{
     id: "projects",
     label: "项目与任务",
     title: "管理左侧任务历史",
-    summary: "项目名保存在本机。左侧每一项是一轮独立任务，选择任务可以查看对话、过程、日志和产物。",
+    summary: "项目、任务和 AI 对话都保存在本机并相互隔离。切换项目后，只显示该项目的任务与对话。",
     items: [
-      { title: "修改项目名", detail: "点击当前项目名称旁的编辑图标，输入名称后按 Enter 或点击确认。" },
+      { title: "切换与删除项目", detail: "点击左上角项目名切换或新建项目；垃圾桶需要二次确认，活动任务未取消时不能删除项目。" },
       { title: "新建任务", detail: "新建任务只打开配置区，不会自动执行，也不会污染任务历史。" },
-      { title: "删除记录", detail: "任务行右侧的删除按钮需要二次确认。删除任务记录不会删除已经导出的 CAD 文件。" },
+      { title: "独立 AI 对话", detail: "在 AI 对话标题栏切换或新建对话。每段对话保留自己的上下文、Agent 公司和模型选择。" },
+      { title: "模型与公司", detail: "OpenAI Codex、Anthropic Claude Code、Google Gemini CLI 和 OpenCode 分开标注；CC Switch 中的真实模型会自动加入选择列表。" },
       { title: "运行中任务", detail: "执行中的任务需要先取消，待状态变为已取消后才能删除。" },
     ],
   },
@@ -445,11 +482,21 @@ const defaultApiConfig: ApiIntegrationConfig = {
   model: "由 Codex 配置决定",
   keyStatus: "configured",
 };
-const agentProviderCatalog: Record<AgentProviderId, { name: string; protocol: string; model: string }> = {
-  codex: { name: "Codex", protocol: "codex-exec-v1", model: "跟随 Codex 配置" },
-  claude: { name: "Claude Code", protocol: "claude-print-v1", model: "跟随 Claude 配置" },
-  gemini: { name: "Gemini CLI", protocol: "gemini-headless-v1", model: "跟随 Gemini 配置" },
-  opencode: { name: "OpenCode", protocol: "opencode-jsonl-v1", model: "跟随 OpenCode 配置" },
+const agentProviderCatalog: Record<AgentProviderId, { name: string; company: string; protocol: string; model: string; models: Array<{ value: string; label: string }> }> = {
+  codex: {
+    name: "Codex",
+    company: "OpenAI",
+    protocol: "codex-exec-v1",
+    model: "跟随 Codex 配置",
+    models: [
+      { value: "gpt-5.5", label: "GPT-5.5" },
+      { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+      { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+    ],
+  },
+  claude: { name: "Claude Code", company: "Anthropic", protocol: "claude-print-v1", model: "跟随 Claude 配置", models: [] },
+  gemini: { name: "Gemini CLI", company: "Google", protocol: "gemini-headless-v1", model: "跟随 Gemini 配置", models: [] },
+  opencode: { name: "OpenCode", company: "多供应商", protocol: "opencode-jsonl-v1", model: "跟随 OpenCode 配置", models: [] },
 };
 
 function ccSwitchProvidersForAgent(sync: CcSwitchSync | null, agentProvider: AgentProviderId) {
@@ -635,6 +682,45 @@ function wallpaperFromPath(path: string): WallpaperFile {
   };
 }
 
+function preloadWallpaper(wallpaper: WallpaperFile) {
+  return new Promise<void>((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error("壁纸加载超时")), 12_000);
+    if (wallpaper.kind === "video") {
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.onloadeddata = () => {
+        window.clearTimeout(timeout);
+        resolve();
+      };
+      video.onerror = () => {
+        window.clearTimeout(timeout);
+        reject(new Error("视频格式无法加载"));
+      };
+      video.src = wallpaper.url;
+      video.load();
+      return;
+    }
+    const image = new Image();
+    image.onload = () => {
+      window.clearTimeout(timeout);
+      resolve();
+    };
+    image.onerror = () => {
+      window.clearTimeout(timeout);
+      reject(new Error("图片格式无法加载"));
+    };
+    image.src = wallpaper.url;
+  });
+}
+
+function jobProjectId(job: AutomationJob) {
+  return job.projectId || LEGACY_PROJECT_ID;
+}
+
+function newProjectId() {
+  return `project-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+}
+
 function clampNumber(value: unknown, fallback: number, min: number, max: number) {
   if (typeof value !== "number" || Number.isNaN(value)) return fallback;
   return Math.min(max, Math.max(min, value));
@@ -651,6 +737,28 @@ function loadSettings(): AppSettings | null {
         : parsed.customWallpaperPath
           ? parsed.activeWallpaper ?? "custom"
           : "blossom";
+    const migratedName = typeof parsed.projectName === "string" && parsed.projectName.trim() ? parsed.projectName.trim().slice(0, 48) : "未命名项目";
+    const migratedProject: ProjectRecord = {
+      ...DEFAULT_PROJECT,
+      name: migratedName,
+      sourcePath: parsed.recentProjectPath,
+    };
+    const projects = Array.isArray(parsed.projects)
+      ? parsed.projects
+          .filter((item): item is ProjectRecord => Boolean(item && typeof item.id === "string" && typeof item.name === "string" && item.name.trim()))
+          .map((item) => ({
+            id: item.id,
+            name: item.name.trim().slice(0, 48),
+            sourcePath: typeof item.sourcePath === "string" ? item.sourcePath : undefined,
+            createdAt: typeof item.createdAt === "string" ? item.createdAt : "",
+            updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : "",
+          }))
+      : [];
+    const normalizedProjects = projects.length ? projects : [migratedProject];
+    const activeProjectId = normalizedProjects.some((item) => item.id === parsed.activeProjectId)
+      ? parsed.activeProjectId
+      : normalizedProjects[0].id;
+    const activeProject = normalizedProjects.find((item) => item.id === activeProjectId) ?? normalizedProjects[0];
     return {
       activeWallpaper: parsed.customWallpaperPath ? migratedWallpaper : migratedWallpaper === "custom" ? "blossom" : migratedWallpaper,
       customWallpaperPath: parsed.customWallpaperPath,
@@ -663,8 +771,10 @@ function loadSettings(): AppSettings | null {
       defaultWallpaperVersion: 1,
       panelOpacityVersion: 1,
       recentWallpapers: Array.isArray(parsed.recentWallpapers) ? parsed.recentWallpapers.slice(0, 6) : [],
-      projectName: typeof parsed.projectName === "string" && parsed.projectName.trim() ? parsed.projectName.trim().slice(0, 48) : "未命名项目",
-      recentProjectPath: parsed.recentProjectPath,
+      projects: normalizedProjects,
+      activeProjectId,
+      projectName: activeProject.name,
+      recentProjectPath: activeProject.sourcePath,
       apiConfig: parsed.apiConfig
         ? {
             mode: parsed.apiConfig.mode ?? defaultApiConfig.mode,
@@ -698,7 +808,7 @@ function loadLocalQueue(): AutomationJob[] {
     const raw = localStorage.getItem(QUEUE_KEY);
     if (!raw) return [];
     const jobs = JSON.parse(raw);
-    return Array.isArray(jobs) ? jobs.slice(0, 8) : [];
+    return Array.isArray(jobs) ? jobs.slice(0, 100) : [];
   } catch {
     return [];
   }
@@ -717,14 +827,53 @@ function loadAgentChat(): AgentChatMessage[] {
   }
 }
 
-function createChatMessage(role: AgentChatMessage["role"], content: string, jobId?: string): AgentChatMessage {
+function loadAgentConversations(): AgentConversation[] {
+  try {
+    const raw = localStorage.getItem(CONVERSATIONS_KEY);
+    if (!raw) return [];
+    const conversations = JSON.parse(raw);
+    return Array.isArray(conversations)
+      ? conversations
+          .filter((conversation) => conversation?.id && conversation?.projectId && conversation?.title)
+          .map((conversation) => {
+            const provider: AgentProviderId = ["codex", "claude", "gemini", "opencode"].includes(conversation.provider) ? conversation.provider : "codex";
+            return {
+              id: String(conversation.id),
+              projectId: String(conversation.projectId),
+              title: String(conversation.title).slice(0, 64),
+              provider,
+              model: typeof conversation.model === "string" ? conversation.model : agentProviderCatalog[provider].model,
+              createdAt: typeof conversation.createdAt === "string" ? conversation.createdAt : "",
+              updatedAt: typeof conversation.updatedAt === "string" ? conversation.updatedAt : "",
+            } satisfies AgentConversation;
+          })
+          .slice(0, 100)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function createChatMessage(
+  role: AgentChatMessage["role"],
+  content: string,
+  jobId?: string,
+  conversationId?: string,
+  projectId?: string,
+): AgentChatMessage {
   return {
     id: `msg-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     role,
     content,
     at: new Date().toISOString(),
     jobId,
+    conversationId,
+    projectId,
   };
+}
+
+function newConversationId() {
+  return `conversation-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
 function formatTimeLabel(value?: string) {
@@ -1038,6 +1187,11 @@ function App() {
   const [wallpaperMotionStrength, setWallpaperMotionStrength] = useState(55);
   const [wallpaperShot, setWallpaperShot] = useState(0);
   const [recentWallpapers, setRecentWallpapers] = useState<RecentWallpaper[]>([]);
+  const [projects, setProjects] = useState<ProjectRecord[]>([DEFAULT_PROJECT]);
+  const [activeProjectId, setActiveProjectId] = useState(LEGACY_PROJECT_ID);
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [deleteCandidateProjectId, setDeleteCandidateProjectId] = useState<string | null>(null);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState("未命名项目");
   const [projectNameDraft, setProjectNameDraft] = useState("未命名项目");
   const [editingProjectName, setEditingProjectName] = useState(false);
@@ -1054,6 +1208,9 @@ function App() {
   const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
   const [activeAgentJobId, setActiveAgentJobId] = useState<string | null>(null);
   const [agentMessages, setAgentMessages] = useState<AgentChatMessage[]>([]);
+  const [agentConversations, setAgentConversations] = useState<AgentConversation[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [chatLoaded, setChatLoaded] = useState(false);
   const [agentInput, setAgentInput] = useState("");
   const [manualReviewDrafts, setManualReviewDrafts] = useState<Record<string, ManualReviewDraft>>({});
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus>({ running: false, message: "桌面端可启动" });
@@ -1089,17 +1246,41 @@ function App() {
   const completedChatJobIdsRef = useRef<Set<string>>(new Set());
   const reducedMotion = useReducedMotion();
 
+  const activeProject = useMemo(
+    () => projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? DEFAULT_PROJECT,
+    [activeProjectId, projects],
+  );
+  const activeProjectJobs = useMemo(
+    () => jobs.filter((job) => jobProjectId(job) === activeProject.id),
+    [activeProject.id, jobs],
+  );
+  const projectConversations = useMemo(
+    () => agentConversations
+      .filter((conversation) => conversation.projectId === activeProject.id)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    [activeProject.id, agentConversations],
+  );
+  const activeConversation = useMemo(
+    () => projectConversations.find((conversation) => conversation.id === activeConversationId) ?? projectConversations[0],
+    [activeConversationId, projectConversations],
+  );
+  const activeConversationMessages = useMemo(
+    () => activeConversation
+      ? agentMessages.filter((message) => message.conversationId === activeConversation.id)
+      : [],
+    [activeConversation, agentMessages],
+  );
   const queueSummary = useMemo(() => {
-    const approvalRequired = jobs.filter((job) => job.status === "approval_required").length;
-    const reviewRequired = jobs.filter((job) => job.status === "review_required").length;
-    const running = jobs.filter((job) => job.status === "running").length;
-    const queued = jobs.filter((job) => job.status === "queued").length;
+    const approvalRequired = activeProjectJobs.filter((job) => job.status === "approval_required").length;
+    const reviewRequired = activeProjectJobs.filter((job) => job.status === "review_required").length;
+    const running = activeProjectJobs.filter((job) => job.status === "running").length;
+    const queued = activeProjectJobs.filter((job) => job.status === "queued").length;
     if (approvalRequired > 0) return `${approvalRequired} 个待审批`;
     if (reviewRequired > 0) return `${reviewRequired} 个待复核`;
     if (running > 0) return `${running} 个执行中`;
     if (queued > 0) return `${queued} 个排队`;
-    return jobs.length > 0 ? "队列就绪" : "暂无任务";
-  }, [jobs]);
+    return activeProjectJobs.length > 0 ? "队列就绪" : "暂无任务";
+  }, [activeProjectJobs]);
 
   const workerLabel = useMemo(() => {
     const health = workerStatus.health?.status;
@@ -1114,16 +1295,22 @@ function App() {
     return taskTemplates.filter((item) => item.tab === activeTab);
   }, [activeTab]);
 
-  const activeAgentJob = useMemo(() => jobs.find((job) => job.id === activeAgentJobId) ?? jobs.find((job) => job.uiConfig?.agentChat === true) ?? jobs[0], [activeAgentJobId, jobs]);
+  const activeAgentJob = useMemo(
+    () => activeProjectJobs.find((job) => job.id === activeAgentJobId)
+      ?? activeProjectJobs.find((job) => job.conversationId && job.conversationId === activeConversation?.id)
+      ?? activeProjectJobs.find((job) => job.uiConfig?.agentChat === true)
+      ?? activeProjectJobs[0],
+    [activeAgentJobId, activeConversation?.id, activeProjectJobs],
+  );
   const resultJob = useMemo(
-    () => activeAgentJob || jobs.find((job) => collectJobArtifacts(job).length > 0 || job.reviewGate?.checks?.length || job.result?.message || job.error),
-    [activeAgentJob, jobs],
+    () => activeAgentJob || activeProjectJobs.find((job) => collectJobArtifacts(job).length > 0 || job.reviewGate?.checks?.length || job.result?.message || job.error),
+    [activeAgentJob, activeProjectJobs],
   );
   const resultArtifacts = useMemo(() => collectJobArtifacts(resultJob), [resultJob]);
   const resultChecks = resultJob?.reviewGate?.checks ?? resultJob?.result?.checks ?? [];
   const resultFeatures = realFeatureRows(resultJob);
   const codexPrompt = useMemo(() => buildCodexPrompt(codexConfig, recentProjectPath, runtimeHealth), [codexConfig, recentProjectPath, runtimeHealth]);
-  const recentJobs = useMemo(() => jobs.slice(0, 8), [jobs]);
+  const recentJobs = useMemo(() => activeProjectJobs.slice(0, 8), [activeProjectJobs]);
   const selectedProvider = useMemo(
     () => runtimeHealth?.agentProviders?.find((provider) => provider.id === apiConfig.agentProvider),
     [apiConfig.agentProvider, runtimeHealth],
@@ -1132,9 +1319,90 @@ function App() {
     () => ccSwitchProvidersForAgent(ccSwitchSync, apiConfig.agentProvider),
     [apiConfig.agentProvider, ccSwitchSync],
   );
+  const providerModelOptions = useMemo(() => {
+    const metadata = agentProviderCatalog[apiConfig.agentProvider];
+    const configuredModels = selectedCcSwitchProviders.flatMap((provider) => [provider.model, ...(provider.models ?? [])]);
+    const candidates = [metadata.model, ...metadata.models.map((model) => model.value), ...configuredModels, apiConfig.model]
+      .filter((model): model is string => Boolean(model?.trim()));
+    return Array.from(new Set(candidates)).map((value) => ({
+      value,
+      label: metadata.models.find((model) => model.value === value)?.label ?? value,
+    }));
+  }, [apiConfig.agentProvider, apiConfig.model, selectedCcSwitchProviders]);
 
   function updateCodexConfig(patch: Partial<CodexConfig>) {
     setCodexConfig((config) => ({ ...config, ...patch }));
+  }
+
+  function updateConversationRuntime(provider: AgentProviderId, model: string) {
+    if (!activeConversation) return;
+    setAgentConversations((items) => items.map((conversation) => conversation.id === activeConversation.id
+      ? { ...conversation, provider, model, updatedAt: new Date().toISOString() }
+      : conversation));
+  }
+
+  function selectAgentProvider(providerId: AgentProviderId) {
+    const metadata = agentProviderCatalog[providerId];
+    const health = runtimeHealth?.agentProviders?.find((item) => item.id === providerId);
+    const ccSwitchRoute = activeCcSwitchProvider(ccSwitchSync, providerId);
+    const model = ccSwitchRoute?.model || metadata.model;
+    setApiConfig((config) => ({
+      ...config,
+      agentProvider: providerId,
+      providerName: ccSwitchRoute?.name || metadata.name,
+      endpoint: ccSwitchRoute?.endpoint || health?.entry || "本机 CLI",
+      model,
+      keyStatus: ccSwitchRoute ? "synced" : health?.verified ? "configured" : "missing",
+    }));
+    updateConversationRuntime(providerId, model);
+  }
+
+  function selectAgentModel(model: string) {
+    setApiConfig((config) => ({ ...config, model }));
+    updateConversationRuntime(apiConfig.agentProvider, model);
+  }
+
+  function createAgentConversation(title?: string) {
+    const now = new Date().toISOString();
+    const conversation: AgentConversation = {
+      id: newConversationId(),
+      projectId: activeProject.id,
+      title: title || `新对话 ${projectConversations.length + 1}`,
+      provider: apiConfig.agentProvider,
+      model: apiConfig.model,
+      createdAt: now,
+      updatedAt: now,
+    };
+    setAgentConversations((items) => [conversation, ...items]);
+    setActiveConversationId(conversation.id);
+    setActiveAgentJobId(null);
+    setExpandedJobId(null);
+    setAgentInput("");
+    return conversation;
+  }
+
+  function selectAgentConversation(conversationId: string) {
+    const conversation = agentConversations.find((item) => item.id === conversationId);
+    if (!conversation) return;
+    setActiveConversationId(conversation.id);
+    setAgentConversations((items) => items.map((item) => item.id === conversation.id
+      ? { ...item, updatedAt: new Date().toISOString() }
+      : item));
+    const latestJob = activeProjectJobs.find((job) => job.conversationId === conversation.id);
+    setActiveAgentJobId(latestJob?.id ?? null);
+    setExpandedJobId(latestJob?.id ?? null);
+    setAgentInput("");
+    const metadata = agentProviderCatalog[conversation.provider];
+    const health = runtimeHealth?.agentProviders?.find((item) => item.id === conversation.provider);
+    const ccSwitchRoute = activeCcSwitchProvider(ccSwitchSync, conversation.provider);
+    setApiConfig((config) => ({
+      ...config,
+      agentProvider: conversation.provider,
+      providerName: ccSwitchRoute?.name || metadata.name,
+      endpoint: ccSwitchRoute?.endpoint || health?.entry || "本机 CLI",
+      model: conversation.model,
+      keyStatus: ccSwitchRoute ? "synced" : health?.verified ? "configured" : "missing",
+    }));
   }
 
   async function persistJob(job: AutomationJob) {
@@ -1150,7 +1418,7 @@ function App() {
   function upsertJob(nextJob: AutomationJob) {
     setJobs((items) => {
       const exists = items.some((item) => item.id === nextJob.id);
-      const next = exists ? items.map((item) => (item.id === nextJob.id ? nextJob : item)) : [nextJob, ...items].slice(0, 8);
+      const next = exists ? items.map((item) => (item.id === nextJob.id ? nextJob : item)) : [nextJob, ...items].slice(0, 100);
       saveLocalQueue(next);
       return next;
     });
@@ -1261,6 +1529,7 @@ function App() {
       };
       setCcSwitchSync(sync);
       setApiConfig(nextConfig);
+      updateConversationRuntime(agentProvider, nextConfig.model);
       setApiSyncMessage(providerCount > 0
         ? `已读取 ${providerCount} 个 ${agentProviderCatalog[agentProvider].name} 路由，凭据由 CC Switch 管理。`
         : `CC Switch 中暂未配置 ${agentProviderCatalog[agentProvider].name} 路由，继续使用当前 CLI 登录态。`);
@@ -1320,6 +1589,7 @@ function App() {
     const capabilities = config.localCadAutomation ? ["cad_macro"] : [];
     const providerMeta = agentProviderCatalog[apiConfig.agentProvider];
     const job = createJob("agent_task", recentProjectPath, {
+      projectId: activeProjectId,
       executor: "agent",
       title: conciseTaskTitle(config.objective, `${codexTargets[config.target]}任务`),
       detail: `${cadApplicationLabels[config.cadApplication]} · ${codexTargets[config.target]} · ${resolvedExpectedOutput(config)}`,
@@ -1417,9 +1687,19 @@ function App() {
     const text = agentInput.trim();
     if (!text || submissionKind) return;
 
-    const userMessage = createChatMessage("user", text);
+    const conversation = activeConversation ?? createAgentConversation(conciseTaskTitle(text, "新对话"));
+    const userMessage = createChatMessage("user", text, undefined, conversation.id, activeProject.id);
+    setAgentConversations((items) => items.map((item) => item.id === conversation.id
+      ? {
+          ...item,
+          title: item.title.startsWith("新对话") ? conciseTaskTitle(text, "新对话") : item.title,
+          provider: apiConfig.agentProvider,
+          model: apiConfig.model,
+          updatedAt: new Date().toISOString(),
+        }
+      : item));
     if (!isTauriRuntime()) {
-      setAgentMessages((messages) => [...messages, userMessage, createChatMessage("system", "浏览器预览不会创建模拟任务。请打开桌面版后继续。")].slice(-40));
+      setAgentMessages((messages) => [...messages, userMessage, createChatMessage("system", "浏览器预览不会创建模拟任务。请打开桌面版后继续。", undefined, conversation.id, activeProject.id)].slice(-200));
       setAgentInput("");
       return;
     }
@@ -1430,15 +1710,17 @@ function App() {
     try {
       activeRuntime = await ensureRuntimeHealth();
     } catch (error) {
-      setAgentMessages((messages) => [...messages, userMessage, createChatMessage("system", `本地环境未就绪：${String(error)}`)].slice(-40));
+      setAgentMessages((messages) => [...messages, userMessage, createChatMessage("system", `本地环境未就绪：${String(error)}`, undefined, conversation.id, activeProject.id)].slice(-200));
       setAgentInput("");
       setWindowHint("对话任务未创建 · 请检查本地环境");
       setSubmissionKind(null);
       return;
     }
-    const prompt = buildChatPrompt(codexConfig, apiConfig, text, [...agentMessages, userMessage], recentProjectPath, activeRuntime);
+    const prompt = buildChatPrompt(codexConfig, apiConfig, text, [...activeConversationMessages, userMessage], recentProjectPath, activeRuntime);
     const providerMeta = agentProviderCatalog[apiConfig.agentProvider];
     const job = createJob("agent_task", recentProjectPath, {
+      projectId: activeProjectId,
+      conversationId: conversation.id,
       executor: "agent",
       title: conciseTaskTitle(text, "AI CAD 对话任务"),
       detail: `${cadApplicationLabels[codexConfig.cadApplication]} · ${codexTargets[codexConfig.target]} · 可继续追问修改`,
@@ -1504,8 +1786,8 @@ function App() {
       setAgentMessages((messages) => [
         ...messages,
         userMessage,
-        createChatMessage("assistant", `收到，我已经把这句话转成一条本地 ${providerMeta.name} 执行任务。你可以在下方看到公开步骤、审批、日志和结果；不满意就继续补充要求。`, job.id),
-      ].slice(-40));
+        createChatMessage("assistant", `收到，我已经把这句话转成一条本地 ${providerMeta.name} 执行任务。你可以在下方看到公开步骤、审批、日志和结果；不满意就继续补充要求。`, job.id, conversation.id, activeProject.id),
+      ].slice(-200));
       upsertJob(job);
       setWindowHint("对话任务已进入本地队列");
       if (!workerStatus.running) void startLocalWorker();
@@ -1513,8 +1795,8 @@ function App() {
       setAgentMessages((messages) => [
         ...messages,
         userMessage,
-        createChatMessage("system", `任务写入失败，没有进入执行队列：${String(error)}`),
-      ].slice(-40));
+        createChatMessage("system", `任务写入失败，没有进入执行队列：${String(error)}`, undefined, conversation.id, activeProject.id),
+      ].slice(-200));
       setWindowHint("对话任务写入失败");
     } finally {
       setSubmissionKind(null);
@@ -1538,8 +1820,142 @@ function App() {
     const nextName = projectNameDraft.replace(/\s+/g, " ").trim().slice(0, 48) || "未命名项目";
     setProjectName(nextName);
     setProjectNameDraft(nextName);
+    setProjects((items) => items.map((item) => item.id === activeProjectId
+      ? { ...item, name: nextName, updatedAt: new Date().toISOString() }
+      : item));
     setEditingProjectName(false);
     setWindowHint(`项目已命名为“${nextName}”`);
+  }
+
+  function selectProject(project: ProjectRecord) {
+    const nextConversation = agentConversations
+      .filter((conversation) => conversation.projectId === project.id)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+    setActiveProjectId(project.id);
+    setActiveConversationId(nextConversation?.id ?? null);
+    if (nextConversation) {
+      const metadata = agentProviderCatalog[nextConversation.provider];
+      const health = runtimeHealth?.agentProviders?.find((item) => item.id === nextConversation.provider);
+      const ccSwitchRoute = activeCcSwitchProvider(ccSwitchSync, nextConversation.provider);
+      setApiConfig((config) => ({
+        ...config,
+        agentProvider: nextConversation.provider,
+        providerName: ccSwitchRoute?.name || metadata.name,
+        endpoint: ccSwitchRoute?.endpoint || health?.entry || "本机 CLI",
+        model: nextConversation.model,
+        keyStatus: ccSwitchRoute ? "synced" : health?.verified ? "configured" : "missing",
+      }));
+    }
+    setProjectName(project.name);
+    setProjectNameDraft(project.name);
+    setRecentProjectPath(project.sourcePath);
+    setProjectMenuOpen(false);
+    setDeleteCandidateProjectId(null);
+    setEditingProjectName(false);
+    setDeleteCandidateJobId(null);
+    setActiveAgentJobId(null);
+    setExpandedJobId(null);
+    setSelectedTemplateKey(null);
+    setActiveTab("project");
+    setWindowHint(`已切换到“${project.name}”`);
+  }
+
+  function createProject() {
+    const now = new Date().toISOString();
+    const project: ProjectRecord = {
+      id: newProjectId(),
+      name: `新项目 ${projects.length + 1}`,
+      createdAt: now,
+      updatedAt: now,
+    };
+    setProjects((items) => [project, ...items]);
+    selectProject(project);
+    setActiveConversationId(null);
+    setEditingProjectName(true);
+    setWindowHint("新项目已创建，请输入项目名称");
+  }
+
+  async function deleteProject(project: ProjectRecord) {
+    if (projects.length <= 1) {
+      setWindowHint("至少需要保留一个项目");
+      return;
+    }
+    const projectJobs = jobs.filter((job) => jobProjectId(job) === project.id);
+    const hasActiveJobs = projectJobs.some((job) => ["queued", "running", "approval_required"].includes(job.status));
+    if (hasActiveJobs) {
+      setDeleteCandidateProjectId(null);
+      setWindowHint("该项目仍有排队、执行中或待审批任务，请先取消这些任务");
+      return;
+    }
+    if (deleteCandidateProjectId !== project.id) {
+      setDeleteCandidateProjectId(project.id);
+      setWindowHint(projectJobs.length
+        ? `再次点击确认删除“${project.name}”及其 ${projectJobs.length} 条任务记录；CAD 交付文件会保留`
+        : `再次点击确认删除空项目“${project.name}”`);
+      return;
+    }
+
+    setDeletingProjectId(project.id);
+    try {
+      if (isTauriRuntime()) {
+        for (const job of projectJobs) {
+          await invoke("delete_queue_job", { id: job.id });
+        }
+      }
+      const deletedJobIds = new Set(projectJobs.map((job) => job.id));
+      const deletedConversationIds = new Set(agentConversations.filter((conversation) => conversation.projectId === project.id).map((conversation) => conversation.id));
+      setJobs((items) => {
+        const next = items.filter((job) => !deletedJobIds.has(job.id));
+        saveLocalQueue(next);
+        return next;
+      });
+      setJobEvents((items) => Object.fromEntries(Object.entries(items).filter(([id]) => !deletedJobIds.has(id))));
+      setJobLogTails((items) => Object.fromEntries(Object.entries(items).filter(([id]) => !deletedJobIds.has(id))));
+      setManualReviewDrafts((items) => Object.fromEntries(Object.entries(items).filter(([id]) => !deletedJobIds.has(id))));
+      setAgentConversations((items) => items.filter((conversation) => !deletedConversationIds.has(conversation.id)));
+      setAgentMessages((items) => items.filter((message) => !message.conversationId || !deletedConversationIds.has(message.conversationId)));
+
+      const remainingProjects = projects.filter((item) => item.id !== project.id);
+      setProjects(remainingProjects);
+      if (project.id === activeProjectId) {
+        const fallback = remainingProjects[0];
+        const fallbackConversation = agentConversations
+          .filter((conversation) => conversation.projectId === fallback.id)
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+        setActiveProjectId(fallback.id);
+        setActiveConversationId(fallbackConversation?.id ?? null);
+        setProjectName(fallback.name);
+        setProjectNameDraft(fallback.name);
+        setRecentProjectPath(fallback.sourcePath);
+        if (fallbackConversation) {
+          const metadata = agentProviderCatalog[fallbackConversation.provider];
+          const health = runtimeHealth?.agentProviders?.find((item) => item.id === fallbackConversation.provider);
+          const ccSwitchRoute = activeCcSwitchProvider(ccSwitchSync, fallbackConversation.provider);
+          setApiConfig((config) => ({
+            ...config,
+            agentProvider: fallbackConversation.provider,
+            providerName: ccSwitchRoute?.name || metadata.name,
+            endpoint: ccSwitchRoute?.endpoint || health?.entry || "本机 CLI",
+            model: fallbackConversation.model,
+            keyStatus: ccSwitchRoute ? "synced" : health?.verified ? "configured" : "missing",
+          }));
+        }
+        setActiveAgentJobId(null);
+        setExpandedJobId(null);
+        setSelectedTemplateKey(null);
+        setActiveTab("project");
+      } else {
+        if (activeAgentJobId && deletedJobIds.has(activeAgentJobId)) setActiveAgentJobId(null);
+        if (expandedJobId && deletedJobIds.has(expandedJobId)) setExpandedJobId(null);
+      }
+      setProjectMenuOpen(false);
+      setWindowHint(`项目“${project.name}”已删除，CAD 交付文件保持不变`);
+    } catch (error) {
+      setWindowHint(`项目删除失败：${String(error)}`);
+    } finally {
+      setDeletingProjectId(null);
+      setDeleteCandidateProjectId(null);
+    }
   }
 
   function removeJobFromUi(id: string) {
@@ -1761,11 +2177,11 @@ function App() {
     });
   }
 
-  function rememberWallpaper(path: string) {
+  function rememberWallpaper(path: string, name = displayNameFromPath(path), kind: "image" | "video" = isVideoPath(path) ? "video" : "image") {
     const nextWallpaper = {
       path,
-      name: displayNameFromPath(path),
-      kind: isVideoPath(path) ? "video" : "image",
+      name,
+      kind,
     } satisfies RecentWallpaper;
 
     setRecentWallpapers((items) => [nextWallpaper, ...items.filter((item) => item.path !== path)].slice(0, 6));
@@ -1789,14 +2205,28 @@ function App() {
     setAppearanceOpen(true);
   }
 
-  function applyWallpaperPath(path: string) {
-    setCustomWallpaper((previous) => {
-      revokeObjectUrl(previous?.url);
-      return wallpaperFromPath(path);
-    });
-    rememberWallpaper(path);
-    setActiveWallpaper("custom");
-    setAppearanceOpen(true);
+  async function applyWallpaperPath(path: string, options: { remember?: boolean; open?: boolean } = {}) {
+    setWindowHint("正在导入本地壁纸...");
+    try {
+      const imported = isTauriRuntime()
+        ? await invoke<ImportedWallpaper>("import_wallpaper", { sourcePath: path })
+        : { path, name: displayNameFromPath(path), kind: isVideoPath(path) ? "video" as const : "image" as const };
+      const wallpaper = { ...wallpaperFromPath(imported.path), name: imported.name, kind: imported.kind };
+      await preloadWallpaper(wallpaper);
+      setCustomWallpaper((previous) => {
+        revokeObjectUrl(previous?.url);
+        return wallpaper;
+      });
+      if (options.remember !== false) rememberWallpaper(imported.path, imported.name, imported.kind);
+      setActiveWallpaper("custom");
+      if (options.open !== false) setAppearanceOpen(true);
+      setWindowHint(`壁纸“${imported.name}”已应用`);
+      return true;
+    } catch (error) {
+      setActiveWallpaper((current) => current === "custom" ? "blossom" : current);
+      setWindowHint(`壁纸导入失败：${String(error)}`);
+      return false;
+    }
   }
 
   async function chooseWallpaper() {
@@ -1817,7 +2247,7 @@ function App() {
 
     if (!selected || Array.isArray(selected)) return;
 
-    applyWallpaperPath(selected);
+    await applyWallpaperPath(selected);
   }
 
   async function chooseProjectFile() {
@@ -1839,14 +2269,24 @@ function App() {
     if (!selected || Array.isArray(selected)) return;
     setRecentProjectPath(selected);
     const importedName = displayNameFromPath(selected);
-    if (projectName === "未命名项目") {
-      setProjectName(importedName);
-      setProjectNameDraft(importedName);
+    const nextName = projectName === "未命名项目" || /^新项目 \d+$/.test(projectName) ? importedName : projectName;
+    setProjectName(nextName);
+    setProjectNameDraft(nextName);
+    setProjects((items) => items.map((item) => item.id === activeProjectId
+      ? { ...item, name: nextName, sourcePath: selected, updatedAt: new Date().toISOString() }
+      : item));
+    if (activeConversation) {
+      setAgentMessages((messages) => [
+        ...messages,
+        createChatMessage(
+          "system",
+          `已把 ${displayNameFromPath(selected)} 加入当前任务上下文。请在对话中说明要新建、修改、出图还是检查。`,
+          undefined,
+          activeConversation.id,
+          activeProject.id,
+        ),
+      ].slice(-200));
     }
-    setAgentMessages((messages) => [
-      ...messages,
-      createChatMessage("system", `已把 ${displayNameFromPath(selected)} 加入当前任务上下文。请在对话中说明要新建、修改、出图还是检查。`),
-    ].slice(-40));
   }
 
   async function chooseOutputDir() {
@@ -1968,6 +2408,28 @@ function App() {
   }, [customWallpaper?.url]);
 
   useEffect(() => {
+    if (!projectMenuOpen) return;
+    const closeProjectMenu = (event: PointerEvent) => {
+      if (!(event.target as Element | null)?.closest(".project-switcher")) {
+        setProjectMenuOpen(false);
+        setDeleteCandidateProjectId(null);
+      }
+    };
+    const closeProjectMenuWithKeyboard = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setProjectMenuOpen(false);
+        setDeleteCandidateProjectId(null);
+      }
+    };
+    document.addEventListener("pointerdown", closeProjectMenu);
+    document.addEventListener("keydown", closeProjectMenuWithKeyboard);
+    return () => {
+      document.removeEventListener("pointerdown", closeProjectMenu);
+      document.removeEventListener("keydown", closeProjectMenuWithKeyboard);
+    };
+  }, [projectMenuOpen]);
+
+  useEffect(() => {
     setWallpaperShot(0);
     if (reducedMotion || wallpaperMotionMode !== "cinematic") return;
     const timer = window.setInterval(() => setWallpaperShot((shot) => (shot + 1) % wallpaperShots.length), 14000);
@@ -1976,7 +2438,11 @@ function App() {
 
   useEffect(() => {
     const settings = loadSettings();
-    if (settings) {
+    async function restoreSettings() {
+      if (!settings) {
+        setSettingsLoaded(true);
+        return;
+      }
       setActiveWallpaper(settings.activeWallpaper);
       setWallpaperBrightness(settings.wallpaperBrightness);
       setWallpaperBlur(settings.wallpaperBlur);
@@ -1985,25 +2451,74 @@ function App() {
       setWallpaperMotionMode(settings.wallpaperMotionMode);
       setWallpaperMotionStrength(settings.wallpaperMotionStrength);
       setRecentWallpapers(settings.recentWallpapers);
+      setProjects(settings.projects ?? [DEFAULT_PROJECT]);
+      setActiveProjectId(settings.activeProjectId ?? LEGACY_PROJECT_ID);
       setProjectName(settings.projectName ?? "未命名项目");
       setProjectNameDraft(settings.projectName ?? "未命名项目");
       setRecentProjectPath(settings.recentProjectPath);
       setApiConfig(settings.apiConfig ?? defaultApiConfig);
       setKnowledgeBase(settings.knowledgeBase ?? defaultKnowledgeBase);
-      if (settings.customWallpaperPath) setCustomWallpaper(wallpaperFromPath(settings.customWallpaperPath));
+      if (settings.customWallpaperPath) {
+        setActiveWallpaper("blossom");
+        await applyWallpaperPath(settings.customWallpaperPath, { remember: false, open: false });
+      }
+      setSettingsLoaded(true);
     }
-    setSettingsLoaded(true);
+    void restoreSettings();
   }, []);
 
   useEffect(() => {
     const savedMessages = loadAgentChat();
-    setAgentMessages(savedMessages);
+    let savedConversations = loadAgentConversations();
+    const hasLegacyMessages = savedMessages.some((message) => !message.conversationId);
+    if (hasLegacyMessages && !savedConversations.some((conversation) => conversation.id === LEGACY_CONVERSATION_ID)) {
+      const legacyAt = savedMessages[0]?.at || new Date().toISOString();
+      savedConversations = [{
+        id: LEGACY_CONVERSATION_ID,
+        projectId: LEGACY_PROJECT_ID,
+        title: "历史对话",
+        provider: "codex",
+        model: defaultApiConfig.model,
+        createdAt: legacyAt,
+        updatedAt: savedMessages.at(-1)?.at || legacyAt,
+      }, ...savedConversations];
+    }
+    setAgentMessages(savedMessages.map((message) => message.conversationId ? message : {
+      ...message,
+      projectId: LEGACY_PROJECT_ID,
+      conversationId: LEGACY_CONVERSATION_ID,
+    }));
+    setAgentConversations(savedConversations);
+    setChatLoaded(true);
   }, []);
 
   useEffect(() => {
-    if (agentMessages.length === 0) return;
-    localStorage.setItem(CHAT_KEY, JSON.stringify(agentMessages.slice(-40)));
-  }, [agentMessages]);
+    if (!chatLoaded) return;
+    localStorage.setItem(CHAT_KEY, JSON.stringify(agentMessages.slice(-200)));
+    localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(agentConversations.slice(0, 100)));
+  }, [agentConversations, agentMessages, chatLoaded]);
+
+  useEffect(() => {
+    if (!chatLoaded) return;
+    const nextConversation = activeConversation?.projectId === activeProject.id ? activeConversation : projectConversations[0];
+    if (!nextConversation) {
+      if (activeConversationId) setActiveConversationId(null);
+      return;
+    }
+    if (activeConversationId !== nextConversation.id) setActiveConversationId(nextConversation.id);
+    if (apiConfig.agentProvider === nextConversation.provider && apiConfig.model === nextConversation.model) return;
+    const metadata = agentProviderCatalog[nextConversation.provider];
+    const health = runtimeHealth?.agentProviders?.find((item) => item.id === nextConversation.provider);
+    const ccSwitchRoute = activeCcSwitchProvider(ccSwitchSync, nextConversation.provider);
+    setApiConfig((config) => ({
+      ...config,
+      agentProvider: nextConversation.provider,
+      providerName: ccSwitchRoute?.name || metadata.name,
+      endpoint: ccSwitchRoute?.endpoint || health?.entry || "本机 CLI",
+      model: nextConversation.model,
+      keyStatus: ccSwitchRoute ? "synced" : health?.verified ? "configured" : "missing",
+    }));
+  }, [activeConversation, activeConversationId, activeProject.id, apiConfig.agentProvider, apiConfig.model, ccSwitchSync, chatLoaded, projectConversations, runtimeHealth]);
 
   useEffect(() => {
     let disposed = false;
@@ -2021,9 +2536,10 @@ function App() {
         const nextJobs = savedJobs
           .filter((job) => typeof job.id === "string")
           .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""))
-          .slice(0, 8);
+          .slice(0, 100);
         startTransition(() => setJobs(nextJobs));
-        const visibleJobIds = Array.from(new Set([...nextJobs.slice(0, 4).map((job) => job.id), activeAgentJobId, expandedJobId].filter(Boolean))) as string[];
+        const visibleProjectJobs = nextJobs.filter((job) => jobProjectId(job) === activeProjectId);
+        const visibleJobIds = Array.from(new Set([...visibleProjectJobs.slice(0, 4).map((job) => job.id), activeAgentJobId, expandedJobId].filter(Boolean))) as string[];
         const eventPairs = await Promise.all(visibleJobIds.map(async (id) => [id, await invoke<QueueEvent[]>("read_queue_events", { id })] as const));
         const logPairs = await Promise.all(
           visibleJobIds.map(async (id) => {
@@ -2055,7 +2571,7 @@ function App() {
       disposed = true;
       window.clearInterval(timer);
     };
-  }, [activeAgentJobId, expandedJobId]);
+  }, [activeAgentJobId, activeProjectId, expandedJobId]);
 
   useEffect(() => {
     void refreshWorkerStatus();
@@ -2068,6 +2584,7 @@ function App() {
     const updates: AgentChatMessage[] = [];
     for (const job of jobs) {
       if (job.uiConfig?.agentChat !== true) continue;
+      if (!job.conversationId) continue;
       if (!["passed", "review_required", "failed", "approval_required", "cancelled"].includes(job.status)) continue;
       const marker = `${job.id}:${job.status}`;
       if (completedChatJobIdsRef.current.has(marker)) continue;
@@ -2080,18 +2597,24 @@ function App() {
           job.result?.outputPath ? `输出位置: ${job.result.outputPath}` : undefined,
           job.reviewGate?.status ? `复核结果: ${job.reviewGate.status}` : undefined,
         ].filter(Boolean);
-        updates.push(createChatMessage("assistant", lines.join("\n"), job.id));
+        updates.push(createChatMessage("assistant", lines.join("\n"), job.id, job.conversationId, jobProjectId(job)));
       } else if (job.status === "review_required") {
-        updates.push(createChatMessage("assistant", `这轮执行已结束，但尚不能作为最终交付：${job.lastMessage || "仍需 CAD 原生或人工复核。"}`, job.id));
+        updates.push(createChatMessage("assistant", `这轮执行已结束，但尚不能作为最终交付：${job.lastMessage || "仍需 CAD 原生或人工复核。"}`, job.id, job.conversationId, jobProjectId(job)));
       } else if (job.status === "approval_required") {
-        updates.push(createChatMessage("assistant", `这轮需要你先批准本机自动化权限：${job.approvalReasons?.join("；") || "需要人工确认后继续执行。"}`, job.id));
+        updates.push(createChatMessage("assistant", `这轮需要你先批准本机自动化权限：${job.approvalReasons?.join("；") || "需要人工确认后继续执行。"}`, job.id, job.conversationId, jobProjectId(job)));
       } else if (job.status === "failed") {
-        updates.push(createChatMessage("assistant", `这轮执行失败了：${job.error || job.lastMessage || "未知错误"}\n你可以直接补充一句“继续修复这个错误”。`, job.id));
+        updates.push(createChatMessage("assistant", `这轮执行失败了：${job.error || job.lastMessage || "未知错误"}\n你可以直接补充一句“继续修复这个错误”。`, job.id, job.conversationId, jobProjectId(job)));
       } else if (job.status === "cancelled") {
-        updates.push(createChatMessage("assistant", "这轮任务已经取消。你可以换一种要求重新发起。", job.id));
+        updates.push(createChatMessage("assistant", "这轮任务已经取消。你可以换一种要求重新发起。", job.id, job.conversationId, jobProjectId(job)));
       }
     }
-    if (updates.length > 0) setAgentMessages((messages) => [...messages, ...updates].slice(-40));
+    if (updates.length > 0) {
+      setAgentMessages((messages) => [...messages, ...updates].slice(-200));
+      const updatedConversationIds = new Set(updates.map((message) => message.conversationId).filter(Boolean));
+      setAgentConversations((items) => items.map((conversation) => updatedConversationIds.has(conversation.id)
+        ? { ...conversation, updatedAt: new Date().toISOString() }
+        : conversation));
+    }
   }, [jobs]);
 
   useEffect(() => {
@@ -2108,13 +2631,15 @@ function App() {
       defaultWallpaperVersion: 1,
       panelOpacityVersion: 1,
       recentWallpapers,
+      projects,
+      activeProjectId,
       projectName,
       recentProjectPath,
       apiConfig,
       knowledgeBase,
     };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-  }, [activeWallpaper, apiConfig, customWallpaper?.sourcePath, knowledgeBase, projectName, recentProjectPath, recentWallpapers, settingsLoaded, wallpaperBlur, wallpaperBrightness, wallpaperMotionMode, wallpaperMotionStrength, wallpaperVignette, workspaceOpacity]);
+  }, [activeProjectId, activeWallpaper, apiConfig, customWallpaper?.sourcePath, knowledgeBase, projectName, projects, recentProjectPath, recentWallpapers, settingsLoaded, wallpaperBlur, wallpaperBrightness, wallpaperMotionMode, wallpaperMotionStrength, wallpaperVignette, workspaceOpacity]);
 
   function renderTemplatePanel() {
     return (
@@ -2324,7 +2849,6 @@ function App() {
               {(Object.keys(agentProviderCatalog) as AgentProviderId[]).map((providerId) => {
                 const metadata = agentProviderCatalog[providerId];
                 const health = runtimeHealth?.agentProviders?.find((item) => item.id === providerId);
-                const ccSwitchRoute = activeCcSwitchProvider(ccSwitchSync, providerId);
                 const unavailable = runtimeHealth ? !health?.installed : false;
                 return (
                   <button
@@ -2334,22 +2858,24 @@ function App() {
                     disabled={unavailable}
                     className={apiConfig.agentProvider === providerId ? "active" : ""}
                     key={providerId}
-                    onClick={() => setApiConfig((config) => ({
-                      ...config,
-                      agentProvider: providerId,
-                      providerName: ccSwitchRoute?.name || metadata.name,
-                      endpoint: ccSwitchRoute?.endpoint || health?.entry || "本机 CLI",
-                      model: ccSwitchRoute?.model || metadata.model,
-                      keyStatus: ccSwitchRoute ? "synced" : health?.verified ? "configured" : "missing",
-                    }))}
+                    onClick={() => selectAgentProvider(providerId)}
                   >
-                    <strong>{metadata.name}</strong>
+                    <strong>{metadata.company} · {metadata.name}</strong>
                     <span>{health?.installed ? `已安装 · ${health.version?.message || "版本未知"}` : runtimeHealth ? "未安装" : "等待检测"}</span>
                     <small>{health?.verified ? "真实任务已验证" : health?.auth?.ok === false ? "认证失败，暂不可执行" : health?.installed ? "等待首个真实任务验证" : "需要先安装 CLI"}</small>
                   </button>
                 );
               })}
             </div>
+            <label className="agent-model-select">
+              <span>当前模型 · {agentProviderCatalog[apiConfig.agentProvider].company}</span>
+              <select aria-label="选择 AI 模型" value={apiConfig.model} onChange={(event) => selectAgentModel(event.target.value)}>
+                {providerModelOptions.map((model) => (
+                  <option value={model.value} key={model.value}>{agentProviderCatalog[apiConfig.agentProvider].company} · {model.label}</option>
+                ))}
+              </select>
+              <small>CC Switch 配置的模型会自动加入此列表；未显式选择时跟随本机 CLI。</small>
+            </label>
             <div className="api-mode-grid">
               {(["codex_cli", "cc_switch"] as ApiIntegrationMode[]).map((mode) => (
                 <button type="button" className={apiConfig.mode === mode ? "active" : ""} key={mode} onClick={() => setApiConfig((config) => ({ ...config, mode }))}>
@@ -2616,42 +3142,100 @@ function App() {
 
           <div className="sidebar-project-head">
             <span>当前项目</span>
-            <div className="project-name-row">
-              {editingProjectName ? (
-                <input
-                  autoFocus
-                  value={projectNameDraft}
-                  maxLength={48}
-                  aria-label="项目名称"
-                  onChange={(event) => setProjectNameDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") commitProjectName();
-                    if (event.key === "Escape") {
+            <div className="project-switcher">
+              <div className="project-name-row">
+                {editingProjectName ? (
+                  <input
+                    autoFocus
+                    value={projectNameDraft}
+                    maxLength={48}
+                    aria-label="项目名称"
+                    onChange={(event) => setProjectNameDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") commitProjectName();
+                      if (event.key === "Escape") {
+                        setProjectNameDraft(projectName);
+                        setEditingProjectName(false);
+                      }
+                    }}
+                  />
+                ) : (
+                  <button
+                    className="project-switcher-trigger"
+                    type="button"
+                    aria-label={`切换项目，当前为 ${projectName}`}
+                    aria-expanded={projectMenuOpen}
+                    onClick={() => setProjectMenuOpen((open) => !open)}
+                  >
+                    <FolderOpen size={15} weight="duotone" />
+                    <strong title={projectName}>{projectName}</strong>
+                    <CaretDown size={14} weight="bold" />
+                  </button>
+                )}
+                <button
+                  className="project-name-action"
+                  type="button"
+                  aria-label={editingProjectName ? "确认项目名称" : "修改项目名称"}
+                  title={editingProjectName ? "确认项目名称" : "修改项目名称"}
+                  onClick={() => {
+                    if (editingProjectName) commitProjectName();
+                    else {
+                      setProjectMenuOpen(false);
                       setProjectNameDraft(projectName);
-                      setEditingProjectName(false);
+                      setEditingProjectName(true);
                     }
                   }}
-                />
-              ) : (
-                <strong title={projectName}>{projectName}</strong>
-              )}
-              <button
-                className="project-name-action"
-                type="button"
-                aria-label={editingProjectName ? "确认项目名称" : "修改项目名称"}
-                title={editingProjectName ? "确认项目名称" : "修改项目名称"}
-                onClick={() => {
-                  if (editingProjectName) commitProjectName();
-                  else {
-                    setProjectNameDraft(projectName);
-                    setEditingProjectName(true);
-                  }
-                }}
-              >
-                {editingProjectName ? <Check size={15} weight="bold" /> : <PencilSimple size={15} weight="duotone" />}
-              </button>
+                >
+                  {editingProjectName ? <Check size={15} weight="bold" /> : <PencilSimple size={15} weight="duotone" />}
+                </button>
+              </div>
+              <AnimatePresence>
+                {projectMenuOpen && !editingProjectName ? (
+                  <motion.div
+                    className="project-switcher-menu"
+                    role="menu"
+                    initial={reducedMotion ? false : { opacity: 0, y: -5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={reducedMotion ? undefined : { opacity: 0, y: -5 }}
+                    transition={{ duration: 0.16 }}
+                  >
+                    <span>选择项目</span>
+                    <div className="project-switcher-list">
+                      {projects.map((project) => {
+                        const taskCount = jobs.filter((job) => jobProjectId(job) === project.id).length;
+                        return (
+                          <div className={project.id === activeProjectId ? "project-switcher-option active" : "project-switcher-option"} key={project.id}>
+                            <button className="project-switcher-select" type="button" role="menuitem" onClick={() => selectProject(project)}>
+                              <FolderOpen size={15} weight="duotone" />
+                              <span>
+                                <strong>{project.name}</strong>
+                                <small>{taskCount ? `${taskCount} 条任务` : "空项目"}</small>
+                              </span>
+                              {project.id === activeProjectId ? <Check size={14} weight="bold" /> : null}
+                            </button>
+                            <button
+                              className={deleteCandidateProjectId === project.id ? "project-delete-button confirm" : "project-delete-button"}
+                              type="button"
+                              disabled={projects.length <= 1 || deletingProjectId !== null}
+                              aria-label={deleteCandidateProjectId === project.id ? `确认删除项目 ${project.name}` : `删除项目 ${project.name}`}
+                              title={projects.length <= 1 ? "至少保留一个项目" : deleteCandidateProjectId === project.id ? "再次点击确认删除项目" : "删除项目"}
+                              onClick={() => void deleteProject(project)}
+                            >
+                              {deletingProjectId === project.id ? <SpinnerGap className="spin" size={14} /> : deleteCandidateProjectId === project.id ? <Check size={14} weight="bold" /> : <Trash size={14} weight="duotone" />}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <button className="create-project-button" type="button" role="menuitem" onClick={createProject}>
+                      <FilePlus size={15} weight="bold" />
+                      新建项目
+                    </button>
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
             </div>
-            <small className="project-task-count">{jobs.length ? `${jobs.length} 条任务 · ${queueSummary}` : "尚无任务"}</small>
+            <small className="project-task-count">{activeProjectJobs.length ? `${activeProjectJobs.length} 条任务 · ${queueSummary}` : "尚无任务"}</small>
             <button className="new-task-button" type="button" onClick={() => {
               setSelectedTemplateKey(null);
               setActiveTab("model");
@@ -2673,6 +3257,7 @@ function App() {
                     setDeleteCandidateJobId(null);
                     setActiveAgentJobId(job.id);
                     setExpandedJobId(job.id);
+                    if (job.conversationId) setActiveConversationId(job.conversationId);
                     setActiveTab("project");
                   }}
                 >
@@ -3113,17 +3698,48 @@ function App() {
                   <p className="eyebrow">AI EXECUTION CHAT</p>
                   <h2>AI 执行对话</h2>
                 </div>
-                <span>{activeAgentJob ? `${jobStatusLabel(activeAgentJob.status)} · ${activeAgentJob.progress}%` : "等待指令"}</span>
+                <div className="agent-conversation-controls">
+                  <select
+                    aria-label="切换 AI 对话"
+                    value={activeConversation?.id ?? ""}
+                    onChange={(event) => selectAgentConversation(event.target.value)}
+                  >
+                    {projectConversations.length === 0 ? <option value="">当前项目暂无对话</option> : null}
+                    {projectConversations.map((conversation) => (
+                      <option value={conversation.id} key={conversation.id}>{conversation.title}</option>
+                    ))}
+                  </select>
+                  <button type="button" aria-label="新建 AI 对话" title="新建 AI 对话" onClick={() => createAgentConversation()}>
+                    <FilePlus size={15} weight="bold" />
+                  </button>
+                  <select
+                    aria-label="选择 AI 公司"
+                    value={apiConfig.agentProvider}
+                    onChange={(event) => selectAgentProvider(event.target.value as AgentProviderId)}
+                  >
+                    {(Object.keys(agentProviderCatalog) as AgentProviderId[]).map((providerId) => {
+                      const metadata = agentProviderCatalog[providerId];
+                      const health = runtimeHealth?.agentProviders?.find((provider) => provider.id === providerId);
+                      return <option value={providerId} disabled={runtimeHealth ? !health?.installed : false} key={providerId}>{metadata.company} · {metadata.name}</option>;
+                    })}
+                  </select>
+                  <select aria-label="选择对话模型" value={apiConfig.model} onChange={(event) => selectAgentModel(event.target.value)}>
+                    {providerModelOptions.map((model) => (
+                      <option value={model.value} key={model.value}>{agentProviderCatalog[apiConfig.agentProvider].company} · {model.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <span>{activeAgentJob ? `${jobStatusLabel(activeAgentJob.status)} · ${activeAgentJob.progress}%` : activeConversation ? "等待指令" : "新建对话后开始"}</span>
               </div>
 
               <div className={activeAgentJob ? "agent-body" : "agent-body single"}>
                 <div className="chat-thread" aria-label="AI 执行对话记录">
-                  {agentMessages.length === 0 ? (
+                  {activeConversationMessages.length === 0 ? (
                     <div className="chat-empty">
                       <ChatCircleText size={20} weight="duotone" />
-                      <strong>CAD Agent 已就绪</strong>
+                      <strong>{activeConversation ? "这段对话还没有消息" : "新建独立对话后开始"}</strong>
                     </div>
-                  ) : agentMessages.map((message) => (
+                  ) : activeConversationMessages.map((message) => (
                     <motion.div
                       className={`chat-bubble ${message.role}`}
                       key={message.id}
@@ -3265,13 +3881,13 @@ function App() {
                 </div>
               </div>
               <div className="queue-list">
-                {jobs.length === 0 ? (
+                {activeProjectJobs.length === 0 ? (
                   <div className="queue-empty">
                     <Sparkle size={19} weight="duotone" />
                     <span>发送 AI 对话或点击任务模板后，执行任务会出现在这里。</span>
                   </div>
                 ) : (
-                  jobs.slice(0, 4).map((job) => {
+                  activeProjectJobs.slice(0, 4).map((job) => {
                     const expanded = expandedJobId === job.id;
                     const events = jobEvents[job.id] ?? [];
                     const logs = jobLogTails[job.id] ?? {};

@@ -1380,6 +1380,42 @@ textarea {
   opacity: 0.48;
 }
 
+.agent-model-select {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.38fr) minmax(220px, 0.62fr);
+  gap: 6px 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid rgba(28, 35, 43, 0.09);
+  border-radius: 6px;
+  background: rgba(255, 255, 252, 0.58);
+}
+
+.agent-model-select span,
+.agent-model-select small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.agent-model-select small {
+  grid-column: 1 / -1;
+}
+
+.agent-model-select select,
+.agent-conversation-controls select {
+  min-width: 0;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid rgba(28, 35, 43, 0.12);
+  border-radius: 5px;
+  color: var(--ink);
+  background: rgba(255, 255, 252, 0.9);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .agent-provider-grid strong,
 .agent-provider-grid span,
 .agent-provider-grid small {
@@ -2416,6 +2452,7 @@ textarea {
 .agent-head,
 .queue-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
@@ -2441,6 +2478,32 @@ textarea {
   font-size: 12px;
   font-weight: 900;
   white-space: nowrap;
+}
+
+.agent-conversation-controls {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.1fr) 32px minmax(120px, 0.9fr) minmax(130px, 1fr);
+  gap: 5px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.agent-conversation-controls button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(28, 35, 43, 0.12);
+  border-radius: 5px;
+  place-items: center;
+  color: var(--accent);
+  background: rgba(255, 255, 252, 0.9);
+  cursor: pointer;
+}
+
+.agent-conversation-controls button:hover {
+  border-color: color-mix(in srgb, var(--accent) 34%, rgba(28, 35, 43, 0.12));
+  background: var(--accent-soft);
 }
 
 .agent-body {
@@ -3428,6 +3491,18 @@ textarea {
     display: grid;
   }
 
+  .agent-conversation-controls,
+  .agent-model-select {
+    grid-template-columns: minmax(0, 1fr) 32px;
+  }
+
+  .agent-conversation-controls select:nth-of-type(2),
+  .agent-conversation-controls select:nth-of-type(3),
+  .agent-model-select select,
+  .agent-model-select small {
+    grid-column: 1 / -1;
+  }
+
   .agent-input-row button {
     min-height: 44px;
   }
@@ -3531,6 +3606,11 @@ textarea {
   font-weight: 800;
 }
 
+.project-switcher {
+  position: relative;
+  min-width: 0;
+}
+
 .project-name-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 28px;
@@ -3548,6 +3628,171 @@ textarea {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 13px;
+}
+
+.project-switcher-trigger {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--ink);
+  background: rgba(255, 255, 252, 0.42);
+  cursor: pointer;
+  text-align: left;
+}
+
+.project-switcher-trigger:hover,
+.project-switcher-trigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--hairline));
+  background: rgba(255, 255, 252, 0.78);
+}
+
+.project-switcher-trigger > svg:first-child {
+  color: var(--accent);
+}
+
+.project-switcher-trigger > svg:last-child {
+  color: var(--muted);
+  transition: transform 160ms ease;
+}
+
+.project-switcher-trigger[aria-expanded="true"] > svg:last-child {
+  transform: rotate(180deg);
+}
+
+.project-switcher-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  display: grid;
+  gap: 6px;
+  width: min(300px, calc(100vw - 32px));
+  padding: 9px;
+  border: 1px solid rgba(28, 35, 43, 0.12);
+  border-radius: 7px;
+  background: rgba(250, 251, 248, 0.96);
+  box-shadow: 0 16px 38px rgba(28, 35, 43, 0.18);
+  backdrop-filter: blur(20px) saturate(118%);
+  -webkit-backdrop-filter: blur(20px) saturate(118%);
+}
+
+.project-switcher-menu > span {
+  padding: 3px 7px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.project-switcher-list {
+  display: grid;
+  gap: 2px;
+  max-height: 236px;
+  overflow-y: auto;
+}
+
+.project-switcher-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: center;
+  border-radius: 5px;
+}
+
+.project-switcher-select,
+.create-project-button {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 16px;
+  gap: 7px;
+  align-items: center;
+  min-height: 42px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--ink);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.project-switcher-select {
+  width: 100%;
+  min-width: 0;
+}
+
+.project-switcher-option:hover,
+.project-switcher-option.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, rgba(255, 255, 252, 0.82));
+}
+
+.project-switcher-select > span,
+.project-switcher-list strong,
+.project-switcher-list small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-switcher-list strong {
+  font-size: 12px;
+}
+
+.project-switcher-list small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.project-delete-button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  place-items: center;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.56;
+}
+
+.project-delete-button:hover,
+.project-delete-button:focus-visible {
+  color: var(--danger);
+  background: rgba(178, 67, 67, 0.09);
+  opacity: 1;
+}
+
+.project-delete-button.confirm {
+  color: #fff;
+  background: var(--danger);
+  opacity: 1;
+}
+
+.project-delete-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.22;
+}
+
+.create-project-button {
+  grid-template-columns: 20px minmax(0, 1fr);
+  border-top: 1px solid var(--hairline);
+  border-radius: 0 0 5px 5px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.create-project-button:hover {
+  background: var(--accent-soft);
 }
 
 .project-name-row input {
@@ -4000,7 +4245,7 @@ textarea:focus-visible {
     grid-column: 1;
   }
 
-  .project-name-row,
+  .project-switcher,
   .project-task-count {
     grid-column: 1;
   }

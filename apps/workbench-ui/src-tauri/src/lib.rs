@@ -51,6 +51,39 @@ fn queue_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+fn wallpaper_kind(path: &Path) -> Result<&'static str, String> {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if ["png", "jpg", "jpeg", "webp", "gif", "bmp"].contains(&extension.as_str()) {
+        return Ok("image");
+    }
+    if ["mp4", "webm", "mov", "m4v", "avi"].contains(&extension.as_str()) {
+        return Ok("video");
+    }
+    Err(
+        "不支持该壁纸格式，请选择 PNG、JPG、WEBP、GIF、BMP、MP4、WEBM、MOV、M4V 或 AVI。"
+            .to_string(),
+    )
+}
+
+/// @brief 将 Windows 扩展路径转换为资源协议可匹配的普通路径。
+fn asset_path(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let value = path.to_string_lossy();
+        if let Some(stripped) = value.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{stripped}"));
+        }
+        if let Some(stripped) = value.strip_prefix(r"\\?\") {
+            return PathBuf::from(stripped);
+        }
+    }
+    path.to_path_buf()
+}
+
 fn atomic_write(path: &Path, payload: &[u8]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
@@ -1629,6 +1662,62 @@ fn delete_queue_job(app: AppHandle, id: String) -> Result<Value, String> {
     Ok(json!({ "id": safe_id, "deleted": true }))
 }
 
+/// @brief 将用户选择的壁纸复制到应用数据目录，供受限资源协议稳定加载。
+#[tauri::command]
+fn import_wallpaper(app: AppHandle, source_path: String) -> Result<Value, String> {
+    let source = PathBuf::from(source_path.trim());
+    let kind = wallpaper_kind(&source)?;
+    let metadata = fs::metadata(&source).map_err(|error| format!("壁纸文件无法读取: {error}"))?;
+    if !metadata.is_file() {
+        return Err("选择的壁纸不是文件。".to_string());
+    }
+    if metadata.len() > 256 * 1024 * 1024 {
+        return Err("壁纸文件超过 256 MB，请先压缩后再导入。".to_string());
+    }
+
+    let cache_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("wallpapers");
+    fs::create_dir_all(&cache_dir).map_err(|error| error.to_string())?;
+    let canonical_source = source
+        .canonicalize()
+        .map_err(|error| format!("壁纸路径无效: {error}"))?;
+    let canonical_cache = cache_dir
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let file_name = canonical_source
+        .file_name()
+        .ok_or_else(|| "壁纸文件名无效。".to_string())?;
+    let display_name = canonical_source
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("我的壁纸")
+        .to_string();
+
+    let cached_path = if canonical_source.starts_with(&canonical_cache) {
+        canonical_source
+    } else {
+        let target = cache_dir.join(file_name);
+        let extension = target
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("wallpaper");
+        let temporary = target.with_extension(format!("{extension}.{}.tmp", std::process::id()));
+        fs::copy(&canonical_source, &temporary)
+            .map_err(|error| format!("壁纸复制失败: {error}"))?;
+        replace_with_retry(&temporary, &target, true)?;
+        target
+    };
+
+    Ok(json!({
+        "path": asset_path(&cached_path).to_string_lossy(),
+        "name": display_name,
+        "kind": kind
+    }))
+}
+
 #[tauri::command]
 fn worker_status(app: AppHandle, state: State<'_, WorkerState>) -> Result<Value, String> {
     let mut guard = state.child.lock().map_err(|error| error.to_string())?;
@@ -2074,6 +2163,7 @@ pub fn run() {
             reject_review_job,
             retry_queue_job,
             delete_queue_job,
+            import_wallpaper,
             worker_status,
             start_worker,
             stop_worker,
@@ -2111,8 +2201,8 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        can_delete_job, database_provider_groups, derive_dangerous_capabilities,
-        is_queue_metadata_path, prepare_job_for_retry, validate_new_queue_job,
+        asset_path, can_delete_job, database_provider_groups, derive_dangerous_capabilities,
+        is_queue_metadata_path, prepare_job_for_retry, validate_new_queue_job, wallpaper_kind,
     };
     use rusqlite::{params, Connection};
     use serde_json::json;
@@ -2247,6 +2337,19 @@ mod tests {
             job["status"] = json!(status);
             assert!(can_delete_job(&job), "{status} should be deletable");
         }
+    }
+
+    #[test]
+    fn wallpaper_formats_are_restricted_to_renderable_media() {
+        assert_eq!(wallpaper_kind(Path::new("desk.WEBP")), Ok("image"));
+        assert_eq!(wallpaper_kind(Path::new("loop.mp4")), Ok("video"));
+        assert!(wallpaper_kind(Path::new("payload.exe")).is_err());
+    }
+
+    #[test]
+    fn asset_paths_do_not_expose_windows_verbatim_prefixes() {
+        let path = asset_path(Path::new(r"\\?\C:\Users\test\wallpaper.png"));
+        assert_eq!(path, Path::new(r"C:\Users\test\wallpaper.png"));
     }
 
     #[test]
