@@ -1238,6 +1238,27 @@ def test_codex_executor_rejects_cwd_outside_workspace(tmp_path: Path) -> None:
         raise AssertionError("应拒绝仓库外 cwd")
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows 扩展路径仅在 Windows 上验证")
+def test_resolve_workspace_accepts_windows_extended_path_prefix() -> None:
+    """@brief Windows 扩展路径与普通盘符路径必须被识别为同一工作区。"""
+    repo = Path(__file__).resolve().parents[1]
+    extended_repo = Path("\\\\?\\" + str(repo))
+
+    resolved = resolve_workspace({"cwd": str(extended_repo)}, allowed_roots=[repo])
+
+    assert resolved == repo
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows 扩展路径仅在 Windows 上验证")
+def test_resolve_workspace_still_rejects_extended_path_outside_allowed_root() -> None:
+    """@brief 去掉扩展路径前缀后仍必须执行工作区边界检查。"""
+    repo = Path(__file__).resolve().parents[1]
+    extended_parent = Path("\\\\?\\" + str(repo.parent))
+
+    with pytest.raises(ValueError, match="cwd 不在允许工作区内"):
+        resolve_workspace({"cwd": str(extended_parent)}, allowed_roots=[repo])
+
+
 def test_codex_output_path_is_forced_inside_workspace() -> None:
     repo = Path(__file__).resolve().parents[1]
     job = _queued_job("job-8", "codex_task")

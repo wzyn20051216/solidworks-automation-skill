@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -244,13 +245,40 @@ def safe_job_id(value: Any) -> str:
     return safe[:96]
 
 
+def _strip_windows_extended_prefix(value: str) -> str:
+    """@brief 去掉 Windows 扩展路径前缀，保留 UNC 路径语义。"""
+    if value.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + value[8:]
+    if value.startswith("\\\\?\\"):
+        return value[4:]
+    return value
+
+
+def _canonical_path(path: Path) -> Path:
+    """@brief 返回适合白名单比较和 CLI 使用的规范路径。"""
+    resolved = Path(path).expanduser().resolve()
+    if os.name == "nt":
+        return Path(_strip_windows_extended_prefix(str(resolved)))
+    return resolved
+
+
+def _path_is_within(path: Path, root: Path) -> bool:
+    """@brief 判断路径是否位于根目录内，兼容 Windows 长路径和大小写。"""
+    path_value = os.path.normcase(os.path.normpath(str(_canonical_path(path))))
+    root_value = os.path.normcase(os.path.normpath(str(_canonical_path(root))))
+    try:
+        return os.path.commonpath([path_value, root_value]) == root_value
+    except ValueError:
+        return False
+
+
 def resolve_workspace(job: dict[str, Any], allowed_roots: list[Path] | None = None) -> Path:
     """@brief 校验并返回任务可用工作区。"""
-    roots = [root.expanduser().resolve() for root in (allowed_roots or [REPO_ROOT])]
-    raw_cwd = Path(str(job.get("cwd") or REPO_ROOT)).expanduser().resolve()
-    if raw_cwd.anchor == raw_cwd.as_posix():
+    roots = [_canonical_path(root) for root in (allowed_roots or [REPO_ROOT])]
+    raw_cwd = _canonical_path(Path(str(job.get("cwd") or REPO_ROOT)))
+    if raw_cwd == Path(raw_cwd.anchor):
         raise ValueError("拒绝使用文件系统根目录作为 cwd")
-    if not any(root == raw_cwd or root in raw_cwd.parents for root in roots):
+    if not any(_path_is_within(raw_cwd, root) for root in roots):
         allowed = ", ".join(str(root) for root in roots)
         raise ValueError(f"cwd 不在允许工作区内: {raw_cwd}; allowed={allowed}")
     return raw_cwd
@@ -261,7 +289,7 @@ def codex_output_path(job: dict[str, Any], cwd: Path) -> Path:
     job_id = safe_job_id(job.get("id"))
     output = cwd / "ai_team" / f"{job_id}_codex_result.json"
     resolved = output.resolve()
-    if cwd.resolve() not in [resolved, *resolved.parents]:
+    if not _path_is_within(resolved, cwd):
         raise ValueError(f"输出路径越界: {resolved}")
     return resolved
 
@@ -271,7 +299,7 @@ def agent_output_path(job: dict[str, Any], cwd: Path) -> Path:
     job_id = safe_job_id(job.get("id"))
     output = cwd / "ai_team" / f"{job_id}_agent_result.json"
     resolved = output.resolve()
-    if cwd.resolve() not in [resolved, *resolved.parents]:
+    if not _path_is_within(resolved, cwd):
         raise ValueError(f"输出路径越界: {resolved}")
     return resolved
 
