@@ -64,12 +64,15 @@ async function main() {
     autocad: document.body.innerText.includes("AutoCAD 可用"),
   }));
 
+  const originalProjectName = process.env.CAD_STUDIO_E2E_RESTORE_PROJECT
+    || await page.locator(".project-name-row strong").innerText();
+  const testProjectName = originalProjectName === "桌面交互回归项目" ? "CAD Studio 交互回归" : "桌面交互回归项目";
   await page.getByRole("button", { name: "修改项目名称", exact: true }).click();
   const projectNameInput = page.getByRole("textbox", { name: "项目名称", exact: true });
-  await projectNameInput.fill("桌面交互回归项目");
+  await projectNameInput.fill(testProjectName);
   await projectNameInput.press("Enter");
   await waitUntil(
-    () => page.evaluate(() => JSON.parse(localStorage.getItem("cad-studio.settings.v1") || "{}").projectName === "桌面交互回归项目"),
+    () => page.evaluate((expected) => JSON.parse(localStorage.getItem("cad-studio.settings.v1") || "{}").projectName === expected, testProjectName),
     "project name persisted",
   );
 
@@ -370,6 +373,15 @@ async function main() {
   await page.getByRole("button", { name: "总览", exact: true }).click();
   await page.screenshot({ path: path.join(repo, "ai_team", "ui_review", "final-e2e-desktop.png") });
 
+  const verifiedProjectName = await page.locator(".project-name-row strong").innerText();
+  await page.getByRole("button", { name: "修改项目名称", exact: true }).click();
+  await page.getByRole("textbox", { name: "项目名称", exact: true }).fill(originalProjectName);
+  await page.getByRole("textbox", { name: "项目名称", exact: true }).press("Enter");
+  await waitUntil(
+    () => page.evaluate((expected) => JSON.parse(localStorage.getItem("cad-studio.settings.v1") || "{}").projectName === expected, originalProjectName),
+    "project name restored",
+  );
+
   const result = {
     initial,
     started,
@@ -393,7 +405,7 @@ async function main() {
       cancelledStatus: cancelledRecovery.status,
       cancelledEvent: cancelledRecoveryEvent.includes("run.cancelled"),
     },
-    projectName: await page.locator(".project-name-row strong").innerText(),
+    projectName: { verified: verifiedProjectName, restored: originalProjectName },
     template: {
       selected: selectedTemplate.includes("已载入配置"),
       createdOnSelect: afterTemplateFiles.length !== beforeTemplateFiles.length,
