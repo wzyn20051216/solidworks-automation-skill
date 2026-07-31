@@ -25,6 +25,7 @@ ai_team/*
 !ai_team/ui-layout-check.cjs
 !ai_team/workbench-e2e-final.cjs
 apps/workbench-ui/ai_team/
+apps/workbench-ui/.playwright-cli/
 .spec-workflow/
 
 # SolidWorks files

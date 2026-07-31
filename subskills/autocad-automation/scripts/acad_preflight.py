@@ -11,7 +11,12 @@ import argparse
 import json
 import platform
 import sys
+from pathlib import Path
 from typing import Any, Dict
+
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT / "scripts"))
+from cad_installation import discover_installation  # noqa: E402
 
 
 def _result(status: str, **kwargs: Any) -> Dict[str, Any]:
@@ -42,6 +47,7 @@ def check_autocad(launch: bool) -> Dict[str, Any]:
     @param launch 为 True 时允许启动 AutoCAD。
     @return AutoCAD 连接状态。
     """
+    installation = discover_installation("autocad")
     try:
         import pythoncom
         import win32com.client
@@ -58,8 +64,11 @@ def check_autocad(launch: bool) -> Dict[str, Any]:
             return _result(
                 "not_running",
                 prog_id="AutoCAD.Application",
+                installed=installation["installed"],
+                executable=installation["executable"],
+                installation_source=installation["source"],
                 error=repr(active_exc),
-                hint="AutoCAD 未运行；如需自动启动，请加 --launch。",
+                hint="AutoCAD 已安装但未运行；如需自动启动，请加 --launch。" if installation["installed"] else "未发现 AutoCAD 安装，请确认快捷方式或安装目录。",
             )
         try:
             app = win32com.client.Dispatch("AutoCAD.Application")
@@ -68,6 +77,9 @@ def check_autocad(launch: bool) -> Dict[str, Any]:
             return _result(
                 "unavailable",
                 prog_id="AutoCAD.Application",
+                installed=installation["installed"],
+                executable=installation["executable"],
+                installation_source=installation["source"],
                 error=repr(launch_exc),
                 hint="请确认已安装 Windows 桌面版 AutoCAD，并手动启动一次完成 COM 注册。",
             )
@@ -86,6 +98,9 @@ def check_autocad(launch: bool) -> Dict[str, Any]:
     return _result(
         "ok",
         prog_id="AutoCAD.Application",
+        installed=installation["installed"],
+        executable=installation["executable"],
+        installation_source=installation["source"],
         mode=mode,
         version=str(getattr(app, "Version", "")),
         caption=str(getattr(app, "Caption", "")),
@@ -119,4 +134,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

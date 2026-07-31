@@ -8,7 +8,6 @@ SolidWorks 自动化技能运行前自检。
 from __future__ import annotations
 
 import argparse
-import glob
 import importlib
 import os
 import platform
@@ -16,6 +15,11 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from typing import Callable, Iterable, List, Optional, Sequence
+
+try:
+    from .cad_installation import discover_installation
+except ImportError:
+    from cad_installation import discover_installation
 
 
 PIP_REQUIREMENTS = ("pywin32>=305", "comtypes>=1.2.0")
@@ -177,35 +181,24 @@ def _is_windows() -> bool:
 
 def _solidworks_com_registered() -> bool:
     """检查 SolidWorks COM ProgID 是否已注册。"""
-    if not _is_windows():
-        return False
-    try:
-        import winreg
-
-        winreg.QueryValue(winreg.HKEY_CLASSES_ROOT, r"SldWorks.Application\CLSID")
-        return True
-    except Exception:
-        return False
+    return bool(discover_installation("solidworks")["registered"])
 
 
 def _solidworks_exe_candidates() -> Iterable[str]:
     """枚举常见 SolidWorks 主程序路径。"""
-    patterns = [
-        r"C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\SLDWORKS.exe",
-        r"C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS*\SLDWORKS.exe",
-        r"C:\Program Files\Dassault Systemes\SOLIDWORKS*\SLDWORKS.exe",
-    ]
-    for pattern in patterns:
-        yield from glob.glob(os.path.expandvars(pattern))
+    executable = discover_installation("solidworks")["executable"]
+    if executable:
+        yield executable
 
 
 def solidworks_installed() -> bool:
     """判断本机是否能检测到 SolidWorks 安装或 COM 注册。"""
     if not _is_windows():
         return False
-    if _solidworks_com_registered():
+    installation = discover_installation("solidworks")
+    if installation["registered"]:
         return True
-    return any(os.path.exists(path) for path in _solidworks_exe_candidates())
+    return bool(installation["executable"] and os.path.exists(installation["executable"]))
 
 
 def ensure_solidworks_installed() -> None:

@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-import glob
 import importlib.util
 import json
 import os
@@ -17,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+from cad_installation import discover_all
 
 
 def _check(name: str, ok: bool, message: str, *, severity: str = "error", code: str | None = None) -> dict[str, Any]:
@@ -35,24 +35,15 @@ def _is_writable(path: Path) -> bool:
 
 
 def _solidworks_installation() -> dict[str, Any]:
-    result: dict[str, Any] = {"registered": False, "executables": []}
-    if os.name != "nt":
-        return result
-    try:
-        import winreg
-
-        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, r"SldWorks.Application\CLSID"):
-            result["registered"] = True
-    except OSError:
-        pass
-    patterns = [
-        r"C:\\Program Files\\SOLIDWORKS Corp\\SOLIDWORKS\\SLDWORKS.exe",
-        r"C:\\Program Files\\SOLIDWORKS Corp\\SOLIDWORKS*\\SLDWORKS.exe",
-        r"C:\\Program Files\\Dassault Systemes\\SOLIDWORKS*\\SLDWORKS.exe",
-    ]
-    for pattern in patterns:
-        result["executables"].extend(path for path in glob.glob(pattern) if Path(path).is_file())
-    return result
+    installation = discover_all()["solidworks"]
+    return {
+        "registered": installation["registered"],
+        "executables": [installation["executable"]] if installation["executable"] else [],
+        "executable": installation["executable"],
+        "source": installation["source"],
+        "version": installation["version"],
+        "shortcut": installation["shortcut"],
+    }
 
 
 def run_doctor(*, probe_cad: bool = False) -> dict[str, Any]:
@@ -73,8 +64,9 @@ def run_doctor(*, probe_cad: bool = False) -> dict[str, Any]:
     sw = _solidworks_installation()
     sw_ready = bool(sw["registered"] or sw["executables"])
     checks.append(_check("cad.solidworks", sw_ready, "SolidWorks COM 或安装目录已发现" if sw_ready else "未发现 SolidWorks COM 注册或安装目录", code="SOLIDWORKS_READY" if sw_ready else "SOLIDWORKS_NOT_FOUND"))
-    autocad_ready = bool(shutil.which("acad.exe"))
-    checks.append(_check("cad.autocad", autocad_ready, "AutoCAD 可执行文件已在 PATH" if autocad_ready else "未在 PATH 发现 acad.exe", severity="warning", code="AUTOCAD_READY" if autocad_ready else "AUTOCAD_NOT_FOUND"))
+    autocad = discover_all()["autocad"]
+    autocad_ready = bool(autocad["installed"])
+    checks.append(_check("cad.autocad", autocad_ready, "AutoCAD 安装已发现" if autocad_ready else "未发现 AutoCAD 安装目录或快捷方式", severity="warning", code="AUTOCAD_READY" if autocad_ready else "AUTOCAD_NOT_FOUND"))
 
     documents = Path.home() / "Documents"
     checks.append(_check("filesystem.documents", _is_writable(documents), f"文档目录可写: {documents.name}", code="DOCUMENTS_NOT_WRITABLE"))
@@ -97,6 +89,10 @@ def run_doctor(*, probe_cad: bool = False) -> dict[str, Any]:
         "tool": "cad-studio doctor",
         "platform": platform.platform(aliased=True),
         "python": {"version": platform.python_version(), "executable": Path(sys.executable).name},
+        "installations": {
+            "solidworks": {key: value for key, value in sw.items() if key != "executables"},
+            "autocad": autocad,
+        },
         "checks": checks,
         "summary": {"status": "error" if errors else ("warning" if warnings else "passed"), "errors": errors, "warnings": warnings},
     }

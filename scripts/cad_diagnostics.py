@@ -38,7 +38,7 @@ def create_diagnostic_bundle(output: Path, *, events: Any = None) -> Path:
     payload = {
         "schemaVersion": "1.0",
         "createdAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "doctor": run_doctor(probe_cad=False),
+        "doctor": _redact(run_doctor(probe_cad=False)),
         "events": _redact(events or []),
         "privacy": {"telemetry": "off", "redacted": ["prompt", "API key", "token", "完整私人路径"]},
     }

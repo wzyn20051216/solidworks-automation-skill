@@ -42,6 +42,7 @@ REQUIRED_FILES = [
     "scripts/sw_session.py",
     "scripts/capabilities.py",
     "scripts/cad_doctor.py",
+    "scripts/cad_installation.py",
     "scripts/cad_diagnostics.py",
     "scripts/cad_studio.py",
     "scripts/sw_entity_reference.py",
