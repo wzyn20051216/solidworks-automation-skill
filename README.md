@@ -2,9 +2,30 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![SolidWorks](https://img.shields.io/badge/SolidWorks-2020--2025-red.svg)](https://www.solidworks.com/)
+[![SolidWorks](https://img.shields.io/badge/SolidWorks-2024--2026-red.svg)](https://www.solidworks.com/)
 
-通过 Python COM 接口自动化控制 SolidWorks 的完整工具集，可被 Codex / Claude / OpenClaw（龙虾）等代理直接复用。支持零件建模、装配体、工程图、钣金、焊件、仿真等全流程自动化操作。
+通过 Python COM 接口自动化控制 SolidWorks 的本地优先工具集，可被 Codex / Claude / OpenClaw 等代理复用。实际可执行范围以根目录 `capabilities.yaml` 为唯一真源；未验证能力不会被包装成已完成的无人值守交付。
+
+> 可靠性边界：SolidWorks 2024–2026 是当前主动验证矩阵，2020–2023 仅兼容性支持。配置/设计表、钣金、焊件、Simulation/FEA 和 Routing 当前为 `reference_only` 或 `not_implemented`，请在人工复核模式下使用。
+
+### 运行前诊断
+
+```powershell
+python scripts/cad_doctor.py
+python scripts/cad_studio.py doctor
+python scripts/cad_studio.py export-diagnostics --output .\cad-studio-diagnostics.zip
+```
+
+诊断包只包含版本、阶段、错误码和耗时等脱敏信息，不包含 Prompt、模型内容、API Key 或完整私人路径。
+
+队列任务也可脱离桌面端操作：
+
+```powershell
+python scripts/cad_studio.py status
+python scripts/cad_studio.py run --enable-mock
+python scripts/cad_studio.py retry <job-id>
+python scripts/cad_studio.py cancel <job-id>
+```
 
 <p align="center">
   <img src="assets/douyin-balance.jpg" alt="抖音 @balance. 关注二维码" width="320">
@@ -35,17 +56,17 @@
 - 🎨 **外观材质** - 文档、特征、组件级颜色设置，支持装配体分色建模
 - 🎬 **Motion Study** - 自动创建运动算例、匀速旋转马达并计算/播放动画
 - 🔌 **MCP Server** - 将 SolidWorks COM 自动化封装成 Codex / Claude / Cursor 可调用的本地 MCP 工具，覆盖基础建模、装配、Mate、外观、导出、审查和旋转马达
-- 🔨 **钣金设计** - 基体法兰、边线法兰、展开图导出
-- ⚡ **焊件设计** - 结构构件、切割清单
-- 📊 **FEA 仿真** - 静态分析、频率分析、热分析
-- 📝 **自定义属性** - 读写文件属性、配置管理、设计表
+- 🔨 **钣金设计（参考）** - 文档与 API 路由已整理，当前不承诺无人值守交付
+- ⚡ **焊件设计（参考）** - 结构构件与切割清单尚无稳定回归执行器
+- 📊 **FEA 仿真（参考）** - 需要 Simulation 许可证和专项执行器，当前不会冒充已实现
+- 📝 **自定义属性** - 文件属性读写可用；配置/设计表按能力清单限制使用
 - 👀 **结果自审查** - 导出多视角预览图、`review_report.json` 与 Markdown 摘要，帮助代理复核模型是否符合意图
 - 🔎 **API 查证优先** - 未封装接口先查官方 API Help / 本地 SDK，再实现、运行、自审查并沉淀
 
 ### 📋 环境要求
 
 - **操作系统**: Windows 10/11
-- **SolidWorks**: 2020-2025 任意版本
+- **SolidWorks**: 2024-2026 主动验证；2020-2023 兼容性支持
 - **Python**: 3.8 或更高版本
 - **核心依赖库**: `pywin32`、`comtypes`
 - **网格转换可选依赖**: `trimesh`、`pygltflib`、`numpy`、`Pillow`
@@ -509,7 +530,7 @@ model.Extension.SelectByID2(
 - 🎨 **Appearance and Materials** - Document, feature, and component-level color workflows
 - 🔨 **Sheet Metal** - Base flange, edge flange, flat pattern export
 - ⚡ **Weldments** - Structural members, cut lists
-- 📊 **FEA Simulation** - Static, frequency, thermal analysis
+- 📊 **FEA Simulation (reference only)** - No unattended solver or result validation is claimed
 - 📝 **Custom Properties** - Read/write file properties, configuration management
 - 👀 **CAD Agent Self-Review** - Export multi-view previews, JSON reports, Markdown summaries, and `pass/warn/fail` evaluations
 - 🔎 **Verified API Workflow** - Look up official API Help or local SDK docs before using unwrapped SolidWorks APIs
@@ -517,7 +538,7 @@ model.Extension.SelectByID2(
 ### 📋 Requirements
 
 - **OS**: Windows 10/11
-- **SolidWorks**: 2020-2025 (any version)
+- **SolidWorks**: 2024-2026 actively verified; 2020-2023 compatibility support only
 - **Python**: 3.8+
 - **Dependencies**: `pywin32`, `comtypes`
 

@@ -46,7 +46,7 @@ CAD Studio 不附带模型额度，也不保存 API Key。模型账号、套餐�
 
 - Python 3.8 或更高版本，推荐 64 位 Python 3.11/3.12。
 - Python 依赖：`pywin32`、`comtypes`。
-- SolidWorks 2020-2025，或 AutoCAD 2021 及以上版本。
+- SolidWorks 2024-2026（主动验证）；2020-2023 仅兼容性支持。AutoCAD 2024-2026 为主动验证矩阵。
 - Python、SolidWorks 和 AutoCAD 应与操作系统保持 64 位一致。
 
 安装 Python 依赖：
@@ -56,6 +56,14 @@ python -m pip install "pywin32>=305" "comtypes>=1.2.0"
 ```
 
 没有安装 CAD 软件时，仍可使用需求整理、工程规划、脚本生成和知识检索，但不能声称已生成或验证原生 CAD 文件。
+
+首次执行前建议运行：
+
+```powershell
+python scripts/cad_studio.py doctor
+```
+
+能力限制以仓库根目录 `capabilities.yaml` 为准。配置/设计表、钣金、焊件、Simulation/FEA 和 Routing 当前不会被标记为已交付；任务会进入“已阻断”并给出原因，除非明确选择人工复核模式。
 
 ## 3. 安装与启动
 

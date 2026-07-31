@@ -23,6 +23,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 REQUIRED_FILES = [
     "SKILL.md",
     "README.md",
+    "capabilities.yaml",
+    "golden-workflows.yaml",
     "agents/openai.yaml",
     "scripts/sw_preflight.py",
     "scripts/sw_macro_guard.py",
@@ -38,6 +40,11 @@ REQUIRED_FILES = [
     "scripts/sw_motion.py",
     "scripts/sw_capability_probe.py",
     "scripts/sw_session.py",
+    "scripts/capabilities.py",
+    "scripts/cad_doctor.py",
+    "scripts/cad_diagnostics.py",
+    "scripts/cad_studio.py",
+    "scripts/sw_entity_reference.py",
     "scripts/validate_mcp.py",
     "mcp-server/server.py",
     "mcp-server/README.md",
@@ -102,6 +109,10 @@ def check_json_files():
     ]
     for path in targets:
         json.loads(path.read_text(encoding="utf-8"))
+    json.loads((ROOT / "capabilities.yaml").read_text(encoding="utf-8"))
+    workflows = json.loads((ROOT / "golden-workflows.yaml").read_text(encoding="utf-8"))
+    if len(workflows.get("workflows", [])) != 10:
+        raise AssertionError("黄金工作流必须保持 10 项基线")
     return len(targets)
 
 

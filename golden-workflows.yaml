@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "target_first_pass_rate": 0.90,
+  "workflows": [
+    {"id": "mounting_bracket", "name": "安装板与支架", "capabilities": ["part_and_features", "holes_and_finishing", "export_delivery"], "required_inputs": ["外形尺寸", "板厚", "孔规格", "孔定位", "材料"], "required_artifacts": ["sldprt", "step", "preview", "review_report"]},
+    {"id": "enclosure", "name": "设备外壳", "capabilities": ["part_and_features", "holes_and_finishing", "export_delivery"], "required_inputs": ["包络尺寸", "壁厚", "接口开孔", "装配间隙", "制造工艺"], "required_artifacts": ["sldprt", "step", "stl", "preview", "review_report"]},
+    {"id": "holes_slots_threads", "name": "孔槽螺纹", "capabilities": ["holes_and_finishing"], "required_inputs": ["孔槽规格", "数量", "基准", "中心距", "深度"], "required_artifacts": ["sldprt", "geometry_evidence", "review_report"]},
+    {"id": "modify_existing_part", "name": "修改已有零件", "capabilities": ["part_and_features", "geometry_and_delivery_review"], "required_inputs": ["源文件", "修改范围", "保留特征", "输出版本"], "required_artifacts": ["sldprt", "before_after_preview", "review_report"]},
+    {"id": "assembly_mates", "name": "装配与配合", "capabilities": ["assembly_and_mates", "geometry_and_delivery_review"], "required_inputs": ["零件清单", "装配基准", "配合关系", "允许自由度"], "required_artifacts": ["sldasm", "mate_evidence", "preview", "review_report"]},
+    {"id": "batch_export", "name": "批量导出", "capabilities": ["export_delivery"], "required_inputs": ["输入清单", "输出格式", "版本命名", "覆盖策略"], "required_artifacts": ["delivery_manifest", "hash_ledger", "review_report"]},
+    {"id": "configuration_family", "name": "配置族", "capabilities": ["configurations_and_design_tables"], "required_inputs": ["参数表", "配置命名", "尺寸约束", "输出规则"], "required_artifacts": ["configuration_matrix", "rebuild_evidence", "review_report"]},
+    {"id": "properties_bom", "name": "属性与 BOM", "capabilities": ["drawings_and_bom"], "required_inputs": ["属性模板", "零件编号", "材料", "数量规则"], "required_artifacts": ["bom", "property_report", "review_report"]},
+    {"id": "engineering_drawing", "name": "工程图", "capabilities": ["drawings_and_bom"], "required_inputs": ["图幅", "比例", "视图", "尺寸链", "公差", "技术要求"], "required_artifacts": ["slddrw", "pdf", "preview", "review_report"]},
+    {"id": "autocad_cleanup_delivery", "name": "AutoCAD 图纸整理与交付", "capabilities": ["autocad_basic_drafting", "autocad_headless_preview", "export_delivery"], "required_inputs": ["源图", "图层规则", "文字字体", "标注样式", "输出格式"], "required_artifacts": ["dwg", "dxf", "pdf", "preview", "review_report"]}
+  ]
+}

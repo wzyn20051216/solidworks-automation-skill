@@ -70,6 +70,7 @@ python subskills\autocad-automation\scripts\acad_preflight.py --launch
 8. **串行执行 COM**：AutoCAD 桌面 COM 操作不要并行；一个脚本连接、逐步绘制、保存、复核后退出。
 9. **保存和导出**：保存 DWG/DXF/PDF 前确保目录存在；修改原图时保留备份或另存。
 10. **复核结果**：运行 `scripts/acad_review.py` 统计实体、图层、包围盒和目标文件；再运行 `scripts/acad_preview.py` 导出 AutoCAD 原生 BMP/PNG 预览，并用图片查看工具做视觉审查。窗口截图可作为补充，但若被其它窗口遮挡，不可作为通过依据。
+    若输入是 DXF 且只需无头只读检查，可先运行 `scripts/acad_headless.py`；它不支持 DWG 写入，最终 DWG/PDF 仍须走 AutoCAD COM。
 11. **沉淀经验**：遇到新坑、命令差异、版本限制或稳定封装，补进 `references/troubleshooting.md` 或脚本。
 
 ### 机械零件图和 3D 打印开孔图硬性要求

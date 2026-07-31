@@ -1,0 +1,159 @@
+{
+  "schema_version": "1.0",
+  "verified_versions": {
+    "solidworks": ["2024", "2025", "2026"],
+    "autocad": ["2024", "2025", "2026"]
+  },
+  "capabilities": [
+    {
+      "id": "requirements_planning",
+      "label": "需求分析与工程规划",
+      "level": "verified",
+      "backends": ["local-agent"],
+      "verified_versions": [],
+      "dependencies": ["python"],
+      "limitations": ["关键尺寸、公差、载荷和安全参数仍需人工确认"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "part_and_features",
+      "label": "参数化零件与基础特征",
+      "level": "verified",
+      "backends": ["solidworks-com"],
+      "verified_versions": ["2024", "2025", "2026"],
+      "dependencies": ["SolidWorks", "pywin32", "comtypes"],
+      "limitations": ["复杂曲面、模具和高级拓扑引用不属于无人值守能力"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "holes_and_finishing",
+      "label": "孔槽、螺纹、圆角与倒角",
+      "level": "verified",
+      "backends": ["solidworks-com"],
+      "verified_versions": ["2024", "2025", "2026"],
+      "dependencies": ["SolidWorks", "pywin32", "comtypes"],
+      "limitations": ["每个孔槽必须有规格、数量和定位证据"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "assembly_and_mates",
+      "label": "装配体与配合",
+      "level": "verified",
+      "backends": ["solidworks-com"],
+      "verified_versions": ["2024", "2025", "2026"],
+      "dependencies": ["SolidWorks", "pywin32", "comtypes"],
+      "limitations": ["必须回读配合特征和自由度；不等于完整干涉或受力分析"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "motion_study",
+      "label": "旋转马达 Motion Study",
+      "level": "pilot",
+      "backends": ["solidworks-com"],
+      "verified_versions": ["2024", "2025", "2026"],
+      "dependencies": ["SolidWorks Motion Study 加载项"],
+      "limitations": ["当前只验证旋转马达和结果审计，不承诺接触、阻尼、受力和完整 FEA"],
+      "allowed_modes": ["reviewed"]
+    },
+    {
+      "id": "drawings_and_bom",
+      "label": "工程图、尺寸链与 BOM",
+      "level": "pilot",
+      "backends": ["solidworks-com", "autocad-com"],
+      "verified_versions": ["2024", "2025", "2026"],
+      "dependencies": ["SolidWorks 或 AutoCAD"],
+      "limitations": ["图框、标题栏、尺寸链、孔表和 GB/T 风格必须人工目视复核"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "export_delivery",
+      "label": "文件导出与交付包",
+      "level": "verified",
+      "backends": ["solidworks-com", "autocad-com", "local-filesystem"],
+      "verified_versions": ["2024", "2025", "2026"],
+      "dependencies": ["目标 CAD 软件或对应无头转换器"],
+      "limitations": ["专有格式仍需目标 CAD 原生打开复核"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "geometry_and_delivery_review",
+      "label": "几何、文件与交付复核",
+      "level": "verified",
+      "backends": ["local-python"],
+      "verified_versions": [],
+      "dependencies": ["python"],
+      "limitations": ["文件级检查不能替代工程师对关键尺寸和制造性的判断"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "autocad_basic_drafting",
+      "label": "AutoCAD 二维绘图与批量改图",
+      "level": "pilot",
+      "backends": ["autocad-com"],
+      "verified_versions": ["2024", "2025", "2026"],
+      "dependencies": ["AutoCAD", "pywin32"],
+      "limitations": ["不同版本的模板、字体、打印机和外部参照必须在本机复核"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "configurations_and_design_tables",
+      "label": "配置与设计表",
+      "level": "reference_only",
+      "backends": ["solidworks-com"],
+      "verified_versions": [],
+      "dependencies": ["SolidWorks", "Excel"],
+      "limitations": ["尚无连续真实回归样件，不允许无人值守交付"],
+      "allowed_modes": ["interactive"]
+    },
+    {
+      "id": "sheet_metal",
+      "label": "钣金建模与展开",
+      "level": "reference_only",
+      "backends": ["solidworks-com"],
+      "verified_versions": [],
+      "dependencies": ["SolidWorks"],
+      "limitations": ["尚无稳定执行器和版本矩阵，不允许宣称已完成"],
+      "allowed_modes": ["interactive"]
+    },
+    {
+      "id": "weldments",
+      "label": "焊件与切割清单",
+      "level": "reference_only",
+      "backends": ["solidworks-com"],
+      "verified_versions": [],
+      "dependencies": ["SolidWorks"],
+      "limitations": ["尚无稳定执行器和真实回归样件"],
+      "allowed_modes": ["interactive"]
+    },
+    {
+      "id": "simulation_and_fea",
+      "label": "仿真与 FEA",
+      "level": "reference_only",
+      "backends": ["solidworks-com"],
+      "verified_versions": [],
+      "dependencies": ["SolidWorks Simulation 许可证"],
+      "limitations": ["当前没有仿真执行器、结果校验或许可证检测"],
+      "allowed_modes": ["interactive"]
+    },
+    {
+      "id": "autocad_headless_preview",
+      "label": "AutoCAD 无头 DXF 预览与检查",
+      "level": "pilot",
+      "backends": ["ezdxf"],
+      "verified_versions": [],
+      "dependencies": ["可选 ezdxf"],
+      "limitations": ["只读 DXF；不能读取或写入 DWG，不能替代 AutoCAD 原生 DWG/PDF 复核"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "routing",
+      "label": "Routing",
+      "level": "not_implemented",
+      "backends": [],
+      "verified_versions": [],
+      "dependencies": [],
+      "limitations": ["尚未实现"],
+      "allowed_modes": []
+    }
+  ]
+}
