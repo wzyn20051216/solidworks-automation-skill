@@ -1202,8 +1202,12 @@ fn collect_agent_provider_health(app: &AppHandle) -> Vec<Value> {
 }
 
 #[tauri::command]
-fn agent_provider_runtime_health(app: AppHandle) -> Result<Value, String> {
-    Ok(json!({ "agentProviders": collect_agent_provider_health(&app) }))
+async fn agent_provider_runtime_health(app: AppHandle) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(json!({ "agentProviders": collect_agent_provider_health(&app) }))
+    })
+    .await
+    .map_err(|error| format!("Agent 环境检查线程异常: {error}"))?
 }
 
 #[cfg(windows)]
@@ -1307,8 +1311,7 @@ fn detect_autocad() -> Option<PathBuf> {
     candidates.into_iter().find(|path| path.is_file())
 }
 
-#[tauri::command]
-fn runtime_health(app: AppHandle) -> Result<Value, String> {
+fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
     let skill_root = detected_skill_root(&app, None)?;
     let capability_manifest = fs::read_to_string(skill_root.join("capabilities.yaml"))
         .ok()
@@ -1384,6 +1387,14 @@ fn runtime_health(app: AppHandle) -> Result<Value, String> {
             "path": autocad_path.map(|path| path.to_string_lossy().to_string()).unwrap_or_default()
         }
     }))
+}
+
+/// @brief 在后台线程执行较慢的 CLI、注册表与 CAD 环境检查，避免阻塞窗口消息循环。
+#[tauri::command]
+async fn runtime_health(app: AppHandle) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || collect_runtime_health(app))
+        .await
+        .map_err(|error| format!("CAD 环境检查线程异常: {error}"))?
 }
 
 fn redact_secret(value: &str) -> String {
