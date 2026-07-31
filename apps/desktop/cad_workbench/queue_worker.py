@@ -48,7 +48,7 @@ CommandRunner = Callable[[Sequence[str], Path, int], subprocess.CompletedProcess
 
 WORKER_NAME = "cad-workbench-python-worker"
 KNOWN_JOB_KINDS = {"create_shell", "import_model", "delivery_package", "codex_task", "agent_task"}
-TERMINAL_STATES = {"passed", "review_required", "failed", "cancelled"}
+TERMINAL_STATES = {"passed", "review_required", "failed", "cancelled", "blocked"}
 NON_EXECUTABLE_STATES = {"approval_required", *TERMINAL_STATES}
 DEFAULT_CODEX_TIMEOUT_SECONDS = 1800
 DEFAULT_LEASE_SECONDS = 900
@@ -59,8 +59,51 @@ _ACTIVE_LOCKS_GUARD = threading.Lock()
 QUEUE_WRITE_RETRIES = 24
 
 
+def _capability_block_reasons(job: dict[str, Any]) -> list[str]:
+    """@brief 根据能力真源阻止未验证能力的无人值守交付。"""
+    requested = job.get("capabilities") or []
+    if not isinstance(requested, list) or not requested:
+        return []
+    if job.get("schemaVersion") != "2.0":
+        return []
+    try:
+        import sys
+
+        scripts_dir = Path(__file__).resolve().parents[3] / "scripts"
+        if str(scripts_dir) not in sys.path:
+            sys.path.insert(0, str(scripts_dir))
+        from capabilities import capability_index, load_capabilities
+
+        index = capability_index(load_capabilities())
+    except Exception:
+        # 能力清单缺失时不改变旧版任务行为，由静态校验报告问题。
+        return []
+    policy = job.get("policy", {})
+    manual_required = policy.get("approval") == "manual-required"
+    reviewer_required = policy.get("requireReviewerPass") is True
+    reasons: list[str] = []
+    for capability_id in requested:
+        item = index.get(str(capability_id))
+        if not item:
+            reasons.append(f"{capability_id} 不在能力清单中")
+            continue
+        level = item.get("level")
+        if level == "verified":
+            continue
+        if level == "pilot" and reviewer_required:
+            continue
+        if level == "reference_only" and manual_required:
+            continue
+        reasons.append(f"{capability_id} 当前等级为 {level}，执行模式不满足能力限制")
+    return reasons
+
+
 class JobCancelled(RuntimeError):
     """@brief 任务被用户取消。"""
+
+
+class JobBlocked(RuntimeError):
+    """@brief 环境或能力门禁阻止任务执行。"""
 
 
 def _codex_windowsapps_candidates() -> list[Path]:
@@ -481,6 +524,18 @@ def set_job_state(job: dict[str, Any], status: str, progress: int, message: str)
     job["progress"] = max(0, min(100, int(progress)))
     job["updatedAt"] = now_iso()
     job["lastMessage"] = message
+    stage_by_status = {
+        "queued": "intake",
+        "running": "executing",
+        "passed": "delivery",
+        "review_required": "reviewing",
+        "failed": "reviewing",
+        "cancelled": "blocked",
+        "blocked": "blocked",
+    }
+    job.setdefault("stage", stage_by_status.get(status, "executing"))
+    if status in {"passed", "review_required", "failed", "cancelled", "blocked"}:
+        job["stage"] = stage_by_status.get(status, job.get("stage"))
     append_worker_event(job, status, message)
 
 
@@ -892,6 +947,15 @@ def process_job(
             raise ValueError("任务缺少 id")
         if kind not in KNOWN_JOB_KINDS:
             raise ValueError(f"未知任务类型: {kind}")
+        blocked_reasons = _capability_block_reasons(job)
+        if blocked_reasons:
+            message = "任务被能力门禁阻止: " + "；".join(blocked_reasons)
+            job["blockedReasons"] = blocked_reasons
+            job["stage"] = "blocked"
+            set_job_state(job, "blocked", int(job.get("progress") or 0), message)
+            append_event(path.parent, job, "run.blocked", message, {"reasons": blocked_reasons})
+            write_job(path, job)
+            return job
         if job.get("executor") in {"codex", "agent"}:
             approval_reasons = require_policy_approval(job)
             if approval_reasons:
@@ -944,6 +1008,12 @@ def process_job(
         job["cancelRequested"] = True
         set_job_state(job, "cancelled", int(job.get("progress") or 0), str(error))
         append_event(path.parent, job, "run.cancelled", str(error))
+    except JobBlocked as error:
+        job.pop("_runtime", None)
+        job["blockedReasons"] = [str(error)]
+        job["stage"] = "blocked"
+        set_job_state(job, "blocked", int(job.get("progress") or 0), str(error))
+        append_event(path.parent, job, "run.blocked", str(error))
     except Exception as error:  # noqa: BLE001 - worker 必须把单任务错误写回队列，不能让队列静默中断。
         job.pop("_runtime", None)
         job["error"] = str(error)

@@ -4,10 +4,18 @@
   "type": "object",
   "additionalProperties": true,
   "required": ["schemaVersion", "id", "runId", "kind", "title", "detail", "status", "progress", "createdAt", "updatedAt"],
+  "allOf": [
+    {
+      "if": { "properties": { "schemaVersion": { "const": "2.0" } } },
+      "then": {
+        "required": ["projectId", "conversationId", "inputs", "stage", "capabilitySnapshot", "assumptions", "requiredArtifacts", "verificationEvidence"]
+      }
+    }
+  ],
   "properties": {
     "schemaVersion": {
       "type": "string",
-      "const": "1.0"
+      "enum": ["1.0", "2.0"]
     },
     "id": {
       "type": "string",
@@ -41,7 +49,7 @@
     },
     "status": {
       "type": "string",
-      "enum": ["queued", "running", "passed", "review_required", "failed", "cancelled", "approval_required"]
+      "enum": ["queued", "running", "passed", "review_required", "failed", "cancelled", "approval_required", "blocked"]
     },
     "progress": {
       "type": "integer",
@@ -78,6 +86,49 @@
     },
     "projectPath": {
       "type": "string"
+    },
+    "projectId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,96}$"
+    },
+    "conversationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,120}$"
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "stage": {
+      "type": "string",
+      "enum": ["intake", "planning", "checking", "launching", "executing", "reviewing", "delivery", "blocked"]
+    },
+    "capabilitySnapshot": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "requiredArtifacts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "verificationEvidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
     },
     "lastMessage": {
       "type": "string"

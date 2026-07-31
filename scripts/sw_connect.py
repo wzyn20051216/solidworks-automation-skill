@@ -4,7 +4,9 @@ SolidWorks 连接工具
 """
 import glob
 import os
+import tempfile
 import time
+from pathlib import Path
 
 try:
     from .sw_preflight import ensure_solidworks_installed, import_com_dependencies
@@ -39,6 +41,69 @@ DEFAULT_TEMPLATE_PREFS = {
 }
 
 SW_ALWAYS_USE_DEFAULT_TEMPLATES = 111
+
+
+class SolidWorksConnectionError(RuntimeError):
+    """带阶段和错误码的 SolidWorks 连接错误。"""
+
+    def __init__(self, code, stage, message):
+        self.code = code
+        self.stage = stage
+        super().__init__(f"[{code}] {stage}: {message}")
+
+
+class _LaunchGuard:
+    """跨进程启动互斥；Windows 使用命名 Mutex，其它平台使用独占锁文件。"""
+
+    def __init__(self, name="CADStudio.SolidWorks.Launch"):
+        self.name = name
+        self.handle = None
+        self.path = Path(tempfile.gettempdir()) / "cad-studio-solidworks-launch.lock"
+        self._owns_file = False
+
+    def __enter__(self):
+        if os.name == "nt":
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32
+            self.handle = kernel32.CreateMutexW(None, False, self.name)
+            if not self.handle:
+                raise SolidWorksConnectionError("SW_MUTEX", "locking", "无法创建 SolidWorks 启动互斥锁")
+            wait_result = kernel32.WaitForSingleObject(self.handle, 15000)
+            if wait_result not in (0, 0x80):
+                kernel32.CloseHandle(self.handle)
+                self.handle = None
+                raise SolidWorksConnectionError("SW_MUTEX_TIMEOUT", "locking", "等待其它启动任务超时")
+            return self
+
+        try:
+            fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode("ascii"))
+            os.close(fd)
+            self._owns_file = True
+        except FileExistsError as exc:
+            try:
+                stale_pid = int(self.path.read_text(encoding="ascii").strip())
+                os.kill(stale_pid, 0)
+            except (ProcessLookupError, ValueError):
+                self.path.unlink(missing_ok=True)
+                return self.__enter__()
+            raise SolidWorksConnectionError("SW_MUTEX_BUSY", "locking", "已有 SolidWorks 启动任务") from exc
+        return self
+
+    def __exit__(self, *_):
+        if os.name == "nt" and self.handle:
+            import ctypes
+
+            ctypes.windll.kernel32.ReleaseMutex(self.handle)
+            ctypes.windll.kernel32.CloseHandle(self.handle)
+            self.handle = None
+        elif self._owns_file:
+            try:
+                self.path.unlink()
+            except FileNotFoundError:
+                pass
+            self._owns_file = False
 
 
 def get_com_member(obj, attr_name, *args):
@@ -110,7 +175,58 @@ def _ensure_parent_dir(file_path):
         os.makedirs(parent, exist_ok=True)
 
 
-def connect_solidworks(version=None, wait_seconds=5, visible=True):
+def _prog_id_for_version(version):
+    """返回 SolidWorks 年份对应的 ProgID。"""
+    if version is None:
+        return "SldWorks.Application"
+    try:
+        year = int(version)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"SolidWorks 版本必须是年份，例如 2024: {version}") from exc
+    if year < 2010 or year > 2035:
+        raise ValueError(f"不支持的 SolidWorks 版本年份: {year}")
+    return f"SldWorks.Application.{(year - 2000) + 8}"
+
+
+def _read_active_document(sw):
+    """读取活动文档，兼容 COM 属性/方法差异。"""
+    try:
+        return get_com_member(sw, "ActiveDoc")
+    except Exception:
+        return None
+
+
+def _wait_until_ready(sw, timeout_seconds):
+    """等待 COM 服务器可读，避免固定 sleep 导致 UI 假死。"""
+    deadline = time.monotonic() + max(0.1, float(timeout_seconds))
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            get_com_member(sw, "RevisionNumber")
+            return
+        except Exception as exc:
+            last_error = exc
+            time.sleep(0.1)
+    raise SolidWorksConnectionError(
+        "SW_START_TIMEOUT", "ready", f"SolidWorks 启动超时（{timeout_seconds:.1f}s）: {last_error or 'COM 未就绪'}"
+    )
+
+
+def close_owned_solidworks(sw, started_by_cad_studio):
+    """只退出由当前 CAD Studio 会话启动的 SolidWorks 实例。"""
+    if not started_by_cad_studio:
+        return False
+    for member_name in ("ExitApp", "Quit"):
+        try:
+            member = getattr(sw, member_name)
+            member() if callable(member) else None
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def connect_solidworks(version=None, wait_seconds=5, visible=True, return_metadata=False):
     """
     连接到 SolidWorks 实例。
 
@@ -123,24 +239,38 @@ def connect_solidworks(version=None, wait_seconds=5, visible=True):
         (sw, model) 元组，model 可能为 None（无打开的文档时）
     """
     ensure_solidworks_installed()
+    prog_id = _prog_id_for_version(version)
     sw = None
+    launched_here = False
 
-    # 优先连接已运行的实例。
-    try:
-        sw = win32com_client.GetActiveObject("SldWorks.Application")
-        print("已连接到运行中的 SolidWorks 实例")
-    except Exception:
-        prog_id = "SldWorks.Application"
-        if version:
-            revision = (version - 2000) + 8
-            prog_id = f"SldWorks.Application.{revision}"
+    # 启动和附着共享同一把互斥锁，避免多个 worker 同时拉起实例。
+    with _LaunchGuard():
+        try:
+            sw = win32com_client.GetActiveObject(prog_id)
+            print(f"已连接到运行中的 SolidWorks 实例（ProgID: {prog_id}）")
+        except Exception as attach_error:
+            try:
+                sw = win32com_client.Dispatch(prog_id)
+                launched_here = True
+                try:
+                    sw.Visible = visible
+                except Exception:
+                    pass
+                print(f"启动了新的 SolidWorks 实例（ProgID: {prog_id}）")
+                _wait_until_ready(sw, wait_seconds)
+            except SolidWorksConnectionError:
+                close_owned_solidworks(sw, launched_here)
+                raise
+            except Exception as launch_error:
+                close_owned_solidworks(sw, launched_here)
+                raise SolidWorksConnectionError(
+                    "SW_LAUNCH_FAILED", "launch", f"无法启动 {prog_id}: {launch_error}; attach={attach_error}"
+                ) from launch_error
 
-        sw = win32com_client.Dispatch(prog_id)
-        sw.Visible = visible
-        print(f"启动了新的 SolidWorks 实例（ProgID: {prog_id}）")
-        time.sleep(wait_seconds)
+    if sw is None:
+        raise SolidWorksConnectionError("SW_NO_INSTANCE", "connect", "未获得 SolidWorks COM 实例")
 
-    model = sw.ActiveDoc
+    model = _read_active_document(sw)
     if model:
         doc_types = {1: "零件", 2: "装配体", 3: "工程图"}
         doc_type = get_com_member(model, "GetType")
@@ -149,7 +279,12 @@ def connect_solidworks(version=None, wait_seconds=5, visible=True):
     else:
         print("当前没有打开的文档")
 
-    return sw, model
+    metadata = {
+        "prog_id": prog_id,
+        "requested_version": int(version) if version is not None else None,
+        "started_by_cad_studio": launched_here,
+    }
+    return (sw, model, metadata) if return_metadata else (sw, model)
 
 
 def get_sw_version(sw):

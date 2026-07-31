@@ -9,10 +9,10 @@ from pathlib import Path
 import os
 
 try:
-    from .sw_connect import connect_solidworks, get_com_member, new_document, open_document, save_document
+    from .sw_connect import close_owned_solidworks, connect_solidworks, get_com_member, new_document, open_document, save_document
     from .sw_export import export_to_dxf, export_to_iges, export_to_pdf, export_to_stl, export_to_step
 except ImportError:
-    from sw_connect import connect_solidworks, get_com_member, new_document, open_document, save_document
+    from sw_connect import close_owned_solidworks, connect_solidworks, get_com_member, new_document, open_document, save_document
     from sw_export import export_to_dxf, export_to_iges, export_to_pdf, export_to_stl, export_to_step
 
 
@@ -48,10 +48,11 @@ class SolidWorksSession:
             wait_seconds: 新启动实例后的等待秒数。
             visible: 新启动实例是否显示窗口。
         """
-        self.sw, self.model = connect_solidworks(
+        self.sw, self.model, self.connection_info = connect_solidworks(
             version=version,
             wait_seconds=wait_seconds,
             visible=visible,
+            return_metadata=True,
         )
 
     @property
@@ -165,6 +166,13 @@ class SolidWorksSession:
         if is_current_model:
             self.model = self.sw.ActiveDoc
         return True
+
+    def quit_owned_instance(self):
+        """退出本会话启动的实例；附着到用户实例时不执行任何关闭操作。"""
+        return close_owned_solidworks(
+            self.sw,
+            bool(self.connection_info.get("started_by_cad_studio")),
+        )
 
 
 def session(version=None, wait_seconds=5, visible=True):
