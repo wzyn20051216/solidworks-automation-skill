@@ -172,9 +172,19 @@ fn initialize_app_store(connection: &mut Connection) -> Result<(), String> {
 
 fn entity_values<'a>(namespace: &str, payload: &'a Value) -> Option<(&'static str, Vec<&'a Value>)> {
     match namespace {
-        "settings" => Some(("project", payload.get("projects")?.as_array()?.iter().collect())),
-        "conversations" => Some(("conversation", payload.as_array()?.iter().collect())),
-        "messages" => Some(("message", payload.as_array()?.iter().collect())),
+        "settings" => Some((
+            "project",
+            payload.get("projects").and_then(Value::as_array)
+                .map(|items| items.iter().collect()).unwrap_or_default(),
+        )),
+        "conversations" => Some((
+            "conversation",
+            payload.as_array().map(|items| items.iter().collect()).unwrap_or_default(),
+        )),
+        "messages" => Some((
+            "message",
+            payload.as_array().map(|items| items.iter().collect()).unwrap_or_default(),
+        )),
         _ => None,
     }
 }
@@ -245,6 +255,24 @@ fn sync_task_index(connection: &mut Connection, jobs: &[Value]) -> Result<(), St
     transaction.commit().map_err(|error| error.to_string())
 }
 
+fn load_queue_jobs(app: &AppHandle) -> Result<Vec<Value>, String> {
+    let dir = queue_dir(app)?;
+    let mut jobs = Vec::new();
+    for entry in fs::read_dir(dir).map_err(|error| error.to_string())? {
+        let path = entry.map_err(|error| error.to_string())?.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json")
+            || is_queue_metadata_path(&path)
+        {
+            continue;
+        }
+        let raw = fs::read_to_string(path).map_err(|error| error.to_string())?;
+        if let Ok(job) = serde_json::from_str::<Value>(&raw) {
+            jobs.push(job);
+        }
+    }
+    Ok(jobs)
+}
+
 fn remove_task_index(connection: &mut Connection, id: &str) -> Result<(), String> {
     connection
         .execute(
@@ -311,16 +339,7 @@ fn write_app_store(app: AppHandle, namespace: String, payload: Value) -> Result<
 #[tauri::command]
 fn app_store_migration_status(app: AppHandle) -> Result<Value, String> {
     let mut connection = open_app_store(&app)?;
-    let queue = queue_dir(&app)?;
-    let mut task_jobs = Vec::new();
-    for entry in fs::read_dir(queue).map_err(|error| error.to_string())? {
-        let path = entry.map_err(|error| error.to_string())?.path();
-        if path.extension().and_then(|value| value.to_str()) == Some("json") && !is_queue_metadata_path(&path) {
-            if let Ok(raw) = fs::read_to_string(path) {
-                if let Ok(job) = serde_json::from_str::<Value>(&raw) { task_jobs.push(job); }
-            }
-        }
-    }
+    let task_jobs = load_queue_jobs(&app)?;
     sync_task_index(&mut connection, &task_jobs)?;
     let mut source = serde_json::Map::new();
     let mut indexed = serde_json::Map::new();
@@ -1858,8 +1877,8 @@ fn save_queue_job(app: AppHandle, mut job: Value) -> Result<(), String> {
     derive_dangerous_capabilities(&mut job);
     let payload = serde_json::to_vec_pretty(&job).map_err(|error| error.to_string())?;
     atomic_create(&path, &payload)?;
-    if let Ok(mut connection) = open_app_store(&app) {
-        let _ = sync_task_index(&mut connection, &[job]);
+    if let (Ok(mut connection), Ok(jobs)) = (open_app_store(&app), load_queue_jobs(&app)) {
+        let _ = sync_task_index(&mut connection, &jobs);
     }
     Ok(())
 }
@@ -2429,21 +2448,7 @@ fn close_app(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn read_queue_jobs(app: AppHandle) -> Result<Vec<Value>, String> {
-    let dir = queue_dir(&app)?;
-    let mut jobs = Vec::new();
-
-    for entry in fs::read_dir(dir).map_err(|error| error.to_string())? {
-        let path = entry.map_err(|error| error.to_string())?.path();
-        if path.extension().and_then(|value| value.to_str()) != Some("json")
-            || is_queue_metadata_path(&path)
-        {
-            continue;
-        }
-        let raw = fs::read_to_string(path).map_err(|error| error.to_string())?;
-        if let Ok(job) = serde_json::from_str::<Value>(&raw) {
-            jobs.push(job);
-        }
-    }
+    let jobs = load_queue_jobs(&app)?;
 
     if let Ok(mut connection) = open_app_store(&app) {
         let _ = sync_task_index(&mut connection, &jobs);
