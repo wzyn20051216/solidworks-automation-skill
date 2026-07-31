@@ -218,6 +218,43 @@ fn sync_entity_index(
     Ok(())
 }
 
+/// @brief 将共享队列中的任务元数据同步到 SQLite 索引，不复制 CAD 产物内容。
+fn sync_task_index(connection: &mut Connection, jobs: &[Value]) -> Result<(), String> {
+    let transaction = connection.transaction().map_err(|error| error.to_string())?;
+    transaction
+        .execute("DELETE FROM entity_index WHERE entity_type = 'task'", [])
+        .map_err(|error| error.to_string())?;
+    for job in jobs {
+        let Some(id) = job.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) else {
+            continue;
+        };
+        transaction
+            .execute(
+                "INSERT INTO entity_index(entity_type, entity_id, project_id, conversation_id, payload, updated_at)
+                 VALUES('task', ?1, ?2, ?3, ?4, ?5)",
+                params![
+                    id,
+                    job.get("projectId").and_then(Value::as_str),
+                    job.get("conversationId").and_then(Value::as_str),
+                    serde_json::to_string(job).map_err(|error| error.to_string())?,
+                    job.get("updatedAt").and_then(Value::as_str).unwrap_or_default(),
+                ],
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    transaction.commit().map_err(|error| error.to_string())
+}
+
+fn remove_task_index(connection: &mut Connection, id: &str) -> Result<(), String> {
+    connection
+        .execute(
+            "DELETE FROM entity_index WHERE entity_type = 'task' AND entity_id = ?1",
+            params![id],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 fn valid_store_namespace(namespace: &str) -> bool {
     !namespace.is_empty()
         && namespace.len() <= 64
@@ -273,7 +310,18 @@ fn write_app_store(app: AppHandle, namespace: String, payload: Value) -> Result<
 /// @brief 返回旧快照与结构化索引的数量，用于迁移验收和诊断。
 #[tauri::command]
 fn app_store_migration_status(app: AppHandle) -> Result<Value, String> {
-    let connection = open_app_store(&app)?;
+    let mut connection = open_app_store(&app)?;
+    let queue = queue_dir(&app)?;
+    let mut task_jobs = Vec::new();
+    for entry in fs::read_dir(queue).map_err(|error| error.to_string())? {
+        let path = entry.map_err(|error| error.to_string())?.path();
+        if path.extension().and_then(|value| value.to_str()) == Some("json") && !is_queue_metadata_path(&path) {
+            if let Ok(raw) = fs::read_to_string(path) {
+                if let Ok(job) = serde_json::from_str::<Value>(&raw) { task_jobs.push(job); }
+            }
+        }
+    }
+    sync_task_index(&mut connection, &task_jobs)?;
     let mut source = serde_json::Map::new();
     let mut indexed = serde_json::Map::new();
     for (namespace, entity_type) in [
@@ -303,6 +351,11 @@ fn app_store_migration_status(app: AppHandle) -> Result<Value, String> {
         source.insert(entity_type.to_string(), json!(count));
         indexed.insert(entity_type.to_string(), json!(indexed_count));
     }
+    source.insert("task".to_string(), json!(task_jobs.len()));
+    let task_indexed: i64 = connection
+        .query_row("SELECT COUNT(*) FROM entity_index WHERE entity_type = 'task'", [], |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+    indexed.insert("task".to_string(), json!(task_indexed));
     Ok(json!({
         "storage": "sqlite",
         "schemaVersion": 2,
@@ -1804,7 +1857,11 @@ fn save_queue_job(app: AppHandle, mut job: Value) -> Result<(), String> {
     validate_new_queue_job(&job)?;
     derive_dangerous_capabilities(&mut job);
     let payload = serde_json::to_vec_pretty(&job).map_err(|error| error.to_string())?;
-    atomic_create(&path, &payload)
+    atomic_create(&path, &payload)?;
+    if let Ok(mut connection) = open_app_store(&app) {
+        let _ = sync_task_index(&mut connection, &[job]);
+    }
+    Ok(())
 }
 
 fn transition_review_job(
@@ -2041,6 +2098,9 @@ fn delete_queue_job(app: AppHandle, id: String) -> Result<Value, String> {
         remove_file_with_retry(&metadata_path)?;
     }
     remove_file_with_retry(&path)?;
+    if let Ok(mut connection) = open_app_store(&app) {
+        let _ = remove_task_index(&mut connection, &safe_id);
+    }
     Ok(json!({ "id": safe_id, "deleted": true }))
 }
 
@@ -2385,6 +2445,9 @@ fn read_queue_jobs(app: AppHandle) -> Result<Vec<Value>, String> {
         }
     }
 
+    if let Ok(mut connection) = open_app_store(&app) {
+        let _ = sync_task_index(&mut connection, &jobs);
+    }
     Ok(jobs)
 }
 
@@ -2590,6 +2653,7 @@ mod tests {
     use super::{
         asset_path, can_delete_job, database_provider_groups, derive_dangerous_capabilities,
         initialize_app_store, is_queue_metadata_path, prepare_job_for_retry, sync_entity_index,
+        sync_task_index,
         validate_new_queue_job, validate_preview_extension, wallpaper_kind,
     };
     use rusqlite::{params, Connection};
@@ -2900,5 +2964,29 @@ mod tests {
             )
             .expect("project scoped count");
         assert_eq!(project_b_count, 1);
+    }
+
+    #[test]
+    fn task_index_tracks_queue_metadata_without_copying_cad_content() {
+        let mut connection = Connection::open_in_memory().expect("in-memory sqlite");
+        initialize_app_store(&mut connection).expect("initialize schema");
+        let jobs = vec![json!({
+            "id": "job-indexed",
+            "projectId": "project-a",
+            "conversationId": "conversation-a",
+            "updatedAt": "2026-07-31T00:00:00+08:00",
+            "status": "passed",
+            "artifacts": [{"path": "D:/deliveries/model.step"}]
+        })];
+        sync_task_index(&mut connection, &jobs).expect("sync task index");
+        let payload: String = connection
+            .query_row(
+                "SELECT payload FROM entity_index WHERE entity_type = 'task' AND entity_id = 'job-indexed'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("task payload");
+        assert!(payload.contains("job-indexed"));
+        assert!(payload.contains("D:/deliveries/model.step"));
     }
 }
