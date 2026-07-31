@@ -35,313 +35,56 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { type CSSProperties, type ChangeEvent, type DragEvent, type PointerEvent as ReactPointerEvent, startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { CadPreview } from "./CadPreview";
+import { ProjectSwitcher } from "./components/ProjectSwitcher";
+import {
+  DEFAULT_PROJECT,
+  duplicateProjectRecord,
+  filterProjects,
+  hasActiveProjectJobs,
+  jobProjectId,
+  latestProjectConversation,
+  LEGACY_PROJECT_ID,
+  newProjectId,
+  normalizeProjectName,
+  terminalProjectJobs,
+} from "./domain/projects";
+import type {
+  AgentChatMessage,
+  AgentConversation,
+  AgentProviderId,
+  ApiIntegrationConfig,
+  ApiIntegrationMode,
+  ApiProviderSummary,
+  AppSettings,
+  ArtifactRecord,
+  AutomationJob,
+  AutomationJobKind,
+  AutomationJobStatus,
+  CcSwitchSync,
+  CodexConfig,
+  HelpTopicId,
+  ImportedWallpaper,
+  KnowledgeBaseConfig,
+  ManualReviewDraft,
+  PresetWallpaperId,
+  ProjectRecord,
+  QueueEvent,
+  QueueLogTail,
+  RecentWallpaper,
+  RuntimeHealth,
+  SubmissionKind,
+  WallpaperFile,
+  WallpaperId,
+  WallpaperMotionMode,
+  WorkerLogEntry,
+  WorkerStatus,
+} from "./types";
 
 const DEFAULT_WALLPAPER_URL = new URL("./assets/default-blossom-wallpaper.mp4", import.meta.url).href;
 const DEFAULT_WALLPAPER_POSTER_URL = new URL("./assets/default-blossom-poster.webp", import.meta.url).href;
 const FUJI_WALLPAPER_URL = new URL("./assets/wallpaper-fuji.webp", import.meta.url).href;
 const ANIME_SKY_WALLPAPER_URL = new URL("./assets/wallpaper-anime-sky.webp", import.meta.url).href;
 const TOKYO_NEON_WALLPAPER_URL = new URL("./assets/wallpaper-tokyo-neon.webp", import.meta.url).href;
-
-type PresetWallpaperId = "blossom" | "fuji" | "anime-sky" | "tokyo-neon" | "blueprint" | "studio" | "mist";
-type WallpaperId = PresetWallpaperId | "custom";
-type WallpaperMotionMode = "still" | "breathe" | "cinematic" | "follow";
-type WallpaperFile = { url: string; name: string; kind: "image" | "video"; sourcePath?: string };
-type RecentWallpaper = { path: string; name: string; kind: "image" | "video" };
-type ProjectRecord = {
-  id: string;
-  name: string;
-  sourcePath?: string;
-  createdAt: string;
-  updatedAt: string;
-};
-type AppSettings = {
-  activeWallpaper: WallpaperId;
-  customWallpaperPath?: string;
-  wallpaperBrightness: number;
-  wallpaperBlur: number;
-  wallpaperVignette: number;
-  workspaceOpacity: number;
-  wallpaperMotionMode: WallpaperMotionMode;
-  wallpaperMotionStrength: number;
-  defaultWallpaperVersion?: number;
-  panelOpacityVersion?: number;
-  recentWallpapers: RecentWallpaper[];
-  projects?: ProjectRecord[];
-  activeProjectId?: string;
-  projectName?: string;
-  recentProjectPath?: string;
-  apiConfig?: ApiIntegrationConfig;
-  knowledgeBase?: KnowledgeBaseConfig;
-};
-type ApiIntegrationMode = "codex_cli" | "cc_switch";
-type AgentProviderId = "codex" | "claude" | "gemini" | "opencode";
-type ApiProviderSummary = {
-  id?: string;
-  name?: string;
-  active?: boolean;
-  endpoint?: string;
-  model?: string;
-  hasApiKey?: boolean;
-  redactedApiKey?: string;
-  appType?: AgentProviderId;
-  models?: string[];
-  credentialStatus?: "oauth" | "managed" | "route";
-  authLabel?: string;
-};
-type CcSwitchSync = {
-  source?: string;
-  rootPath?: string;
-  configPath?: string;
-  databasePath?: string;
-  settingsPath?: string;
-  syncedAt?: string;
-  codexCurrent?: string;
-  claudeCurrent?: string;
-  codexProviders?: ApiProviderSummary[];
-  claudeProviders?: ApiProviderSummary[];
-  geminiProviders?: ApiProviderSummary[];
-  opencodeProviders?: ApiProviderSummary[];
-  providersByAgent?: Partial<Record<AgentProviderId, ApiProviderSummary[]>>;
-  settings?: {
-    currentProviderCodex?: string;
-    currentProviderClaude?: string;
-    enableLocalProxy?: boolean;
-    enableFailoverToggle?: boolean;
-    skillSyncMethod?: string;
-  };
-};
-type ApiIntegrationConfig = {
-  mode: ApiIntegrationMode;
-  agentProvider: AgentProviderId;
-  providerName: string;
-  endpoint: string;
-  model: string;
-  keyStatus: "missing" | "configured" | "synced";
-  lastSyncAt?: string;
-  sourcePath?: string;
-};
-type KnowledgeBaseConfig = {
-  cloudEnabled: boolean;
-  localRoots: string[];
-  endpoint: string;
-  namespace: string;
-  tokenEnv: string;
-  topK: number;
-};
-type CodexConfig = {
-  objective: string;
-  cadApplication: "auto" | "solidworks" | "autocad" | "both";
-  target: "auto" | "general_part" | "assembly" | "shell" | "fixture" | "sheet_metal" | "holes" | "drawing" | "package" | "reverse" | "skill";
-  expectedOutput: "auto" | "cad_files" | "drawing_package" | "research_report";
-  process: "auto" | "FDM" | "SLA" | "CNC" | "sheet_metal";
-  material: "auto" | "PLA" | "PETG" | "ABS" | "Al6061";
-  unit: "mm";
-  length: number;
-  width: number;
-  height: number;
-  wallThickness: number;
-  outputDir: string;
-  strictGbDrawing: boolean;
-  realCutouts: boolean;
-  localCadAutomation: boolean;
-};
-type AutomationJobKind = "create_shell" | "import_model" | "delivery_package" | "codex_task" | "agent_task";
-type AutomationJobStatus = "queued" | "running" | "passed" | "review_required" | "failed" | "cancelled" | "approval_required" | "blocked";
-type WorkerLogEntry = {
-  status?: string;
-  message?: string;
-  at?: string;
-  worker?: string;
-  runnerId?: string;
-  data?: unknown;
-};
-type ArtifactRecord = {
-  kind?: string;
-  path?: string;
-  exists?: boolean;
-  isDirectory?: boolean;
-  sizeBytes?: number;
-  sha256?: string;
-  producedThisRun?: boolean;
-};
-type ReviewCheck = {
-  id?: string;
-  severity?: string;
-  status?: "pass" | "warning" | "fail" | string;
-  message?: string;
-};
-type AutomationJob = {
-  schemaVersion: "1.0" | "2.0";
-  id: string;
-  runId: string;
-  kind: AutomationJobKind;
-  title: string;
-  detail: string;
-  status: AutomationJobStatus;
-  progress: number;
-  createdAt: string;
-  updatedAt: string;
-  requestedBy: string;
-  createdByAppVersion: string;
-  projectId?: string;
-  conversationId?: string;
-  inputs?: Array<Record<string, unknown>>;
-  stage?: "intake" | "planning" | "checking" | "launching" | "executing" | "reviewing" | "delivery" | "blocked";
-  capabilitySnapshot?: Record<string, unknown>;
-  assumptions?: Array<Record<string, unknown>>;
-  requiredArtifacts?: string[];
-  verificationEvidence?: Array<Record<string, unknown>>;
-  blockedReasons?: string[];
-  projectPath?: string;
-  executor?: "mock" | "codex" | "agent";
-  objective?: string;
-  targetSoftware?: string;
-  target?: string;
-  expectedOutput?: string;
-  strictRules?: string[];
-  capabilities?: string[];
-  prompt?: string;
-  cwd?: string;
-  skillPath?: string;
-  lastMessage?: string;
-  workerLog?: Array<WorkerLogEntry | string>;
-  leaseUntil?: string;
-  heartbeatAt?: string;
-  runnerId?: string;
-  workerPid?: number;
-  result?: {
-    mode?: string;
-    outputPath?: string;
-    message?: string;
-    outputs?: Record<string, string> | Array<string | ArtifactRecord>;
-    artifacts?: Array<string | ArtifactRecord>;
-    verification?: Array<Record<string, unknown>>;
-    features?: Array<Record<string, unknown>>;
-    checks?: ReviewCheck[];
-    stdoutTail?: string;
-    stderrTail?: string;
-    engineeringPlanPath?: string;
-    engineeringPlan?: {
-      phases?: Array<{ id?: string; name?: string; status?: string; human_gate?: boolean }>;
-    };
-  };
-  uiConfig?: Record<string, unknown>;
-  policy?: {
-    sandbox: "read-only" | "workspace-write" | "danger-full-access";
-    approval: "never" | "manual-required";
-    requireSkillRead: boolean;
-    requireTests: boolean;
-    requireCommit: boolean;
-    requirePush: boolean;
-    requireReviewerPass: boolean;
-  };
-  artifacts?: ArtifactRecord[];
-  approvalReasons?: string[];
-  approvedAt?: string;
-  approvedBy?: string;
-  approvedPolicyReasons?: string[];
-  reviewedAt?: string;
-  reviewedBy?: string;
-  reviewDecision?: "approved" | "rejected";
-  reviewNote?: string;
-  artifactLedgerPath?: string;
-  reviewGatePath?: string;
-  reviewGate?: {
-    status?: "pass" | "warning" | "fail";
-    checks?: ReviewCheck[];
-    manualReview?: {
-      status?: "approved" | "rejected";
-      reviewedBy?: string;
-      reviewedAt?: string;
-      note?: string;
-    };
-  };
-  error?: string;
-};
-type QueueEvent = {
-  type?: string;
-  jobId?: string;
-  status?: string;
-  message?: string;
-  at?: string;
-  progress?: number;
-  worker?: string;
-  runId?: string;
-  runnerId?: string;
-  data?: unknown;
-};
-type QueueLogTail = {
-  stdoutPath?: string;
-  stderrPath?: string;
-  stdout?: string;
-  stderr?: string;
-};
-type AgentChatMessage = {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  at: string;
-  jobId?: string;
-  projectId?: string;
-  conversationId?: string;
-};
-type AgentConversation = {
-  id: string;
-  projectId: string;
-  title: string;
-  provider: AgentProviderId;
-  model: string;
-  createdAt: string;
-  updatedAt: string;
-};
-type ManualReviewDraft = {
-  note: string;
-  checks: string[];
-};
-type HelpTopicId = "start" | "projects" | "status" | "delivery" | "troubleshooting";
-type SubmissionKind = "task" | "chat" | null;
-type WorkerStatus = {
-  running: boolean;
-  pid?: number | null;
-  recoveredJobs?: number;
-  message: string;
-  health?: {
-    status?: string;
-    heartbeatAt?: string;
-    queue?: Record<string, number>;
-  } | null;
-};
-type RuntimeHealth = {
-  skillRoot: string;
-  solidworksSkillPath: string;
-  autocadSkillPath: string;
-  defaultOutputDir?: string;
-  python?: { ok?: boolean; entry?: string; message?: string };
-  codex?: { version?: { ok?: boolean; message?: string }; login?: { ok?: boolean; message?: string }; entry?: string };
-  agentProviders?: Array<{
-    id: AgentProviderId;
-    name: string;
-    installed?: boolean;
-    ready?: boolean;
-    verified?: boolean;
-    status?: "not_installed" | "auth_failed" | "verified" | "verification_required";
-    version?: { ok?: boolean; message?: string };
-    auth?: { ok?: boolean | null; message?: string };
-    entry?: string;
-  }>;
-  solidworks?: { ok?: boolean; message?: string };
-  autocad?: { ok?: boolean; path?: string };
-  capabilityManifest?: {
-    schema_version?: string;
-    verified_versions?: Record<string, string[]>;
-    capabilities?: Array<Record<string, unknown> & { id?: string; level?: string }>;
-  };
-};
-type ImportedWallpaper = {
-  path: string;
-  name: string;
-  kind: "image" | "video";
-};
 
 const wallpapers: Array<{ id: PresetWallpaperId; name: string; hint: string; assetUrl?: string; credit?: string }> = [
   { id: "blossom", name: "樱影", hint: "内置动态壁纸" },
@@ -405,14 +148,7 @@ const QUEUE_KEY = "cad-studio.queue.v1";
 const CHAT_KEY = "cad-studio.agent-chat.v1";
 const CONVERSATIONS_KEY = "cad-studio.agent-conversations.v1";
 const APP_VERSION = "0.3.1";
-const LEGACY_PROJECT_ID = "project-default";
 const LEGACY_CONVERSATION_ID = "conversation-legacy";
-const DEFAULT_PROJECT: ProjectRecord = {
-  id: LEGACY_PROJECT_ID,
-  name: "未命名项目",
-  createdAt: "",
-  updatedAt: "",
-};
 const manualReviewOptions = [
   ["native-open", "已用目标 CAD 软件原生打开并确认无报错"],
   ["dimensions", "已核对关键尺寸、公差、基准和定位尺寸"],
@@ -760,14 +496,6 @@ function preloadWallpaper(wallpaper: WallpaperFile) {
   });
 }
 
-function jobProjectId(job: AutomationJob) {
-  return job.projectId || LEGACY_PROJECT_ID;
-}
-
-function newProjectId() {
-  return `project-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-}
-
 function clampNumber(value: unknown, fallback: number, min: number, max: number) {
   if (typeof value !== "number" || Number.isNaN(value)) return fallback;
   return Math.min(max, Math.max(min, value));
@@ -799,6 +527,7 @@ function loadSettings(payload?: unknown): AppSettings | null {
             sourcePath: typeof item.sourcePath === "string" ? item.sourcePath : undefined,
             createdAt: typeof item.createdAt === "string" ? item.createdAt : "",
             updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : "",
+            archivedAt: typeof item.archivedAt === "string" ? item.archivedAt : undefined,
           }))
       : [];
     const normalizedProjects = projects.length ? projects : [migratedProject];
@@ -1393,6 +1122,11 @@ function App() {
   const resultFeatures = realFeatureRows(resultJob);
   const codexPrompt = useMemo(() => buildCodexPrompt(codexConfig, recentProjectPath, runtimeHealth), [codexConfig, recentProjectPath, runtimeHealth]);
   const recentJobs = useMemo(() => activeProjectJobs.slice(0, 8), [activeProjectJobs]);
+  const projectTaskCounts = useMemo(() => jobs.reduce<Record<string, number>>((counts, job) => {
+    const projectId = jobProjectId(job);
+    counts[projectId] = (counts[projectId] ?? 0) + 1;
+    return counts;
+  }, {}), [jobs]);
   const selectedProvider = useMemo(
     () => runtimeHealth?.agentProviders?.find((provider) => provider.id === apiConfig.agentProvider),
     [apiConfig.agentProvider, runtimeHealth],
@@ -1901,7 +1635,7 @@ function App() {
   }
 
   function commitProjectName() {
-    const nextName = projectNameDraft.replace(/\s+/g, " ").trim().slice(0, 48) || "未命名项目";
+    const nextName = normalizeProjectName(projectNameDraft);
     setProjectName(nextName);
     setProjectNameDraft(nextName);
     setProjects((items) => items.map((item) => item.id === activeProjectId
@@ -1912,9 +1646,8 @@ function App() {
   }
 
   function selectProject(project: ProjectRecord) {
-    const nextConversation = agentConversations
-      .filter((conversation) => conversation.projectId === project.id)
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+    const switchStartedAt = performance.now();
+    const nextConversation = latestProjectConversation(agentConversations, project.id);
     setActiveProjectId(project.id);
     setActiveConversationId(nextConversation?.id ?? null);
     if (nextConversation) {
@@ -1942,6 +1675,7 @@ function App() {
     setSelectedTemplateKey(null);
     setActiveTab("project");
     setWindowHint(`已切换到“${project.name}”`);
+    requestAnimationFrame(() => performance.measure("cad-studio.project-switch", { start: switchStartedAt }));
   }
 
   function createProject() {
@@ -1959,14 +1693,35 @@ function App() {
     setWindowHint("新项目已创建，请输入项目名称");
   }
 
+  function duplicateProject(project: ProjectRecord) {
+    const duplicate = duplicateProjectRecord(project, projects.length);
+    setProjects((items) => [duplicate, ...items]);
+    selectProject(duplicate);
+    setActiveConversationId(null);
+    setEditingProjectName(true);
+    setWindowHint("项目结构已复制；任务、对话和 CAD 文件未复制");
+  }
+
+  function toggleProjectArchive(project: ProjectRecord) {
+    if (project.id === activeProjectId) {
+      setWindowHint("请先切换到其他项目，再归档当前项目");
+      return;
+    }
+    const archivedAt = project.archivedAt ? undefined : new Date().toISOString();
+    setProjects((items) => items.map((item) => item.id === project.id
+      ? { ...item, archivedAt, updatedAt: new Date().toISOString() }
+      : item));
+    setDeleteCandidateProjectId(null);
+    setWindowHint(`项目“${project.name}”已${archivedAt ? "归档" : "恢复"}`);
+  }
+
   async function deleteProject(project: ProjectRecord) {
-    if (projects.length <= 1) {
-      setWindowHint("至少需要保留一个项目");
+    if (!project.archivedAt && projects.filter((item) => !item.archivedAt).length <= 1) {
+      setWindowHint("至少需要保留一个未归档项目");
       return;
     }
     const projectJobs = jobs.filter((job) => jobProjectId(job) === project.id);
-    const hasActiveJobs = projectJobs.some((job) => ["queued", "running", "approval_required"].includes(job.status));
-    if (hasActiveJobs) {
+    if (hasActiveProjectJobs(jobs, project.id)) {
       setDeleteCandidateProjectId(null);
       setWindowHint("该项目仍有排队、执行中或待审批任务，请先取消这些任务");
       return;
@@ -2002,10 +1757,8 @@ function App() {
       const remainingProjects = projects.filter((item) => item.id !== project.id);
       setProjects(remainingProjects);
       if (project.id === activeProjectId) {
-        const fallback = remainingProjects[0];
-        const fallbackConversation = agentConversations
-          .filter((conversation) => conversation.projectId === fallback.id)
-          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+        const fallback = remainingProjects.find((item) => !item.archivedAt) ?? remainingProjects[0];
+        const fallbackConversation = latestProjectConversation(agentConversations, fallback.id);
         setActiveProjectId(fallback.id);
         setActiveConversationId(fallbackConversation?.id ?? null);
         setProjectName(fallback.name);
@@ -3260,99 +3013,35 @@ function App() {
 
           <div className="sidebar-project-head">
             <span>当前项目</span>
-            <div className="project-switcher">
-              <div className="project-name-row">
-                {editingProjectName ? (
-                  <input
-                    autoFocus
-                    value={projectNameDraft}
-                    maxLength={48}
-                    aria-label="项目名称"
-                    onChange={(event) => setProjectNameDraft(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") commitProjectName();
-                      if (event.key === "Escape") {
-                        setProjectNameDraft(projectName);
-                        setEditingProjectName(false);
-                      }
-                    }}
-                  />
-                ) : (
-                  <button
-                    className="project-switcher-trigger"
-                    type="button"
-                    aria-label={`切换项目，当前为 ${projectName}`}
-                    aria-expanded={projectMenuOpen}
-                    onClick={() => setProjectMenuOpen((open) => !open)}
-                  >
-                    <FolderOpen size={15} weight="duotone" />
-                    <strong title={projectName}>{projectName}</strong>
-                    <CaretDown size={14} weight="bold" />
-                  </button>
-                )}
-                <button
-                  className="project-name-action"
-                  type="button"
-                  aria-label={editingProjectName ? "确认项目名称" : "修改项目名称"}
-                  title={editingProjectName ? "确认项目名称" : "修改项目名称"}
-                  onClick={() => {
-                    if (editingProjectName) commitProjectName();
-                    else {
-                      setProjectMenuOpen(false);
-                      setProjectNameDraft(projectName);
-                      setEditingProjectName(true);
-                    }
-                  }}
-                >
-                  {editingProjectName ? <Check size={15} weight="bold" /> : <PencilSimple size={15} weight="duotone" />}
-                </button>
-              </div>
-              <AnimatePresence>
-                {projectMenuOpen && !editingProjectName ? (
-                  <motion.div
-                    className="project-switcher-menu"
-                    role="menu"
-                    initial={reducedMotion ? false : { opacity: 0, y: -5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={reducedMotion ? undefined : { opacity: 0, y: -5 }}
-                    transition={{ duration: 0.16 }}
-                  >
-                    <span>选择项目</span>
-                    <div className="project-switcher-list">
-                      {projects.map((project) => {
-                        const taskCount = jobs.filter((job) => jobProjectId(job) === project.id).length;
-                        return (
-                          <div className={project.id === activeProjectId ? "project-switcher-option active" : "project-switcher-option"} key={project.id}>
-                            <button className="project-switcher-select" type="button" role="menuitem" onClick={() => selectProject(project)}>
-                              <FolderOpen size={15} weight="duotone" />
-                              <span>
-                                <strong>{project.name}</strong>
-                                <small>{taskCount ? `${taskCount} 条任务` : "空项目"}</small>
-                              </span>
-                              {project.id === activeProjectId ? <Check size={14} weight="bold" /> : null}
-                            </button>
-                            <button
-                              className={deleteCandidateProjectId === project.id ? "project-delete-button confirm" : "project-delete-button"}
-                              type="button"
-                              disabled={projects.length <= 1 || deletingProjectId !== null}
-                              aria-label={deleteCandidateProjectId === project.id ? `确认删除项目 ${project.name}` : `删除项目 ${project.name}`}
-                              title={projects.length <= 1 ? "至少保留一个项目" : deleteCandidateProjectId === project.id ? "再次点击确认删除项目" : "删除项目"}
-                              onClick={() => void deleteProject(project)}
-                            >
-                              {deletingProjectId === project.id ? <SpinnerGap className="spin" size={14} /> : deleteCandidateProjectId === project.id ? <Check size={14} weight="bold" /> : <Trash size={14} weight="duotone" />}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <button className="create-project-button" type="button" role="menuitem" onClick={createProject}>
-                      <FilePlus size={15} weight="bold" />
-                      新建项目
-                    </button>
-                  </motion.div>
-                ) : null}
-              </AnimatePresence>
-            </div>
+            <ProjectSwitcher
+              activeProjectId={activeProjectId}
+              projectName={projectName}
+              projectNameDraft={projectNameDraft}
+              projects={projects}
+              projectTaskCounts={projectTaskCounts}
+              editing={editingProjectName}
+              menuOpen={projectMenuOpen}
+              reducedMotion={Boolean(reducedMotion)}
+              deleteCandidateProjectId={deleteCandidateProjectId}
+              deletingProjectId={deletingProjectId}
+              onDraftChange={setProjectNameDraft}
+              onCommitName={commitProjectName}
+              onCancelEdit={() => {
+                setProjectNameDraft(projectName);
+                setEditingProjectName(false);
+              }}
+              onStartEdit={() => {
+                setProjectMenuOpen(false);
+                setProjectNameDraft(projectName);
+                setEditingProjectName(true);
+              }}
+              onToggleMenu={() => setProjectMenuOpen((open) => !open)}
+              onSelect={selectProject}
+              onCreate={createProject}
+              onDuplicate={duplicateProject}
+              onToggleArchive={toggleProjectArchive}
+              onDelete={(project) => void deleteProject(project)}
+            />
             <small className="project-task-count">{activeProjectJobs.length ? `${activeProjectJobs.length} 条任务 · ${queueSummary}` : "尚无任务"}</small>
             <button className="new-task-button" type="button" onClick={() => {
               setSelectedTemplateKey(null);

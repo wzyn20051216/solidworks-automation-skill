@@ -3798,7 +3798,7 @@ textarea {
   z-index: 40;
   display: grid;
   gap: 6px;
-  width: min(300px, calc(100vw - 32px));
+  width: min(330px, calc(100vw - 32px));
   padding: 9px;
   border: 1px solid rgba(28, 35, 43, 0.12);
   border-radius: 7px;
@@ -3808,11 +3808,57 @@ textarea {
   -webkit-backdrop-filter: blur(20px) saturate(118%);
 }
 
-.project-switcher-menu > span {
-  padding: 3px 7px;
+.project-switcher-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 5px;
+  background: rgba(28, 35, 43, 0.055);
+}
+
+.project-switcher-tabs button {
+  min-height: 27px;
+  border: 0;
+  border-radius: 4px;
   color: var(--muted);
+  background: transparent;
+  cursor: pointer;
   font-size: 10px;
   font-weight: 800;
+}
+
+.project-switcher-tabs button[aria-selected="true"] {
+  color: var(--ink);
+  background: rgba(255, 255, 252, 0.92);
+  box-shadow: 0 1px 3px rgba(28, 35, 43, 0.1);
+}
+
+.project-search {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 5px;
+  align-items: center;
+  min-height: 31px;
+  padding: 0 7px;
+  border: 1px solid var(--hairline);
+  border-radius: 5px;
+  color: var(--muted);
+  background: rgba(255, 255, 252, 0.72);
+}
+
+.project-search input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+}
+
+.project-search:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--hairline));
 }
 
 .project-switcher-list {
@@ -3824,9 +3870,53 @@ textarea {
 
 .project-switcher-option {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 28px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   border-radius: 5px;
+}
+
+.project-option-actions {
+  display: flex;
+  gap: 1px;
+  padding-right: 2px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.project-switcher-option:hover .project-option-actions,
+.project-switcher-option:focus-within .project-option-actions,
+.project-switcher-option.active .project-option-actions {
+  opacity: 1;
+}
+
+.project-option-actions > button {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  place-items: center;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.project-option-actions > button:hover:not(:disabled) {
+  color: var(--accent);
+  background: rgba(255, 255, 252, 0.82);
+}
+
+.project-option-actions > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.24;
+}
+
+.project-search-empty {
+  padding: 18px 8px;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
 }
 
 .project-switcher-select,
