@@ -4073,6 +4073,21 @@ textarea {
   gap: 5px;
 }
 
+.capability-alert {
+  display: grid;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(194, 121, 39, 0.34);
+  border-left: 3px solid #c27927;
+  background: rgba(255, 245, 227, 0.72);
+  color: #6a431e;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.capability-alert strong { font-size: 12px; }
+
 .context-summary span {
   margin-top: 8px;
   color: var(--muted);

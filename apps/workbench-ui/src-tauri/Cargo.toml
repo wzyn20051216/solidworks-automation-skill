@@ -26,6 +26,7 @@ tauri-plugin-log = "2"
 tauri-plugin-dialog = "2"
 wait-timeout = "0.2"
 rusqlite = { version = "0.31", features = ["bundled"] }
+notify = "7"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.60", features = ["Win32_Storage_FileSystem"] }

@@ -1,4 +1,5 @@
-use rusqlite::{Connection, OpenFlags};
+use notify::{RecursiveMode, Watcher};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde_json::{json, Value};
 use std::io::Write;
 use std::process::{Child, Command, Output, Stdio};
@@ -10,7 +11,7 @@ use std::{
     fs::OpenOptions,
     path::{Path, PathBuf},
 };
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use wait_timeout::ChildExt;
 
 #[cfg(windows)]
@@ -49,6 +50,118 @@ fn queue_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .join("queue");
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     Ok(dir)
+}
+
+/// @brief 监听 Python worker 写入的队列文件，并向前端推送刷新事件。
+fn start_queue_watcher(app: AppHandle) -> Result<(), String> {
+    let directory = queue_dir(&app)?;
+    thread::spawn(move || {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let mut watcher = match notify::recommended_watcher(sender) {
+            Ok(watcher) => watcher,
+            Err(error) => {
+                log::error!("queue watcher init failed: {error}");
+                return;
+            }
+        };
+        if let Err(error) = watcher.watch(&directory, RecursiveMode::Recursive) {
+            log::error!("queue watcher start failed: {error}");
+            return;
+        }
+        for event in receiver {
+            let Ok(event) = event else { continue };
+            let relevant = event.paths.iter().any(|path| {
+                matches!(
+                    path.extension().and_then(|value| value.to_str()),
+                    Some("json" | "jsonl" | "log" | "cancel")
+                )
+            });
+            if relevant {
+                let _ = app.emit(
+                    "queue-changed",
+                    json!({"kind": format!("{:?}", event.kind)}),
+                );
+            }
+        }
+    });
+    Ok(())
+}
+
+/// @brief 返回 CAD Studio SQLite 应用数据文件路径。
+fn app_store_path(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("cad-studio.db"))
+}
+
+/// @brief 打开应用数据数据库并确保迁移表存在。
+fn open_app_store(app: &AppHandle) -> Result<Connection, String> {
+    let path = app_store_path(app)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let connection = Connection::open(path).map_err(|error| error.to_string())?;
+    connection
+        .execute_batch(
+            "CREATE TABLE IF NOT EXISTS app_state (
+                namespace TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            );",
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(connection)
+}
+
+fn valid_store_namespace(namespace: &str) -> bool {
+    !namespace.is_empty()
+        && namespace.len() <= 64
+        && namespace.chars().all(|character| {
+            character.is_ascii_alphanumeric() || character == '_' || character == '-'
+        })
+}
+
+/// @brief 从 SQLite 读取一个应用状态命名空间。
+#[tauri::command]
+fn read_app_store(app: AppHandle, namespace: String) -> Result<Option<Value>, String> {
+    if !valid_store_namespace(&namespace) {
+        return Err("应用数据命名空间无效".to_string());
+    }
+    let connection = open_app_store(&app)?;
+    let raw: Option<String> = connection
+        .query_row(
+            "SELECT payload FROM app_state WHERE namespace = ?1",
+            params![namespace],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    raw.map(|text| serde_json::from_str(&text).map_err(|error| error.to_string()))
+        .transpose()
+}
+
+/// @brief 将一个应用状态命名空间写入 SQLite。
+#[tauri::command]
+fn write_app_store(app: AppHandle, namespace: String, payload: Value) -> Result<(), String> {
+    if !valid_store_namespace(&namespace) {
+        return Err("应用数据命名空间无效".to_string());
+    }
+    let connection = open_app_store(&app)?;
+    let serialized = serde_json::to_string(&payload).map_err(|error| error.to_string())?;
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| error.to_string())?
+        .as_secs() as i64;
+    connection
+        .execute(
+            "INSERT INTO app_state(namespace, payload, updated_at) VALUES(?1, ?2, ?3)
+             ON CONFLICT(namespace) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at",
+            params![namespace, serialized, timestamp],
+        )
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 fn wallpaper_kind(path: &Path) -> Result<&'static str, String> {
@@ -266,8 +379,42 @@ fn validate_new_queue_job(job: &Value) -> Result<(), String> {
     let object = job
         .as_object()
         .ok_or_else(|| "任务必须是 JSON 对象。".to_string())?;
-    if object.get("schemaVersion").and_then(Value::as_str) != Some("1.0") {
-        return Err("任务 schemaVersion 必须为 1.0。".to_string());
+    let schema_version = object
+        .get("schemaVersion")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "任务缺少 schemaVersion。".to_string())?;
+    if !matches!(schema_version, "1.0" | "2.0") {
+        return Err("任务 schemaVersion 必须为 1.0 或 2.0。".to_string());
+    }
+    if schema_version == "2.0" {
+        for field in ["projectId", "conversationId", "stage"] {
+            if object
+                .get(field)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .is_none()
+            {
+                return Err(format!("任务 v2 缺少有效字段: {field}"));
+            }
+        }
+        for field in [
+            "inputs",
+            "assumptions",
+            "requiredArtifacts",
+            "verificationEvidence",
+        ] {
+            if !object.get(field).map(Value::is_array).unwrap_or(false) {
+                return Err(format!("任务 v2 字段必须是数组: {field}"));
+            }
+        }
+        if !object
+            .get("capabilitySnapshot")
+            .map(Value::is_object)
+            .unwrap_or(false)
+        {
+            return Err("任务 v2 capabilitySnapshot 必须是对象。".to_string());
+        }
     }
     let id = object
         .get("id")
@@ -570,8 +717,11 @@ fn prepare_job_for_retry(
     run_id: String,
     updated_at: String,
 ) -> Result<(), String> {
-    if job.get("status").and_then(Value::as_str) != Some("failed") {
-        return Err("只有失败任务可以重新执行。".to_string());
+    if !matches!(
+        job.get("status").and_then(Value::as_str),
+        Some("failed" | "blocked" | "cancelled" | "review_required")
+    ) {
+        return Err("只有失败、阻断、取消或待复核任务可以重新执行。".to_string());
     }
     let object = job
         .as_object_mut()
@@ -610,7 +760,7 @@ fn prepare_job_for_retry(
 fn can_delete_job(job: &Value) -> bool {
     matches!(
         job.get("status").and_then(Value::as_str),
-        Some("passed" | "failed" | "cancelled" | "review_required")
+        Some("passed" | "failed" | "cancelled" | "review_required" | "blocked")
     )
 }
 
@@ -1092,6 +1242,10 @@ fn detect_autocad() -> Option<PathBuf> {
 #[tauri::command]
 fn runtime_health(app: AppHandle) -> Result<Value, String> {
     let skill_root = detected_skill_root(&app, None)?;
+    let capability_manifest = fs::read_to_string(skill_root.join("capabilities.yaml"))
+        .ok()
+        .and_then(|payload| serde_json::from_str::<Value>(&payload).ok())
+        .unwrap_or(Value::Null);
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .map(PathBuf::from)
@@ -1155,6 +1309,7 @@ fn runtime_health(app: AppHandle) -> Result<Value, String> {
             "entry": codex_entry
         },
         "agentProviders": agent_providers,
+        "capabilityManifest": capability_manifest,
         "solidworks": solidworks,
         "autocad": {
             "ok": autocad_path.is_some(),
@@ -2172,11 +2327,14 @@ pub fn run() {
             read_queue_jobs,
             read_queue_events,
             read_queue_log_tail,
+            read_app_store,
+            write_app_store,
             sync_cc_switch_config,
             agent_provider_runtime_health,
             runtime_health
         ])
         .setup(|app| {
+            start_queue_watcher(app.handle().clone()).map_err(std::io::Error::other)?;
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
@@ -2237,6 +2395,22 @@ mod tests {
             },
             "artifacts": []
         })
+    }
+
+    #[test]
+    fn accepts_v2_job_with_migration_fields() {
+        let mut job = queued_job();
+        let object = job.as_object_mut().expect("job object");
+        object.insert("schemaVersion".into(), json!("2.0"));
+        object.insert("projectId".into(), json!("project-test"));
+        object.insert("conversationId".into(), json!("conversation-test"));
+        object.insert("inputs".into(), json!([]));
+        object.insert("stage".into(), json!("intake"));
+        object.insert("capabilitySnapshot".into(), json!({}));
+        object.insert("assumptions".into(), json!([]));
+        object.insert("requiredArtifacts".into(), json!([]));
+        object.insert("verificationEvidence".into(), json!([]));
+        validate_new_queue_job(&job).expect("valid v2 job");
     }
 
     #[test]
@@ -2316,14 +2490,14 @@ mod tests {
     }
 
     #[test]
-    fn retry_rejects_non_failed_job() {
+    fn retry_rejects_non_retryable_job() {
         let mut job = queued_job();
 
         let error =
             prepare_job_for_retry(&mut job, "retry-test-2".to_string(), "unix:2".to_string())
                 .expect_err("queued job must not be retried");
 
-        assert!(error.contains("只有失败任务"));
+        assert!(error.contains("失败、阻断、取消或待复核"));
     }
 
     #[test]
@@ -2333,7 +2507,13 @@ mod tests {
             job["status"] = json!(status);
             assert!(!can_delete_job(&job), "{status} must be cancelled first");
         }
-        for status in ["passed", "failed", "cancelled", "review_required"] {
+        for status in [
+            "passed",
+            "failed",
+            "cancelled",
+            "review_required",
+            "blocked",
+        ] {
             job["status"] = json!(status);
             assert!(can_delete_job(&job), "{status} should be deletable");
         }

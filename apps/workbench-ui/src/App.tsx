@@ -29,6 +29,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
@@ -144,7 +145,7 @@ type CodexConfig = {
   localCadAutomation: boolean;
 };
 type AutomationJobKind = "create_shell" | "import_model" | "delivery_package" | "codex_task" | "agent_task";
-type AutomationJobStatus = "queued" | "running" | "passed" | "review_required" | "failed" | "cancelled" | "approval_required";
+type AutomationJobStatus = "queued" | "running" | "passed" | "review_required" | "failed" | "cancelled" | "approval_required" | "blocked";
 type WorkerLogEntry = {
   status?: string;
   message?: string;
@@ -169,7 +170,7 @@ type ReviewCheck = {
   message?: string;
 };
 type AutomationJob = {
-  schemaVersion: "1.0";
+  schemaVersion: "1.0" | "2.0";
   id: string;
   runId: string;
   kind: AutomationJobKind;
@@ -183,6 +184,13 @@ type AutomationJob = {
   createdByAppVersion: string;
   projectId?: string;
   conversationId?: string;
+  inputs?: Array<Record<string, unknown>>;
+  stage?: "intake" | "planning" | "checking" | "launching" | "executing" | "reviewing" | "delivery" | "blocked";
+  capabilitySnapshot?: Record<string, unknown>;
+  assumptions?: Array<Record<string, unknown>>;
+  requiredArtifacts?: string[];
+  verificationEvidence?: Array<Record<string, unknown>>;
+  blockedReasons?: string[];
   projectPath?: string;
   executor?: "mock" | "codex" | "agent";
   objective?: string;
@@ -322,6 +330,11 @@ type RuntimeHealth = {
   }>;
   solidworks?: { ok?: boolean; message?: string };
   autocad?: { ok?: boolean; path?: string };
+  capabilityManifest?: {
+    schema_version?: string;
+    verified_versions?: Record<string, string[]>;
+    capabilities?: Array<Record<string, unknown> & { id?: string; level?: string }>;
+  };
 };
 type ImportedWallpaper = {
   path: string;
@@ -625,6 +638,7 @@ function jobStatusLabel(status: AutomationJobStatus) {
   if (status === "failed") return "失败";
   if (status === "cancelled") return "已取消";
   if (status === "approval_required") return "待审批";
+  if (status === "blocked") return "已阻断";
   return "排队";
 }
 
@@ -659,6 +673,38 @@ function jobDisplayTitle(job: AutomationJob) {
 
 function isTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
+}
+
+async function readPersistedState(namespace: string, legacyKey: string): Promise<unknown | null> {
+  if (!isTauriRuntime()) {
+    const raw = localStorage.getItem(legacyKey);
+    return raw ? JSON.parse(raw) : null;
+  }
+  try {
+    const stored = await invoke<unknown | null>("read_app_store", { namespace });
+    if (stored !== null) return stored;
+  } catch {
+    // 旧版桌面后端仍可使用 localStorage 数据启动，升级后会再次迁移。
+  }
+  const legacyRaw = localStorage.getItem(legacyKey);
+  if (!legacyRaw) return null;
+  try {
+    const migrated = JSON.parse(legacyRaw) as unknown;
+    await invoke("write_app_store", { namespace, payload: migrated });
+    localStorage.setItem(`${legacyKey}.migration-backup`, legacyRaw);
+    localStorage.removeItem(legacyKey);
+    return migrated;
+  } catch {
+    return null;
+  }
+}
+
+async function writePersistedState(namespace: string, legacyKey: string, payload: unknown) {
+  if (isTauriRuntime()) {
+    await invoke("write_app_store", { namespace, payload }).catch(() => undefined);
+    return;
+  }
+  localStorage.setItem(legacyKey, JSON.stringify(payload));
 }
 
 function isVideoPath(path: string) {
@@ -726,11 +772,11 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
   return Math.min(max, Math.max(min, value));
 }
 
-function loadSettings(): AppSettings | null {
+function loadSettings(payload?: unknown): AppSettings | null {
   try {
-    const raw = localStorage.getItem(SETTINGS_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<AppSettings>;
+    const raw = payload === undefined ? localStorage.getItem(SETTINGS_KEY) : null;
+    if (payload === undefined && !raw) return null;
+    const parsed = (payload === undefined ? JSON.parse(raw as string) : payload) as Partial<AppSettings>;
     const migratedWallpaper =
       parsed.defaultWallpaperVersion === 1
         ? parsed.activeWallpaper ?? "blossom"
@@ -814,11 +860,11 @@ function loadLocalQueue(): AutomationJob[] {
   }
 }
 
-function loadAgentChat(): AgentChatMessage[] {
+function loadAgentChat(payload?: unknown): AgentChatMessage[] {
   try {
-    const raw = localStorage.getItem(CHAT_KEY);
-    if (!raw) return [];
-    const messages = JSON.parse(raw);
+    const raw = payload === undefined ? localStorage.getItem(CHAT_KEY) : null;
+    if (payload === undefined && !raw) return [];
+    const messages = payload === undefined ? JSON.parse(raw as string) : payload;
     return Array.isArray(messages)
       ? messages.filter((message) => !String(message?.content || "").startsWith("你好，我是 CAD Studio 的 AI 执行助手")).slice(-30)
       : [];
@@ -827,11 +873,11 @@ function loadAgentChat(): AgentChatMessage[] {
   }
 }
 
-function loadAgentConversations(): AgentConversation[] {
+function loadAgentConversations(payload?: unknown): AgentConversation[] {
   try {
-    const raw = localStorage.getItem(CONVERSATIONS_KEY);
-    if (!raw) return [];
-    const conversations = JSON.parse(raw);
+    const raw = payload === undefined ? localStorage.getItem(CONVERSATIONS_KEY) : null;
+    if (payload === undefined && !raw) return [];
+    const conversations = payload === undefined ? JSON.parse(raw as string) : payload;
     return Array.isArray(conversations)
       ? conversations
           .filter((conversation) => conversation?.id && conversation?.projectId && conversation?.title)
@@ -1101,7 +1147,7 @@ function createJob(kind: AutomationJobKind, projectPath?: string, overrides: Par
   const now = new Date().toISOString();
   const copy = jobKindDetail(kind);
   return {
-    schemaVersion: "1.0",
+    schemaVersion: "2.0",
     id: `job-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     runId: `run-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
     kind,
@@ -1124,7 +1170,36 @@ function createJob(kind: AutomationJobKind, projectPath?: string, overrides: Par
     },
     artifacts: [],
     projectPath,
+    projectId: overrides.projectId || "project-default",
+    conversationId: overrides.conversationId || `conversation-${Date.now()}`,
+    inputs: [],
+    stage: "intake",
+    capabilitySnapshot: {},
+    assumptions: [],
+    requiredArtifacts: [],
+    verificationEvidence: [],
     ...overrides,
+  };
+}
+
+function capabilityIdsForConfig(config: CodexConfig) {
+  const ids = new Set<string>(["requirements_planning", "geometry_and_delivery_review"]);
+  if (config.target === "assembly") ids.add("assembly_and_mates");
+  if (["general_part", "shell", "fixture", "holes", "reverse", "auto"].includes(config.target)) ids.add("part_and_features");
+  if (["holes", "shell", "fixture", "auto"].includes(config.target)) ids.add("holes_and_finishing");
+  if (config.target === "sheet_metal") ids.add("sheet_metal");
+  if (config.target === "drawing" || config.expectedOutput === "drawing_package") ids.add("drawings_and_bom");
+  if (config.cadApplication === "autocad") ids.add("autocad_basic_drafting");
+  if (config.expectedOutput !== "research_report") ids.add("export_delivery");
+  return Array.from(ids);
+}
+
+function capabilitySnapshot(runtime: RuntimeHealth, capabilityIds: string[]) {
+  const entries = runtime.capabilityManifest?.capabilities ?? [];
+  return {
+    manifestSchema: runtime.capabilityManifest?.schema_version ?? "unknown",
+    verifiedVersions: runtime.capabilityManifest?.verified_versions ?? {},
+    capabilities: capabilityIds.map((id) => entries.find((item) => item.id === id) ?? { id, level: "not_implemented" }),
   };
 }
 
@@ -1586,7 +1661,7 @@ function App() {
       config.localCadAutomation ? "允许经审批后调用本机 SolidWorks / AutoCAD 桌面自动化能力。" : "不直接调用本机 CAD 软件，仅生成计划、脚本或说明。",
       `所有交付物只保存到本地输出目录: ${config.outputDir}`,
     ];
-    const capabilities = config.localCadAutomation ? ["cad_macro"] : [];
+    const capabilities = capabilityIdsForConfig(config);
     const providerMeta = agentProviderCatalog[apiConfig.agentProvider];
     const job = createJob("agent_task", recentProjectPath, {
       projectId: activeProjectId,
@@ -1599,6 +1674,7 @@ function App() {
       expectedOutput: resolvedExpectedOutput(config),
       strictRules,
       capabilities,
+      capabilitySnapshot: capabilitySnapshot(activeRuntime, capabilities),
       prompt: buildCodexPrompt(config, recentProjectPath),
       cwd: activeRuntime.skillRoot,
       skillPath: activeRuntime.solidworksSkillPath,
@@ -1734,7 +1810,8 @@ function App() {
         codexConfig.strictGbDrawing ? "涉及图纸时必须遵循中国常用机械制图规范并复核尺寸链。" : "涉及图纸时说明规范覆盖范围。",
         "所有交付物只保存到用户指定的本地输出目录。",
       ],
-      capabilities: codexConfig.localCadAutomation ? ["cad_macro"] : [],
+      capabilities: capabilityIdsForConfig(codexConfig),
+      capabilitySnapshot: capabilitySnapshot(activeRuntime, capabilityIdsForConfig(codexConfig)),
       prompt,
       cwd: activeRuntime.skillRoot,
       skillPath: activeRuntime.solidworksSkillPath,
@@ -2437,8 +2514,9 @@ function App() {
   }, [activeWallpaper, reducedMotion, wallpaperMotionMode]);
 
   useEffect(() => {
-    const settings = loadSettings();
     async function restoreSettings() {
+      const persisted = await readPersistedState("settings", SETTINGS_KEY);
+      const settings = loadSettings(persisted ?? undefined);
       if (!settings) {
         setSettingsLoaded(true);
         return;
@@ -2468,34 +2546,41 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const savedMessages = loadAgentChat();
-    let savedConversations = loadAgentConversations();
-    const hasLegacyMessages = savedMessages.some((message) => !message.conversationId);
-    if (hasLegacyMessages && !savedConversations.some((conversation) => conversation.id === LEGACY_CONVERSATION_ID)) {
-      const legacyAt = savedMessages[0]?.at || new Date().toISOString();
-      savedConversations = [{
-        id: LEGACY_CONVERSATION_ID,
+    async function restoreChat() {
+      const [messagePayload, conversationPayload] = await Promise.all([
+        readPersistedState("messages", CHAT_KEY),
+        readPersistedState("conversations", CONVERSATIONS_KEY),
+      ]);
+      const savedMessages = loadAgentChat(messagePayload ?? undefined);
+      let savedConversations = loadAgentConversations(conversationPayload ?? undefined);
+      const hasLegacyMessages = savedMessages.some((message) => !message.conversationId);
+      if (hasLegacyMessages && !savedConversations.some((conversation) => conversation.id === LEGACY_CONVERSATION_ID)) {
+        const legacyAt = savedMessages[0]?.at || new Date().toISOString();
+        savedConversations = [{
+          id: LEGACY_CONVERSATION_ID,
+          projectId: LEGACY_PROJECT_ID,
+          title: "历史对话",
+          provider: "codex",
+          model: defaultApiConfig.model,
+          createdAt: legacyAt,
+          updatedAt: savedMessages.at(-1)?.at || legacyAt,
+        }, ...savedConversations];
+      }
+      setAgentMessages(savedMessages.map((message) => message.conversationId ? message : {
+        ...message,
         projectId: LEGACY_PROJECT_ID,
-        title: "历史对话",
-        provider: "codex",
-        model: defaultApiConfig.model,
-        createdAt: legacyAt,
-        updatedAt: savedMessages.at(-1)?.at || legacyAt,
-      }, ...savedConversations];
+        conversationId: LEGACY_CONVERSATION_ID,
+      }));
+      setAgentConversations(savedConversations);
+      setChatLoaded(true);
     }
-    setAgentMessages(savedMessages.map((message) => message.conversationId ? message : {
-      ...message,
-      projectId: LEGACY_PROJECT_ID,
-      conversationId: LEGACY_CONVERSATION_ID,
-    }));
-    setAgentConversations(savedConversations);
-    setChatLoaded(true);
+    void restoreChat();
   }, []);
 
   useEffect(() => {
     if (!chatLoaded) return;
-    localStorage.setItem(CHAT_KEY, JSON.stringify(agentMessages.slice(-200)));
-    localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(agentConversations.slice(0, 100)));
+    void writePersistedState("messages", CHAT_KEY, agentMessages.slice(-200));
+    void writePersistedState("conversations", CONVERSATIONS_KEY, agentConversations.slice(0, 100));
   }, [agentConversations, agentMessages, chatLoaded]);
 
   useEffect(() => {
@@ -2566,18 +2651,26 @@ function App() {
       disposed = true;
     };
 
-    const timer = window.setInterval(() => void loadQueue(), 1400);
+    let debounceTimer: number | undefined;
+    let unlisten: (() => void) | undefined;
+    void listen("queue-changed", () => {
+      window.clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(() => {
+        void loadQueue();
+        void refreshWorkerStatus();
+      }, 80);
+    }).then((dispose) => {
+      unlisten = dispose;
+    });
     return () => {
       disposed = true;
-      window.clearInterval(timer);
+      window.clearTimeout(debounceTimer);
+      unlisten?.();
     };
   }, [activeAgentJobId, activeProjectId, expandedJobId]);
 
   useEffect(() => {
     void refreshWorkerStatus();
-    if (!isTauriRuntime()) return;
-    const timer = window.setInterval(() => void refreshWorkerStatus(), 2200);
-    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -2585,7 +2678,7 @@ function App() {
     for (const job of jobs) {
       if (job.uiConfig?.agentChat !== true) continue;
       if (!job.conversationId) continue;
-      if (!["passed", "review_required", "failed", "approval_required", "cancelled"].includes(job.status)) continue;
+      if (!["passed", "review_required", "failed", "approval_required", "cancelled", "blocked"].includes(job.status)) continue;
       const marker = `${job.id}:${job.status}`;
       if (completedChatJobIdsRef.current.has(marker)) continue;
       completedChatJobIdsRef.current.add(marker);
@@ -2606,6 +2699,8 @@ function App() {
         updates.push(createChatMessage("assistant", `这轮执行失败了：${job.error || job.lastMessage || "未知错误"}\n你可以直接补充一句“继续修复这个错误”。`, job.id, job.conversationId, jobProjectId(job)));
       } else if (job.status === "cancelled") {
         updates.push(createChatMessage("assistant", "这轮任务已经取消。你可以换一种要求重新发起。", job.id, job.conversationId, jobProjectId(job)));
+      } else if (job.status === "blocked") {
+        updates.push(createChatMessage("assistant", `这轮任务被环境或能力门禁阻止：${job.blockedReasons?.join("；") || job.lastMessage || "当前能力尚未验证。"}`, job.id, job.conversationId, jobProjectId(job)));
       }
     }
     if (updates.length > 0) {
@@ -2638,7 +2733,7 @@ function App() {
       apiConfig,
       knowledgeBase,
     };
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    void writePersistedState("settings", SETTINGS_KEY, settings);
   }, [activeProjectId, activeWallpaper, apiConfig, customWallpaper?.sourcePath, knowledgeBase, projectName, projects, recentProjectPath, recentWallpapers, settingsLoaded, wallpaperBlur, wallpaperBrightness, wallpaperMotionMode, wallpaperMotionStrength, wallpaperVignette, workspaceOpacity]);
 
   function renderTemplatePanel() {
@@ -2669,6 +2764,9 @@ function App() {
   }
 
   function renderProjectPanel() {
+    const capabilityAlerts = capabilityIdsForConfig(codexConfig)
+      .map((id) => runtimeHealth?.capabilityManifest?.capabilities?.find((item) => item.id === id))
+      .filter((item): item is Record<string, unknown> & { id?: string; level?: string } => Boolean(item && ["reference_only", "not_implemented"].includes(String(item.level))));
     return (
       <section className="project-console">
         <article className="project-brief">
@@ -2713,6 +2811,12 @@ function App() {
             <span>默认决策</span>
             <strong>未指定项由 AI 选择；关键尺寸与安全参数必须确认</strong>
           </div>
+          {capabilityAlerts.length > 0 ? (
+            <div className="capability-alert" role="status">
+              <strong>当前配置包含未验证能力</strong>
+              <span>{capabilityAlerts.map((item) => `${item.id} · ${item.level}`).join("；")}，提交后会进入阻断或人工复核。</span>
+            </div>
+          ) : null}
         </aside>
       </section>
     );
