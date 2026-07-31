@@ -3,15 +3,18 @@ SolidWorks 文件导出工具
 支持 STEP、STL、IGES、PDF、DXF/DWG、Parasolid 等格式
 """
 import os
+from pathlib import Path
 
 try:
     from .sw_preflight import import_com_dependencies
-    from .sw_connect import create_empty_dispatch_variant, get_com_member
+    from .sw_connect import create_empty_dispatch_variant, get_com_member, open_document
 except ImportError:
     from sw_preflight import import_com_dependencies
-    from sw_connect import create_empty_dispatch_variant, get_com_member
+    from sw_connect import create_empty_dispatch_variant, get_com_member, open_document
 
 pythoncom, _win32com, VARIANT = import_com_dependencies()
+
+SUPPORTED_BATCH_FORMATS = {".step", ".stp", ".stl", ".igs", ".iges", ".x_t", ".pdf", ".dxf", ".dwg"}
 
 
 def _ensure_parent_dir(file_path):
@@ -120,47 +123,151 @@ def batch_export(sw, file_paths, output_dir, format_ext=".step"):
         output_dir: 输出目录
         format_ext: 输出格式扩展名（".step", ".stl", ".igs", ".pdf"）
     """
-    output_dir = os.path.abspath(os.path.expandvars(os.path.expanduser(output_dir)))
-    os.makedirs(output_dir, exist_ok=True)
+    report = batch_export_formats(sw, file_paths, output_dir, [format_ext])
     results = []
+    for document in report["documents"]:
+        output = document.get("outputs", [{}])[0]
+        results.append({
+            "file": document["source"],
+            "success": document["success"],
+            "output": output.get("path"),
+            "error": document.get("error") or output.get("error"),
+        })
+    return results
 
-    for file_path in file_paths:
-        # 打开文件
-        ext = os.path.splitext(file_path)[1].lower()
-        type_map = {".sldprt": 1, ".sldasm": 2, ".slddrw": 3}
-        doc_type = type_map.get(ext, 1)
 
-        errors = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-        warnings = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
+def _normalize_format(format_ext):
+    """规范化并校验批量导出扩展名。"""
+    extension = str(format_ext).strip().lower()
+    if not extension.startswith("."):
+        extension = f".{extension}"
+    if extension not in SUPPORTED_BATCH_FORMATS:
+        raise ValueError(f"暂不支持批量导出格式: {extension}")
+    return extension
 
-        file_path = os.path.abspath(os.path.expandvars(os.path.expanduser(file_path)))
-        model = sw.OpenDoc6(file_path, doc_type, 1, "", errors, warnings)  # swOpenDocOptions_Silent
-        if not model:
-            results.append({
-                "file": file_path,
-                "success": False,
-                "error": f"无法打开，错误码: {errors.value}, 警告码: {warnings.value}",
-            })
+
+def _file_signature(path):
+    """返回文件存在性证据，用于识别本轮真实产物。"""
+    target = Path(path)
+    if not target.is_file():
+        return None
+    stat = target.stat()
+    return stat.st_size, stat.st_mtime_ns
+
+
+def _export_for_format(model, output_path, extension, stl_quality):
+    """按已验证封装路由导出格式。"""
+    if extension in {".step", ".stp"}:
+        return export_to_step(model, output_path)
+    if extension == ".stl":
+        return export_to_stl(model, output_path, quality=stl_quality)
+    if extension in {".igs", ".iges"}:
+        return export_to_iges(model, output_path)
+    if extension == ".x_t":
+        return export_to_parasolid(model, output_path)
+    if extension == ".pdf":
+        return export_to_pdf(model, output_path)
+    if extension in {".dxf", ".dwg"}:
+        return export_to_dxf(model, output_path)
+    raise ValueError(f"没有导出器: {extension}")
+
+
+def batch_export_formats(
+    sw,
+    file_paths,
+    output_dir,
+    formats=(".step",),
+    *,
+    overwrite=False,
+    close_documents=True,
+    stl_quality="fine",
+):
+    """将多个 SolidWorks 文档批量导出为多个格式。
+
+    返回每个输出的文件大小和 ``produced_this_run`` 证据。原本已经在
+    SolidWorks 中打开的文档不会被本函数关闭。
+    """
+    source_paths = [str(Path(os.path.expandvars(str(path))).expanduser().resolve()) for path in file_paths]
+    if not source_paths:
+        raise ValueError("file_paths 不能为空")
+    extensions = list(dict.fromkeys(_normalize_format(item) for item in formats))
+    if not extensions:
+        raise ValueError("formats 不能为空")
+    output_root = Path(os.path.expandvars(str(output_dir))).expanduser().resolve()
+    output_root.mkdir(parents=True, exist_ok=True)
+    claimed_outputs = set()
+    documents = []
+
+    for source_path in source_paths:
+        source = Path(source_path)
+        document_result = {"source": source_path, "success": False, "outputs": [], "was_open": False}
+        if not source.is_file():
+            document_result["error"] = "源文件不存在"
+            documents.append(document_result)
+            continue
+        try:
+            was_open = bool(sw.GetOpenDocumentByName(source_path))
+        except Exception:
+            was_open = False
+        document_result["was_open"] = was_open
+        model = open_document(sw, source_path, silent=True, raise_on_error=False)
+        if model is None:
+            document_result["error"] = "SolidWorks 无法打开源文件"
+            documents.append(document_result)
             continue
 
-        # 导出
-        base_name = os.path.splitext(os.path.basename(file_path))[0]
-        output_path = os.path.join(output_dir, base_name + format_ext)
+        try:
+            for extension in extensions:
+                output_path = output_root / f"{source.stem}{extension}"
+                output_key = str(output_path).casefold()
+                before = _file_signature(output_path)
+                output_result = {"format": extension, "path": str(output_path), "success": False}
+                if output_key in claimed_outputs:
+                    output_result["error"] = "不同源文件产生同名输出，已阻止覆盖"
+                    document_result["outputs"].append(output_result)
+                    continue
+                claimed_outputs.add(output_key)
+                if before is not None and not overwrite:
+                    output_result["error"] = "目标文件已存在；未显式允许覆盖"
+                    document_result["outputs"].append(output_result)
+                    continue
+                try:
+                    api_success = bool(_export_for_format(model, str(output_path), extension, stl_quality))
+                    after = _file_signature(output_path)
+                    produced = api_success and after is not None and after != before
+                    output_result.update({
+                        "success": bool(produced),
+                        "api_success": api_success,
+                        "exists": after is not None,
+                        "size_bytes": after[0] if after else 0,
+                        "produced_this_run": bool(produced),
+                    })
+                    if api_success and not produced:
+                        output_result["error"] = "SolidWorks 返回成功，但没有检测到本轮新产物"
+                except Exception as error:
+                    output_result["error"] = str(error)
+                document_result["outputs"].append(output_result)
+        finally:
+            if close_documents and not was_open:
+                sw.CloseDoc(get_com_member(model, "GetTitle"))
+        document_result["success"] = bool(document_result["outputs"]) and all(
+            output["success"] for output in document_result["outputs"]
+        )
+        documents.append(document_result)
 
-        if format_ext == ".pdf":
-            success = export_to_pdf(model, output_path)
-        else:
-            success = _export_generic(model, output_path)
-
-        results.append({"file": file_path, "success": bool(success), "output": output_path})
-
-        # 关闭文档
-        sw.CloseDoc(get_com_member(model, "GetTitle"))
-
-    # 汇总
-    success_count = sum(1 for r in results if r["success"])
-    print(f"批量导出完成: {success_count}/{len(results)} 成功")
-    return results
+    output_count = sum(len(item["outputs"]) for item in documents)
+    success_count = sum(
+        1 for item in documents for output in item["outputs"] if output["success"]
+    )
+    report = {
+        "success": bool(documents) and all(item["success"] for item in documents),
+        "output_dir": str(output_root),
+        "formats": extensions,
+        "documents": documents,
+        "summary": {"documents": len(documents), "outputs": output_count, "succeeded": success_count},
+    }
+    print(f"批量导出完成: {success_count}/{output_count} 个输出成功")
+    return report
 
 
 def _export_generic(model, output_path):
