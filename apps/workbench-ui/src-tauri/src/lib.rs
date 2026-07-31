@@ -182,6 +182,39 @@ fn wallpaper_kind(path: &Path) -> Result<&'static str, String> {
     )
 }
 
+fn validate_preview_extension(path: &Path) -> Result<(), String> {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if ![
+        "stl", "glb", "gltf", "obj", "dxf", "png", "jpg", "jpeg", "webp", "bmp", "gif",
+    ]
+    .contains(&extension.as_str())
+    {
+        return Err("该文件格式不允许进入预览器。".to_string());
+    }
+    Ok(())
+}
+
+/// @brief 读取可预览 CAD 产物，使用二进制 IPC 避免开放任意文件资源协议。
+#[tauri::command]
+fn read_preview_file(path: String) -> Result<tauri::ipc::Response, String> {
+    let target = PathBuf::from(path);
+    validate_preview_extension(&target)?;
+    let metadata = fs::metadata(&target).map_err(|error| format!("无法读取预览文件: {error}"))?;
+    if !metadata.is_file() {
+        return Err("预览目标不是文件。".to_string());
+    }
+    const MAX_PREVIEW_BYTES: u64 = 128 * 1024 * 1024;
+    if metadata.len() > MAX_PREVIEW_BYTES {
+        return Err("预览文件超过 128 MB，请先导出轻量 GLB/STL 或 PNG。".to_string());
+    }
+    let bytes = fs::read(target).map_err(|error| format!("预览文件读取失败: {error}"))?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 /// @brief 将 Windows 扩展路径转换为资源协议可匹配的普通路径。
 fn asset_path(path: &Path) -> PathBuf {
     #[cfg(windows)]
@@ -1230,6 +1263,41 @@ fn detect_autocad() -> Option<PathBuf> {
                         .unwrap_or(false);
                     if is_autocad {
                         candidates.push(path.join("acad.exe"));
+                    }
+                }
+            }
+        }
+    }
+    // 许多中文安装包位于 D:/E:，且不会把 acad.exe 加入 PATH。
+    for drive in [r"D:\", r"E:\"] {
+        candidates.extend([
+            PathBuf::from(drive).join(r"AutoCAD 2024\acad.exe"),
+            PathBuf::from(drive).join(r"Autodesk\AutoCAD 2024\acad.exe"),
+        ]);
+        if let Ok(entries) = fs::read_dir(drive) {
+            for entry in entries.flatten() {
+                let directory = entry.path();
+                let name = directory
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or_default()
+                    .to_ascii_lowercase();
+                if name.starts_with("autocad") {
+                    candidates.push(directory.join("acad.exe"));
+                }
+                if name == "autodesk" {
+                    if let Ok(children) = fs::read_dir(directory) {
+                        for child in children.flatten() {
+                            let child_path = child.path();
+                            let child_name = child_path
+                                .file_name()
+                                .and_then(|value| value.to_str())
+                                .unwrap_or_default()
+                                .to_ascii_lowercase();
+                            if child_name.starts_with("autocad") {
+                                candidates.push(child_path.join("acad.exe"));
+                            }
+                        }
                     }
                 }
             }
@@ -2319,6 +2387,7 @@ pub fn run() {
             retry_queue_job,
             delete_queue_job,
             import_wallpaper,
+            read_preview_file,
             worker_status,
             start_worker,
             stop_worker,
@@ -2360,7 +2429,8 @@ pub fn run() {
 mod tests {
     use super::{
         asset_path, can_delete_job, database_provider_groups, derive_dangerous_capabilities,
-        is_queue_metadata_path, prepare_job_for_retry, validate_new_queue_job, wallpaper_kind,
+        is_queue_metadata_path, prepare_job_for_retry, validate_new_queue_job,
+        validate_preview_extension, wallpaper_kind,
     };
     use rusqlite::{params, Connection};
     use serde_json::json;
@@ -2524,6 +2594,14 @@ mod tests {
         assert_eq!(wallpaper_kind(Path::new("desk.WEBP")), Ok("image"));
         assert_eq!(wallpaper_kind(Path::new("loop.mp4")), Ok("video"));
         assert!(wallpaper_kind(Path::new("payload.exe")).is_err());
+    }
+
+    #[test]
+    fn preview_reader_restricts_file_extensions() {
+        assert!(validate_preview_extension(Path::new("model.stl")).is_ok());
+        assert!(validate_preview_extension(Path::new("drawing.DXF")).is_ok());
+        assert!(validate_preview_extension(Path::new("secret.txt")).is_err());
+        assert!(validate_preview_extension(Path::new("payload.exe")).is_err());
     }
 
     #[test]

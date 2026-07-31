@@ -34,6 +34,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { type CSSProperties, type ChangeEvent, type DragEvent, type PointerEvent as ReactPointerEvent, startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { CadPreview } from "./CadPreview";
 
 const DEFAULT_WALLPAPER_URL = new URL("./assets/default-blossom-wallpaper.mp4", import.meta.url).href;
 const DEFAULT_WALLPAPER_POSTER_URL = new URL("./assets/default-blossom-poster.webp", import.meta.url).href;
@@ -1295,6 +1296,7 @@ function App() {
   const [selectedTemplateKey, setSelectedTemplateKey] = useState<string | null>(null);
   const [deleteCandidateJobId, setDeleteCandidateJobId] = useState<string | null>(null);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
+  const [selectedPreviewArtifactPath, setSelectedPreviewArtifactPath] = useState<string | undefined>();
   const [activeHelpTopic, setActiveHelpTopic] = useState<HelpTopicId>("start");
   const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealth | null>(null);
   const [runtimeMessage, setRuntimeMessage] = useState("正在检测 Agent、skills 与 CAD 环境...");
@@ -1382,6 +1384,11 @@ function App() {
     [activeAgentJob, activeProjectJobs],
   );
   const resultArtifacts = useMemo(() => collectJobArtifacts(resultJob), [resultJob]);
+  const selectedPreviewArtifact = useMemo(
+    () => resultArtifacts.find((artifact) => artifact.path === selectedPreviewArtifactPath)
+      ?? resultArtifacts.find((artifact) => /\.(stl|glb|gltf|obj|dxf|png|jpe?g|webp|bmp|gif)$/i.test(artifact.path ?? "")),
+    [resultArtifacts, selectedPreviewArtifactPath],
+  );
   const resultChecks = resultJob?.reviewGate?.checks ?? resultJob?.result?.checks ?? [];
   const resultFeatures = realFeatureRows(resultJob);
   const codexPrompt = useMemo(() => buildCodexPrompt(codexConfig, recentProjectPath, runtimeHealth), [codexConfig, recentProjectPath, runtimeHealth]);
@@ -2897,13 +2904,19 @@ function App() {
           <div className="artifact-list delivery-artifacts">
             {resultArtifacts.length > 0 ? (
               resultArtifacts.map((artifact, index) => (
-                <div className={artifact.exists === false ? "artifact-row missing" : "artifact-row"} key={`${artifact.path}-${index}`}>
+                <button
+                  type="button"
+                  className={`${artifact.exists === false ? "artifact-row missing" : "artifact-row"} ${selectedPreviewArtifact?.path === artifact.path ? "selected" : ""}`}
+                  key={`${artifact.path}-${index}`}
+                  onClick={() => setSelectedPreviewArtifactPath(artifact.path)}
+                  title="在右侧预览此交付物"
+                >
                   <div>
                     <strong>{artifactKindLabel(artifact.kind, artifact.path)}</strong>
                     <span>{artifact.path}</span>
                   </div>
                   <small>{formatBytes(artifact.sizeBytes) || artifactStatusLabel(artifact)}</small>
-                </div>
+                </button>
               ))
             ) : (
               <div className="inspector-empty">
@@ -2911,6 +2924,7 @@ function App() {
                 <p>先让 AI 完成建模、出图或转换任务，交付中心会读取真实输出物。</p>
               </div>
             )}
+            <CadPreview artifact={selectedPreviewArtifact} />
           </div>
         </article>
 
