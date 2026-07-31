@@ -21,6 +21,9 @@ from cad_installation import discover_installation, resolve_shortcut_target  # n
 def test_capability_manifest_marks_unverified_workflows():
     index = capability_index(load_capabilities())
     assert index["part_and_features"]["level"] == "verified"
+    assert index["parameter_updates"]["level"] == "pilot"
+    assert index["custom_properties_and_bom"]["level"] == "pilot"
+    assert index["pack_and_go"]["level"] == "pilot"
     assert index["sheet_metal"]["level"] == "reference_only"
     assert unattended_allowed(["part_and_features"]) is True
     assert unattended_allowed(["sheet_metal"]) is False

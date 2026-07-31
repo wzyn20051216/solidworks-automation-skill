@@ -75,6 +75,29 @@ def batch_convert(sw, input_dir, output_dir, input_ext=".sldprt", output_ext=".s
                 print(f"已转换: {filename} -> {base + output_ext}")
 ```
 
+## 可审计批量导出
+
+`scripts/sw_export.py::batch_export_formats()` 支持多个输入、多个输出格式，并对每个输出记录：
+
+- SolidWorks API 返回值；
+- 文件是否存在、字节数；
+- 文件签名是否在本轮发生变化；
+- 原文档是否已由用户打开。
+
+默认不覆盖已有文件，也不关闭用户原先打开的 SolidWorks 文档。同名源文件会产生相同目标名时直接阻止，不以最后写入者覆盖前一个结果。
+
+## Pack and Go
+
+`scripts/sw_delivery.py::pack_and_go()` 使用 SolidWorks 原生 `IModelDocExtension.GetPackAndGo()`、`IPackAndGo.SetSaveToName()` 和 `IModelDocExtension.SavePackAndGo()`。这些签名已由本机 SolidWorks 2024 Interop 与官方 API Help 交叉核对。
+
+安全边界：
+
+1. 当前文档必须已经保存到磁盘。
+2. 目标目录非空时默认拒绝；只有显式 `overwrite=True` 才继续。
+3. 不用 Python 自行复制引用文件，不猜测装配引用关系。
+4. 返回逐文件大小、SHA-256 和 `produced_this_run`；状态码非零或本轮没有真实文件时不得标记成功。
+5. Pack and Go 目前为 `pilot`，外部引用、Toolbox、压缩组件和工程图仍需人工抽查。
+
 ## 拆分 STEP 再装配的坐标规则
 
 把一个复杂 STEP/Compound 拆成多个 STEP 以便 SolidWorks 稳定导入时，不要假设分件在

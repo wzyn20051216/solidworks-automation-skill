@@ -50,6 +50,8 @@ def _load_automation_modules() -> None:
     assembly = importlib.import_module("sw_assembly")
     motion = importlib.import_module("sw_motion")
     holes = importlib.import_module("sw_hole_features")
+    document_data = importlib.import_module("sw_document_data")
+    delivery = importlib.import_module("sw_delivery")
 
     exports = {
         "connect_solidworks": connect.connect_solidworks,
@@ -71,6 +73,11 @@ def _load_automation_modules() -> None:
         "export_to_pdf": export.export_to_pdf,
         "export_to_step": export.export_to_step,
         "export_to_stl": export.export_to_stl,
+        "batch_export_formats": export.batch_export_formats,
+        "update_dimension_mm": document_data.update_dimension_mm,
+        "set_custom_properties": document_data.set_custom_properties,
+        "export_assembly_bom_csv": delivery.export_assembly_bom_csv,
+        "pack_and_go": delivery.pack_and_go,
         "run_review": review.run_review,
         "collect_geometry_measurements": review.collect_geometry_measurements,
         "validate_hole_positions": review.validate_hole_positions,
@@ -272,6 +279,70 @@ class SolidWorksExportInput(BaseInput):
     output_path: str = Field(..., min_length=1, description="Absolute output file path.")
     export_format: ExportFormat = Field(..., description="Export format.")
     stl_quality: str = Field(default="fine", description="STL quality: coarse or fine.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+
+class SolidWorksDimensionUpdateInput(BaseInput):
+    """Input for updating a named model dimension in millimeters."""
+
+    dimension_name: str = Field(..., min_length=1, max_length=240, description="Exact dimension name, e.g. D1@Boss-Extrude1.")
+    value_mm: float = Field(..., gt=0.0, le=100000.0, description="New dimension value in millimeters.")
+    configuration_mode: str = Field(default="current", pattern="^(current|all|specific)$")
+    configuration_names: list[str] = Field(default_factory=list, max_length=200)
+    rebuild: bool = Field(default=True)
+    save: bool = Field(default=False, description="Save the current document after a verified rebuild.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+
+class SolidWorksCustomPropertiesInput(BaseInput):
+    """Input for setting file-level or configuration-level custom properties."""
+
+    properties: Dict[str, str] = Field(..., min_length=1, max_length=100)
+    configuration_name: str = Field(default="", max_length=240)
+    property_type: str = Field(default="text", pattern="^(text|number|double|yes_no|date)$")
+    save: bool = Field(default=False)
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+
+class SolidWorksBatchExportInput(BaseInput):
+    """Input for exporting multiple SolidWorks files to multiple formats."""
+
+    file_paths: list[str] = Field(..., min_length=1, max_length=200)
+    output_dir: str = Field(..., min_length=1)
+    formats: list[str] = Field(default_factory=lambda: ["step"], min_length=1, max_length=10)
+    overwrite: bool = Field(default=False)
+    close_documents: bool = Field(default=True)
+    stl_quality: str = Field(default="fine", pattern="^(coarse|fine)$")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+    @field_validator("file_paths")
+    @classmethod
+    def source_files_must_exist(cls, values: list[str]) -> list[str]:
+        missing = [value for value in values if not Path(os.path.expandvars(value)).expanduser().is_file()]
+        if missing:
+            raise ValueError("Source files do not exist: " + ", ".join(missing[:5]))
+        return values
+
+
+class SolidWorksBomExportInput(BaseInput):
+    """Input for exporting a reviewed assembly component BOM CSV."""
+
+    output_path: str = Field(..., min_length=1)
+    include_excluded: bool = Field(default=False)
+    overwrite: bool = Field(default=False)
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+
+class SolidWorksPackAndGoInput(BaseInput):
+    """Input for native SolidWorks Pack and Go."""
+
+    output_dir: str = Field(..., min_length=1)
+    include_drawings: bool = Field(default=True)
+    include_simulation_results: bool = Field(default=False)
+    include_toolbox_components: bool = Field(default=True)
+    include_suppressed: bool = Field(default=False)
+    flatten: bool = Field(default=False)
+    overwrite: bool = Field(default=False)
     response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
 
 
@@ -1026,6 +1097,125 @@ def solidworks_export_active(params: SolidWorksExportInput) -> str:
             "format": params.export_format.value,
             "document": _model_summary(model),
         }
+
+    return _run_locked(op, params.response_format)
+
+
+@mcp.tool(
+    name="solidworks_update_dimension",
+    title="Update Named SolidWorks Dimension",
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+)
+def solidworks_update_dimension(params: SolidWorksDimensionUpdateInput) -> str:
+    """Update an exact named dimension, rebuild, optionally save, and return before/after evidence."""
+
+    def op():
+        _sw, model = _active_model_required()
+        result = update_dimension_mm(
+            model,
+            params.dimension_name,
+            params.value_mm,
+            configuration_mode=params.configuration_mode,
+            configuration_names=params.configuration_names,
+            rebuild=params.rebuild,
+            save=params.save,
+        )
+        result["document"] = _model_summary(model)
+        return result
+
+    return _run_locked(op, params.response_format)
+
+
+@mcp.tool(
+    name="solidworks_set_custom_properties",
+    title="Set SolidWorks Custom Properties",
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+)
+def solidworks_set_custom_properties(params: SolidWorksCustomPropertiesInput) -> str:
+    """Set and read back file-level or configuration-level custom properties."""
+
+    def op():
+        _sw, model = _active_model_required()
+        result = set_custom_properties(
+            model,
+            params.properties,
+            configuration_name=params.configuration_name,
+            property_type=params.property_type,
+            save=params.save,
+        )
+        result["document"] = _model_summary(model)
+        return result
+
+    return _run_locked(op, params.response_format)
+
+
+@mcp.tool(
+    name="solidworks_batch_export_files",
+    title="Batch Export SolidWorks Files",
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+)
+def solidworks_batch_export_files(params: SolidWorksBatchExportInput) -> str:
+    """Export multiple local SolidWorks files and verify every output was produced this run."""
+
+    def op():
+        sw, _model = connect_solidworks(wait_seconds=1)
+        return batch_export_formats(
+            sw,
+            params.file_paths,
+            params.output_dir,
+            params.formats,
+            overwrite=params.overwrite,
+            close_documents=params.close_documents,
+            stl_quality=params.stl_quality,
+        )
+
+    return _run_locked(op, params.response_format)
+
+
+@mcp.tool(
+    name="solidworks_export_assembly_bom",
+    title="Export Reviewed Assembly BOM CSV",
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+)
+def solidworks_export_assembly_bom(params: SolidWorksBomExportInput) -> str:
+    """Export a component/property BOM CSV; the result always requires native BOM review."""
+
+    def op():
+        _sw, model = _active_assembly_required()
+        result = export_assembly_bom_csv(
+            model,
+            params.output_path,
+            include_excluded=params.include_excluded,
+            overwrite=params.overwrite,
+        )
+        result["document"] = _model_summary(model)
+        return result
+
+    return _run_locked(op, params.response_format)
+
+
+@mcp.tool(
+    name="solidworks_pack_and_go",
+    title="Native SolidWorks Pack and Go",
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+)
+def solidworks_pack_and_go_tool(params: SolidWorksPackAndGoInput) -> str:
+    """Run the native Pack and Go API into a protected output directory."""
+
+    def op():
+        _sw, model = _active_model_required()
+        result = pack_and_go(
+            model,
+            params.output_dir,
+            include_drawings=params.include_drawings,
+            include_simulation_results=params.include_simulation_results,
+            include_toolbox_components=params.include_toolbox_components,
+            include_suppressed=params.include_suppressed,
+            flatten=params.flatten,
+            overwrite=params.overwrite,
+        )
+        result["document"] = _model_summary(model)
+        return result
 
     return _run_locked(op, params.response_format)
 

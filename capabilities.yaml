@@ -36,6 +36,36 @@
       "allowed_modes": ["interactive", "reviewed"]
     },
     {
+      "id": "parameter_updates",
+      "label": "命名尺寸参数修改",
+      "level": "pilot",
+      "backends": ["solidworks-com"],
+      "verified_versions": ["2024"],
+      "dependencies": ["SolidWorks", "pywin32"],
+      "limitations": ["必须提供准确尺寸名；配置族批量修改仍需人工复核"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "custom_properties_and_bom",
+      "label": "自定义属性与装配 BOM CSV",
+      "level": "pilot",
+      "backends": ["solidworks-com", "local-filesystem"],
+      "verified_versions": ["2024"],
+      "dependencies": ["SolidWorks", "pywin32"],
+      "limitations": ["CSV 必须与 SolidWorks 原生 BOM、配置和工程图人工核对"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "pack_and_go",
+      "label": "SolidWorks 原生 Pack and Go",
+      "level": "pilot",
+      "backends": ["solidworks-com", "local-filesystem"],
+      "verified_versions": ["2024"],
+      "dependencies": ["SolidWorks", "pywin32"],
+      "limitations": ["默认拒绝非空目标目录；外部引用和 Toolbox 组件必须人工抽查"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
       "id": "assembly_and_mates",
       "label": "装配体与配合",
       "level": "verified",
