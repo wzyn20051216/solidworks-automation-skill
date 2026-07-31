@@ -34,9 +34,12 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { type CSSProperties, type ChangeEvent, type DragEvent, type PointerEvent as ReactPointerEvent, startTransition, useEffect, useMemo, useRef, useState } from "react";
-import { CadPreview } from "./CadPreview";
+import { ArtifactBrowser } from "./components/ArtifactBrowser";
+import { ConversationControls } from "./components/ConversationControls";
+import { ManualReviewPanel } from "./components/ManualReviewPanel";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
 import { TaskSequence } from "./components/TaskSequence";
+import { collectJobArtifacts, deliveryFormatStatus } from "./domain/artifacts";
 import { conciseTaskTitle, jobDisplayTitle, jobStatusLabel } from "./domain/jobs";
 import {
   DEFAULT_PROJECT,
@@ -58,7 +61,6 @@ import type {
   ApiIntegrationMode,
   ApiProviderSummary,
   AppSettings,
-  ArtifactRecord,
   AutomationJob,
   AutomationJobKind,
   CcSwitchSync,
@@ -721,32 +723,6 @@ function keyStatusLabel(status: ApiIntegrationConfig["keyStatus"]) {
   return "未配置";
 }
 
-function fileNameFromPath(path?: string) {
-  if (!path) return "未命名文件";
-  return path.split(/[\\/]/).pop() || path;
-}
-
-function artifactKindLabel(kind?: string, path?: string) {
-  const normalized = (kind || fileNameFromPath(path).split(".").pop() || "artifact").toLowerCase();
-  if (normalized.includes("sldprt")) return "SolidWorks 零件";
-  if (normalized.includes("sldasm")) return "SolidWorks 装配";
-  if (normalized.includes("step") || normalized.includes("stp")) return "STEP";
-  if (normalized.includes("stl")) return "STL";
-  if (normalized.includes("dwg")) return "DWG";
-  if (normalized.includes("dxf")) return "DXF";
-  if (normalized.includes("pdf")) return "PDF";
-  if (normalized.includes("png") || normalized.includes("preview")) return "预览图";
-  if (normalized.includes("codex")) return "AI 结果";
-  return kind || "交付物";
-}
-
-function formatBytes(value?: number) {
-  if (!value || value <= 0) return "";
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / 1024 / 1024).toFixed(1)} MB`;
-}
-
 function reviewStatusLabel(status?: string) {
   if (status === "pass") return "通过";
   if (status === "fail") return "失败";
@@ -767,68 +743,6 @@ function reviewOptionsFor(job?: AutomationJob): Array<readonly [string, string]>
     options.push(["drawing", "已核对图框标题栏、视图、尺寸链、孔表和技术要求"]);
   }
   return options;
-}
-
-function artifactStatusLabel(artifact: ArtifactRecord) {
-  if (artifact.exists === false) return "缺失";
-  if (artifact.isDirectory) return "目录";
-  if (artifact.exists) return "已生成";
-  return "待确认";
-}
-
-function deliveryFormatStatus(format: string, job: AutomationJob | undefined, artifacts: ArtifactRecord[]) {
-  if (format === "复核报告") {
-    return job?.reviewGatePath ? "ready" : job ? "missing" : "optional";
-  }
-  const extensionMap: Record<string, string[]> = {
-    STEP: [".step", ".stp"],
-    STL: [".stl"],
-    SLDPRT: [".sldprt"],
-    SLDASM: [".sldasm"],
-    DWG: [".dwg"],
-    DXF: [".dxf"],
-    PDF: [".pdf"],
-    PNG: [".png"],
-  };
-  const extensions = extensionMap[format] ?? [];
-  const ready = artifacts.some((artifact) => {
-    const path = artifact.path?.toLowerCase() ?? "";
-    return artifact.exists !== false && artifact.producedThisRun !== false && extensions.some((extension) => path.endsWith(extension));
-  });
-  if (ready) return "ready";
-  const expected = (job?.expectedOutput ?? "").toUpperCase().includes(format);
-  return expected ? "missing" : "optional";
-}
-
-function collectJobArtifacts(job?: AutomationJob): ArtifactRecord[] {
-  if (!job) return [];
-  const items: ArtifactRecord[] = [];
-  const pushArtifact = (kind: string, path?: string, extra: Partial<ArtifactRecord> = {}) => {
-    if (!path) return;
-    items.push({ kind, path, ...extra });
-  };
-
-  for (const artifact of job.artifacts ?? []) {
-    if (artifact?.path) items.push(artifact);
-  }
-  if (job.result?.outputPath) pushArtifact("codex_output", job.result.outputPath, { exists: true });
-  const outputs = job.result?.outputs;
-  if (Array.isArray(outputs)) {
-    outputs.forEach((item, index) => {
-      if (typeof item === "string") pushArtifact(`output_${index}`, item);
-      else if (item?.path) items.push(item);
-    });
-  } else if (outputs && typeof outputs === "object") {
-    Object.entries(outputs).forEach(([kind, path]) => pushArtifact(kind, path));
-  }
-
-  const seen = new Set<string>();
-  return items.filter((item) => {
-    const key = item.path || `${item.kind}-${seen.size}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
 }
 
 function realFeatureRows(job?: AutomationJob): Array<Record<string, unknown>> {
@@ -1996,16 +1910,6 @@ function App() {
     }));
   }
 
-  function toggleManualReviewCheck(id: string, key: string, checked: boolean) {
-    setManualReviewDrafts((items) => {
-      const current = items[id] ?? { note: "", checks: [] };
-      const checks = checked
-        ? [...new Set([...current.checks, key])]
-        : current.checks.filter((item) => item !== key);
-      return { ...items, [id]: { ...current, checks } };
-    });
-  }
-
   function rememberWallpaper(path: string, name = displayNameFromPath(path), kind: "image" | "video" = isVideoPath(path) ? "video" : "image") {
     const nextWallpaper = {
       path,
@@ -2646,31 +2550,7 @@ function App() {
               生成交付包
             </motion.button>
           </div>
-          <div className="artifact-list delivery-artifacts">
-            {resultArtifacts.length > 0 ? (
-              resultArtifacts.map((artifact, index) => (
-                <button
-                  type="button"
-                  className={`${artifact.exists === false ? "artifact-row missing" : "artifact-row"} ${selectedPreviewArtifact?.path === artifact.path ? "selected" : ""}`}
-                  key={`${artifact.path}-${index}`}
-                  onClick={() => setSelectedPreviewArtifactPath(artifact.path)}
-                  title="在右侧预览此交付物"
-                >
-                  <div>
-                    <strong>{artifactKindLabel(artifact.kind, artifact.path)}</strong>
-                    <span>{artifact.path}</span>
-                  </div>
-                  <small>{formatBytes(artifact.sizeBytes) || artifactStatusLabel(artifact)}</small>
-                </button>
-              ))
-            ) : (
-              <div className="inspector-empty">
-                <strong>还没有可交付文件</strong>
-                <p>先让 AI 完成建模、出图或转换任务，交付中心会读取真实输出物。</p>
-              </div>
-            )}
-            <CadPreview artifact={selectedPreviewArtifact} />
-          </div>
+          <ArtifactBrowser artifacts={resultArtifacts} selected={selectedPreviewArtifact} onSelect={setSelectedPreviewArtifactPath} />
         </article>
 
         <aside className="delivery-side">
@@ -2912,8 +2792,6 @@ function App() {
   const activeAgentLogs = activeAgentJob ? jobLogTails[activeAgentJob.id] ?? {} : {};
   const activeManualReviewDraft = activeAgentJob ? manualReviewDrafts[activeAgentJob.id] ?? { note: "", checks: [] } : { note: "", checks: [] };
   const activeManualReviewOptions = reviewOptionsFor(activeAgentJob);
-  const activeManualReviewReady = activeManualReviewDraft.note.trim().length >= 8
-    && activeManualReviewOptions.every(([key]) => activeManualReviewDraft.checks.includes(key));
 
   return (
     <main
@@ -3477,37 +3355,25 @@ function App() {
                   <p className="eyebrow">AI EXECUTION CHAT</p>
                   <h2>AI 执行对话</h2>
                 </div>
-                <div className="agent-conversation-controls">
-                  <select
-                    aria-label="切换 AI 对话"
-                    value={activeConversation?.id ?? ""}
-                    onChange={(event) => selectAgentConversation(event.target.value)}
-                  >
-                    {projectConversations.length === 0 ? <option value="">当前项目暂无对话</option> : null}
-                    {projectConversations.map((conversation) => (
-                      <option value={conversation.id} key={conversation.id}>{conversation.title}</option>
-                    ))}
-                  </select>
-                  <button type="button" aria-label="新建 AI 对话" title="新建 AI 对话" onClick={() => createAgentConversation()}>
-                    <FilePlus size={15} weight="bold" />
-                  </button>
-                  <select
-                    aria-label="选择 AI 公司"
-                    value={apiConfig.agentProvider}
-                    onChange={(event) => selectAgentProvider(event.target.value as AgentProviderId)}
-                  >
-                    {(Object.keys(agentProviderCatalog) as AgentProviderId[]).map((providerId) => {
-                      const metadata = agentProviderCatalog[providerId];
-                      const health = runtimeHealth?.agentProviders?.find((provider) => provider.id === providerId);
-                      return <option value={providerId} disabled={runtimeHealth ? !health?.installed : false} key={providerId}>{metadata.company} · {metadata.name}</option>;
-                    })}
-                  </select>
-                  <select aria-label="选择对话模型" value={apiConfig.model} onChange={(event) => selectAgentModel(event.target.value)}>
-                    {providerModelOptions.map((model) => (
-                      <option value={model.value} key={model.value}>{agentProviderCatalog[apiConfig.agentProvider].company} · {model.label}</option>
-                    ))}
-                  </select>
-                </div>
+                <ConversationControls
+                  conversations={projectConversations}
+                  activeConversationId={activeConversation?.id}
+                  provider={apiConfig.agentProvider}
+                  model={apiConfig.model}
+                  providers={(Object.keys(agentProviderCatalog) as AgentProviderId[]).map((providerId) => ({
+                    value: providerId,
+                    label: `${agentProviderCatalog[providerId].company} · ${agentProviderCatalog[providerId].name}`,
+                    disabled: runtimeHealth ? !runtimeHealth.agentProviders?.find((provider) => provider.id === providerId)?.installed : false,
+                  }))}
+                  models={providerModelOptions.map((model) => ({
+                    value: model.value,
+                    label: `${agentProviderCatalog[apiConfig.agentProvider].company} · ${model.label}`,
+                  }))}
+                  onSelectConversation={selectAgentConversation}
+                  onCreateConversation={() => createAgentConversation()}
+                  onSelectProvider={selectAgentProvider}
+                  onSelectModel={selectAgentModel}
+                />
                 <span>{activeAgentJob ? `${jobStatusLabel(activeAgentJob.status)} · ${activeAgentJob.progress}%` : activeConversation ? "等待指令" : "新建对话后开始"}</span>
               </div>
 
@@ -3563,40 +3429,12 @@ function App() {
                     </button>
                   ) : null}
                   {activeAgentJob?.status === "review_required" ? (
-                    <div className="manual-review-form">
-                      <strong>人工复核记录</strong>
-                      <div className="manual-review-checks">
-                        {activeManualReviewOptions.map(([key, label]) => (
-                          <label className="manual-review-check" key={key}>
-                            <input
-                              type="checkbox"
-                              checked={activeManualReviewDraft.checks.includes(key)}
-                              onChange={(event) => toggleManualReviewCheck(activeAgentJob.id, key, event.target.checked)}
-                            />
-                            <span>{label}</span>
-                          </label>
-                        ))}
-                      </div>
-                      <textarea
-                        value={activeManualReviewDraft.note}
-                        onChange={(event) => updateManualReviewDraft(activeAgentJob.id, { note: event.target.value })}
-                        placeholder="填写实际检查结果、发现的问题或放行依据"
-                      />
-                      <div className="review-action-row">
-                        <button
-                          className="approval-button"
-                          type="button"
-                          disabled={!activeManualReviewReady}
-                          title={activeManualReviewReady ? "通过人工复核" : "请完成全部检查项并填写至少 8 个字的复核说明"}
-                          onClick={() => void reviewJob(activeAgentJob.id, true)}
-                        >
-                          通过复核
-                        </button>
-                        <button className="review-reject-button" type="button" onClick={() => void reviewJob(activeAgentJob.id, false)}>
-                          驳回
-                        </button>
-                      </div>
-                    </div>
+                    <ManualReviewPanel
+                      draft={activeManualReviewDraft}
+                      options={activeManualReviewOptions}
+                      onChange={(draft) => updateManualReviewDraft(activeAgentJob.id, draft)}
+                      onSubmit={(approved) => void reviewJob(activeAgentJob.id, approved)}
+                    />
                   ) : null}
                   <div className="live-timeline">
                     {activeAgentEvents.length === 0 ? (
