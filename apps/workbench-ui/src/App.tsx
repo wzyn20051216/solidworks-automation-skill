@@ -61,6 +61,7 @@ import type {
   ApiIntegrationMode,
   ApiProviderSummary,
   AppSettings,
+  AppStoreMigrationStatus,
   AutomationJob,
   AutomationJobKind,
   CcSwitchSync,
@@ -892,6 +893,7 @@ function App() {
   const [ccSwitchSync, setCcSwitchSync] = useState<CcSwitchSync | null>(null);
   const [apiSyncMessage, setApiSyncMessage] = useState("可同步 CC Switch，也可继续使用本机 Agent CLI。");
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [storeMigration, setStoreMigration] = useState<AppStoreMigrationStatus | null>(null);
   const [queueLoaded, setQueueLoaded] = useState(false);
   const [jobs, setJobs] = useState<AutomationJob[]>([]);
   const [jobEvents, setJobEvents] = useState<Record<string, QueueEvent[]>>({});
@@ -2240,6 +2242,16 @@ function App() {
   }, [agentConversations, agentMessages, chatLoaded]);
 
   useEffect(() => {
+    if (!settingsLoaded || !chatLoaded || !isTauriRuntime()) return;
+    const timer = window.setTimeout(() => {
+      void invoke<AppStoreMigrationStatus>("app_store_migration_status")
+        .then(setStoreMigration)
+        .catch(() => setStoreMigration(null));
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [agentConversations, agentMessages, chatLoaded, projects, settingsLoaded]);
+
+  useEffect(() => {
     if (!chatLoaded) return;
     const nextConversation = activeConversation?.projectId === activeProject.id ? activeConversation : projectConversations[0];
     if (!nextConversation) {
@@ -2637,6 +2649,7 @@ function App() {
               <span>CLI: {selectedProvider?.version?.message || "检测中"}</span>
               <span className="settings-path">入口: {selectedProvider?.entry || "检测中"}</span>
               <span>Skill: {runtimeHealth?.solidworksSkillPath || "检测中"}</span>
+              <span>SQLite 索引: {storeMigration ? storeMigration.countsMatch ? "数量一致" : "待修复" : "检测中"}</span>
             </div>
             {selectedCcSwitchProviders.length ? (
               <div className="provider-list">

@@ -220,3 +220,10 @@ export type RuntimeHealth = {
   capabilityManifest?: { schema_version?: string; verified_versions?: Record<string, string[]>; capabilities?: Array<Record<string, unknown> & { id?: string; level?: string }> };
 };
 export type ImportedWallpaper = { path: string; name: string; kind: "image" | "video" };
+export type AppStoreMigrationStatus = {
+  storage: "sqlite";
+  schemaVersion: number;
+  source: Record<string, number>;
+  indexed: Record<string, number>;
+  countsMatch: boolean;
+};

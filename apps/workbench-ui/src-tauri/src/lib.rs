@@ -1,5 +1,5 @@
 use notify::{RecursiveMode, Watcher};
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use std::io::Write;
 use std::process::{Child, Command, Output, Stdio};
@@ -102,17 +102,120 @@ fn open_app_store(app: &AppHandle) -> Result<Connection, String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
-    let connection = Connection::open(path).map_err(|error| error.to_string())?;
+    let mut connection = Connection::open(path).map_err(|error| error.to_string())?;
+    initialize_app_store(&mut connection)?;
+    Ok(connection)
+}
+
+/// @brief 初始化 SQLite 架构，并从旧版状态快照一次性建立实体索引。
+fn initialize_app_store(connection: &mut Connection) -> Result<(), String> {
     connection
         .execute_batch(
-            "CREATE TABLE IF NOT EXISTS app_state (
+            "PRAGMA foreign_keys = ON;
+            CREATE TABLE IF NOT EXISTS app_state (
                 namespace TEXT PRIMARY KEY,
                 payload TEXT NOT NULL,
                 updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS entity_index (
+                entity_type TEXT NOT NULL,
+                entity_id TEXT NOT NULL,
+                project_id TEXT,
+                conversation_id TEXT,
+                payload TEXT NOT NULL,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY(entity_type, entity_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_entity_project ON entity_index(entity_type, project_id);
+            CREATE INDEX IF NOT EXISTS idx_entity_conversation ON entity_index(entity_type, conversation_id);
+            CREATE TABLE IF NOT EXISTS schema_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             );",
         )
         .map_err(|error| error.to_string())?;
-    Ok(connection)
+    let version: Option<String> = connection
+        .query_row(
+            "SELECT value FROM schema_meta WHERE key = 'entity_index_version'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+    if version.as_deref() != Some("2") {
+        let transaction = connection.transaction().map_err(|error| error.to_string())?;
+        for namespace in ["settings", "conversations", "messages"] {
+            let raw: Option<String> = transaction
+                .query_row(
+                    "SELECT payload FROM app_state WHERE namespace = ?1",
+                    params![namespace],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|error| error.to_string())?;
+            if let Some(raw) = raw {
+                let payload = serde_json::from_str::<Value>(&raw).map_err(|error| error.to_string())?;
+                sync_entity_index(&transaction, namespace, &payload, 0)?;
+            }
+        }
+        transaction
+            .execute(
+                "INSERT INTO schema_meta(key, value) VALUES('entity_index_version', '2')
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [],
+            )
+            .map_err(|error| error.to_string())?;
+        transaction.commit().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+fn entity_values<'a>(namespace: &str, payload: &'a Value) -> Option<(&'static str, Vec<&'a Value>)> {
+    match namespace {
+        "settings" => Some(("project", payload.get("projects")?.as_array()?.iter().collect())),
+        "conversations" => Some(("conversation", payload.as_array()?.iter().collect())),
+        "messages" => Some(("message", payload.as_array()?.iter().collect())),
+        _ => None,
+    }
+}
+
+/// @brief 在同一事务内同步一个命名空间的结构化实体索引。
+fn sync_entity_index(
+    transaction: &Transaction<'_>,
+    namespace: &str,
+    payload: &Value,
+    timestamp: i64,
+) -> Result<(), String> {
+    let Some((entity_type, entities)) = entity_values(namespace, payload) else {
+        return Ok(());
+    };
+    transaction
+        .execute(
+            "DELETE FROM entity_index WHERE entity_type = ?1",
+            params![entity_type],
+        )
+        .map_err(|error| error.to_string())?;
+    for entity in entities {
+        let Some(entity_id) = entity.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) else {
+            continue;
+        };
+        let serialized = serde_json::to_string(entity).map_err(|error| error.to_string())?;
+        transaction
+            .execute(
+                "INSERT INTO entity_index(entity_type, entity_id, project_id, conversation_id, payload, updated_at)
+                 VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    entity_type,
+                    entity_id,
+                    entity.get("projectId").and_then(Value::as_str),
+                    entity.get("conversationId").and_then(Value::as_str),
+                    serialized,
+                    timestamp,
+                ],
+            )
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 fn valid_store_namespace(namespace: &str) -> bool {
@@ -148,20 +251,65 @@ fn write_app_store(app: AppHandle, namespace: String, payload: Value) -> Result<
     if !valid_store_namespace(&namespace) {
         return Err("应用数据命名空间无效".to_string());
     }
-    let connection = open_app_store(&app)?;
+    let mut connection = open_app_store(&app)?;
     let serialized = serde_json::to_string(&payload).map_err(|error| error.to_string())?;
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| error.to_string())?
         .as_secs() as i64;
-    connection
+    let transaction = connection.transaction().map_err(|error| error.to_string())?;
+    transaction
         .execute(
             "INSERT INTO app_state(namespace, payload, updated_at) VALUES(?1, ?2, ?3)
              ON CONFLICT(namespace) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at",
             params![namespace, serialized, timestamp],
         )
         .map_err(|error| error.to_string())?;
+    sync_entity_index(&transaction, &namespace, &payload, timestamp)?;
+    transaction.commit().map_err(|error| error.to_string())?;
     Ok(())
+}
+
+/// @brief 返回旧快照与结构化索引的数量，用于迁移验收和诊断。
+#[tauri::command]
+fn app_store_migration_status(app: AppHandle) -> Result<Value, String> {
+    let connection = open_app_store(&app)?;
+    let mut source = serde_json::Map::new();
+    let mut indexed = serde_json::Map::new();
+    for (namespace, entity_type) in [
+        ("settings", "project"),
+        ("conversations", "conversation"),
+        ("messages", "message"),
+    ] {
+        let raw: Option<String> = connection
+            .query_row(
+                "SELECT payload FROM app_state WHERE namespace = ?1",
+                params![namespace],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        let count = raw
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .and_then(|payload| entity_values(namespace, &payload).map(|(_, items)| items.len()))
+            .unwrap_or(0);
+        let indexed_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM entity_index WHERE entity_type = ?1",
+                params![entity_type],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        source.insert(entity_type.to_string(), json!(count));
+        indexed.insert(entity_type.to_string(), json!(indexed_count));
+    }
+    Ok(json!({
+        "storage": "sqlite",
+        "schemaVersion": 2,
+        "source": source,
+        "indexed": indexed,
+        "countsMatch": source == indexed,
+    }))
 }
 
 fn wallpaper_kind(path: &Path) -> Result<&'static str, String> {
@@ -2409,6 +2557,7 @@ pub fn run() {
             read_queue_log_tail,
             read_app_store,
             write_app_store,
+            app_store_migration_status,
             sync_cc_switch_config,
             agent_provider_runtime_health,
             runtime_health
@@ -2440,8 +2589,8 @@ pub fn run() {
 mod tests {
     use super::{
         asset_path, can_delete_job, database_provider_groups, derive_dangerous_capabilities,
-        is_queue_metadata_path, prepare_job_for_retry, validate_new_queue_job,
-        validate_preview_extension, wallpaper_kind,
+        initialize_app_store, is_queue_metadata_path, prepare_job_for_retry, sync_entity_index,
+        validate_new_queue_job, validate_preview_extension, wallpaper_kind,
     };
     use rusqlite::{params, Connection};
     use serde_json::json;
@@ -2669,5 +2818,87 @@ mod tests {
         assert_eq!(codex[0]["authLabel"], "凭据由 CC Switch 托管");
         assert_eq!(groups["claude"][0]["authLabel"], "OAuth / 官方登录态");
         assert!(!groups.to_string().contains("secret-must-not-leak"));
+    }
+
+    #[test]
+    fn migrates_legacy_snapshots_without_changing_entity_counts() {
+        let mut connection = Connection::open_in_memory().expect("in-memory sqlite");
+        connection
+            .execute_batch(
+                "CREATE TABLE app_state (
+                    namespace TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL,
+                    updated_at INTEGER NOT NULL
+                );",
+            )
+            .expect("legacy schema");
+        connection
+            .execute(
+                "INSERT INTO app_state VALUES('settings', ?1, 1)",
+                params![json!({"projects": [
+                    {"id": "project-a", "name": "A"},
+                    {"id": "project-b", "name": "B"}
+                ]}).to_string()],
+            )
+            .expect("legacy projects");
+        connection
+            .execute(
+                "INSERT INTO app_state VALUES('conversations', ?1, 1)",
+                params![json!([
+                    {"id": "conversation-a", "projectId": "project-a", "title": "A"},
+                    {"id": "conversation-b", "projectId": "project-b", "title": "B"}
+                ]).to_string()],
+            )
+            .expect("legacy conversations");
+        connection
+            .execute(
+                "INSERT INTO app_state VALUES('messages', ?1, 1)",
+                params![json!([
+                    {"id": "message-a", "projectId": "project-a", "conversationId": "conversation-a"},
+                    {"id": "message-b", "projectId": "project-b", "conversationId": "conversation-b"},
+                    {"id": "message-c", "projectId": "project-b", "conversationId": "conversation-b"}
+                ]).to_string()],
+            )
+            .expect("legacy messages");
+
+        initialize_app_store(&mut connection).expect("migrate legacy snapshots");
+
+        for (entity_type, expected) in [("project", 2), ("conversation", 2), ("message", 3)] {
+            let actual: i64 = connection
+                .query_row(
+                    "SELECT COUNT(*) FROM entity_index WHERE entity_type = ?1",
+                    params![entity_type],
+                    |row| row.get(0),
+                )
+                .expect("indexed count");
+            assert_eq!(actual, expected, "{entity_type} count changed during migration");
+        }
+    }
+
+    #[test]
+    fn entity_index_sync_is_transactional_and_project_scoped() {
+        let mut connection = Connection::open_in_memory().expect("in-memory sqlite");
+        initialize_app_store(&mut connection).expect("initialize schema");
+        let transaction = connection.transaction().expect("start transaction");
+        sync_entity_index(
+            &transaction,
+            "conversations",
+            &json!([
+                {"id": "conversation-a", "projectId": "project-a", "title": "A"},
+                {"id": "conversation-b", "projectId": "project-b", "title": "B"}
+            ]),
+            2,
+        )
+        .expect("sync conversation index");
+        transaction.commit().expect("commit index");
+
+        let project_b_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM entity_index WHERE entity_type = 'conversation' AND project_id = 'project-b'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("project scoped count");
+        assert_eq!(project_b_count, 1);
     }
 }
