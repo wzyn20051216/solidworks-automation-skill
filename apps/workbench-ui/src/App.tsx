@@ -36,6 +36,8 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { type CSSProperties, type ChangeEvent, type DragEvent, type PointerEvent as ReactPointerEvent, startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { CadPreview } from "./CadPreview";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
+import { TaskSequence } from "./components/TaskSequence";
+import { conciseTaskTitle, jobDisplayTitle, jobStatusLabel } from "./domain/jobs";
 import {
   DEFAULT_PROJECT,
   duplicateProjectRecord,
@@ -59,7 +61,6 @@ import type {
   ArtifactRecord,
   AutomationJob,
   AutomationJobKind,
-  AutomationJobStatus,
   CcSwitchSync,
   CodexConfig,
   HelpTopicId,
@@ -368,22 +369,6 @@ const materialLabels: Record<CodexConfig["material"], string> = {
 
 const deliveryFormats = ["STEP", "STL", "SLDPRT", "SLDASM", "DWG", "DXF", "PDF", "PNG", "复核报告"];
 
-function jobStatusLabel(status: AutomationJobStatus) {
-  if (status === "running") return "执行中";
-  if (status === "passed") return "完成";
-  if (status === "review_required") return "待复核";
-  if (status === "failed") return "失败";
-  if (status === "cancelled") return "已取消";
-  if (status === "approval_required") return "待审批";
-  if (status === "blocked") return "已阻断";
-  return "排队";
-}
-
-function sidebarJobStatusLabel(job: AutomationJob) {
-  if (job.status === "review_required" && job.progress >= 100) return "已完成";
-  return jobStatusLabel(job.status);
-}
-
 function nextPaint() {
   return new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 }
@@ -393,19 +378,6 @@ function jobKindDetail(kind: AutomationJobKind) {
   if (kind === "import_model") return { title: "导入已有文件", detail: "读取 CAD 模型、工程图或图片草图作为参考" };
   if (kind === "codex_task" || kind === "agent_task") return { title: "Agent 执行", detail: "把图形化配置转换为当前 AI 的非交互执行任务" };
   return { title: "生成交付包", detail: "整理 STEP、STL、PDF、DWG 和交付清单" };
-}
-
-function conciseTaskTitle(value: string | undefined, fallback: string) {
-  const normalized = value?.replace(/\s+/g, " ").trim();
-  if (!normalized) return fallback;
-  return normalized.length > 24 ? `${normalized.slice(0, 24)}...` : normalized;
-}
-
-function jobDisplayTitle(job: AutomationJob) {
-  const title = job.title.trim();
-  const internalExecutionTitle = /^(Codex|Claude Code|Gemini CLI|OpenCode|Agent|AI 对话)\s*执行$/i.test(title);
-  if (!internalExecutionTitle) return title;
-  return conciseTaskTitle(job.objective, job.target ? `${job.target}任务` : "AI CAD 任务");
 }
 
 function isTauriRuntime() {
@@ -1122,6 +1094,7 @@ function App() {
   const resultFeatures = realFeatureRows(resultJob);
   const codexPrompt = useMemo(() => buildCodexPrompt(codexConfig, recentProjectPath, runtimeHealth), [codexConfig, recentProjectPath, runtimeHealth]);
   const recentJobs = useMemo(() => activeProjectJobs.slice(0, 8), [activeProjectJobs]);
+  const terminalJobs = useMemo(() => terminalProjectJobs(jobs, activeProject.id), [activeProject.id, jobs]);
   const projectTaskCounts = useMemo(() => jobs.reduce<Record<string, number>>((counts, job) => {
     const projectId = jobProjectId(job);
     counts[projectId] = (counts[projectId] ?? 0) + 1;
@@ -1795,29 +1768,21 @@ function App() {
     }
   }
 
-  function removeJobFromUi(id: string) {
+  function removeJobsFromUi(ids: Set<string>) {
     setJobs((items) => {
-      const next = items.filter((item) => item.id !== id);
+      const next = items.filter((item) => !ids.has(item.id));
       saveLocalQueue(next);
       return next;
     });
-    setJobEvents((items) => {
-      const next = { ...items };
-      delete next[id];
-      return next;
-    });
-    setJobLogTails((items) => {
-      const next = { ...items };
-      delete next[id];
-      return next;
-    });
-    setManualReviewDrafts((items) => {
-      const next = { ...items };
-      delete next[id];
-      return next;
-    });
-    if (activeAgentJobId === id) setActiveAgentJobId(null);
-    if (expandedJobId === id) setExpandedJobId(null);
+    setJobEvents((items) => Object.fromEntries(Object.entries(items).filter(([id]) => !ids.has(id))));
+    setJobLogTails((items) => Object.fromEntries(Object.entries(items).filter(([id]) => !ids.has(id))));
+    setManualReviewDrafts((items) => Object.fromEntries(Object.entries(items).filter(([id]) => !ids.has(id))));
+    if (activeAgentJobId && ids.has(activeAgentJobId)) setActiveAgentJobId(null);
+    if (expandedJobId && ids.has(expandedJobId)) setExpandedJobId(null);
+  }
+
+  function removeJobFromUi(id: string) {
+    removeJobsFromUi(new Set([id]));
   }
 
   async function deleteJob(job: AutomationJob) {
@@ -1850,6 +1815,33 @@ function App() {
       setDeletingJobId(null);
       setDeleteCandidateJobId(null);
     }
+  }
+
+  async function clearTerminalJobRecords() {
+    const targets = terminalProjectJobs(jobs, activeProject.id);
+    if (!targets.length) return;
+    const deletedIds = new Set<string>();
+    let failure: unknown;
+    if (isTauriRuntime()) {
+      for (const job of targets) {
+        try {
+          await invoke("delete_queue_job", { id: job.id });
+          deletedIds.add(job.id);
+        } catch (error) {
+          failure = error;
+          break;
+        }
+      }
+    } else {
+      targets.forEach((job) => deletedIds.add(job.id));
+    }
+    if (deletedIds.size) removeJobsFromUi(deletedIds);
+    setDeleteCandidateJobId(null);
+    if (failure) {
+      setWindowHint(`已清理 ${deletedIds.size} 条记录，剩余记录失败：${String(failure)}`);
+      throw failure;
+    }
+    setWindowHint(`已清理 ${targets.length} 条终态任务记录，CAD 交付文件保持不变`);
   }
 
   function enqueueDeliveryTask() {
@@ -3053,42 +3045,22 @@ function App() {
             </button>
           </div>
 
-          <nav className="project-sequence" aria-label="项目任务序列">
-            <span className="sidebar-label">最近任务</span>
-            {recentJobs.length ? recentJobs.map((job) => (
-              <div className={activeAgentJob?.id === job.id ? "project-sequence-item active" : "project-sequence-item"} key={job.id}>
-                <button
-                  className="project-sequence-select"
-                  type="button"
-                  onClick={() => {
-                    setDeleteCandidateJobId(null);
-                    setActiveAgentJobId(job.id);
-                    setExpandedJobId(job.id);
-                    if (job.conversationId) setActiveConversationId(job.conversationId);
-                    setActiveTab("project");
-                  }}
-                >
-                  <i className={job.status === "review_required" && job.progress >= 100 ? "passed" : job.status} />
-                  <span>
-                    <strong>{jobDisplayTitle(job)}</strong>
-                    <small>{sidebarJobStatusLabel(job)} · {job.progress}%</small>
-                  </span>
-                </button>
-                <button
-                  className={deleteCandidateJobId === job.id ? "project-sequence-delete confirm" : "project-sequence-delete"}
-                  type="button"
-                  disabled={deletingJobId !== null}
-                  aria-label={deleteCandidateJobId === job.id ? `确认删除 ${jobDisplayTitle(job)}` : `删除 ${jobDisplayTitle(job)}`}
-                  title={deleteCandidateJobId === job.id ? "再次点击确认删除" : "删除任务记录"}
-                  onClick={() => void deleteJob(job)}
-                >
-                  {deletingJobId === job.id ? <SpinnerGap className="spin" size={15} /> : deleteCandidateJobId === job.id ? <Check size={15} weight="bold" /> : <Trash size={15} weight="duotone" />}
-                </button>
-              </div>
-            )) : (
-              <div className="sidebar-empty">这里会显示真正执行过的任务。选择模板不会新增记录。</div>
-            )}
-          </nav>
+          <TaskSequence
+            jobs={recentJobs}
+            activeJobId={activeAgentJob?.id}
+            deleteCandidateJobId={deleteCandidateJobId}
+            deletingJobId={deletingJobId}
+            terminalCount={terminalJobs.length}
+            onSelect={(job) => {
+              setDeleteCandidateJobId(null);
+              setActiveAgentJobId(job.id);
+              setExpandedJobId(job.id);
+              if (job.conversationId) setActiveConversationId(job.conversationId);
+              setActiveTab("project");
+            }}
+            onDelete={(job) => void deleteJob(job)}
+            onClearTerminal={clearTerminalJobRecords}
+          />
 
           <div className="local-chip">
             <ShieldCheck size={18} weight="duotone" />

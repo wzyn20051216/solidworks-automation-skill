@@ -4079,6 +4079,41 @@ textarea {
   overflow-y: auto;
 }
 
+.project-sequence-head {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.clear-terminal-button {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  place-items: center;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.clear-terminal-button:hover {
+  color: var(--danger);
+  background: rgba(178, 67, 67, 0.08);
+}
+
+.clear-terminal-button.confirm {
+  color: #fff;
+  background: var(--danger);
+}
+
+.clear-terminal-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
 .sidebar-label {
   padding: 0 8px 6px;
 }
