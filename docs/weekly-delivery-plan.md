@@ -17,3 +17,12 @@
 - `cad-studio doctor` 输出产品、版本、来源和路径；导出诊断包时路径只保留文件名。
 - Three.js 按需加载 STL、GLB/GLTF、OBJ，DXF 只读覆盖 `LINE`、`CIRCLE`、`LWPOLYLINE`。
 - STEP/IGES 和 DWG 暂不在浏览器内直接解析，继续由 SolidWorks/AutoCAD 原生导出预览图；不以占位图冒充真实几何。
+
+## 第 2 周结果
+
+- `App.tsx` 从 3968 行降至约 3479 行；项目、任务、对话、复核和交付文件分别进入组件/领域模块，后续 CAD 工作流不再继续堆叠到单文件。
+- 左上角项目入口支持项目搜索、归档/恢复、复制项目、重命名和二次确认删除；复制只复制项目元数据与目录引用，不复制任务、对话或 CAD 交付文件。
+- 侧栏任务序列支持终态任务批量清理；排队、执行中和待审批任务始终不能被批量删除。
+- SQLite 保留旧 `app_state` 快照，同时建立项目、对话、消息和任务实体索引；首次打开自动迁移，`app_store_migration_status` 返回源数据与索引数量是否一致。
+- 项目切换在 Playwright 1440×900 / 900×700 验收中无控制台错误，实测 `performance.measure("cad-studio.project-switch")` 为约 18 ms，低于 150 ms 目标。
+- 验证结果：前端构建通过，Rust 15 项通过，Python 118 项通过；真实 SolidWorks/AutoCAD 产物能力仍按能力清单和人工复核门禁处理。
