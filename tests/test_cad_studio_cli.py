@@ -1,0 +1,57 @@
+"""CAD Studio CLI 与桌面端任务语义的一致性测试。"""
+
+from scripts.cad_studio import prepare_job_for_retry
+
+
+def test_cli_retry_preserves_history_and_clears_current_evidence():
+    job = {
+        "schemaVersion": "2.0",
+        "id": "job-cli-retry",
+        "runId": "run-old",
+        "status": "failed",
+        "progress": 100,
+        "result": {"message": "旧结果"},
+        "artifacts": [{"path": "old.step", "producedThisRun": True}],
+        "drawingEvidence": {"status": "failed", "stage": "review"},
+        "reviewFindings": [{"id": "dimension-overlap"}],
+        "reviewGate": {"status": "fail"},
+        "error": "旧错误",
+        "prompt": "不应复制到历史快照",
+    }
+
+    result = prepare_job_for_retry(job, "2026-08-02T00:00:00+00:00")
+
+    assert result["status"] == "queued"
+    assert result["runId"].startswith("retry-")
+    assert result["retryPolicy"]["retryFromStage"] == "drawing-bom"
+    assert result["retryPolicy"]["overwrite"] is False
+    assert result["artifacts"] == []
+    assert result["runHistory"][0]["artifacts"][0]["path"] == "old.step"
+    assert "prompt" not in result["runHistory"][0]
+    for field in ("result", "drawingEvidence", "reviewFindings", "reviewGate", "error"):
+        assert field not in result
+
+
+def test_cli_retry_keeps_only_latest_twenty_runs():
+    job = {
+        "runId": "run-current",
+        "status": "blocked",
+        "runHistory": [{"runId": f"old-{index}"} for index in range(20)],
+    }
+
+    result = prepare_job_for_retry(job, "2026-08-02T00:00:00+00:00")
+
+    assert len(result["runHistory"]) == 20
+    assert result["runHistory"][0]["runId"] == "old-1"
+    assert result["runHistory"][-1]["runId"] == "run-current"
+
+
+def test_cli_retry_rejects_active_job():
+    job = {"runId": "run-active", "status": "running"}
+
+    try:
+        prepare_job_for_retry(job, "2026-08-02T00:00:00+00:00")
+    except ValueError as exc:
+        assert "不可重试" in str(exc)
+    else:
+        raise AssertionError("运行中任务不应允许重试")

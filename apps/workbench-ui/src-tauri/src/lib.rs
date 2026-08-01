@@ -1935,21 +1935,44 @@ fn database_provider_groups(connection: &Connection) -> Result<Value, String> {
 
 fn required_review_checks(job: &Value) -> Vec<&'static str> {
     let mut checks = vec!["native-open", "dimensions", "features", "artifacts"];
+    let required_artifacts = job
+        .get("requiredArtifacts")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default();
     let descriptor = format!(
-        "{} {}",
+        "{} {} {} {}",
+        job.get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
         job.get("expectedOutput")
             .and_then(Value::as_str)
             .unwrap_or_default(),
         job.get("target")
             .and_then(Value::as_str)
-            .unwrap_or_default()
+            .unwrap_or_default(),
+        required_artifacts
     )
     .to_uppercase();
-    if ["DWG", "DXF", "PDF", "图纸"]
+    if job.get("drawingEvidence").is_some()
+        || ["DWG", "DXF", "PDF", "SLDDRW", "DRAWING", "图纸"]
         .iter()
         .any(|token| descriptor.contains(token))
     {
         checks.push("drawing");
+    }
+    if job.get("bomEvidence").is_some()
+        || ["BOM", "物料", "明细表"]
+            .iter()
+            .any(|token| descriptor.contains(token))
+    {
+        checks.push("bom");
     }
     checks
 }
@@ -2749,7 +2772,7 @@ mod tests {
     use super::{
         asset_path, can_delete_job, database_provider_groups, derive_dangerous_capabilities,
         initialize_app_store, is_queue_metadata_path, prepare_job_for_retry, sync_entity_index,
-        sync_task_index,
+        required_review_checks, sync_task_index,
         validate_new_queue_job, validate_preview_extension, wallpaper_kind,
     };
     use rusqlite::{params, Connection};
@@ -2921,6 +2944,32 @@ mod tests {
                 .expect_err("queued job must not be retried");
 
         assert!(error.contains("失败、阻断、取消或待复核"));
+    }
+
+    #[test]
+    fn delivery_package_requires_drawing_and_bom_review_checks() {
+        let mut job = queued_job();
+        job["kind"] = json!("delivery_package");
+        job["target"] = json!("package");
+        job["expectedOutput"] = json!("auto");
+        job["requiredArtifacts"] = json!(["model", "drawing", "bom"]);
+
+        let checks = required_review_checks(&job);
+
+        assert!(checks.contains(&"drawing"));
+        assert!(checks.contains(&"bom"));
+    }
+
+    #[test]
+    fn promoted_domain_evidence_requires_matching_manual_checks() {
+        let mut job = queued_job();
+        job["drawingEvidence"] = json!({"status": "warning"});
+        job["bomEvidence"] = json!({"status": "pass"});
+
+        let checks = required_review_checks(&job);
+
+        assert!(checks.contains(&"drawing"));
+        assert!(checks.contains(&"bom"));
     }
 
     #[test]

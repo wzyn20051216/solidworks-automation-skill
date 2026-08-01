@@ -74,7 +74,12 @@ export function collectJobArtifacts(job?: AutomationJob): ArtifactRecord[] {
     if (path) items.push({ kind, path, ...extra });
   };
   for (const artifact of job.artifacts ?? []) if (artifact?.path) items.push(artifact);
-  if (job.result?.outputPath) pushArtifact("codex_output", job.result.outputPath, { exists: true });
+  if (job.result?.outputPath) {
+    pushArtifact("codex_output", job.result.outputPath, {
+      exists: true,
+      producedThisRun: job.schemaVersion === "1.0" ? false : undefined,
+    });
+  }
   const outputs = job.result?.outputs;
   if (Array.isArray(outputs)) {
     outputs.forEach((item, index) => typeof item === "string" ? pushArtifact(`output_${index}`, item) : item?.path ? items.push(item) : undefined);

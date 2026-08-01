@@ -30,6 +30,8 @@ jobs:
           components: rustfmt, clippy
       - name: Install Python test dependencies
         run: python -m pip install pytest -r requirements.txt -r mcp-server/requirements.txt
+      - name: Verify Python runtime contracts
+        run: python -c "import ezdxf; from mcp.server.fastmcp import FastMCP; print('ezdxf and MCP runtime imports passed')"
       - name: Run Python tests
         run: |
           python -m pytest -q

@@ -750,8 +750,12 @@ function jobReviewStatusLabel(job?: AutomationJob) {
 
 function reviewOptionsFor(job?: AutomationJob): Array<readonly [string, string]> {
   const options: Array<readonly [string, string]> = [...manualReviewOptions];
-  if (/DWG|DXF|PDF|图纸/i.test(`${job?.expectedOutput ?? ""} ${job?.target ?? ""}`)) {
+  const descriptor = `${job?.kind ?? ""} ${job?.expectedOutput ?? ""} ${job?.target ?? ""} ${(job?.requiredArtifacts ?? []).join(" ")}`;
+  if (/DWG|DXF|PDF|SLDDRW|DRAWING|图纸/i.test(descriptor) || job?.drawingEvidence) {
     options.push(["drawing", "已核对图框标题栏、视图、尺寸链、孔表和技术要求"]);
+  }
+  if (/BOM|物料|明细表/i.test(descriptor) || job?.bomEvidence) {
+    options.push(["bom", "已核对 BOM、配置、材料、零件号和数量与模型一致"]);
   }
   return options;
 }
