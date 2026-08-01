@@ -10,6 +10,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _decode_output(raw: bytes | None) -> str:
+    """@brief 兼容 Python UTF-8/GB18030 与 AutoCAD Core Console UTF-16 输出。"""
+    if not raw:
+        return ""
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")) or raw.count(b"\x00") > len(raw) // 4:
+        return raw.decode("utf-16", errors="replace") if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else raw.decode("utf-16-le", errors="replace")
+    try:
+        return raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        try:
+            return raw.decode("gb18030", errors="strict")
+        except UnicodeDecodeError:
+            return raw.decode("utf-8", errors="replace")
+
+
 def run_regression(real_cad: bool = False) -> dict:
     commands = [
         [sys.executable, "scripts/stability_regression.py"],
@@ -19,11 +34,17 @@ def run_regression(real_cad: bool = False) -> dict:
         commands.extend([
             [sys.executable, "tests/solidworks_week3_delivery_regression.py"],
             [sys.executable, "tests/autocad_week4_drawing_regression.py"],
+            [sys.executable, "subskills/autocad-automation/scripts/acad_dotnet_regression.py", "--real-cad"],
         ])
     results = []
     for command in commands:
-        completed = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, check=False)
-        results.append({"command": command, "returncode": completed.returncode, "stdout_tail": completed.stdout[-4000:], "stderr_tail": completed.stderr[-2000:]})
+        completed = subprocess.run(command, cwd=ROOT, capture_output=True, check=False)
+        results.append({
+            "command": command,
+            "returncode": completed.returncode,
+            "stdout_tail": _decode_output(completed.stdout)[-4000:],
+            "stderr_tail": _decode_output(completed.stderr)[-2000:],
+        })
     status = "pass" if all(item["returncode"] == 0 for item in results) else "failed"
     return {"status": status, "real_cad": real_cad, "results": results}
 
@@ -33,6 +54,8 @@ def main() -> int:
     parser.add_argument("--real-cad", action="store_true")
     args = parser.parse_args()
     result = run_regression(args.real_cad)
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="backslashreplace")
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["status"] == "pass" else 1
 

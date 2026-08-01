@@ -188,12 +188,12 @@
     {
       "id": "autocad_dotnet_backend",
       "label": "AutoCAD .NET Managed API 桥接",
-      "level": "reference_only",
+      "level": "pilot",
       "backends": ["autocad-dotnet"],
-      "verified_versions": [],
-      "dependencies": [".NET SDK", "AutoCAD Managed API DLL"],
-      "limitations": ["当前仅完成前置探测；不得自动下载 Autodesk 专有 DLL，不得宣称插件已加载"],
-      "allowed_modes": ["interactive"]
+      "verified_versions": ["2024"],
+      "dependencies": [".NET SDK 8", ".NET Framework 4.8 引用程序集", "AutoCAD 2024 Managed API DLL"],
+      "limitations": ["仅验证 CADSTUDIOPROBE/CADSTUDIOCREATE 白名单命令、真实 DWG 保存重开、PDF/PNG 和实体/图层/尺寸复核", "不暴露任意 AutoLISP、SCR 或 .NET 代码执行；桌面部署仍需受信任路径或签名插件包", "AutoCAD 2025–2026 尚未完成该 .NET 插件真机回归"],
+      "allowed_modes": ["interactive", "reviewed"]
     },
     {
       "id": "routing",

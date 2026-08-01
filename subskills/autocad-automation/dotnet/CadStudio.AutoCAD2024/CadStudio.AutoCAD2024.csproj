@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AssemblyName>CadStudio.AutoCAD2024</AssemblyName>
+    <RootNamespace>CadStudio.AutoCAD2024</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" PrivateAssets="All" />
+    <Reference Include="AcCoreMgd">
+      <HintPath>$(AutoCADInstallDir)\accoremgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AcDbMgd">
+      <HintPath>$(AutoCADInstallDir)\acdbmgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AcMgd">
+      <HintPath>$(AutoCADInstallDir)\acmgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="ValidateAutoCADReferences" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(AutoCADInstallDir)' == ''" Text="必须通过 AutoCADInstallDir 指定本机 AutoCAD 安装目录。" />
+    <Error Condition="!Exists('$(AutoCADInstallDir)\accoremgd.dll')" Text="本机 AutoCAD 安装目录缺少 accoremgd.dll。" />
+    <Error Condition="!Exists('$(AutoCADInstallDir)\acdbmgd.dll')" Text="本机 AutoCAD 安装目录缺少 acdbmgd.dll。" />
+    <Error Condition="!Exists('$(AutoCADInstallDir)\acmgd.dll')" Text="本机 AutoCAD 安装目录缺少 acmgd.dll。" />
+  </Target>
+</Project>

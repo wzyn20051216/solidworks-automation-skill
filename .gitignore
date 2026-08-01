@@ -9,6 +9,8 @@ venv/
 ENV/
 build/
 dist/
+subskills/autocad-automation/dotnet/**/bin/
+subskills/autocad-automation/dotnet/**/obj/
 *.egg-info/
 
 # Node / frontend

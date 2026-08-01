@@ -9,11 +9,16 @@ scripts:
   - scripts/acad_review.py
   - scripts/acad_preview.py
   - scripts/acad_dotnet_preflight.py
+  - scripts/acad_dotnet_regression.py
   - scripts/acad_session.py
 references:
   - references/api-lookup.md
   - references/engineering-patterns.md
   - references/troubleshooting.md
+dotnet:
+  - dotnet/CadStudio.AutoCAD2024/CadStudio.AutoCAD2024.csproj
+  - dotnet/CadStudio.AutoCAD2024/CadStudioCommands.cs
+  - dotnet/CadStudio.AutoCAD2024/NuGet.Config
 depends_on:
   - solidworks-automation
 related:

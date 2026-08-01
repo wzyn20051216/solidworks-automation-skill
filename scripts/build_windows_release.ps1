@@ -45,7 +45,11 @@ foreach ($required in @(
     "examples\08_mini_fan_motion_assembly.py",
     "mcp-server\server.py",
     "mcp-server\register_all_ai_mcp.ps1",
-    "subskills\autocad-automation\SKILL.md"
+    "subskills\autocad-automation\SKILL.md",
+    "subskills\autocad-automation\scripts\acad_dotnet_regression.py",
+    "subskills\autocad-automation\dotnet\CadStudio.AutoCAD2024\CadStudio.AutoCAD2024.csproj",
+    "subskills\autocad-automation\dotnet\CadStudio.AutoCAD2024\CadStudioCommands.cs",
+    "subskills\autocad-automation\dotnet\CadStudio.AutoCAD2024\NuGet.Config"
 )) {
     if (-not (Test-Path -LiteralPath (Join-Path $skill $required))) { throw "Bundled skill is incomplete: $required" }
 }

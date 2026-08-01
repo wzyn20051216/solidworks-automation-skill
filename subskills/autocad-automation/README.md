@@ -1,6 +1,6 @@
 # AutoCAD Automation 子技能
 
-> 当前 DXF 无头预览与结构审查可用；AutoCAD 原生 DWG 写入仍受本机 ActiveX 真机门禁，不能按稳定能力宣传。
+> 当前 DXF 无头预览与结构审查可用；AutoCAD 2024 .NET 白名单后端已通过真实 DWG/PDF/PNG 回归，等级为 `pilot`。ActiveX/COM 原生写入仍受真机门禁，不能按稳定能力宣传。
 
 本子技能是 `solidworks-automation-skill` 技能库中的 AutoCAD / DWG / DXF 专项能力。父技能负责 SolidWorks 三维建模、装配、工程图和导出；本子技能负责 Windows 桌面 AutoCAD 的 Python COM 自动化，包括二维绘图、批量改图、图层/文字/标注处理、DWG/DXF/PDF 导出、线稿矢量化和图纸自检。
 
@@ -20,6 +20,15 @@
 当任务要求 SolidWorks 原生零件、装配体或工程图时，优先使用父技能；当任务明确涉及 AutoCAD、DWG、DXF、二维 CAD 图纸、线稿转 CAD 或批量改 DWG 时，读取本子技能。
 
 ## 快速命令
+
+检查和回归 AutoCAD .NET 后端：
+
+```powershell
+python subskills\autocad-automation\scripts\acad_dotnet_preflight.py
+python subskills\autocad-automation\scripts\acad_dotnet_regression.py --real-cad
+```
+
+回归脚本只启动其拥有的 AutoCAD Core Console，并只执行 `CADSTUDIOPROBE`、`CADSTUDIOCREATE` 固定命令。桌面 AutoCAD 部署应使用受信任路径或签名插件包，不得开放任意代码执行入口。
 
 ```powershell
 python subskills\autocad-automation\scripts\acad_preflight.py --launch

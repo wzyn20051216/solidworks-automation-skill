@@ -54,5 +54,6 @@
 - 工程图结构审查返回图纸、视图、真实尺寸、表格、图框模板和人工复核字段；BOM 增加模型/工程图/复核报告追溯关系。
 - Automation Job 2.0 支持 `drawingEvidence`、`bomEvidence`、`reviewFindings` 和 `artifactRelations`，worker 会根据领域证据正确落为 `blocked`、`failed` 或 `review_required`。
 - 交付页按模型、工程图、BOM、预览和复核报告分组显示；旧 Job 1.0 仍按原字段读取。
-- AutoCAD 新增后端前置探测和统一状态：DXF 无头 `pilot`、白名单脚本 `pilot`、COM 当前 `blocked`、.NET 在缺 SDK 或 Managed API 时 `blocked`。当前本机已发现 AutoCAD Managed API DLL，但没有 .NET SDK，未自动安装系统依赖。
+- AutoCAD 后端状态保持独立：DXF 无头 `pilot`、白名单脚本 `pilot`、COM 当前 `blocked`；.NET SDK 8 已安装到当前用户目录，AutoCAD 2024 白名单插件已通过 `NETLOAD`、真实 DWG 保存重开、PDF/PNG 和实体/图层/尺寸真机复核，因此 .NET 后端提升为 `pilot`。
+- .NET 回归只允许 `CADSTUDIOPROBE/CADSTUDIOCREATE` 固定命令，不提供任意 AutoLISP、SCR 或 C# 执行；AutoCAD 2025–2026 和桌面签名插件部署仍需后续验证。
 - 新增综合回归 `tests/cad_studio_weekly_regression.py` 和 SolidWorks 工程图真机回归 `tests/solidworks_week4_drawing_regression.py`；真实 CAD 只能显式使用 `--real-cad` 或自托管 CI 运行。

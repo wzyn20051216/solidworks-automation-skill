@@ -10,7 +10,7 @@ metadata: { "os": ["win32"], "requires": { "anyBins": ["python", "py"], "pythonP
 
 ## 目标
 
-让代理在本机 Windows 桌面环境中可靠控制 AutoCAD，而不是每次凭记忆临时拼命令。默认路线是 Python + COM/ActiveX，但原生写入必须先通过 `capabilities.yaml` 门禁和本机真机回归；当前 AutoCAD 2024 的 Documents/Layers/SelectionSets 动态代理不稳定，因此原生 DWG 绘图按 `not_implemented` 处理。DXF 无头读取、预览和结构审查可直接使用。遇到 COM 无法稳定表达的事务、动态交互、复杂数据库遍历或企业级部署时，再切换到 AutoLISP/SCR、AutoCAD .NET、ObjectARX 或 APS Design Automation。
+让代理在本机 Windows 桌面环境中可靠控制 AutoCAD，而不是每次凭记忆临时拼命令。默认路线是 Python + COM/ActiveX，但原生写入必须先通过 `capabilities.yaml` 门禁和本机真机回归；当前 AutoCAD 2024 的 Documents/Layers/SelectionSets 动态代理不稳定，因此 COM 原生 DWG 绘图按 `not_implemented` 处理。DXF 无头读取、预览和结构审查可直接使用。AutoCAD 2024 .NET 白名单后端已通过真实 DWG 保存重开、PDF/PNG 和实体/图层/尺寸回归，保持 `pilot`；只允许固定命令，不得推广成任意代码执行。
 
 ## 适用场景
 

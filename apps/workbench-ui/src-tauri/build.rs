@@ -1,7 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const INCLUDED_EXTENSIONS: &[&str] = &["js", "json", "md", "ps1", "py", "txt", "yaml", "yml"];
+const INCLUDED_EXTENSIONS: &[&str] = &[
+    "config", "cs", "csproj", "js", "json", "md", "ps1", "py", "txt", "yaml", "yml",
+];
+const EXCLUDED_DIRECTORIES: &[&str] = &[".git", "__pycache__", "bin", "obj"];
 
 fn copy_release_tree(source: &Path, destination: &Path) {
     if !source.exists() {
@@ -12,7 +15,7 @@ fn copy_release_tree(source: &Path, destination: &Path) {
         let entry = entry.expect("read release resource entry");
         let path = entry.path();
         let name = entry.file_name();
-        if name == "__pycache__" || name == ".git" {
+        if EXCLUDED_DIRECTORIES.iter().any(|excluded| name == *excluded) {
             continue;
         }
         let target = destination.join(name);
