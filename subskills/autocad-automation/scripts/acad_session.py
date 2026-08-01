@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import ctypes
+import math
 import time
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional, Sequence, Tuple
@@ -326,6 +327,68 @@ class AutoCADSession:
         entity = self.model.AddMText(acad_point(point), float(width), str(text))
         return self._apply_entity_options(entity, layer, color)
 
+    def add_dim_aligned(
+        self,
+        point1: PointLike,
+        point2: PointLike,
+        text_position: PointLike,
+        layer: Optional[str] = "DIM",
+        color: Optional[int] = None,
+    ) -> Any:
+        """@brief 创建真实对齐尺寸实体 AcDbAlignedDimension。"""
+        entity = self.model.AddDimAligned(
+            acad_point(point1),
+            acad_point(point2),
+            acad_point(text_position),
+        )
+        return self._apply_entity_options(entity, layer, color)
+
+    def add_dim_rotated(
+        self,
+        point1: PointLike,
+        point2: PointLike,
+        dim_line_position: PointLike,
+        rotation_degrees: float,
+        layer: Optional[str] = "DIM",
+        color: Optional[int] = None,
+    ) -> Any:
+        """@brief 创建真实旋转尺寸，输入角度使用工程师常用的度。"""
+        entity = self.model.AddDimRotated(
+            acad_point(point1),
+            acad_point(point2),
+            acad_point(dim_line_position),
+            math.radians(float(rotation_degrees)),
+        )
+        return self._apply_entity_options(entity, layer, color)
+
+    def add_dim_diametric(
+        self,
+        center: PointLike,
+        radius: float,
+        *,
+        angle_degrees: float = 0.0,
+        leader_length: float = 8.0,
+        layer: Optional[str] = "DIM",
+        color: Optional[int] = None,
+    ) -> Any:
+        """@brief 创建真实直径尺寸实体 AcDbDiametricDimension。"""
+        xyz = list(center)
+        if len(xyz) == 2:
+            xyz.append(0.0)
+        if len(xyz) != 3:
+            raise ValueError(f"圆心必须是二维或三维点: {center!r}")
+        angle = math.radians(float(angle_degrees))
+        dx = math.cos(angle) * float(radius)
+        dy = math.sin(angle) * float(radius)
+        chord = (float(xyz[0]) + dx, float(xyz[1]) + dy, float(xyz[2]))
+        far_chord = (float(xyz[0]) - dx, float(xyz[1]) - dy, float(xyz[2]))
+        entity = self.model.AddDimDiametric(
+            acad_point(chord),
+            acad_point(far_chord),
+            float(leader_length),
+        )
+        return self._apply_entity_options(entity, layer, color)
+
     def send_command(self, command: str) -> None:
         """@brief 向 AutoCAD 命令行发送命令。
 
@@ -360,9 +423,15 @@ class AutoCADSession:
             time.sleep(step_delay_s)
 
     def iter_model_entities(self) -> Iterator[Any]:
-        """@brief 遍历 ModelSpace 实体。"""
-        for entity in self.model:
-            yield entity
+        """@brief 遍历 ModelSpace 实体，兼容不能直接枚举的动态代理。"""
+        model_space = self.model
+        try:
+            count = int(model_space.Count)
+        except Exception:
+            yield from model_space
+            return
+        for index in range(count):
+            yield model_space.Item(index)
 
     def save_as(self, path: str | Path) -> Path:
         """@brief 保存当前图纸。
