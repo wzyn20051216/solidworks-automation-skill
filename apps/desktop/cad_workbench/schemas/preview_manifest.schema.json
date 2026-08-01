@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CAD Studio Preview Manifest",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["previewVersion", "sourceArtifact", "previewArtifact", "units", "generatedAt"],
+  "properties": {
+    "previewVersion": { "type": "string", "const": "1.0" },
+    "sourceArtifact": { "type": "string", "minLength": 1 },
+    "previewArtifact": { "type": "string", "minLength": 1 },
+    "fallbackImage": { "type": "string" },
+    "mode": { "type": "string", "enum": ["delivery-preview", "demo-showcase"] },
+    "isDemo": { "type": "boolean" },
+    "units": { "type": "string", "enum": ["mm", "cm", "m", "inch", "unitless"] },
+    "bounds": { "type": "object", "additionalProperties": true },
+    "camera": { "type": "object", "additionalProperties": true },
+    "entities": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "layers": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "evidenceRefs": { "type": "array", "items": { "type": "string" } },
+    "generatedAt": { "type": "string", "minLength": 1 },
+    "sha256": { "type": "string" },
+    "limitations": { "type": "array", "items": { "type": "string" } }
+  }
+}

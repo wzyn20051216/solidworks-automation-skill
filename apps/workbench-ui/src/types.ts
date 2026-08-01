@@ -111,6 +111,14 @@ export type WorkerLogEntry = { status?: string; message?: string; at?: string; w
 export type ArtifactRecord = {
   kind?: string;
   path?: string;
+  type?: "artifact" | "preview" | string;
+  format?: string;
+  sourceArtifact?: string;
+  sourceBackend?: string;
+  previewManifest?: string;
+  fallback?: string;
+  isDemo?: boolean;
+  interactive?: boolean;
   exists?: boolean;
   isDirectory?: boolean;
   sizeBytes?: number;
@@ -183,6 +191,12 @@ export type AutomationJob = {
   capabilitySnapshot?: Record<string, unknown>;
   assumptions?: Array<Record<string, unknown>>;
   requiredArtifacts?: string[];
+  preferredBackend?: "auto" | "headless" | "solidworks" | "autocad";
+  requiredOutputs?: string[];
+  nativeFormatRequired?: boolean;
+  fallbackPolicy?: "allow_open_formats" | "native_only" | "blocked";
+  previewManifest?: string;
+  evidenceGraph?: Record<string, unknown>;
   verificationEvidence?: Array<Record<string, unknown>>;
   drawingEvidence?: DomainEvidence;
   bomEvidence?: DomainEvidence;

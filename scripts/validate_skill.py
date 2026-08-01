@@ -106,6 +106,9 @@ def check_json_files():
     targets = [
         ROOT / "apps/desktop/cad_workbench/schemas/automation_job.schema.json",
         ROOT / "apps/desktop/cad_workbench/schemas/codex_final_response.schema.json",
+        ROOT / "apps/desktop/cad_workbench/schemas/neutral_cad_document.schema.json",
+        ROOT / "apps/desktop/cad_workbench/schemas/preview_manifest.schema.json",
+        ROOT / "apps/desktop/cad_workbench/schemas/evidence_graph.schema.json",
         ROOT / "subskills/solidworks-vibecad/schemas/design_plan.schema.json",
     ]
     for path in targets:

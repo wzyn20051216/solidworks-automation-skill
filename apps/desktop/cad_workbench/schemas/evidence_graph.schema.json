@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CAD Studio Evidence Graph",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "nodes", "edges"],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0" },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "type"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "type": { "type": "string" },
+          "label": { "type": "string" },
+          "artifact": { "type": "string" },
+          "status": { "type": "string" }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["from", "to", "relation"],
+        "properties": {
+          "from": { "type": "string", "minLength": 1 },
+          "to": { "type": "string", "minLength": 1 },
+          "relation": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

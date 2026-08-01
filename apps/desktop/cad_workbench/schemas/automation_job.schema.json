@@ -130,6 +130,28 @@
         "additionalProperties": true
       }
     },
+    "preferredBackend": {
+      "type": "string",
+      "enum": ["auto", "headless", "solidworks", "autocad"]
+    },
+    "requiredOutputs": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "nativeFormatRequired": {
+      "type": "boolean"
+    },
+    "fallbackPolicy": {
+      "type": "string",
+      "enum": ["allow_open_formats", "native_only", "blocked"]
+    },
+    "previewManifest": {
+      "type": "string"
+    },
+    "evidenceGraph": {
+      "type": "object",
+      "additionalProperties": true
+    },
     "drawingEvidence": {
       "type": "object",
       "additionalProperties": true

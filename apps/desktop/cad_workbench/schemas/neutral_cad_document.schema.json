@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CAD Studio Neutral CAD Document",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schemaVersion", "documentId", "units", "coordinateSystem", "features"],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0" },
+    "documentId": { "type": "string", "minLength": 1 },
+    "title": { "type": "string" },
+    "units": { "type": "string", "enum": ["mm", "cm", "m", "inch"] },
+    "coordinateSystem": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["upAxis", "frontAxis", "origin"],
+      "properties": {
+        "upAxis": { "type": "string", "enum": ["X", "Y", "Z"] },
+        "frontAxis": { "type": "string", "enum": ["X", "Y", "Z", "-X", "-Y", "-Z"] },
+        "origin": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number" } }
+      }
+    },
+    "parameters": { "type": "object", "additionalProperties": { "type": ["number", "string", "boolean"] } },
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "type"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "type": { "type": "string" },
+          "name": { "type": "string" },
+          "operation": { "type": "string" },
+          "parameters": { "type": "object", "additionalProperties": true },
+          "evidenceRefs": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "materials": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "assemblies": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "metadata": { "type": "object", "additionalProperties": true }
+  }
+}
