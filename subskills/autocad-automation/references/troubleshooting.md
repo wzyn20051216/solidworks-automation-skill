@@ -229,3 +229,16 @@ PDF 输出依赖打印机、PC3、页面设置、CTB/STB、后台打印配置。
 - 关闭后台打印或等待 Plot 完成。
 - 输出后检查 PDF 文件大小。
 - 关键交付前人工打开 PDF 看图框、方向、比例和线宽。
+
+## 任务实例退出后仍被误报为运行中
+
+症状：图纸、DWG/DXF 和预览均已生成，系统随后也看不到 `acad.exe`，但回归报告仍写着“任务启动的 AutoCAD 实例未在超时内退出”。
+
+原因：`Quit()` 和 `TerminateProcess()` 都可能先返回，再由 Windows 异步完成进程对象退出。只检查一次或等待时间过短，会把退出状态传播延迟误判为遗留进程。
+
+处理：
+
+1. 只记录由 `DispatchEx` 启动且经 AutoCAD 主窗口句柄解析出的 PID；附着到用户已有实例时禁止调用 `Quit()` 或强制终止。
+2. 先礼貌调用 `Quit()` 并等待精确 PID；超时后只终止已记录的任务 PID，再等待并最终复查退出状态。
+3. 报告保留 `owned_process_id`、`quit_requested`、`forced_termination_used`、`process_exit_confirmed` 和清理错误，禁止由命令行异常处理覆盖原始清理证据。
+4. 若仍失败，先用 `Get-Process acad -ErrorAction SilentlyContinue` 核对实际进程，再依据报告 PID 排查；不得按进程名批量关闭用户 AutoCAD。

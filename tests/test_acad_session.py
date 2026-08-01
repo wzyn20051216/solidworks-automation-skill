@@ -254,3 +254,26 @@ def test_quit_owned_instance_force_terminates_only_recorded_pid(monkeypatch):
     assert session.quit_owned_instance() is True
     assert terminated == [4321]
     assert session.forced_termination_used is True
+
+
+def test_quit_owned_instance_waits_for_delayed_exit_after_termination(monkeypatch):
+    """@brief 强制终止后系统状态短暂滞后时，不应误报清理失败。"""
+    application = type("App", (), {"Quit": lambda self: None})()
+    session = acad_session.AutoCADSession()
+    session.app = application
+    session.started_by_session = True
+    session.owned_process_id = 2468
+    terminated = []
+    states = iter([True] * 51 + [True, True, False])
+    monkeypatch.setattr(acad_session.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(acad_session, "_process_is_running", lambda _pid: next(states))
+    monkeypatch.setattr(
+        acad_session,
+        "_terminate_owned_process",
+        lambda process_id: terminated.append(process_id) is None,
+    )
+
+    assert session.quit_owned_instance() is True
+    assert terminated == [2468]
+    assert session.last_cleanup["process_exit_confirmed"] is True
+    assert session.last_cleanup["forced_termination_used"] is True

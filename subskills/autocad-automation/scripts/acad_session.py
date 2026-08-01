@@ -71,6 +71,22 @@ def _process_is_running(process_id: int) -> bool:
         return False
 
 
+def _wait_for_process_exit(
+    process_id: int,
+    *,
+    timeout_s: float,
+    poll_interval_s: float = 0.1,
+) -> bool:
+    """@brief 在有限时间内等待精确 PID 退出，并在超时边界再次确认。"""
+    interval = max(float(poll_interval_s), 0.01)
+    attempts = max(1, int(math.ceil(max(float(timeout_s), 0.0) / interval)))
+    for _ in range(attempts):
+        if not _process_is_running(process_id):
+            return True
+        time.sleep(interval)
+    return not _process_is_running(process_id)
+
+
 def _terminate_owned_process(process_id: int) -> bool:
     """@brief 终止已由窗口句柄确认归当前任务所有的精确 PID。"""
     try:
@@ -162,6 +178,7 @@ class AutoCADSession:
         self.started_by_session = False
         self.owned_process_id: Optional[int] = None
         self.forced_termination_used = False
+        self.last_cleanup: dict[str, Any] = {}
 
     def connect(self) -> "AutoCADSession":
         """@brief 连接 AutoCAD，并尝试绑定活动文档。"""
@@ -171,6 +188,7 @@ class AutoCADSession:
             return_ownership=True,
         )
         self.forced_termination_used = False
+        self.last_cleanup = {}
         self.ensure_visible()
         if self.started_by_session:
             for _ in range(30):
@@ -688,30 +706,58 @@ class AutoCADSession:
     def quit_owned_instance(self) -> bool:
         """@brief 仅退出由当前会话启动的 AutoCAD 实例。"""
         if self.app is None or not self.started_by_session:
+            self.last_cleanup = {
+                "owned_instance": False,
+                "owned_process_id": self.owned_process_id,
+                "quit_requested": False,
+                "forced_termination_used": False,
+                "process_exit_confirmed": None,
+                "error": None,
+            }
             return False
         app = self.app
         process_id = self.owned_process_id
+        cleanup: dict[str, Any] = {
+            "owned_instance": True,
+            "owned_process_id": process_id,
+            "quit_requested": False,
+            "forced_termination_used": False,
+            "process_exit_confirmed": False,
+            "error": None,
+        }
         self.doc = None
         self.app = None
         self.started_by_session = False
         self.owned_process_id = None
         try:
             _retry_com_busy(lambda: app.Quit(), "退出任务拥有的 AutoCAD")
-            if process_id is not None:
-                for _ in range(50):
-                    if not _process_is_running(process_id):
-                        return True
-                    time.sleep(0.1)
-                self.forced_termination_used = _terminate_owned_process(process_id)
-                if self.forced_termination_used:
-                    for _ in range(20):
-                        if not _process_is_running(process_id):
-                            return True
-                        time.sleep(0.1)
-                return False
+            cleanup["quit_requested"] = True
+        except Exception as exc:
+            cleanup["error"] = f"AutoCAD Quit 调用失败: {exc}"
+
+        if process_id is None:
+            # 无法证明具体 PID 所有权时绝不强制结束进程，只把 COM Quit 结果作为清理结果。
+            confirmed = bool(cleanup["quit_requested"])
+            cleanup["process_exit_confirmed"] = None
+            self.last_cleanup = cleanup
+            return confirmed
+
+        if _wait_for_process_exit(process_id, timeout_s=5.0):
+            cleanup["process_exit_confirmed"] = True
+            self.last_cleanup = cleanup
             return True
-        except Exception:
-            return False
+
+        self.forced_termination_used = _terminate_owned_process(process_id)
+        cleanup["forced_termination_used"] = self.forced_termination_used
+        if self.forced_termination_used and _wait_for_process_exit(process_id, timeout_s=10.0):
+            cleanup["process_exit_confirmed"] = True
+            self.last_cleanup = cleanup
+            return True
+
+        if cleanup["error"] is None:
+            cleanup["error"] = "任务拥有的 AutoCAD PID 在退出超时后仍显示为活动状态"
+        self.last_cleanup = cleanup
+        return False
 
 
 def point_tuple(value: Any) -> Tuple[float, float, float]:

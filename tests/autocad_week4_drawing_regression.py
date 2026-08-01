@@ -216,7 +216,7 @@ def run_regression(output_root: Path, *, run_id: str | None = None) -> dict:
         if result is not None:
             result["cleanup"] = {
                 "owned_instance_closed": owned_instance_closed if owned_instance else None,
-                "forced_termination_used": session.forced_termination_used,
+                **session.last_cleanup,
             }
             report_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
             result["report"] = _require_file(report_path, "JSON 报告")
@@ -240,14 +240,22 @@ def main() -> int:
     try:
         result = run_regression(output_root, run_id=run_id)
     except Exception as exc:
-        result = {
+        result_path = output_root / run_id / "W4-001-drawing-report.json"
+        result = {}
+        if result_path.is_file():
+            try:
+                loaded = json.loads(result_path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    result = loaded
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                pass
+        result.update({
             "status": "failed",
             "run_id": run_id,
             "output_dir": str(output_root / run_id),
             "error": str(exc),
             "traceback": traceback.format_exc(),
-        }
-        result_path = output_root / run_id / "W4-001-drawing-report.json"
+        })
         result_path.parent.mkdir(parents=True, exist_ok=True)
         result_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(result, ensure_ascii=False, indent=2))
