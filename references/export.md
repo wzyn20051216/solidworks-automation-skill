@@ -90,13 +90,16 @@ def batch_convert(sw, input_dir, output_dir, input_ext=".sldprt", output_ext=".s
 
 `scripts/sw_delivery.py::pack_and_go()` 使用 SolidWorks 原生 `IModelDocExtension.GetPackAndGo()`、`IPackAndGo.SetSaveToName()` 和 `IModelDocExtension.SavePackAndGo()`。这些签名已由本机 SolidWorks 2024 Interop 与官方 API Help 交叉核对。
 
+兼容性说明：官方与 Interop 都把 `GetPackAndGo()` 暴露为零参数返回 `IPackAndGo`；但本机 SW2024 + pywin32 运行时对象会报“非选择性的参数”。封装函数会先走 pywin32 官方零参数路径，失败后改用 `comtypes` 早绑定调用原生 Pack and Go，并保留 pywin32 错误上下文。
+
 安全边界：
 
 1. 当前文档必须已经保存到磁盘。
 2. 目标目录非空时默认拒绝；只有显式 `overwrite=True` 才继续。
 3. 不用 Python 自行复制引用文件，不猜测装配引用关系。
-4. 返回逐文件大小、SHA-256 和 `produced_this_run`；状态码非零或本轮没有真实文件时不得标记成功。
-5. Pack and Go 目前为 `pilot`，外部引用、Toolbox、压缩组件和工程图仍需人工抽查。
+4. 返回逐文件大小、SHA-256 和 `produced_this_run`；状态码非零、本轮没有真实文件或依赖文件漏包时不得标记成功。
+5. 本机 SW2024 真机回归显示：装配依赖 API 能看到 `.SLDPRT` 引用，但原生 `IPackAndGo.GetDocumentNames()` 可能只返回顶层 `.SLDASM`。封装会把这类情况记录到 `missing_dependencies` 并令 `success=False`。
+6. Pack and Go 目前为 `pilot`，外部引用、Toolbox、压缩组件和工程图仍需人工抽查。
 
 ## 拆分 STEP 再装配的坐标规则
 

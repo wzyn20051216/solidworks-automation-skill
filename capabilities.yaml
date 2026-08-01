@@ -61,8 +61,8 @@
       "level": "pilot",
       "backends": ["solidworks-com", "local-filesystem"],
       "verified_versions": ["2024"],
-      "dependencies": ["SolidWorks", "pywin32"],
-      "limitations": ["默认拒绝非空目标目录；外部引用和 Toolbox 组件必须人工抽查"],
+      "dependencies": ["SolidWorks", "pywin32", "comtypes"],
+      "limitations": ["默认拒绝非空目标目录；本机 SW2024 原生 Pack and Go 可能只输出顶层装配体，封装会以 missing_dependencies 标记失败；外部引用和 Toolbox 组件必须人工抽查"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {

@@ -106,7 +106,11 @@ def update_dimension_mm(
             names_variant,
         )
     )
-    rebuild_success = bool(model.EditRebuild3()) if rebuild and status_code == 0 else status_code == 0
+    rebuild_success = (
+        bool(get_com_member(model, "EditRebuild3"))
+        if rebuild and status_code == 0
+        else status_code == 0
+    )
     after = (
         {name: _dimension_value_mm(dimension, name) for name in evidence_names}
         if evidence_names

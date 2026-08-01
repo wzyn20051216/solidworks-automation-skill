@@ -52,6 +52,53 @@ class FakeExtension:
         return [0, 0]
 
 
+class FakePropertyPackAndGo(FakePackAndGo):
+    """@brief 模拟 SW2024 将无参 GetDocumentNamesCount 暴露为伪属性。"""
+
+    GetDocumentNamesCount = 2
+
+
+class FakePropertyExtension(FakeExtension):
+    """@brief 模拟 SW2024 将无参 GetPackAndGo 暴露为伪属性。"""
+
+    def __init__(self, source):
+        super().__init__(source)
+        self.package = FakePropertyPackAndGo()
+
+    @property
+    def GetPackAndGo(self):
+        return self.package
+
+
+class FakeByRefExtension(FakeExtension):
+    """@brief 模拟需要显式 by-ref 输出参数的 GetPackAndGo。"""
+
+    def GetPackAndGo(self, output):
+        output.value = self.package
+        return None
+
+
+class FakeFailingZeroArgByRefExtension(FakeByRefExtension):
+    """@brief 模拟零参数调用失败、by-ref 调用成功的 COM 包装。"""
+
+    def __getattribute__(self, name):
+        if name == "GetPackAndGo":
+            def getter(*args):
+                if not args:
+                    raise TypeError("缺少必要的 by-ref 输出参数")
+                return FakeByRefExtension.GetPackAndGo(self, *args)
+
+            return getter
+        return super().__getattribute__(name)
+
+
+class FakeVariant:
+    """@brief 测试专用 VARIANT，记录 by-ref 输出值。"""
+
+    def __init__(self, _variant_type, value):
+        self.value = value
+
+
 class FakeAssembly:
     def __init__(self, source, components):
         self.source = str(source)
@@ -66,6 +113,28 @@ class FakeAssembly:
 
     def GetPathName(self):
         return self.source
+
+
+class FakeDependencyAssembly(FakeAssembly):
+    """@brief 提供 GetDependencies2，用于验证 Pack and Go 漏包门禁。"""
+
+    def __init__(self, source, components, dependencies):
+        super().__init__(source, components)
+        self.dependencies = dependencies
+
+    def GetDependencies2(self, *_args):
+        values = []
+        for path in self.dependencies:
+            values.extend([Path(path).stem, str(path)])
+        return tuple(values)
+
+
+class FakeOleAssembly(FakeAssembly):
+    """@brief 提供 _oleobj_，用于验证强类型父文档包装。"""
+
+    def __init__(self, source, components):
+        super().__init__(source, components)
+        self._oleobj_ = object()
 
 
 def fake_property_reader(model, name, configuration_name=""):
@@ -108,6 +177,97 @@ def test_pack_and_go_uses_native_api_and_records_outputs(tmp_path):
     assert report["status_codes"] == [0, 0]
     assert report["produced_count"] == 2
     assert all(item["produced_this_run"] for item in report["outputs"])
+
+
+def test_pack_and_go_accepts_sw2024_pseudo_properties(tmp_path):
+    source = tmp_path / "assembly.sldasm"
+    source.write_text("assembly", encoding="utf-8")
+    model = FakeAssembly(source, [])
+    model.Extension = FakePropertyExtension(source)
+
+    report = sw_delivery.pack_and_go(model, tmp_path / "package")
+
+    assert report["success"] is True
+    assert report["document_count"] == 2
+
+
+def test_pack_and_go_accepts_byref_packandgo_output(tmp_path, monkeypatch):
+    source = tmp_path / "assembly.sldasm"
+    source.write_text("assembly", encoding="utf-8")
+    model = FakeAssembly(source, [])
+    model.Extension = FakeFailingZeroArgByRefExtension(source)
+    monkeypatch.setattr(sw_delivery, "_VARIANT", FakeVariant)
+
+    report = sw_delivery.pack_and_go(model, tmp_path / "package")
+
+    assert report["success"] is True
+    assert report["document_count"] == 2
+
+
+def test_pack_and_go_falls_back_to_comtypes_backend(tmp_path, monkeypatch):
+    source = tmp_path / "assembly.sldasm"
+    source.write_text("assembly", encoding="utf-8")
+    model = FakeAssembly(source, [])
+
+    def failing_pywin32(*_args, **_kwargs):
+        raise RuntimeError("pywin32 GetPackAndGo failed")
+
+    def fake_comtypes(_source_path, target, existing_files, **_kwargs):
+        output = target / "assembly.sldasm"
+        output.write_bytes(b"assembly")
+        return {
+            "backend": "comtypes",
+            "document_count": 1,
+            "status_codes": [0],
+            "outputs": sw_delivery._collect_new_outputs(target, existing_files),
+            "produced_count": 1,
+        }
+
+    monkeypatch.setattr(sw_delivery, "_pywin32_pack_and_go", failing_pywin32)
+    monkeypatch.setattr(sw_delivery, "_comtypes_pack_and_go", fake_comtypes)
+
+    report = sw_delivery.pack_and_go(model, tmp_path / "package")
+
+    assert report["success"] is True
+    assert report["backend"] == "comtypes"
+    assert report["fallback_errors"] == ["pywin32: pywin32 GetPackAndGo failed"]
+
+
+def test_pack_and_go_fails_when_native_package_misses_dependencies(tmp_path):
+    source = tmp_path / "assembly.sldasm"
+    source.write_text("assembly", encoding="utf-8")
+    dependency = tmp_path / "needed.sldprt"
+    dependency.write_text("part", encoding="utf-8")
+    model = FakeDependencyAssembly(source, [], [dependency])
+
+    report = sw_delivery.pack_and_go(model, tmp_path / "package")
+
+    assert report["success"] is False
+    assert report["missing_dependencies"] == [str(dependency)]
+    assert report["status_codes"] == [0, 0]
+
+
+def test_model_doc_extension_wraps_parent_with_generated_interface(tmp_path, monkeypatch):
+    source = tmp_path / "assembly.sldasm"
+    source.write_text("assembly", encoding="utf-8")
+    model = FakeOleAssembly(source, [])
+    expected_extension = model.Extension
+
+    class FakeTypedModel:
+        def __init__(self, ole_object):
+            assert ole_object is model._oleobj_
+            self.Extension = expected_extension
+
+    class FakeTypeLibraryModule:
+        IModelDoc2 = FakeTypedModel
+
+    monkeypatch.setattr(
+        sw_delivery,
+        "_load_sldworks_typelib_module",
+        lambda: FakeTypeLibraryModule,
+    )
+
+    assert sw_delivery._model_doc_extension(model) is expected_extension
 
 
 def test_pack_and_go_rejects_nonempty_target_by_default(tmp_path):

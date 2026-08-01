@@ -105,6 +105,27 @@ errors = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
 warnings = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
 ```
 
+### Pack and Go 获取对象时报缺少参数
+
+场景：`model.Extension.GetPackAndGo()` 或强类型 `IModelDocExtension.GetPackAndGo()` 报缺少必要参数，但官方 API 和 Interop 反射都显示它是零参数返回 `IPackAndGo`。
+
+原因：部分 SW2024 + pywin32 运行时对象会把 `[out, retval] IPackAndGo**` 编组错位。实测显式 `VT_BYREF | VT_DISPATCH` 仍可能拿不到返回指针。
+
+稳定写法：优先使用 `sw_delivery.pack_and_go()`。封装会先尝试 pywin32 官方零参数调用；若 pywin32 抛出签名错误，再使用 `comtypes` 早绑定调用原生 `IModelDocExtension.GetPackAndGo()` / `SavePackAndGo()`。
+
+```python
+from sw_delivery import pack_and_go
+
+report = pack_and_go(assembly, r"E:\\delivery\\pack_and_go", flatten=True)
+assert report["success"], report
+```
+
+### Pack and Go 只输出顶层装配体
+
+场景：`IModelDoc2.GetDependencies2()` 能返回装配体引用的 `.SLDPRT`，但 `IPackAndGo.GetDocumentNames()` 只有顶层 `.SLDASM`，保存后交付包也只有装配文件。
+
+处理：不要用 Python 手工复制零件来伪装 Pack and Go 成功。`sw_delivery.pack_and_go()` 会把依赖 API 返回但原生包未输出的文件列入 `missing_dependencies`，并返回 `success=False`。这类结果必须保留为 `pilot/blocked` 证据，等待人工确认 SolidWorks 选项、引用状态或版本差异。
+
 ## 操作失败
 
 ### run_review 只截到一个零件或子装配

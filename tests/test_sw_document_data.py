@@ -73,6 +73,12 @@ class FakeModel:
         return True
 
 
+class FakePropertyRebuildModel(FakeModel):
+    """@brief 模拟 SW2024 将 EditRebuild3 暴露为布尔伪属性的行为。"""
+
+    EditRebuild3 = True
+
+
 def setup_module():
     document_data.VARIANT = FakeVariant
     document_data.pythoncom.VT_ARRAY = 0x2000
@@ -94,6 +100,18 @@ def test_updates_specific_configuration_with_mm_conversion():
     assert result["before_mm"] == {"加工": 20.0}
     assert result["after_mm"] == {"加工": 35.0}
     assert model.dimension.values["默认"] == 0.01
+
+
+def test_accepts_edit_rebuild_as_boolean_property():
+    model = FakePropertyRebuildModel()
+    result = document_data.update_dimension_mm(
+        model,
+        "D1@Boss-Extrude1",
+        15.0,
+    )
+    assert result["success"] is True
+    assert result["rebuild_success"] is True
+    assert result["after_mm"] == {"current": 15.0}
 
 
 def test_rejects_missing_dimension_and_invalid_value():
