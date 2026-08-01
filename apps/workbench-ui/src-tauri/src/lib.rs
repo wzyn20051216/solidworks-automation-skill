@@ -964,6 +964,68 @@ fn retry_run_id() -> String {
     format!("retry-{nanos}")
 }
 
+/// @brief 从终态任务推断局部重跑的最早工程阶段。
+fn retry_from_stage(job: &Value) -> String {
+    if let Some(phases) = job
+        .get("result")
+        .and_then(|result| result.get("engineeringPlan"))
+        .and_then(|plan| plan.get("phases"))
+        .and_then(Value::as_array)
+    {
+        if let Some(id) = phases.iter().find_map(|phase| {
+            let status = phase.get("status").and_then(Value::as_str)?;
+            if matches!(status, "blocked" | "failed" | "review_required") {
+                phase.get("id").and_then(Value::as_str)
+            } else {
+                None
+            }
+        }) {
+            return id.to_string();
+        }
+    }
+    for evidence_key in ["drawingEvidence", "bomEvidence"] {
+        let evidence = job.get(evidence_key);
+        let status = evidence.and_then(|item| item.get("status")).and_then(Value::as_str);
+        if matches!(status, Some("blocked" | "failed" | "fail" | "warning")) {
+            return "drawing-bom".to_string();
+        }
+    }
+    match job.get("status").and_then(Value::as_str) {
+        Some("review_required" | "failed") => "final-review".to_string(),
+        Some("blocked" | "cancelled") => "requirements".to_string(),
+        _ => "requirements".to_string(),
+    }
+}
+
+/// @brief 保存一轮只读审计快照，不递归复制历史列表或 CAD 文件内容。
+fn run_history_snapshot(job: &Value) -> Value {
+    let mut snapshot = serde_json::Map::new();
+    for field in [
+        "runId",
+        "status",
+        "stage",
+        "createdAt",
+        "updatedAt",
+        "lastMessage",
+        "error",
+        "result",
+        "artifacts",
+        "artifactLedgerPath",
+        "reviewGatePath",
+        "reviewGate",
+        "drawingEvidence",
+        "bomEvidence",
+        "reviewFindings",
+        "artifactRelations",
+        "blockedReasons",
+    ] {
+        if let Some(value) = job.get(field) {
+            snapshot.insert(field.to_string(), value.clone());
+        }
+    }
+    Value::Object(snapshot)
+}
+
 /// @brief 将失败任务重置为可安全重新领取的队列状态。
 fn prepare_job_for_retry(
     job: &mut Value,
@@ -976,9 +1038,33 @@ fn prepare_job_for_retry(
     ) {
         return Err("只有失败、阻断、取消或待复核任务可以重新执行。".to_string());
     }
+    let previous_run_id = job.get("runId").cloned().unwrap_or(Value::Null);
+    let retry_stage = retry_from_stage(job);
+    let history_snapshot = run_history_snapshot(job);
+    let mut history = job
+        .get("runHistory")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    history.push(history_snapshot);
+    if history.len() > 20 {
+        history.drain(0..history.len() - 20);
+    }
     let object = job
         .as_object_mut()
         .ok_or_else(|| "job payload must be an object".to_string())?;
+    object.insert("runHistory".to_string(), Value::Array(history));
+    object.insert(
+        "retryPolicy".to_string(),
+        json!({
+            "previousRunId": previous_run_id,
+            "retryFromStage": retry_stage,
+            "scope": "failed_stage_and_downstream",
+            "preservePreviousArtifacts": true,
+            "overwrite": false,
+            "requestedAt": updated_at.clone()
+        }),
+    );
     object.insert("runId".to_string(), Value::String(run_id));
     object.insert("status".to_string(), Value::String("queued".to_string()));
     object.insert("progress".to_string(), Value::Number(0.into()));
@@ -1004,6 +1090,11 @@ fn prepare_job_for_retry(
         "leaseUntil",
         "cancelRequested",
         "workerLog",
+        "drawingEvidence",
+        "bomEvidence",
+        "reviewFindings",
+        "artifactRelations",
+        "blockedReasons",
     ] {
         object.remove(field);
     }
@@ -2772,6 +2863,8 @@ mod tests {
         job["approvedAt"] = json!("unix:1");
         job["approvedBy"] = json!("local-user");
         job["approvedPolicyReasons"] = json!(["已批准"]);
+        job["drawingEvidence"] = json!({"status": "failed", "stage": "review"});
+        job["reviewFindings"] = json!([{"id": "dimension-overlap", "status": "fail"}]);
 
         prepare_job_for_retry(&mut job, "retry-test-1".to_string(), "unix:2".to_string())
             .expect("failed job should be retryable");
@@ -2786,6 +2879,33 @@ mod tests {
         assert!(job.get("reviewGate").is_none());
         assert!(job.get("workerLog").is_none());
         assert_eq!(job["artifacts"], json!([]));
+        assert_eq!(job["retryPolicy"]["retryFromStage"], "drawing-bom");
+        assert_eq!(job["retryPolicy"]["overwrite"], false);
+        assert_eq!(job["runHistory"].as_array().map(Vec::len), Some(1));
+        assert_eq!(job["runHistory"][0]["artifacts"][0]["path"], "old.step");
+        assert_eq!(job["runHistory"][0]["reviewFindings"][0]["id"], "dimension-overlap");
+        assert!(job.get("drawingEvidence").is_none());
+        assert!(job.get("reviewFindings").is_none());
+        assert!(job["runHistory"][0].get("runHistory").is_none());
+    }
+
+    #[test]
+    fn retry_history_keeps_latest_twenty_runs_without_recursive_history() {
+        let mut job = queued_job();
+        job["status"] = json!("failed");
+        job["runHistory"] = json!(
+            (0..20)
+                .map(|index| json!({"runId": format!("old-{index}")}))
+                .collect::<Vec<_>>()
+        );
+
+        prepare_job_for_retry(&mut job, "retry-limited".to_string(), "unix:3".to_string())
+            .expect("failed job should be retryable");
+
+        let history = job["runHistory"].as_array().expect("history array");
+        assert_eq!(history.len(), 20);
+        assert_eq!(history[0]["runId"], "old-1");
+        assert!(history[19].get("runHistory").is_none());
     }
 
     #[test]

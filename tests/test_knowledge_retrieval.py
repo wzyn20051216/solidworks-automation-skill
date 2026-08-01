@@ -79,6 +79,27 @@ def test_prompt_includes_rag_source_and_hash() -> None:
     assert "不可信参考数据" in prompt
 
 
+def test_prompt_enforces_versioned_stage_retry_without_overwrite() -> None:
+    """@brief 局部重跑策略必须进入 Agent Prompt，不能仅作为 UI 提示。"""
+    prompt = compile_codex_prompt(
+        {
+            "objective": "重新生成工程图和 BOM",
+            "retryPolicy": {
+                "previousRunId": "run-old",
+                "retryFromStage": "drawing-bom",
+                "scope": "failed_stage_and_downstream",
+                "preservePreviousArtifacts": True,
+                "overwrite": False,
+            },
+        }
+    )
+
+    assert "【重新生成策略】" in prompt
+    assert '"retryFromStage": "drawing-bom"' in prompt
+    assert "只执行 retryFromStage 及其后继阶段" in prompt
+    assert "禁止覆盖上一轮 CAD" in prompt
+
+
 def test_cloud_rag_rejects_arbitrary_environment_variable_name(monkeypatch) -> None:
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "must-not-be-read")
 

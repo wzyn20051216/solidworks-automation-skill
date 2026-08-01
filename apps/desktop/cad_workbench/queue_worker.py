@@ -690,6 +690,25 @@ def previous_engineering_plan(job: dict[str, Any]) -> dict[str, Any] | None:
     """@brief 从同一队列的上一轮对话任务恢复 DAG，并按本轮要求局部重规划。"""
     ui_config = job.get("uiConfig") if isinstance(job.get("uiConfig"), dict) else {}
     source_job_id = str(ui_config.get("sourceJobId") or "").strip()
+    retry_policy = job.get("retryPolicy") if isinstance(job.get("retryPolicy"), dict) else {}
+    run_history = job.get("runHistory") if isinstance(job.get("runHistory"), list) else []
+    if retry_policy and run_history:
+        latest = run_history[-1] if isinstance(run_history[-1], dict) else {}
+        latest_result = latest.get("result") if isinstance(latest.get("result"), dict) else {}
+        payload = latest_result.get("engineeringPlan") if isinstance(latest_result.get("engineeringPlan"), dict) else None
+        retry_from_stage = str(retry_policy.get("retryFromStage") or "").strip()
+        if payload is not None:
+            try:
+                plan = engineering_plan_from_dict(payload)
+                known_phases = {phase.id for phase in plan.phases}
+                affected = [retry_from_stage] if retry_from_stage in known_phases else None
+                return replan_for_local_change(
+                    plan,
+                    f"从 {retry_from_stage or '失败阶段'} 重新生成并保留旧版本",
+                    affected_phase_ids=affected,
+                ).to_dict()
+            except (KeyError, TypeError, ValueError):
+                pass
     runtime = job.get("_runtime") if isinstance(job.get("_runtime"), dict) else {}
     current_job_path = Path(str(runtime.get("jobPath"))) if runtime.get("jobPath") else None
     if not source_job_id or current_job_path is None or re.fullmatch(r"[A-Za-z0-9._-]{1,128}", source_job_id) is None:

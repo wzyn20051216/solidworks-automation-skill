@@ -30,6 +30,7 @@ from apps.desktop.cad_workbench.queue_worker import (
     event_path_for,
     lock_path_for,
     process_queue,
+    previous_engineering_plan,
     read_job,
     recover_stale_jobs,
     release_lock,
@@ -38,6 +39,7 @@ from apps.desktop.cad_workbench.queue_worker import (
     run_codex_job,
     write_job,
 )
+from apps.desktop.cad_workbench.engineering_orchestrator import build_engineering_plan
 from apps.desktop.cad_workbench.worker_health import read_worker_health
 from apps.desktop.cad_workbench.reviewer_gate import evaluate_ledger
 
@@ -82,6 +84,31 @@ def _queued_job(job_id: str = "job-1", kind: str = "create_shell") -> dict:
         "updatedAt": "2026-07-25T12:00:00+08:00",
         "projectPath": "D:/demo/demo_shell.step",
     }
+
+
+def test_retry_reuses_previous_dag_from_requested_stage() -> None:
+    """@brief 同任务重试必须复用历史 DAG，只使目标阶段及后继失效。"""
+    plan = build_engineering_plan("创建装配体、工程图、BOM 和 STEP/PDF 交付").to_dict()
+    for phase in plan["phases"]:
+        if phase["status"] != "blocked":
+            phase["status"] = "completed"
+    job = _queued_job("job-retry-dag", "agent_task")
+    job.update(
+        {
+            "retryPolicy": {"retryFromStage": "drawing-bom", "scope": "failed_stage_and_downstream"},
+            "runHistory": [{"runId": "run-old", "result": {"engineeringPlan": plan}}],
+        }
+    )
+
+    replanned = previous_engineering_plan(job)
+
+    assert replanned is not None
+    phases = {phase["id"]: phase for phase in replanned["phases"]}
+    assert phases["requirements"]["status"] == "completed"
+    assert phases["drawing-bom"]["status"] in {"planned", "blocked"}
+    assert phases["export-delivery"]["status"] == "planned"
+    assert replanned["revision"] == plan["revision"] + 1
+    assert "drawing-bom" in replanned["change_request"]
 
 
 def test_write_job_retries_transient_windows_access_denied(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

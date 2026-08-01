@@ -126,6 +126,7 @@ def compile_codex_prompt(job: dict[str, Any], profile: EnterpriseAgentProfile = 
     local_cad_automation = bool(cad_runtime.get("localCadAutomation"))
     knowledge_context = job.get("_knowledgeContext") if isinstance(job.get("_knowledgeContext"), dict) else {}
     engineering_plan = job.get("_engineeringPlan") if isinstance(job.get("_engineeringPlan"), dict) else {}
+    retry_policy = job.get("retryPolicy") if isinstance(job.get("retryPolicy"), dict) else {}
     knowledge_chunks = knowledge_context.get("chunks") if isinstance(knowledge_context.get("chunks"), list) else []
     knowledge_lines = []
     for index, chunk in enumerate(knowledge_chunks[:12], start=1):
@@ -162,6 +163,7 @@ def compile_codex_prompt(job: dict[str, Any], profile: EnterpriseAgentProfile = 
         ]
     ui_config_text = json.dumps(ui_config, ensure_ascii=False, indent=2) if ui_config else "{}"
     engineering_plan_text = json.dumps(engineering_plan, ensure_ascii=False, indent=2) if engineering_plan else "本任务未触发综合工程 DAG，按最小必要步骤执行。"
+    retry_policy_text = json.dumps(retry_policy, ensure_ascii=False, indent=2) if retry_policy else "本轮不是重新生成任务。"
 
     return "\n".join(
         [
@@ -205,6 +207,11 @@ def compile_codex_prompt(job: dict[str, Any], profile: EnterpriseAgentProfile = 
             engineering_plan_text,
             "复杂任务必须遵守阶段依赖、独立产物、验收条件和局部重试策略；规划状态不代表阶段已经完成。",
             "SolidWorks COM 写操作必须串行；失败只返工当前阶段及其后继，不得从头盲目重跑整个工程。",
+            "",
+            "【重新生成策略】",
+            retry_policy_text,
+            "存在重新生成策略时，只执行 retryFromStage 及其后继阶段；旧产物和旧复核证据只读保留。",
+            "所有新产物必须使用新版本目录或新文件名，禁止覆盖上一轮 CAD、图纸、BOM、预览和复核报告。",
             "",
             "【强制规则】",
             rule_lines,
