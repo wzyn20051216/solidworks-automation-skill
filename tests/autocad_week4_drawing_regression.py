@@ -87,17 +87,29 @@ def _draw_plate(session: AutoCADSession) -> None:
     session.add_dim_aligned(
         (left, bottom, 0),
         (left + width, bottom, 0),
-        (left + width / 2, bottom - 14, 0),
+        (left + width / 2, bottom - 24, 0),
     )
-    session.add_dim_aligned(
+    session.add_dim_rotated(
         (left, bottom, 0),
         (left, bottom + height, 0),
-        (left - 14, bottom + height / 2, 0),
+        (left - 20, bottom + height / 2, 0),
+        90,
     )
     session.add_dim_aligned(
         (left, bottom, 0),
         (left + hole_margin, bottom, 0),
         (left + hole_margin / 2, bottom - 7, 0),
+    )
+    session.add_dim_aligned(
+        (*hole_points[0], 0),
+        (*hole_points[1], 0),
+        ((hole_points[0][0] + hole_points[1][0]) / 2, bottom - 12, 0),
+    )
+    session.add_dim_rotated(
+        (*hole_points[0], 0),
+        (*hole_points[3], 0),
+        (left - 10, (hole_points[0][1] + hole_points[3][1]) / 2, 0),
+        90,
     )
     session.add_dim_diametric(hole_points[0], hole_radius, angle_degrees=35, leader_length=12)
     session.add_text("4x Ø9 通孔，中心距 90 x 50，基准边定位 15", (left, bottom - 28, 0), 3, layer="TEXT")
@@ -117,9 +129,15 @@ def run_regression(output_root: Path, *, run_id: str | None = None) -> dict:
     report_path = output_dir / "W4-001-drawing-report.json"
 
     session = AutoCADSession(create_if_missing=True, visible=True).connect()
+    owned_instance = session.started_by_session
+    result = None
     created_document = False
-    # AutoCAD 2024 动态代理可能无法调用 Documents.Add；优先复用已启动的活动空图纸。
-    if session.doc is None:
+    # 任务启动实例的默认图纸归当前任务；连接用户实例时必须新建隔离图纸。
+    if session.started_by_session:
+        if session.doc is None:
+            session.new_document()
+        created_document = True
+    else:
         session.new_document()
         created_document = True
     try:
@@ -144,6 +162,20 @@ def run_regression(output_root: Path, *, run_id: str | None = None) -> dict:
         dxf_review = inspect_dxf(dxf)
         if dxf_review["evaluation"]["status"] != "pass":
             raise RuntimeError(f"DXF 工程图审查未通过: {dxf_review['evaluation']}")
+        measurements = [
+            float(item["measurement"])
+            for item in dxf_review.get("dimensionEvidence", [])
+            if item.get("measurement") is not None
+        ]
+        missing_measurements = [
+            expected
+            for expected in (120.0, 80.0, 90.0, 50.0, 15.0, 9.0)
+            if not any(abs(actual - expected) <= 0.01 for actual in measurements)
+        ]
+        if missing_measurements:
+            raise RuntimeError(
+                f"DXF 关键尺寸实体缺失或测量值错误: missing={missing_measurements}, actual={measurements}"
+            )
         headless_render = render_dxf(dxf, dxf_png_path)
         _require_file(dxf_png_path, "DXF 无头 PNG")
         if headless_render.get("pixelCheck", {}).get("likelyBlank"):
@@ -156,8 +188,9 @@ def run_regression(output_root: Path, *, run_id: str | None = None) -> dict:
             "assumptions": {
                 "units": "mm",
                 "drawing_standard": "GB/T 风格中性 A3 横向；未替代企业模板",
-                "source": "new AutoCAD document",
+                "source": "task-owned AutoCAD document",
             },
+            "started_by_cad_studio": session.started_by_session,
             "outputs": {
                 "dwg": _require_file(dwg, "DWG"),
                 "dxf": _require_file(dxf, "DXF"),
@@ -179,6 +212,16 @@ def run_regression(output_root: Path, *, run_id: str | None = None) -> dict:
     finally:
         if created_document:
             session.close_document(save_changes=False)
+        owned_instance_closed = session.quit_owned_instance()
+        if result is not None:
+            result["cleanup"] = {
+                "owned_instance_closed": owned_instance_closed if owned_instance else None,
+                "forced_termination_used": session.forced_termination_used,
+            }
+            report_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+            result["report"] = _require_file(report_path, "JSON 报告")
+        if owned_instance and not owned_instance_closed and sys.exc_info()[0] is None:
+            raise RuntimeError("任务启动的 AutoCAD 实例未在超时内退出")
 
 
 def parse_args() -> argparse.Namespace:

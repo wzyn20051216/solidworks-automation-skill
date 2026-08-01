@@ -80,6 +80,29 @@ class FakeDocumentsWithoutCount:
         return FakeDocument()
 
 
+def test_connect_autocad_uses_dispatchex_for_owned_instance(monkeypatch):
+    application = type("Application", (), {"Visible": False})()
+
+    class FakeClient:
+        def GetActiveObject(self, _progid):
+            raise RuntimeError("not running")
+
+        def Dispatch(self, _progid):
+            raise AssertionError("不得用 Dispatch 声称新实例所有权")
+
+        def DispatchEx(self, progid):
+            assert progid == "AutoCAD.Application"
+            return application
+
+    monkeypatch.setattr(acad_session.pythoncom, "CoInitialize", lambda: None)
+    monkeypatch.setattr(acad_session.win32com, "client", FakeClient())
+
+    connected, started = acad_session.connect_autocad(return_ownership=True)
+
+    assert connected is application
+    assert started is True
+
+
 def _session(monkeypatch):
     monkeypatch.setattr(acad_session, "acad_point", lambda value: tuple(value))
     session = acad_session.AutoCADSession()
@@ -145,3 +168,79 @@ def test_new_document_retries_busy_add_and_active_document():
 
     assert session.new_document() is document
     assert documents.calls == 3
+
+
+def test_create_layer_rebinds_item_after_add(monkeypatch):
+    session = _session(monkeypatch)
+    layer = session.create_layer("CENTER", color=1, linetype="CENTER")
+
+    assert layer is session.doc.Layers.Item("CENTER")
+    assert layer.Color == 1
+    assert layer.Linetype == "CENTER"
+
+
+def test_quit_owned_instance_never_closes_attached_autocad(monkeypatch):
+    class FakeApplication:
+        def __init__(self):
+            self.quit_calls = 0
+
+        def Quit(self):
+            self.quit_calls += 1
+
+    attached = FakeApplication()
+    session = acad_session.AutoCADSession()
+    session.app = attached
+    session.started_by_session = False
+
+    assert session.quit_owned_instance() is False
+    assert attached.quit_calls == 0
+
+    owned = FakeApplication()
+    session.app = owned
+    session.started_by_session = True
+    session.owned_process_id = 1234
+    running = iter((True, False))
+    monkeypatch.setattr(acad_session, "_process_is_running", lambda _pid: next(running))
+    monkeypatch.setattr(acad_session.time, "sleep", lambda _seconds: None)
+
+    assert session.quit_owned_instance() is True
+    assert owned.quit_calls == 1
+    assert session.app is None
+
+
+def test_retry_com_busy_retries_only_transient_hresult(monkeypatch):
+    monkeypatch.setattr(acad_session.time, "sleep", lambda _seconds: None)
+    calls = 0
+
+    class BusyError(RuntimeError):
+        hresult = -2147418111
+
+    def operation():
+        nonlocal calls
+        calls += 1
+        if calls < 3:
+            raise BusyError("AutoCAD busy")
+        return "ok"
+
+    assert acad_session._retry_com_busy(operation, "测试操作") == "ok"
+    assert calls == 3
+
+
+def test_quit_owned_instance_force_terminates_only_recorded_pid(monkeypatch):
+    application = type("App", (), {"Quit": lambda self: None})()
+    session = acad_session.AutoCADSession()
+    session.app = application
+    session.started_by_session = True
+    session.owned_process_id = 4321
+    terminated = []
+    monkeypatch.setattr(acad_session.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(acad_session, "_process_is_running", lambda _pid: not terminated)
+    monkeypatch.setattr(
+        acad_session,
+        "_terminate_owned_process",
+        lambda process_id: terminated.append(process_id) is None,
+    )
+
+    assert session.quit_owned_instance() is True
+    assert terminated == [4321]
+    assert session.forced_termination_used is True

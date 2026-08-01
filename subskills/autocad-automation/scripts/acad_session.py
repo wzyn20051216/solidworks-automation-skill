@@ -25,6 +25,64 @@ else:
 
 
 PointLike = Sequence[float]
+_RETRYABLE_COM_HRESULTS = {-2147418111, -2147417846}
+
+
+def _retry_com_busy(operation, label: str, attempts: int = 10) -> Any:
+    """@brief 对 AutoCAD 忙碌导致的瞬时 COM 拒绝执行有限退避重试。"""
+    last_error: Optional[Exception] = None
+    for attempt in range(attempts):
+        try:
+            return operation()
+        except Exception as exc:
+            hresult = getattr(exc, "hresult", exc.args[0] if exc.args else None)
+            if hresult not in _RETRYABLE_COM_HRESULTS:
+                raise
+            last_error = exc
+            time.sleep(0.08 + attempt * 0.06)
+    raise RuntimeError(f"AutoCAD 持续忙碌，无法完成操作: {label}") from last_error
+
+
+def _window_process_id(app: Any) -> Optional[int]:
+    """@brief 从 AutoCAD 主窗口句柄取得精确进程 PID。"""
+    try:
+        hwnd = int(app.HWND)
+        process_id = ctypes.c_ulong(0)
+        ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
+        return int(process_id.value) or None
+    except Exception:
+        return None
+
+
+def _process_is_running(process_id: int) -> bool:
+    """@brief 使用 Win32 查询指定 PID 是否仍处于活动状态。"""
+    try:
+        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, int(process_id))
+        if not handle:
+            return False
+        try:
+            exit_code = ctypes.c_ulong(0)
+            if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                return False
+            return exit_code.value == 259  # STILL_ACTIVE
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
+    except Exception:
+        return False
+
+
+def _terminate_owned_process(process_id: int) -> bool:
+    """@brief 终止已由窗口句柄确认归当前任务所有的精确 PID。"""
+    try:
+        handle = ctypes.windll.kernel32.OpenProcess(0x0001, False, int(process_id))
+        if not handle:
+            return not _process_is_running(process_id)
+        try:
+            return bool(ctypes.windll.kernel32.TerminateProcess(handle, 1))
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
+    except Exception:
+        return False
 
 
 def require_pywin32() -> None:
@@ -62,26 +120,35 @@ def acad_double_array(values: Iterable[float]) -> Any:
     )
 
 
-def connect_autocad(create_if_missing: bool = True, visible: bool = True) -> Any:
+def connect_autocad(
+    create_if_missing: bool = True,
+    visible: bool = True,
+    *,
+    return_ownership: bool = False,
+) -> Any:
     """@brief 连接或启动 AutoCAD。
 
     @param create_if_missing 找不到运行实例时是否启动 AutoCAD。
     @param visible 是否显示 AutoCAD 窗口。
+    @param return_ownership 是否同时返回本次调用是否启动了新实例。
     @return AutoCAD Application COM 对象。
     """
     require_pywin32()
     pythoncom.CoInitialize()
+    started = False
     try:
         app = win32com.client.GetActiveObject("AutoCAD.Application")
     except Exception:
         if not create_if_missing:
             raise
-        app = win32com.client.Dispatch("AutoCAD.Application")
+        # Dispatch 可能重新附着到现有单例；DispatchEx 才能建立可靠的进程所有权。
+        app = win32com.client.DispatchEx("AutoCAD.Application")
+        started = True
     try:
         app.Visible = visible
     except Exception:
         pass
-    return app
+    return (app, started) if return_ownership else app
 
 
 class AutoCADSession:
@@ -92,11 +159,25 @@ class AutoCADSession:
         self.visible = visible
         self.app: Any = None
         self.doc: Any = None
+        self.started_by_session = False
+        self.owned_process_id: Optional[int] = None
+        self.forced_termination_used = False
 
     def connect(self) -> "AutoCADSession":
         """@brief 连接 AutoCAD，并尝试绑定活动文档。"""
-        self.app = connect_autocad(self.create_if_missing, self.visible)
+        self.app, self.started_by_session = connect_autocad(
+            self.create_if_missing,
+            self.visible,
+            return_ownership=True,
+        )
+        self.forced_termination_used = False
         self.ensure_visible()
+        if self.started_by_session:
+            for _ in range(30):
+                self.owned_process_id = _window_process_id(self.app)
+                if self.owned_process_id is not None:
+                    break
+                time.sleep(0.1)
         try:
             self.doc = self.app.ActiveDocument
         except Exception:
@@ -246,7 +327,7 @@ class AutoCADSession:
     @property
     def model(self) -> Any:
         """@brief 当前文档 ModelSpace。"""
-        return self.active_document().ModelSpace
+        return _retry_com_busy(lambda: self.active_document().ModelSpace, "读取 ModelSpace")
 
     def create_layer(self, name: str, color: Optional[int] = None, linetype: Optional[str] = None) -> Any:
         """@brief 创建或获取图层。
@@ -260,15 +341,18 @@ class AutoCADSession:
         try:
             layer = layers.Item(name)
         except Exception:
-            layer = layers.Add(name)
+            _retry_com_busy(lambda: layers.Add(name), f"创建图层 {name}")
+            # SWIG/pywin32 可能把 Add 返回值包装为集合方法代理；必须按名称重新绑定。
+            layer = _retry_com_busy(lambda: self.active_document().Layers.Item(name), f"重新绑定图层 {name}")
         if color is not None:
-            layer.Color = int(color)
+            _retry_com_busy(lambda: setattr(layer, "Color", int(color)), f"设置图层颜色 {name}")
         if linetype:
             try:
-                doc.Linetypes.Load(linetype, "acad.lin")
+                _retry_com_busy(lambda: self.active_document().Linetypes.Load(linetype, "acad.lin"), f"加载线型 {linetype}")
             except Exception:
                 pass
-            layer.Linetype = linetype
+            layer = _retry_com_busy(lambda: self.active_document().Layers.Item(name), f"重新绑定图层 {name}")
+            _retry_com_busy(lambda: setattr(layer, "Linetype", linetype), f"设置图层线型 {name}")
         return layer
 
     def set_current_layer(self, name: str) -> None:
@@ -278,15 +362,18 @@ class AutoCADSession:
     def _apply_entity_options(self, entity: Any, layer: Optional[str] = None, color: Optional[int] = None) -> Any:
         """@brief 应用常用实体属性。"""
         if layer:
-            self.create_layer(layer)
-            entity.Layer = layer
+            _retry_com_busy(lambda: self.create_layer(layer), f"创建图层 {layer}")
+            _retry_com_busy(lambda: setattr(entity, "Layer", layer), f"设置实体图层 {layer}")
         if color is not None:
-            entity.Color = int(color)
+            _retry_com_busy(lambda: setattr(entity, "Color", int(color)), "设置实体颜色")
         return entity
 
     def add_line(self, start: PointLike, end: PointLike, layer: Optional[str] = None, color: Optional[int] = None) -> Any:
         """@brief 添加直线。"""
-        entity = self.model.AddLine(acad_point(start), acad_point(end))
+        entity = _retry_com_busy(
+            lambda: self.model.AddLine(acad_point(start), acad_point(end)),
+            "创建直线",
+        )
         return self._apply_entity_options(entity, layer, color)
 
     def add_circle(
@@ -297,7 +384,10 @@ class AutoCADSession:
         color: Optional[int] = None,
     ) -> Any:
         """@brief 添加圆。"""
-        entity = self.model.AddCircle(acad_point(center), float(radius))
+        entity = _retry_com_busy(
+            lambda: self.model.AddCircle(acad_point(center), float(radius)),
+            "创建圆",
+        )
         return self._apply_entity_options(entity, layer, color)
 
     def add_lwpolyline(
@@ -315,8 +405,11 @@ class AutoCADSession:
             if len(point) < 2:
                 raise ValueError(f"二维多段线点至少需要 x/y: {point!r}")
             flat.extend([float(point[0]), float(point[1])])
-        entity = self.model.AddLightWeightPolyline(acad_double_array(flat))
-        entity.Closed = bool(closed)
+        entity = _retry_com_busy(
+            lambda: self.model.AddLightWeightPolyline(acad_double_array(flat)),
+            "创建轻量多段线",
+        )
+        _retry_com_busy(lambda: setattr(entity, "Closed", bool(closed)), "设置多段线闭合状态")
         return self._apply_entity_options(entity, layer, color)
 
     def add_rectangle(
@@ -348,7 +441,10 @@ class AutoCADSession:
         color: Optional[int] = None,
     ) -> Any:
         """@brief 添加单行文字。"""
-        entity = self.model.AddText(str(text), acad_point(point), float(height))
+        entity = _retry_com_busy(
+            lambda: self.model.AddText(str(text), acad_point(point), float(height)),
+            "创建文字",
+        )
         return self._apply_entity_options(entity, layer, color)
 
     def add_mtext(
@@ -360,7 +456,10 @@ class AutoCADSession:
         color: Optional[int] = None,
     ) -> Any:
         """@brief 添加多行文字。"""
-        entity = self.model.AddMText(acad_point(point), float(width), str(text))
+        entity = _retry_com_busy(
+            lambda: self.model.AddMText(acad_point(point), float(width), str(text)),
+            "创建多行文字",
+        )
         return self._apply_entity_options(entity, layer, color)
 
     def add_dim_aligned(
@@ -372,10 +471,13 @@ class AutoCADSession:
         color: Optional[int] = None,
     ) -> Any:
         """@brief 创建真实对齐尺寸实体 AcDbAlignedDimension。"""
-        entity = self.model.AddDimAligned(
-            acad_point(point1),
-            acad_point(point2),
-            acad_point(text_position),
+        entity = _retry_com_busy(
+            lambda: self.model.AddDimAligned(
+                acad_point(point1),
+                acad_point(point2),
+                acad_point(text_position),
+            ),
+            "创建对齐尺寸",
         )
         return self._apply_entity_options(entity, layer, color)
 
@@ -389,11 +491,14 @@ class AutoCADSession:
         color: Optional[int] = None,
     ) -> Any:
         """@brief 创建真实旋转尺寸，输入角度使用工程师常用的度。"""
-        entity = self.model.AddDimRotated(
-            acad_point(point1),
-            acad_point(point2),
-            acad_point(dim_line_position),
-            math.radians(float(rotation_degrees)),
+        entity = _retry_com_busy(
+            lambda: self.model.AddDimRotated(
+                acad_point(point1),
+                acad_point(point2),
+                acad_point(dim_line_position),
+                math.radians(float(rotation_degrees)),
+            ),
+            "创建旋转尺寸",
         )
         return self._apply_entity_options(entity, layer, color)
 
@@ -418,10 +523,13 @@ class AutoCADSession:
         dy = math.sin(angle) * float(radius)
         chord = (float(xyz[0]) + dx, float(xyz[1]) + dy, float(xyz[2]))
         far_chord = (float(xyz[0]) - dx, float(xyz[1]) - dy, float(xyz[2]))
-        entity = self.model.AddDimDiametric(
-            acad_point(chord),
-            acad_point(far_chord),
-            float(leader_length),
+        entity = _retry_com_busy(
+            lambda: self.model.AddDimDiametric(
+                acad_point(chord),
+                acad_point(far_chord),
+                float(leader_length),
+            ),
+            "创建直径尺寸",
         )
         return self._apply_entity_options(entity, layer, color)
 
@@ -432,18 +540,18 @@ class AutoCADSession:
         """
         if not command.endswith("\n"):
             command += "\n"
-        self.active_document().SendCommand(command)
+        _retry_com_busy(lambda: self.active_document().SendCommand(command), "发送 AutoCAD 命令")
 
 
     def regen(self) -> None:
         """@brief 重生成当前文档。"""
-        self.active_document().Regen(1)
+        _retry_com_busy(lambda: self.active_document().Regen(1), "重生成图纸")
 
     def zoom_extents(self) -> None:
         """@brief 缩放到全图。"""
         if self.app is None:
             self.connect()
-        self.app.ZoomExtents()
+        _retry_com_busy(lambda: self.app.ZoomExtents(), "缩放到全图")
 
     def live_update(self, step_delay_s: float = 0.0, zoom: bool = False) -> None:
         """@brief 刷新并短暂停顿，让 AutoCAD 绘图过程对用户可见。
@@ -463,12 +571,12 @@ class AutoCADSession:
         """@brief 遍历 ModelSpace 实体，兼容不能直接枚举的动态代理。"""
         model_space = self.model
         try:
-            count = int(model_space.Count)
+            count = int(_retry_com_busy(lambda: model_space.Count, "读取实体数量"))
         except Exception:
             yield from model_space
             return
         for index in range(count):
-            yield model_space.Item(index)
+            yield _retry_com_busy(lambda index=index: model_space.Item(index), f"读取实体 {index}")
 
     def save_as(self, path: str | Path) -> Path:
         """@brief 保存当前图纸。
@@ -477,7 +585,7 @@ class AutoCADSession:
         """
         target = Path(path).resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
-        self.active_document().SaveAs(str(target))
+        _retry_com_busy(lambda: self.active_document().SaveAs(str(target)), "保存 AutoCAD 图纸")
         return target
 
     def delete_selection_set(self, name: str) -> None:
@@ -572,6 +680,34 @@ class AutoCADSession:
             self.doc = None
             if last_error is not None:
                 return
+
+    def quit_owned_instance(self) -> bool:
+        """@brief 仅退出由当前会话启动的 AutoCAD 实例。"""
+        if self.app is None or not self.started_by_session:
+            return False
+        app = self.app
+        process_id = self.owned_process_id
+        self.doc = None
+        self.app = None
+        self.started_by_session = False
+        self.owned_process_id = None
+        try:
+            _retry_com_busy(lambda: app.Quit(), "退出任务拥有的 AutoCAD")
+            if process_id is not None:
+                for _ in range(50):
+                    if not _process_is_running(process_id):
+                        return True
+                    time.sleep(0.1)
+                self.forced_termination_used = _terminate_owned_process(process_id)
+                if self.forced_termination_used:
+                    for _ in range(20):
+                        if not _process_is_running(process_id):
+                            return True
+                        time.sleep(0.1)
+                return False
+            return True
+        except Exception:
+            return False
 
 
 def point_tuple(value: Any) -> Tuple[float, float, float]:
