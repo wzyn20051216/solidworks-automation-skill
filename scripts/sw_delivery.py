@@ -528,8 +528,36 @@ def pack_and_go(
         and bool(result["outputs"])
         and not missing_dependencies
     )
+    if success:
+        status = "pass"
+        stage = "save"
+        error_code = None
+        retryable = False
+        manual_review_required = True
+        limitations = ["Pack and Go 产物仍需人工抽查外部引用、Toolbox 和工程图"]
+    elif missing_dependencies and result["status_codes"] and all(code == 0 for code in result["status_codes"]):
+        # SolidWorks 已成功保存顶层文件，但原生清单漏掉依赖；保留证据并阻止误交付。
+        status = "blocked"
+        stage = "review"
+        error_code = "SW_PACK_AND_GO_DEPENDENCY_ENUMERATION_INCOMPLETE"
+        retryable = False
+        manual_review_required = True
+        limitations = ["SolidWorks 原生 Pack and Go 未枚举全部依赖，禁止用文件复制补齐"]
+    else:
+        status = "failed"
+        stage = "save"
+        error_code = "SW_PACK_AND_GO_SAVE_FAILED"
+        retryable = True
+        manual_review_required = False
+        limitations = []
     return {
         "success": success,
+        "status": status,
+        "stage": stage,
+        "error_code": error_code,
+        "retryable": retryable,
+        "manual_review_required": manual_review_required,
+        "limitations": limitations,
         "source": source_path,
         "output_dir": str(target),
         "backend": result["backend"],

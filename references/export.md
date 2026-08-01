@@ -101,6 +101,14 @@ def batch_convert(sw, input_dir, output_dir, input_ext=".sldprt", output_ext=".s
 5. 本机 SW2024 真机回归显示：装配依赖 API 能看到 `.SLDPRT` 引用，但原生 `IPackAndGo.GetDocumentNames()` 可能只返回顶层 `.SLDASM`。封装会把这类情况记录到 `missing_dependencies` 并令 `success=False`。
 6. Pack and Go 目前为 `pilot`，外部引用、Toolbox、压缩组件和工程图仍需人工抽查。
 
+漏依赖时返回稳定门禁字段：`status=blocked`、`stage=review`、
+`error_code=SW_PACK_AND_GO_DEPENDENCY_ENUMERATION_INCOMPLETE`。综合回归可以继续验证
+批量导出和预览，但不得把该 Pack and Go 产物标为完整交付包。
+
+批量导出每种格式前都会激活源文档，并回读 `ActiveDoc.GetPathName()`。这是因为 SW2024
+对 STL 等导出器可能使用活动文档，即使对另一个 `IModelDoc2.Extension.SaveAs()` 调用返回成功；
+路径不一致时必须停止，避免把装配体组件错误导出成目标零件 STL。
+
 ## 拆分 STEP 再装配的坐标规则
 
 把一个复杂 STEP/Compound 拆成多个 STEP 以便 SolidWorks 稳定导入时，不要假设分件在

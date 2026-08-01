@@ -32,6 +32,7 @@ def test_batch_export_records_real_outputs_and_preserves_open_document(tmp_path,
     sw = FakeSolidWorks(open_paths=[source_a])
 
     monkeypatch.setattr(sw_export, "open_document", lambda _sw, path, **_kwargs: FakeModel(Path(path).name))
+    monkeypatch.setattr(sw_export, "_activate_source_document", lambda *_args: True)
 
     def fake_export(_model, output_path, _extension, _quality):
         Path(output_path).write_bytes(b"solidworks-output")
@@ -58,6 +59,7 @@ def test_batch_export_blocks_existing_and_colliding_outputs(tmp_path, monkeypatc
     (output_dir / "same.step").write_bytes(b"old")
     sw = FakeSolidWorks()
     monkeypatch.setattr(sw_export, "open_document", lambda _sw, path, **_kwargs: FakeModel(Path(path).name))
+    monkeypatch.setattr(sw_export, "_activate_source_document", lambda *_args: True)
 
     report = sw_export.batch_export_formats(sw, [first, second], output_dir, ["step"])
 
@@ -65,3 +67,25 @@ def test_batch_export_blocks_existing_and_colliding_outputs(tmp_path, monkeypatc
     assert "已存在" in report["documents"][0]["outputs"][0]["error"]
     assert "同名输出" in report["documents"][1]["outputs"][0]["error"]
     assert (output_dir / "same.step").read_bytes() == b"old"
+
+
+def test_activate_source_document_verifies_active_path(tmp_path):
+    source = tmp_path / "part.sldprt"
+    source.write_text("part", encoding="utf-8")
+
+    class ActiveModel(FakeModel):
+        def GetPathName(self):
+            return str(source)
+
+    class ActivatingSolidWorks:
+        def ActivateDoc3(self, title, _preferences, _option, _errors):
+            assert title == source.name
+            return ActiveModel(title)
+
+    active = sw_export._activate_source_document(
+        ActivatingSolidWorks(),
+        ActiveModel(source.name),
+        source,
+    )
+
+    assert active.GetPathName() == str(source)

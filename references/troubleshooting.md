@@ -124,7 +124,18 @@ assert report["success"], report
 
 场景：`IModelDoc2.GetDependencies2()` 能返回装配体引用的 `.SLDPRT`，但 `IPackAndGo.GetDocumentNames()` 只有顶层 `.SLDASM`，保存后交付包也只有装配文件。
 
-处理：不要用 Python 手工复制零件来伪装 Pack and Go 成功。`sw_delivery.pack_and_go()` 会把依赖 API 返回但原生包未输出的文件列入 `missing_dependencies`，并返回 `success=False`。这类结果必须保留为 `pilot/blocked` 证据，等待人工确认 SolidWorks 选项、引用状态或版本差异。
+处理：不要用 Python 手工复制零件来伪装 Pack and Go 成功。`sw_delivery.pack_and_go()` 会把依赖 API 返回但原生包未输出的文件列入 `missing_dependencies`，返回 `success=False`、`status=blocked` 和错误码 `SW_PACK_AND_GO_DEPENDENCY_ENUMERATION_INCOMPLETE`。这类结果必须保留为 `pilot/blocked` 证据；其余批量导出和预览可以继续回归，但该目录不能作为完整 Pack and Go 交付包。
+
+### STL 导出了当前装配体而不是目标零件
+
+场景：`IModelDocExtension.SaveAs()` 返回成功，但目标零件名的 STL 不存在，目录中反而出现
+`零件名 - 装配组件名.STL` 等多个文件。
+
+原因：SW2024 的 STL 导出可能读取 `ActiveDoc`，只持有目标零件 `IModelDoc2` 并不足以保证
+导出对象正确。
+
+处理：使用 `sw_export.batch_export_formats()`。它会在每个格式导出前调用 `ActivateDoc3()`，
+并严格核对活动文档路径；路径不一致时停止，不接受 API 的表面成功结果。
 
 ## 操作失败
 

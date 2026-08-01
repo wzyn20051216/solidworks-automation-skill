@@ -243,6 +243,9 @@ def test_pack_and_go_fails_when_native_package_misses_dependencies(tmp_path):
     report = sw_delivery.pack_and_go(model, tmp_path / "package")
 
     assert report["success"] is False
+    assert report["status"] == "blocked"
+    assert report["error_code"] == "SW_PACK_AND_GO_DEPENDENCY_ENUMERATION_INCOMPLETE"
+    assert report["manual_review_required"] is True
     assert report["missing_dependencies"] == [str(dependency)]
     assert report["status_codes"] == [0, 0]
 
