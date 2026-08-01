@@ -125,6 +125,7 @@ export function artifactVersionComparison(job?: AutomationJob) {
   const current = collectJobArtifacts(job);
   const latest = job?.runHistory?.at(-1)?.artifacts ?? [];
   const previousByKey = new Map(latest.map((item) => [`${item.kind ?? ""}:${fileNameFromPath(item.path)}`, item]));
+  const currentKeys = new Set(current.map((item) => `${item.kind ?? ""}:${fileNameFromPath(item.path)}`));
   let added = 0;
   let changed = 0;
   let unchanged = 0;
@@ -134,7 +135,8 @@ export function artifactVersionComparison(job?: AutomationJob) {
     else if (item.sha256 && previous.sha256 && item.sha256 !== previous.sha256) changed += 1;
     else unchanged += 1;
   }
-  return { added, changed, unchanged, previous: latest.length, current: current.length };
+  const removed = [...previousByKey.keys()].filter((key) => !currentKeys.has(key)).length;
+  return { added, removed, changed, unchanged, previous: latest.length, current: current.length };
 }
 
 export function createRunSnapshot(job: AutomationJob): JobRunSnapshot {

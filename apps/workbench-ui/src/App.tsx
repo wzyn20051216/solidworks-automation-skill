@@ -2701,7 +2701,7 @@ function App() {
                   <span>V{history.length - index}</span><strong>{run.runId || "旧版本"}</strong><small>{run.status ? jobStatusLabel(run.status) : "已归档"} · {run.artifacts?.length ?? 0} 项</small>
                 </div>
               ))}
-              {history.length ? <p className="version-diff">与上一轮：新增 {versionComparison.added} · 变化 {versionComparison.changed} · 未变 {versionComparison.unchanged}</p> : null}
+              {history.length ? <p className="version-diff">与上一轮：新增 {versionComparison.added} · 删除 {versionComparison.removed} · 变化 {versionComparison.changed} · 未变 {versionComparison.unchanged}</p> : null}
             </div>
           ) : null}
         </aside>

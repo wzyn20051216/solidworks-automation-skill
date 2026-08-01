@@ -58,6 +58,7 @@ function testJob(status = "review_required") {
       artifacts: [
         { kind: "model", path: "D:/delivery/v1/install-plate.step", exists: true, producedThisRun: true, sha256: "model-v1" },
         { kind: "drawing", path: "D:/delivery/v1/install-plate.dwg", exists: true, producedThisRun: true, sha256: "drawing-v1" },
+        { kind: "report", path: "D:/delivery/v1/legacy-review-report.json", exists: true, producedThisRun: true, sha256: "legacy-report-v1" },
       ],
       error: "工程图尺寸需要复核",
     }],
@@ -127,6 +128,7 @@ async function main() {
     if (desktop.gateText.includes("本轮可交付")) throw new Error("待复核任务被错误标成可交付");
     if (!desktop.retryText.includes("从工程图与 BOM重新生成")) throw new Error("局部重跑阶段未显示");
     if (!desktop.versionText.includes("run-v1") || !desktop.diagnosticText.includes("AUTOCAD_COM_UNSTABLE")) throw new Error("版本或后端诊断缺失");
+    if (!desktop.versionText.includes("删除 1")) throw new Error("版本删除产物未正确统计");
     if (!compact.disposition.includes("ready") || !compact.gateText.includes("本轮可交付")) throw new Error("已批准任务未显示可交付");
     if (!incomplete.disposition.includes("incomplete") || !incomplete.gateText.includes("缺少要求产物：bom")) throw new Error("缺少 BOM 的任务被错误标成可交付");
     if (desktop.traceRows !== 2 || compact.traceRows !== 2) throw new Error("产物关系未完整显示");
