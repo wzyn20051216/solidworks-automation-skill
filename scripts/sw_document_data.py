@@ -46,6 +46,25 @@ def _configuration_names(model) -> list[str]:
     return [str(name) for name in (names or [])]
 
 
+def inspect_configurations(model) -> dict[str, Any]:
+    """@brief 读取配置族清单并返回当前配置，配置修改仍需人工复核。"""
+    names = _configuration_names(model)
+    current = ""
+    try:
+        manager = get_com_member(model, "ConfigurationManager")
+        active = get_com_member(manager, "ActiveConfiguration")
+        current = str(get_com_member(active, "Name") or "")
+    except Exception:
+        pass
+    return {
+        "status": "pilot" if names else "blocked",
+        "configurations": names,
+        "active_configuration": current,
+        "review_required": True,
+        "limitations": ["未执行设计表/配置族批量变更", "配置间尺寸和属性需在 SolidWorks 中人工复核"],
+    }
+
+
 def _dimension_value_mm(dimension, configuration_name: str | None = None) -> float:
     """读取尺寸系统值并转为毫米。"""
     if configuration_name:

@@ -141,3 +141,18 @@ def test_sets_and_reads_back_configuration_properties():
     assert result["success"] is True
     assert [item["verified"] for item in result["properties"]] == [True, True]
     assert result["properties"][0]["readback"]["raw"] == "PN-001"
+
+
+def test_inspects_configurations_and_active_configuration():
+    model = FakeModel()
+    model.ConfigurationManager = type(
+        "Manager",
+        (),
+        {"ActiveConfiguration": type("Config", (), {"Name": "加工"})()},
+    )()
+
+    result = document_data.inspect_configurations(model)
+
+    assert result["status"] == "pilot"
+    assert result["configurations"] == ["默认", "加工"]
+    assert result["active_configuration"] == "加工"

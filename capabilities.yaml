@@ -118,12 +118,12 @@
     {
       "id": "autocad_basic_drafting",
       "label": "AutoCAD 二维绘图与批量改图",
-      "level": "pilot",
+      "level": "not_implemented",
       "backends": ["autocad-com"],
-      "verified_versions": ["2024", "2025", "2026"],
+      "verified_versions": [],
       "dependencies": ["AutoCAD", "pywin32"],
-      "limitations": ["不同版本的模板、字体、打印机和外部参照必须在本机复核"],
-      "allowed_modes": ["interactive", "reviewed"]
+      "limitations": ["AutoCAD 2024 ActiveX 当前真机回归被阻塞：Documents、Layers、SelectionSets 代理不稳定；不得宣称原生 DWG 绘图已完成", "可用范围仅限人工交互排障；DXF 无头预览和结构审查见 autocad_headless_preview"],
+      "allowed_modes": ["interactive"]
     },
     {
       "id": "configurations_and_design_tables",
