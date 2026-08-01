@@ -403,13 +403,31 @@ fn wallpaper_kind(path: &Path) -> Result<&'static str, String> {
 }
 
 fn validate_preview_extension(path: &Path) -> Result<(), String> {
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
     let extension = path
         .extension()
         .and_then(|value| value.to_str())
         .unwrap_or_default()
         .to_ascii_lowercase();
+    if extension == "json"
+        && ![
+            "preview",
+            "manifest",
+            "scene",
+            "cadstudio",
+            "evidence",
+        ]
+        .iter()
+        .any(|token| file_name.contains(token))
+    {
+        return Err("只允许预览清单、场景、证据图或 .cadstudio.json 进入预览器。".to_string());
+    }
     if ![
-        "stl", "glb", "gltf", "obj", "dxf", "png", "jpg", "jpeg", "webp", "bmp", "gif",
+        "stl", "glb", "gltf", "obj", "dxf", "json", "svg", "png", "jpg", "jpeg", "webp", "bmp", "gif",
     ]
     .contains(&extension.as_str())
     {
@@ -3002,6 +3020,10 @@ mod tests {
     fn preview_reader_restricts_file_extensions() {
         assert!(validate_preview_extension(Path::new("model.stl")).is_ok());
         assert!(validate_preview_extension(Path::new("drawing.DXF")).is_ok());
+        assert!(validate_preview_extension(Path::new("preview.json")).is_ok());
+        assert!(validate_preview_extension(Path::new("part.cadstudio.json")).is_ok());
+        assert!(validate_preview_extension(Path::new("random.json")).is_err());
+        assert!(validate_preview_extension(Path::new("fallback.svg")).is_ok());
         assert!(validate_preview_extension(Path::new("secret.txt")).is_err());
         assert!(validate_preview_extension(Path::new("payload.exe")).is_err());
     }

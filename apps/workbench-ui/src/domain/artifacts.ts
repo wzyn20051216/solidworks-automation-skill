@@ -73,6 +73,17 @@ export function collectJobArtifacts(job?: AutomationJob): ArtifactRecord[] {
   const pushArtifact = (kind: string, path?: string, extra: Partial<ArtifactRecord> = {}) => {
     if (path) items.push({ kind, path, ...extra });
   };
+  if (job.previewManifest) {
+    const source = job.artifacts?.find((artifact) => /\.(step|stp|stl|obj|glb|gltf|dxf|dwg|sldprt|sldasm)$/i.test(artifact.path ?? ""));
+    pushArtifact("preview_manifest", job.previewManifest, {
+      type: "preview",
+      format: "json",
+      sourceArtifact: source?.path,
+      previewManifest: job.previewManifest,
+      exists: true,
+      producedThisRun: job.schemaVersion !== "1.0",
+    });
+  }
   for (const artifact of job.artifacts ?? []) if (artifact?.path) items.push(artifact);
   if (job.result?.outputPath) {
     pushArtifact("codex_output", job.result.outputPath, {

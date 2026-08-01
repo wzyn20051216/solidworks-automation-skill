@@ -1017,7 +1017,7 @@ function App() {
   const resultArtifacts = useMemo(() => collectJobArtifacts(resultJob), [resultJob]);
   const selectedPreviewArtifact = useMemo(
     () => resultArtifacts.find((artifact) => artifact.path === selectedPreviewArtifactPath)
-      ?? resultArtifacts.find((artifact) => /\.(stl|glb|gltf|obj|dxf|png|jpe?g|webp|bmp|gif)$/i.test(artifact.path ?? "")),
+      ?? resultArtifacts.find((artifact) => /\.(stl|glb|gltf|obj|dxf|json|svg|png|jpe?g|webp|bmp|gif)$/i.test(artifact.path ?? "")),
     [resultArtifacts, selectedPreviewArtifactPath],
   );
   const resultChecks = resultJob?.reviewGate?.checks ?? resultJob?.result?.checks ?? [];

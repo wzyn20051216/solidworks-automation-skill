@@ -1,284 +1,191 @@
-import { ArrowClockwise, ArrowsOut, CubeFocus, Minus, Plus, WarningCircle } from "@phosphor-icons/react";
+import { WarningCircle } from "@phosphor-icons/react";
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DxfViewport } from "./preview/DxfViewport";
+import { ModelViewport } from "./preview/ModelViewport";
+import { PreviewEvidencePanel } from "./preview/PreviewEvidencePanel";
+import { PreviewInspector } from "./preview/PreviewInspector";
+import { PreviewStatus } from "./preview/PreviewStatus";
+import { PreviewToolbar } from "./preview/PreviewToolbar";
+import type { PreviewActions, PreviewLayer, PreviewManifest, PreviewMode, PreviewPhase, PreviewSelection, PreviewStats } from "./preview/previewTypes";
+import { fileName, mimeType, modeForPath, resolveSiblingPath } from "./preview/previewUtils";
 
 export type CadPreviewArtifact = {
   path?: string;
   kind?: string;
   exists?: boolean;
+  previewManifest?: string;
+  sourceArtifact?: string;
+  sourceBackend?: string;
+  fallback?: string;
+  isDemo?: boolean;
+  sha256?: string;
 };
 
-type PreviewMode = "mesh" | "dxf" | "image" | "unsupported";
+type LoadedPreview = {
+  url: string;
+  path: string;
+  mode: PreviewMode;
+  manifest?: PreviewManifest | null;
+  revoke?: () => void;
+};
 
-function extensionOf(path?: string) {
-  return path?.split(/[.?]/).pop()?.toLowerCase() ?? "";
+function isLocalRuntime() {
+  return "__TAURI_INTERNALS__" in window;
 }
 
-function modeFor(artifact?: CadPreviewArtifact): PreviewMode {
-  const ext = extensionOf(artifact?.path);
-  if (["stl", "glb", "gltf", "obj"].includes(ext)) return "mesh";
-  if (ext === "dxf") return "dxf";
-  if (["png", "jpg", "jpeg", "webp", "bmp", "gif"].includes(ext)) return "image";
-  return "unsupported";
+async function readPreviewUrl(path: string) {
+  if (/^(https?:|asset:|data:|blob:)/i.test(path) || !isLocalRuntime()) return { url: path, revoke: undefined };
+  const payload = await invoke<ArrayBuffer | number[]>("read_preview_file", { path });
+  const bytes = payload instanceof ArrayBuffer ? payload : new Uint8Array(payload);
+  const objectUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType(path) }));
+  return { url: objectUrl, revoke: () => URL.revokeObjectURL(objectUrl) };
 }
 
-function mimeType(path?: string) {
-  const extension = extensionOf(path);
-  if (extension === "stl") return "model/stl";
-  if (extension === "glb") return "model/gltf-binary";
-  if (extension === "gltf") return "model/gltf+json";
-  if (extension === "obj") return "text/plain";
-  if (extension === "dxf") return "text/plain";
-  if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
-  return `image/${extension || "png"}`;
-}
-
-function fileName(path?: string) {
-  return path?.split(/[\\/]/).pop() || "未选择文件";
-}
-
-type DxfEntity = { kind: "line" | "circle" | "polyline"; points: Array<[number, number]> };
-
-function parseDxf(source: string): DxfEntity[] {
-  const rows = source.replace(/\r/g, "").split("\n").map((value) => value.trim());
-  const entities: DxfEntity[] = [];
-  let section = "";
-  for (let index = 0; index < rows.length - 1; index += 2) {
-    const code = rows[index];
-    const value = rows[index + 1];
-    if (code === "0" && value === "SECTION") {
-      section = rows[index + 3] || "";
-      index += 2;
-      continue;
-    }
-    if (code === "0" && value === "ENDSEC") {
-      section = "";
-      continue;
-    }
-    if (section !== "ENTITIES" || code !== "0") continue;
-    if (value === "LINE") {
-      const values: Record<string, number> = {};
-      for (let cursor = index + 2; cursor < rows.length - 1 && rows[cursor] !== "0"; cursor += 2) values[rows[cursor]] = Number(rows[cursor + 1]);
-      if (["10", "20", "11", "21"].every((key) => Number.isFinite(values[key]))) entities.push({ kind: "line", points: [[values["10"], values["20"]], [values["11"], values["21"]]] });
-    } else if (value === "CIRCLE") {
-      const values: Record<string, number> = {};
-      for (let cursor = index + 2; cursor < rows.length - 1 && rows[cursor] !== "0"; cursor += 2) values[rows[cursor]] = Number(rows[cursor + 1]);
-      if (["10", "20", "40"].every((key) => Number.isFinite(values[key]))) {
-        const points: Array<[number, number]> = [];
-        for (let step = 0; step <= 32; step += 1) {
-          const angle = (step / 32) * Math.PI * 2;
-          points.push([values["10"] + Math.cos(angle) * values["40"], values["20"] + Math.sin(angle) * values["40"]]);
-        }
-        entities.push({ kind: "circle", points });
-      }
-    } else if (value === "LWPOLYLINE") {
-      const points: Array<[number, number]> = [];
-      let closed = false;
-      for (let cursor = index + 2; cursor < rows.length - 1 && rows[cursor] !== "0"; cursor += 2) {
-        if (rows[cursor] === "70") closed = (Number(rows[cursor + 1]) & 1) === 1;
-        if (rows[cursor] === "10" && Number.isFinite(Number(rows[cursor + 1])) && rows[cursor + 2] === "20") points.push([Number(rows[cursor + 1]), Number(rows[cursor + 3])]);
-      }
-      if (closed && points.length > 2) points.push(points[0]);
-      if (points.length > 1) entities.push({ kind: "polyline", points });
-    }
+async function readPreviewText(path: string) {
+  const { url, revoke } = await readPreviewUrl(path);
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.text();
+  } finally {
+    revoke?.();
   }
-  return entities;
 }
 
-function drawDxf(canvas: HTMLCanvasElement, entities: DxfEntity[]) {
-  const width = canvas.clientWidth || 640;
-  const height = canvas.clientHeight || 360;
-  const ratio = window.devicePixelRatio || 1;
-  canvas.width = width * ratio;
-  canvas.height = height * ratio;
-  const context = canvas.getContext("2d");
-  if (!context) return;
-  context.setTransform(ratio, 0, 0, ratio, 0, 0);
-  context.fillStyle = "#f8faf7";
-  context.fillRect(0, 0, width, height);
-  const points = entities.flatMap((entity) => entity.points);
-  if (points.length === 0) return;
-  const minX = Math.min(...points.map(([x]) => x));
-  const maxX = Math.max(...points.map(([x]) => x));
-  const minY = Math.min(...points.map(([, y]) => y));
-  const maxY = Math.max(...points.map(([, y]) => y));
-  const scale = Math.min((width - 44) / Math.max(1, maxX - minX), (height - 44) / Math.max(1, maxY - minY));
-  const project = ([x, y]: [number, number]) => [22 + (x - minX) * scale, height - 22 - (y - minY) * scale] as const;
-  context.strokeStyle = "#176c65";
-  context.lineWidth = 1.35;
-  context.lineJoin = "round";
-  entities.forEach((entity) => {
-    context.beginPath();
-    entity.points.forEach((point, index) => {
-      const [x, y] = project(point);
-      if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
-    });
-    context.stroke();
-  });
+function manifestFromArtifact(artifact?: CadPreviewArtifact): PreviewManifest | null {
+  if (!artifact) return null;
+  return {
+    previewVersion: "1.0",
+    sourceArtifact: artifact.sourceArtifact || artifact.path,
+    previewArtifact: artifact.path,
+    fallbackImage: artifact.fallback,
+    mode: artifact.isDemo ? "demo-showcase" : "delivery-preview",
+    isDemo: artifact.isDemo,
+    units: "mm",
+    sha256: artifact.sha256,
+    limitations: artifact.isDemo ? ["演示预览不能作为本轮交付证据"] : [],
+  };
 }
 
+/** @brief CAD 交付预览调度层，统一模型、DXF、图片和预览清单。 */
 export function CadPreview({ artifact }: { artifact?: CadPreviewArtifact }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const hostRef = useRef<HTMLDivElement>(null);
-  const viewActionsRef = useRef<{ zoom: (direction: number) => void; reset: () => void } | null>(null);
-  const [status, setStatus] = useState<"idle" | "loading" | "ready" | "empty" | "error">("idle");
-  const [message, setMessage] = useState("");
-  const [zoom, setZoom] = useState(1);
-  const [url, setUrl] = useState("");
-  const mode = modeFor(artifact);
+  const actionsRef = useRef<PreviewActions | null>(null);
+  const dxfActionsRef = useRef<PreviewActions | null>(null);
+  const modelActionsRef = useRef<PreviewActions | null>(null);
+  const [loaded, setLoaded] = useState<LoadedPreview | null>(null);
+  const [phase, setPhase] = useState<PreviewPhase>("等待文件");
+  const [message, setMessage] = useState("选择 STL、GLB、GLTF、OBJ、DXF、预览清单或图片产物后显示预览");
+  const [selection, setSelection] = useState<PreviewSelection | null>(null);
+  const [stats, setStats] = useState<PreviewStats>({});
+  const [layers, setLayers] = useState<PreviewLayer[]>([]);
+  const [visibleLayers, setVisibleLayers] = useState<Set<string>>(new Set());
+  const [projection, setProjection] = useState<"perspective" | "orthographic">("perspective");
+  const effectiveMode = loaded?.mode ?? modeForPath(artifact?.path);
+  const ready = phase === "可交互";
 
-  useEffect(() => {
-    const path = artifact?.path;
-    let objectUrl = "";
-    let disposed = false;
-    setUrl("");
-    if (!path) return;
-    if (/^(https?:|asset:|data:|blob:)/i.test(path)) {
-      setUrl(path);
-      return;
-    }
-    if (!("__TAURI_INTERNALS__" in window)) {
-      setUrl(path);
-      return;
-    }
-    invoke<ArrayBuffer | number[]>("read_preview_file", { path }).then((payload) => {
-      if (disposed) return;
-      const bytes = payload instanceof ArrayBuffer ? payload : new Uint8Array(payload);
-      objectUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType(path) }));
-      setUrl(objectUrl);
-    }).catch((error) => {
-      if (!disposed) { setStatus("error"); setMessage(String(error)); }
-    });
-    return () => { disposed = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [artifact?.path]);
+  const setPreviewPhase = useCallback((next: string, detail = "") => {
+    setPhase(next as PreviewPhase);
+    setMessage(detail || next);
+  }, []);
 
   useEffect(() => {
     let disposed = false;
-    if (!artifact?.path || artifact.exists === false) {
-      setStatus("empty");
+    let revoke: (() => void) | undefined;
+    setLoaded(null);
+    setSelection(null);
+    setStats({});
+    setLayers([]);
+    setVisibleLayers(new Set());
+    actionsRef.current = null;
+    const sourcePath = artifact?.previewManifest || artifact?.path;
+    if (!sourcePath || artifact?.exists === false) {
+      setPreviewPhase("等待文件", artifact?.exists === false ? "文件缺失，不能预览。" : "等待选择产物。");
       return;
     }
-    setStatus("loading");
-    setMessage("");
-    setZoom(1);
-    if (!url) return;
-    if (mode === "dxf") {
-      fetch(url).then((response) => response.ok ? response.text() : Promise.reject(new Error(`HTTP ${response.status}`))).then((source) => {
-        if (disposed) return;
-        const entities = parseDxf(source);
-        if (canvasRef.current) drawDxf(canvasRef.current, entities);
-        setStatus(entities.length ? "ready" : "empty");
-        setMessage(entities.length ? `${entities.length} 个实体 · 只读预览` : "未解析到可显示的 LINE、CIRCLE 或 LWPOLYLINE");
-      }).catch((error: Error) => { if (!disposed) { setStatus("error"); setMessage(`DXF 读取失败: ${error.message}`); } });
-      return () => { disposed = true; };
-    }
-    if (mode !== "mesh" || !hostRef.current) {
-      setStatus(mode === "image" ? "ready" : "empty");
-      return () => { disposed = true; };
-    }
-    const host = hostRef.current;
-    let renderer: import("three").WebGLRenderer | undefined;
-    let animation = 0;
-    let controls: import("three/examples/jsm/controls/OrbitControls.js").OrbitControls | undefined;
-    let loadedObject: import("three").Object3D | undefined;
-    let resizeObserver: ResizeObserver | undefined;
-    import("three").then(async (THREE) => {
-      const [{ OrbitControls }, { STLLoader }, { GLTFLoader }, { OBJLoader }] = await Promise.all([
-        import("three/examples/jsm/controls/OrbitControls.js"),
-        import("three/examples/jsm/loaders/STLLoader.js"),
-        import("three/examples/jsm/loaders/GLTFLoader.js"),
-        import("three/examples/jsm/loaders/OBJLoader.js"),
-      ]);
-      if (disposed) return;
-      const scene = new THREE.Scene();
-      scene.background = new THREE.Color("#f8faf7");
-      const camera = new THREE.PerspectiveCamera(38, host.clientWidth / Math.max(1, host.clientHeight), 0.01, 10000);
-      camera.position.set(2.8, 2.2, 3.2);
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-      renderer.setSize(host.clientWidth, host.clientHeight);
-      host.replaceChildren(renderer.domElement);
-      resizeObserver = new ResizeObserver(() => {
-        if (!renderer || host.clientWidth <= 0 || host.clientHeight <= 0) return;
-        camera.aspect = host.clientWidth / host.clientHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(host.clientWidth, host.clientHeight);
-      });
-      resizeObserver.observe(host);
-      const ambient = new THREE.HemisphereLight(0xffffff, 0x8a9d99, 2.2);
-      scene.add(ambient);
-      const key = new THREE.DirectionalLight(0xffffff, 2.4); key.position.set(4, 5, 6); scene.add(key);
-      scene.add(new THREE.GridHelper(5, 10, 0xd6e2dc, 0xe7eee9));
-      controls = new OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true;
-      const extension = extensionOf(artifact.path);
+    const load = async () => {
       try {
-        let object: import("three").Object3D;
-        if (extension === "stl") {
-          const geometry = await new STLLoader().loadAsync(url);
-          geometry.computeVertexNormals();
-          object = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x3d8175, metalness: 0.18, roughness: 0.5 }));
-        } else if (extension === "obj") object = await new OBJLoader().loadAsync(url);
-        else object = (await new GLTFLoader().loadAsync(url)).scene;
-        if (disposed) return;
-        object.traverse((child) => { if ((child as import("three").Mesh).isMesh) { const mesh = child as import("three").Mesh; if (!mesh.material) mesh.material = new THREE.MeshStandardMaterial({ color: 0x3d8175 }); } });
-        const box = new THREE.Box3().setFromObject(object);
-        const center = box.getCenter(new THREE.Vector3());
-        const size = box.getSize(new THREE.Vector3());
-        const radius = Math.max(size.x, size.y, size.z, 0.01);
-        object.position.sub(center);
-        scene.add(object);
-        loadedObject = object;
-        camera.position.set(radius * 1.8, radius * 1.35, radius * 1.8);
-        camera.near = radius / 1000; camera.far = radius * 100; camera.updateProjectionMatrix();
-        controls.target.set(0, 0, 0); controls.update();
-        controls.saveState();
-        viewActionsRef.current = {
-          zoom: (direction) => {
-            camera.position.multiplyScalar(direction > 0 ? 0.84 : 1.18);
-            controls?.update();
-          },
-          reset: () => controls?.reset(),
-        };
-        setStatus("ready");
-        const tick = () => { if (disposed) return; controls?.update(); renderer?.render(scene, camera); animation = requestAnimationFrame(tick); };
-        tick();
-      } catch (error) { if (!disposed) { setStatus("error"); setMessage(`模型读取失败: ${(error as Error).message}`); } }
-    }).catch((error: Error) => { if (!disposed) { setStatus("error"); setMessage(`预览引擎加载失败: ${error.message}`); } });
-    return () => {
-      disposed = true;
-      viewActionsRef.current = null;
-      cancelAnimationFrame(animation);
-      resizeObserver?.disconnect();
-      controls?.dispose();
-      loadedObject?.traverse((child) => {
-        const mesh = child as import("three").Mesh;
-        mesh.geometry?.dispose();
-        const materials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
-        materials.forEach((material) => material.dispose());
-      });
-      renderer?.dispose();
-      host.replaceChildren();
+        setPreviewPhase("正在读取文件", fileName(sourcePath));
+        let manifest = manifestFromArtifact(artifact);
+        let displayPath = artifact?.path || sourcePath;
+        if (artifact?.previewManifest || modeForPath(sourcePath) === "manifest") {
+          const raw = await readPreviewText(sourcePath);
+          manifest = { ...manifest, ...(JSON.parse(raw) as PreviewManifest) };
+          displayPath = resolveSiblingPath(sourcePath, manifest.previewArtifact || manifest.fallbackImage || artifact?.path || sourcePath);
+        }
+        let mode = modeForPath(displayPath);
+        if (mode === "unsupported" && manifest?.fallbackImage) {
+          displayPath = resolveSiblingPath(sourcePath, manifest.fallbackImage);
+          mode = modeForPath(displayPath);
+        }
+        const loadedUrl = await readPreviewUrl(displayPath);
+        revoke = loadedUrl.revoke;
+        if (!disposed) {
+          setLoaded({ url: loadedUrl.url, path: displayPath, mode, manifest, revoke });
+          setPreviewPhase(mode === "image" ? "可交互" : "正在解码", mode === "image" ? "图像回退预览已就绪" : fileName(displayPath));
+        }
+      } catch (error) {
+        if (!disposed) setPreviewPhase("预览失败", (error as Error).message);
+      }
     };
-  }, [artifact?.exists, artifact?.path, mode, url]);
+    void load();
+    return () => { disposed = true; revoke?.(); };
+  }, [artifact, setPreviewPhase]);
 
-  const zoomImage = (direction: number) => setZoom((value) => Math.min(2.5, Math.max(0.65, value + direction * 0.15)));
-  const zoomPreview = (direction: number) => mode === "mesh" ? viewActionsRef.current?.zoom(direction) : zoomImage(direction);
-  const resetPreview = () => mode === "mesh" ? viewActionsRef.current?.reset() : setZoom(1);
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (!actionsRef.current) return;
+      if (event.key === "f" || event.key === "F") actionsRef.current.fit();
+      if (event.key === "Escape") actionsRef.current.clearSelection();
+      const viewMap: Record<string, Parameters<PreviewActions["setStandardView"]>[0]> = { "1": "front", "2": "right", "3": "top", "4": "left", "5": "back", "6": "bottom" };
+      if (viewMap[event.key]) actionsRef.current.setStandardView(viewMap[event.key]);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  const manifest = loaded?.manifest;
+  const layerNames = useMemo(() => new Set(layers.map((layer) => layer.name)), [layers]);
+  useEffect(() => { setVisibleLayers(layerNames); }, [layerNames]);
+  const activeActions = effectiveMode === "mesh" ? modelActionsRef.current : effectiveMode === "dxf" ? dxfActionsRef.current : null;
+  actionsRef.current = activeActions;
+
   return (
-    <section className="cad-preview" aria-label="CAD 预览">
-      <div className="cad-preview-heading"><div><span className="eyebrow">LIVE PREVIEW</span><strong>{fileName(artifact?.path)}</strong></div><span className={`cad-preview-status ${status}`}>{status === "ready" ? "可预览" : status === "loading" ? "加载中" : status === "error" ? "预览失败" : "等待文件"}</span></div>
-      <div className="cad-preview-stage">
-        {mode === "mesh" ? <div ref={hostRef} className="cad-preview-canvas" /> : mode === "dxf" ? <canvas ref={canvasRef} className="cad-preview-dxf" style={{ transform: `scale(${zoom})` }} /> : mode === "image" && url ? <img src={url} alt={fileName(artifact?.path)} style={{ transform: `scale(${zoom})` }} /> : <div className="cad-preview-empty"><WarningCircle size={22} /><span>{message || "选择 STL、GLB、GLTF、OBJ、DXF 或图片产物后显示预览"}</span></div>}
-        {status === "error" ? <div className="cad-preview-error">{message}</div> : null}
+    <section className="cad-preview mechanical-bench" aria-label="CAD 预览">
+      <div className="cad-preview-heading">
+        <div><span className="eyebrow">CAD INSPECTION BENCH</span><strong>{fileName(loaded?.path || artifact?.path)}</strong></div>
+        <span className={`cad-preview-status ${phase === "可交互" ? "ready" : phase === "预览失败" ? "error" : "loading"}`}>{phase}</span>
       </div>
-      <div className="cad-preview-tools">
-        <button type="button" title="缩小预览" aria-label="缩小预览" disabled={status !== "ready"} onClick={() => zoomPreview(-1)}><Minus size={16} /></button>
-        <button type="button" title="适配视图" aria-label="适配视图" disabled={status !== "ready"} onClick={resetPreview}><ArrowsOut size={16} /></button>
-        <button type="button" title="重置视图" aria-label="重置视图" disabled={status !== "ready"} onClick={resetPreview}><ArrowClockwise size={16} /></button>
-        <button type="button" title="放大预览" aria-label="放大预览" disabled={status !== "ready"} onClick={() => zoomPreview(1)}><Plus size={16} /></button>
-        <span><CubeFocus size={15} /> {mode === "dxf" ? "DXF 线稿" : mode === "mesh" ? "Three.js 网格" : "图像"}</span>
+      <PreviewStatus phase={phase} message={message} manifest={manifest} />
+      <div className="cad-preview-layout">
+        <PreviewInspector
+          artifactPath={loaded?.path || artifact?.path}
+          manifest={manifest}
+          stats={stats}
+          selection={selection}
+          layers={layers}
+          visibleLayers={visibleLayers}
+          onToggleLayer={(layer) => setVisibleLayers((current) => {
+            const next = new Set(current);
+            if (next.has(layer)) next.delete(layer); else next.add(layer);
+            return next;
+          })}
+        />
+        <div className="cad-preview-stage">
+          {loaded?.mode === "mesh" ? (
+            <ModelViewport ref={modelActionsRef} url={loaded.url} path={loaded.path} onPhase={setPreviewPhase} onSelection={setSelection} onStats={setStats} onProjection={setProjection} />
+          ) : loaded?.mode === "dxf" ? (
+            <DxfViewport ref={dxfActionsRef} url={loaded.url} visibleLayers={visibleLayers} onLayers={setLayers} onStats={setStats} onPhase={setPreviewPhase} onSelection={setSelection} />
+          ) : loaded?.mode === "image" ? (
+            <img src={loaded.url} alt={fileName(loaded.path)} />
+          ) : (
+            <div className="cad-preview-empty"><WarningCircle size={22} /><span>{message}</span></div>
+          )}
+          {phase === "预览失败" ? <div className="cad-preview-error">{message}</div> : null}
+        </div>
+        <PreviewEvidencePanel manifest={manifest} selection={selection} />
       </div>
+      <PreviewToolbar ready={ready} mode={effectiveMode} projection={projection} actions={activeActions} />
     </section>
   );
 }
