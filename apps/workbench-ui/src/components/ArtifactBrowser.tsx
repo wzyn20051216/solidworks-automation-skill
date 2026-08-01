@@ -6,10 +6,11 @@ type ArtifactBrowserProps = {
   artifacts: ArtifactRecord[];
   selected?: ArtifactRecord;
   onSelect: (path?: string) => void;
+  showPreview?: boolean;
 };
 
 /** @brief 展示真实交付文件并为支持格式提供预览。 */
-export function ArtifactBrowser({ artifacts, selected, onSelect }: ArtifactBrowserProps) {
+export function ArtifactBrowser({ artifacts, selected, onSelect, showPreview = true }: ArtifactBrowserProps) {
   return (
     <div className="artifact-list delivery-artifacts">
       {artifacts.length ? artifacts.map((artifact, index) => (
@@ -32,7 +33,7 @@ export function ArtifactBrowser({ artifacts, selected, onSelect }: ArtifactBrows
           <p>先让 AI 完成建模、出图或转换任务，交付中心会读取真实输出物。</p>
         </div>
       )}
-      <CadPreview artifact={selected} />
+      {showPreview ? <CadPreview artifact={selected} /> : null}
     </div>
   );
 }

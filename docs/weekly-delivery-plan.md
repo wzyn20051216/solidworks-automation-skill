@@ -57,3 +57,11 @@
 - AutoCAD 后端状态保持独立：DXF 无头 `pilot`、白名单脚本 `pilot`、COM 当前 `blocked`；.NET SDK 8 已安装到当前用户目录，AutoCAD 2024 白名单插件已通过 `NETLOAD`、真实 DWG 保存重开、PDF/PNG 和实体/图层/尺寸真机复核，因此 .NET 后端提升为 `pilot`。
 - .NET 回归只允许 `CADSTUDIOPROBE/CADSTUDIOCREATE` 固定命令，不提供任意 AutoLISP、SCR 或 C# 执行；AutoCAD 2025–2026 和桌面签名插件部署仍需后续验证。
 - 新增综合回归 `tests/cad_studio_weekly_regression.py` 和 SolidWorks 工程图真机回归 `tests/solidworks_week4_drawing_regression.py`；真实 CAD 只能显式使用 `--real-cad` 或自托管 CI 运行。
+
+## 后续第 1 阶段结果：版本化重试与交付门禁
+
+- 终态任务重新执行前保存只读 `runHistory` 快照，最多保留最近 20 轮；旧产物、错误、工程图/BOM 证据和复核记录不会在应用内消失，也不会递归复制历史。
+- `retryPolicy` 明确记录上一轮 ID、重跑起点、仅执行失败阶段及后继、保留旧产物和禁止覆盖；worker 会复用上一轮工程 DAG，执行 Prompt 同步强制版本化输出。
+- 交付中心使用本轮产物、领域证据、人工复核和阻断原因统一判定 `ready/review_required/blocked/failed/incomplete`，不再把文件存在或侧栏“已完成”直接等同于可交付。
+- 交付页新增本轮有效产物数、版本记录、SHA-256 变化摘要、产物追溯和 AutoCAD 后端诊断；模型、图纸、BOM 等分组共用一个预览，避免窄窗口重复渲染大预览。
+- `ai_team/delivery-gate-e2e.cjs` 在真实 Chromium 中验证 1440×900 待复核状态和 760×900 已批准状态，无横向溢出、无重复预览，并确保只有人工批准后显示“本轮可交付”。

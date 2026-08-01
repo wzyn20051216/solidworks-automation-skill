@@ -118,6 +118,51 @@ export type ArtifactRecord = {
   producedThisRun?: boolean;
 };
 export type ReviewCheck = { id?: string; severity?: string; status?: "pass" | "warning" | "fail" | string; message?: string };
+export type DomainEvidence = {
+  status?: string;
+  stage?: string;
+  manual_review_required?: boolean;
+  retryable?: boolean;
+  error_code?: string | null;
+  limitations?: string[];
+  [key: string]: unknown;
+};
+export type ArtifactRelation = { from?: string; to?: string; type?: string; relation?: string; [key: string]: unknown };
+export type BackendDiagnostic = {
+  backend?: string;
+  status?: "pass" | "pilot" | "blocked" | "failed" | string;
+  stage?: string;
+  error_code?: string | null;
+  retryable?: boolean;
+  limitations?: string[];
+};
+export type JobRunSnapshot = {
+  runId?: string;
+  status?: AutomationJobStatus;
+  stage?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  lastMessage?: string;
+  error?: string;
+  result?: AutomationJob["result"];
+  artifacts?: ArtifactRecord[];
+  artifactLedgerPath?: string;
+  reviewGatePath?: string;
+  reviewGate?: AutomationJob["reviewGate"];
+  drawingEvidence?: DomainEvidence;
+  bomEvidence?: DomainEvidence;
+  reviewFindings?: Array<Record<string, unknown>>;
+  artifactRelations?: ArtifactRelation[];
+  blockedReasons?: string[];
+};
+export type RetryPolicy = {
+  previousRunId?: string;
+  retryFromStage?: string;
+  scope?: "failed_stage_and_downstream" | string;
+  preservePreviousArtifacts?: boolean;
+  overwrite?: boolean;
+  requestedAt?: string;
+};
 export type AutomationJob = {
   schemaVersion: "1.0" | "2.0";
   id: string;
@@ -139,10 +184,13 @@ export type AutomationJob = {
   assumptions?: Array<Record<string, unknown>>;
   requiredArtifacts?: string[];
   verificationEvidence?: Array<Record<string, unknown>>;
-  drawingEvidence?: Record<string, unknown>;
-  bomEvidence?: Record<string, unknown>;
+  drawingEvidence?: DomainEvidence;
+  bomEvidence?: DomainEvidence;
   reviewFindings?: Array<Record<string, unknown>>;
-  artifactRelations?: Array<Record<string, unknown>>;
+  artifactRelations?: ArtifactRelation[];
+  backendDiagnostics?: Record<string, BackendDiagnostic> | BackendDiagnostic[];
+  runHistory?: JobRunSnapshot[];
+  retryPolicy?: RetryPolicy;
   blockedReasons?: string[];
   projectPath?: string;
   executor?: "mock" | "codex" | "agent";
@@ -174,6 +222,7 @@ export type AutomationJob = {
     stderrTail?: string;
     engineeringPlanPath?: string;
     engineeringPlan?: { phases?: Array<{ id?: string; name?: string; status?: string; human_gate?: boolean }> };
+    backendDiagnostics?: Record<string, BackendDiagnostic> | BackendDiagnostic[];
   };
   uiConfig?: Record<string, unknown>;
   policy?: {

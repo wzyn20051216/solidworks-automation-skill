@@ -40,6 +40,14 @@ import { ManualReviewPanel } from "./components/ManualReviewPanel";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
 import { TaskSequence } from "./components/TaskSequence";
 import { collectJobArtifacts, deliveryFormatStatus, groupedArtifacts } from "./domain/artifacts";
+import {
+  artifactVersionComparison,
+  assessDelivery,
+  backendDiagnosticsFor,
+  createRunSnapshot,
+  retryStageForJob,
+  retryStageLabel,
+} from "./domain/delivery";
 import { conciseTaskTitle, jobDisplayTitle, jobStatusLabel } from "./domain/jobs";
 import {
   DEFAULT_PROJECT,
@@ -210,8 +218,10 @@ const helpTopics: Array<{
     summary: "生成文件不等于制造验收。关键尺寸、孔槽、装配和工程图仍要在目标 CAD 软件中复核。",
     items: [
       { title: "检查产物", detail: "确认 STEP、STL、SLDPRT、DWG、DXF 或 PDF 路径、大小和本轮生成标记。" },
+      { title: "查看交付门禁", detail: "交付中心统一显示可交付、待人工复核、阻断或证据不完整；侧栏的已完成只代表任务已产生结果。" },
       { title: "原生打开", detail: "用 SolidWorks 或 AutoCAD 打开文件，确认无修复提示、缺失引用或版本异常。" },
       { title: "核对几何", detail: "检查包络尺寸、孔径、孔位、壁厚、螺纹、装配干涉以及制造方向。" },
+      { title: "局部重新生成", detail: "失败或待复核任务会显示重跑起点，只重做该阶段及后继；旧产物、错误和复核证据继续保留在版本记录中。" },
       { title: "完成复核", detail: "在复核页勾选真实完成的检查项并填写说明，记录会写入本地任务元数据。" },
     ],
   },
@@ -1795,6 +1805,15 @@ function App() {
       } else {
         updateJob(id, (item) => ({
           ...item,
+          runHistory: [...(item.runHistory ?? []), createRunSnapshot(item)].slice(-20),
+          retryPolicy: {
+            previousRunId: item.runId,
+            retryFromStage: retryStageForJob(item),
+            scope: "failed_stage_and_downstream",
+            preservePreviousArtifacts: true,
+            overwrite: false,
+            requestedAt: new Date().toISOString(),
+          },
           runId: `retry-${Date.now()}`,
           status: "queued",
           progress: 0,
@@ -1809,6 +1828,11 @@ function App() {
           reviewedBy: undefined,
           reviewDecision: undefined,
           reviewNote: undefined,
+          drawingEvidence: undefined,
+          bomEvidence: undefined,
+          reviewFindings: undefined,
+          artifactRelations: undefined,
+          blockedReasons: undefined,
           runnerId: undefined,
           workerPid: undefined,
           heartbeatAt: undefined,
@@ -2550,6 +2574,13 @@ function App() {
 
   function renderExportPanel() {
     const grouped = groupedArtifacts(resultArtifacts);
+    const assessment = assessDelivery(resultJob);
+    const retryStage = retryStageForJob(resultJob);
+    const versionComparison = artifactVersionComparison(resultJob);
+    const diagnostics = backendDiagnosticsFor(resultJob);
+    const history = resultJob?.runHistory ?? [];
+    const relations = resultJob?.artifactRelations ?? [];
+    const canRetry = Boolean(resultJob && ["failed", "blocked", "cancelled", "review_required"].includes(resultJob.status));
     const groupLabels: Array<[keyof typeof grouped, string]> = [
       ["model", "模型"],
       ["drawing", "工程图"],
@@ -2566,20 +2597,63 @@ function App() {
               <p className="eyebrow">DELIVERY</p>
               <h2>本地交付清单</h2>
             </div>
-            <motion.button className="primary-button compact-action shine" type="button" onClick={enqueueDeliveryTask} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.975 }}>
-              <Archive size={17} weight="duotone" />
-              生成交付包
-            </motion.button>
+            <div className="delivery-heading-actions">
+              {canRetry && resultJob ? (
+                <motion.button className="ghost-button compact-action" type="button" disabled={retryingJobId !== null} onClick={() => void retryJob(resultJob.id)} whileTap={{ scale: 0.975 }}>
+                  <ArrowClockwise className={retryingJobId === resultJob.id ? "spin" : undefined} size={17} weight="bold" />
+                  {retryingJobId === resultJob.id ? "正在排队" : `从${retryStageLabel(retryStage)}重新生成`}
+                </motion.button>
+              ) : null}
+              <motion.button className="primary-button compact-action shine" type="button" onClick={enqueueDeliveryTask} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={{ scale: 0.975 }}>
+                <Archive size={17} weight="duotone" />
+                生成交付包
+              </motion.button>
+            </div>
           </div>
+          <div className={`delivery-gate ${assessment.disposition}`}>
+            <div className="delivery-gate-copy">
+              <span>{assessment.disposition === "ready" ? "DELIVERY READY" : assessment.disposition === "review_required" ? "MANUAL REVIEW" : "DELIVERY GATE"}</span>
+              <strong>{assessment.title}</strong>
+              <p>{assessment.summary}</p>
+            </div>
+            <div className="delivery-gate-metrics">
+              <span><strong>{assessment.readyArtifacts}</strong> 本轮有效产物</span>
+              <span><strong>{history.length + (resultJob ? 1 : 0)}</strong> 保留版本</span>
+              <span><strong>{resultJob?.reviewGate?.checks?.length ?? resultJob?.result?.checks?.length ?? 0}</strong> 机器检查</span>
+            </div>
+            {assessment.issues.length ? (
+              <div className="delivery-issue-list">
+                {assessment.issues.slice(0, 5).map((issue) => <span key={issue}>{issue}</span>)}
+              </div>
+            ) : null}
+          </div>
+          {selectedPreviewArtifact ? (
+            <section className="delivery-preview-stage">
+              <div className="delivery-section-heading"><strong>当前预览</strong><span>{selectedPreviewArtifact.path?.split(/[\\/]/).pop()}</span></div>
+              <ArtifactBrowser artifacts={[]} selected={selectedPreviewArtifact} onSelect={setSelectedPreviewArtifactPath} />
+            </section>
+          ) : null}
           <div className="delivery-groups">
             {groupLabels.map(([group, label]) => grouped[group].length > 0 ? (
               <section className="delivery-group" key={group}>
                 <div className="delivery-group-heading"><strong>{label}</strong><span>{grouped[group].length} 项</span></div>
-                <ArtifactBrowser artifacts={grouped[group]} selected={selectedPreviewArtifact} onSelect={setSelectedPreviewArtifactPath} />
+                <ArtifactBrowser artifacts={grouped[group]} selected={selectedPreviewArtifact} onSelect={setSelectedPreviewArtifactPath} showPreview={false} />
               </section>
             ) : null)}
-            {!resultArtifacts.length ? <ArtifactBrowser artifacts={resultArtifacts} selected={selectedPreviewArtifact} onSelect={setSelectedPreviewArtifactPath} /> : null}
+            {!resultArtifacts.length ? <ArtifactBrowser artifacts={resultArtifacts} selected={selectedPreviewArtifact} onSelect={setSelectedPreviewArtifactPath} showPreview={false} /> : null}
           </div>
+          {relations.length ? (
+            <section className="delivery-trace">
+              <div className="delivery-section-heading"><strong>产物追溯</strong><span>{relations.length} 条关系</span></div>
+              {relations.slice(0, 8).map((relation, index) => (
+                <div className="delivery-trace-row" key={`${relation.from}-${relation.to}-${index}`}>
+                  <span title={relation.from}>{relation.from?.split(/[\\/]/).pop() || "来源产物"}</span>
+                  <strong>{relation.type || relation.relation || "生成"}</strong>
+                  <span title={relation.to}>{relation.to?.split(/[\\/]/).pop() || "目标产物"}</span>
+                </div>
+              ))}
+            </section>
+          ) : null}
         </article>
 
         <aside className="delivery-side">
@@ -2602,8 +2676,34 @@ function App() {
             <span>复核状态</span>
             <strong>{resultJob ? jobReviewStatusLabel(resultJob) : "等待生成后复核"}</strong>
           </div>
-          {resultJob?.drawingEvidence ? <div className="review-mini"><span>工程图证据</span><strong>{String((resultJob.drawingEvidence as { status?: string }).status || "已返回")}</strong></div> : null}
-          {resultJob?.bomEvidence ? <div className="review-mini"><span>BOM 证据</span><strong>{String((resultJob.bomEvidence as { status?: string }).status || "已返回")}</strong></div> : null}
+          {resultJob?.drawingEvidence ? <div className="review-mini"><span>工程图证据</span><strong>{reviewStatusLabel(resultJob.drawingEvidence.status)}</strong><small>{resultJob.drawingEvidence.error_code || retryStageLabel(resultJob.drawingEvidence.stage)}</small></div> : null}
+          {resultJob?.bomEvidence ? <div className="review-mini"><span>BOM 证据</span><strong>{reviewStatusLabel(resultJob.bomEvidence.status)}</strong><small>{resultJob.bomEvidence.error_code || retryStageLabel(resultJob.bomEvidence.stage)}</small></div> : null}
+          {diagnostics.length ? (
+            <div className="delivery-diagnostics">
+              <div className="delivery-section-heading"><strong>后端诊断</strong><span>{diagnostics.length} 项</span></div>
+              {diagnostics.map((diagnostic, index) => (
+                <div className={`delivery-diagnostic-row ${diagnostic.status ?? "unknown"}`} key={`${diagnostic.backend}-${index}`}>
+                  <span>{diagnostic.backend || "CAD 后端"}</span>
+                  <strong>{diagnostic.status || "unknown"}</strong>
+                  <small>{diagnostic.error_code || diagnostic.limitations?.[0] || retryStageLabel(diagnostic.stage)}</small>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {resultJob ? (
+            <div className="delivery-versions">
+              <div className="delivery-section-heading"><strong>版本记录</strong><span>{history.length + 1} 轮</span></div>
+              <div className="delivery-version-row current">
+                <span>当前</span><strong>{resultJob.runId}</strong><small>{jobStatusLabel(resultJob.status)} · {resultArtifacts.length} 项</small>
+              </div>
+              {[...history].reverse().slice(0, 5).map((run, index) => (
+                <div className="delivery-version-row" key={`${run.runId}-${index}`}>
+                  <span>V{history.length - index}</span><strong>{run.runId || "旧版本"}</strong><small>{run.status ? jobStatusLabel(run.status) : "已归档"} · {run.artifacts?.length ?? 0} 项</small>
+                </div>
+              ))}
+              {history.length ? <p className="version-diff">与上一轮：新增 {versionComparison.added} · 变化 {versionComparison.changed} · 未变 {versionComparison.unchanged}</p> : null}
+            </div>
+          ) : null}
         </aside>
       </section>
     );

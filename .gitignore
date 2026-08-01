@@ -26,6 +26,7 @@ ai_team/*
 !ai_team/nsis-install-e2e.ps1
 !ai_team/ui-layout-check.cjs
 !ai_team/workbench-e2e-final.cjs
+!ai_team/delivery-gate-e2e.cjs
 apps/workbench-ui/ai_team/
 apps/workbench-ui/.playwright-cli/
 .spec-workflow/

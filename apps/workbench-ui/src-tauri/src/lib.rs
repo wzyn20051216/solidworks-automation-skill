@@ -2865,6 +2865,8 @@ mod tests {
         job["approvedPolicyReasons"] = json!(["已批准"]);
         job["drawingEvidence"] = json!({"status": "failed", "stage": "review"});
         job["reviewFindings"] = json!([{"id": "dimension-overlap", "status": "fail"}]);
+        job["prompt"] = json!("不得进入历史快照的完整 Prompt");
+        job["uiConfig"] = json!({"apiKey": "不得进入历史快照的凭据"});
 
         prepare_job_for_retry(&mut job, "retry-test-1".to_string(), "unix:2".to_string())
             .expect("failed job should be retryable");
@@ -2884,6 +2886,8 @@ mod tests {
         assert_eq!(job["runHistory"].as_array().map(Vec::len), Some(1));
         assert_eq!(job["runHistory"][0]["artifacts"][0]["path"], "old.step");
         assert_eq!(job["runHistory"][0]["reviewFindings"][0]["id"], "dimension-overlap");
+        assert!(job["runHistory"][0].get("prompt").is_none());
+        assert!(job["runHistory"][0].get("uiConfig").is_none());
         assert!(job.get("drawingEvidence").is_none());
         assert!(job.get("reviewFindings").is_none());
         assert!(job["runHistory"][0].get("runHistory").is_none());
