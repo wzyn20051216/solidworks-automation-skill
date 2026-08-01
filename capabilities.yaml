@@ -176,6 +176,26 @@
       "allowed_modes": ["interactive", "reviewed"]
     },
     {
+      "id": "autocad_script_backend",
+      "label": "AutoCAD SCR/AutoLISP 白名单命令桥",
+      "level": "pilot",
+      "backends": ["autocad-script"],
+      "verified_versions": ["2024"],
+      "dependencies": ["AutoCAD"],
+      "limitations": ["命令执行可能异步；只允许白名单脚本，保存后必须复核 DWG/DXF/PDF 产物"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "autocad_dotnet_backend",
+      "label": "AutoCAD .NET Managed API 桥接",
+      "level": "reference_only",
+      "backends": ["autocad-dotnet"],
+      "verified_versions": [],
+      "dependencies": [".NET SDK", "AutoCAD Managed API DLL"],
+      "limitations": ["当前仅完成前置探测；不得自动下载 Autodesk 专有 DLL，不得宣称插件已加载"],
+      "allowed_modes": ["interactive"]
+    },
+    {
       "id": "routing",
       "label": "Routing",
       "level": "not_implemented",

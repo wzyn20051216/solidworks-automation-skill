@@ -11,6 +11,26 @@ except ImportError:
 pythoncom, _win32com, VARIANT = import_com_dependencies()
 
 
+def _safe_member(obj, name, *args, default=None):
+    """@brief 读取工程图 COM 成员，失败时返回默认值。"""
+    if obj is None:
+        return default
+    try:
+        value = get_com_member(obj, name, *args)
+        return default if value is None else value
+    except Exception:
+        return default
+
+
+def _as_sequence(value):
+    """@brief 统一 COM 数组、元组和单对象返回值。"""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    return [value]
+
+
 def create_standard_views(drawing_model, part_path):
     """
     创建标准三视图（第三角投影法）
@@ -130,6 +150,65 @@ def get_all_views(drawing_model):
                 "type": view.Type,
                 "scale": view.ScaleRatio,
             })
+    return result
+
+
+def inspect_drawing_structure(drawing_model) -> dict:
+    """@brief 读取工程图结构并返回可审计报告，不修改文档。"""
+    sheets = _as_sequence(_safe_member(drawing_model, "GetSheetNames", default=[]))
+    if not sheets:
+        current_sheet = _safe_member(drawing_model, "GetCurrentSheet")
+        current_name = _safe_member(current_sheet, "GetName", default="")
+        if current_name:
+            sheets = [current_name]
+    views = []
+    dimensions = []
+    notes = []
+    tables = []
+    for sheet_name in sheets or [""]:
+        sheet = _safe_member(drawing_model, "GetSheet", sheet_name) or _safe_member(drawing_model, "GetCurrentSheet")
+        for view in _as_sequence(_safe_member(sheet, "GetViews", default=[])):
+            views.append({
+                "sheet": str(sheet_name),
+                "name": _safe_member(view, "Name", default=""),
+                "type": _safe_member(view, "Type", default=None),
+                "scale": _safe_member(view, "ScaleRatio", default=None),
+            })
+            for dimension in _as_sequence(_safe_member(view, "GetDisplayDimensions", default=[])):
+                dimensions.append({
+                    "sheet": str(sheet_name),
+                    "view": _safe_member(view, "Name", default=""),
+                    "name": _safe_member(dimension, "Name", default=""),
+                    "type": _safe_member(dimension, "Type", default=None),
+                    "text": _safe_member(dimension, "GetText", 0, default=""),
+                })
+            for note in _as_sequence(_safe_member(view, "GetNotes", default=[])):
+                notes.append({"sheet": str(sheet_name), "text": _safe_member(note, "Text", default="")})
+            for table in _as_sequence(_safe_member(view, "GetTableAnnotations", default=[])):
+                tables.append({"sheet": str(sheet_name), "type": _safe_member(table, "Type", default=None)})
+    current_sheet = _safe_member(drawing_model, "GetCurrentSheet")
+    template = _safe_member(current_sheet, "GetTemplateName", default="")
+    result = {
+        "status": "pass" if views else "blocked",
+        "stage": "review",
+        "sheets": [str(item) for item in sheets],
+        "views": views,
+        "dimensions": dimensions,
+        "notes": notes,
+        "tables": tables,
+        "template_path": str(template or ""),
+        "view_count": len(views),
+        "dimension_count": len(dimensions),
+        "table_count": len(tables),
+        "manual_review_required": True,
+        "retryable": not bool(views),
+        "error_code": None if views else "DRAWING_VIEWS_MISSING",
+        "checks": [
+            {"id": "drawing-views", "status": "pass" if views else "fail", "message": "工程图包含视图" if views else "未读取到工程图视图"},
+            {"id": "drawing-template", "status": "pass" if template else "warning", "message": "已读取图框模板" if template else "图框模板需要人工确认"},
+            {"id": "drawing-dimensions", "status": "pass" if dimensions else "warning", "message": "已读取真实尺寸实体" if dimensions else "未读取到尺寸实体"},
+        ],
+    }
     return result
 
 

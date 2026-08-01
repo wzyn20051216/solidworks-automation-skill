@@ -39,7 +39,7 @@ import { ConversationControls } from "./components/ConversationControls";
 import { ManualReviewPanel } from "./components/ManualReviewPanel";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
 import { TaskSequence } from "./components/TaskSequence";
-import { collectJobArtifacts, deliveryFormatStatus } from "./domain/artifacts";
+import { collectJobArtifacts, deliveryFormatStatus, groupedArtifacts } from "./domain/artifacts";
 import { conciseTaskTitle, jobDisplayTitle, jobStatusLabel } from "./domain/jobs";
 import {
   DEFAULT_PROJECT,
@@ -2549,6 +2549,15 @@ function App() {
   }
 
   function renderExportPanel() {
+    const grouped = groupedArtifacts(resultArtifacts);
+    const groupLabels: Array<[keyof typeof grouped, string]> = [
+      ["model", "模型"],
+      ["drawing", "工程图"],
+      ["bom", "BOM"],
+      ["preview", "预览"],
+      ["report", "复核报告"],
+      ["other", "其它"],
+    ];
     return (
       <section className="delivery-console">
         <article className="delivery-main">
@@ -2562,7 +2571,15 @@ function App() {
               生成交付包
             </motion.button>
           </div>
-          <ArtifactBrowser artifacts={resultArtifacts} selected={selectedPreviewArtifact} onSelect={setSelectedPreviewArtifactPath} />
+          <div className="delivery-groups">
+            {groupLabels.map(([group, label]) => grouped[group].length > 0 ? (
+              <section className="delivery-group" key={group}>
+                <div className="delivery-group-heading"><strong>{label}</strong><span>{grouped[group].length} 项</span></div>
+                <ArtifactBrowser artifacts={grouped[group]} selected={selectedPreviewArtifact} onSelect={setSelectedPreviewArtifactPath} />
+              </section>
+            ) : null)}
+            {!resultArtifacts.length ? <ArtifactBrowser artifacts={resultArtifacts} selected={selectedPreviewArtifact} onSelect={setSelectedPreviewArtifactPath} /> : null}
+          </div>
         </article>
 
         <aside className="delivery-side">
@@ -2585,6 +2602,8 @@ function App() {
             <span>复核状态</span>
             <strong>{resultJob ? jobReviewStatusLabel(resultJob) : "等待生成后复核"}</strong>
           </div>
+          {resultJob?.drawingEvidence ? <div className="review-mini"><span>工程图证据</span><strong>{String((resultJob.drawingEvidence as { status?: string }).status || "已返回")}</strong></div> : null}
+          {resultJob?.bomEvidence ? <div className="review-mini"><span>BOM 证据</span><strong>{String((resultJob.bomEvidence as { status?: string }).status || "已返回")}</strong></div> : null}
         </aside>
       </section>
     );

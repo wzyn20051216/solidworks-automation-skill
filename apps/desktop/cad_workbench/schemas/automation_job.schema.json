@@ -130,6 +130,28 @@
         "additionalProperties": true
       }
     },
+    "drawingEvidence": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "bomEvidence": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "reviewFindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "artifactRelations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
     "lastMessage": {
       "type": "string"
     },

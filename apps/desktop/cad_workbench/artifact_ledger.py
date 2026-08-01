@@ -141,6 +141,10 @@ def build_artifact_ledger(queue_dir: Path, job: dict[str, Any], result: dict[str
         "artifacts": artifacts,
         "verification": result.get("verification", []),
         "risks": result.get("risks", []),
+        "drawingEvidence": result.get("drawingEvidence"),
+        "bomEvidence": result.get("bomEvidence"),
+        "reviewFindings": result.get("reviewFindings", []),
+        "artifactRelations": result.get("artifactRelations", []),
         "resultMessage": result.get("message"),
     }
 

@@ -136,6 +136,31 @@ def export_assembly_bom_csv(
     }
 
 
+def build_bom_traceability(bom_rows, *, model_path="", drawing_path="", review_path="") -> dict[str, Any]:
+    """@brief 建立 BOM、模型、工程图和复核报告之间的可追溯关系。"""
+    rows = list(bom_rows or [])
+    checks = [
+        {"id": "bom-not-empty", "status": "pass" if rows else "warning", "message": "BOM 包含组件行" if rows else "BOM 为空，需要确认是否为单零件或读取失败"},
+        {"id": "model-reference", "status": "pass" if model_path else "warning", "message": "已关联模型路径" if model_path else "未提供模型路径"},
+        {"id": "drawing-reference", "status": "pass" if drawing_path else "warning", "message": "已关联工程图路径" if drawing_path else "未提供工程图路径"},
+        {"id": "review-reference", "status": "pass" if review_path else "warning", "message": "已关联复核报告" if review_path else "未提供复核报告"},
+    ]
+    return {
+        "status": "pass" if rows and model_path and drawing_path else "warning",
+        "stage": "review",
+        "bom_row_count": len(rows),
+        "quantity_total": sum(int(row.get("quantity") or 0) for row in rows),
+        "model_path": str(model_path or ""),
+        "drawing_path": str(drawing_path or ""),
+        "review_path": str(review_path or ""),
+        "rows": [{"item": row.get("item"), "part_number": row.get("part_number"), "file": row.get("file"), "configuration": row.get("configuration"), "quantity": row.get("quantity")} for row in rows],
+        "checks": checks,
+        "manual_review_required": True,
+        "retryable": False,
+        "error_code": None,
+    }
+
+
 def _status_codes(value) -> list[int]:
     if value is None:
         return []

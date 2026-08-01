@@ -8,6 +8,7 @@ scripts:
   - scripts/acad_draw.py
   - scripts/acad_review.py
   - scripts/acad_preview.py
+  - scripts/acad_dotnet_preflight.py
   - scripts/acad_session.py
 references:
   - references/api-lookup.md

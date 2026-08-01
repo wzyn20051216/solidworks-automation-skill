@@ -19,6 +19,24 @@ export function artifactKindLabel(kind?: string, path?: string) {
   return kind || "交付物";
 }
 
+export type ArtifactGroup = "model" | "drawing" | "bom" | "preview" | "report" | "other";
+
+export function artifactGroup(artifact: ArtifactRecord): ArtifactGroup {
+  const text = `${artifact.kind ?? ""} ${artifact.path ?? ""}`.toLowerCase();
+  if (/sldprt|sldasm|step|stp|stl|obj|glb|gltf/.test(text)) return "model";
+  if (/slddrw|dwg|dxf/.test(text)) return "drawing";
+  if (/bom|bill|物料/.test(text)) return "bom";
+  if (/png|bmp|jpg|jpeg|webp|preview|预览/.test(text)) return "preview";
+  if (/review|report|ledger|复核|报告/.test(text)) return "report";
+  return "other";
+}
+
+export function groupedArtifacts(artifacts: ArtifactRecord[]): Record<ArtifactGroup, ArtifactRecord[]> {
+  const groups: Record<ArtifactGroup, ArtifactRecord[]> = { model: [], drawing: [], bom: [], preview: [], report: [], other: [] };
+  for (const artifact of artifacts) groups[artifactGroup(artifact)].push(artifact);
+  return groups;
+}
+
 export function formatBytes(value?: number) {
   if (!value || value <= 0) return "";
   if (value < 1024) return `${value} B`;

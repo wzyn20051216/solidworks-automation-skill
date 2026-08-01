@@ -65,6 +65,16 @@ python scripts/cad_studio.py doctor
 
 能力限制以仓库根目录 `capabilities.yaml` 为准。配置/设计表、钣金、焊件、Simulation/FEA 和 Routing 当前不会被标记为已交付；任务会进入“已阻断”并给出原因，除非明确选择人工复核模式。
 
+工程图和 BOM 任务会额外返回视图、真实尺寸、BOM 行、模型/工程图关系和复核发现。文件存在不等于交付完成：图框、尺寸链、孔表、标题栏和 BOM 仍需人工复核。
+
+AutoCAD 后端分为 DXF 无头检查、白名单命令桥、COM 和 .NET。当前本机 AutoCAD 2024 的 COM 代理不稳定，.NET Managed API DLL 已发现但本机没有 .NET SDK，因此原生 DWG 仍显示为阻塞。可运行：
+
+```powershell
+python subskills\autocad-automation\scripts\acad_dotnet_preflight.py
+```
+
+只有明确授权时才使用 `--install-sdk`；该操作会通过 winget 安装 Microsoft .NET SDK，不会下载 Autodesk 专有 DLL。
+
 ## 3. 安装与启动
 
 ### 安装版

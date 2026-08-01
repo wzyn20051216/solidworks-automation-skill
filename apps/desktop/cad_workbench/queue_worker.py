@@ -539,6 +539,19 @@ def set_job_state(job: dict[str, Any], status: str, progress: int, message: str)
     append_worker_event(job, status, message)
 
 
+def _domain_evidence_status(result: dict[str, Any]) -> tuple[str | None, str | None]:
+    """@brief 根据工程图/BOM 领域证据决定更严格的终态。"""
+    evidence_items = [result.get("drawingEvidence"), result.get("bomEvidence")]
+    statuses = {str(item.get("status")) for item in evidence_items if isinstance(item, dict) and item.get("status")}
+    if "blocked" in statuses:
+        return "blocked", "工程图或 BOM 环境/能力门禁阻止交付"
+    if "failed" in statuses or "fail" in statuses:
+        return "failed", "工程图或 BOM 复核失败，任务不可交付"
+    if any(isinstance(item, dict) and item.get("manual_review_required") for item in evidence_items):
+        return "review_required", "工程图或 BOM 已生成，但仍需人工复核"
+    return None, None
+
+
 def mock_create_shell(job: dict[str, Any]) -> dict[str, Any]:
     """@brief mock 生成外壳任务，后续替换为 SolidWorks COM handler。"""
     return {
@@ -981,6 +994,11 @@ def process_job(
             raise JobCancelled("任务已请求取消")
         job.pop("_runtime", None)
         job["result"] = result
+        # Job 2.0 领域证据保持在顶层，便于 UI、CLI 和后续重试无需解析执行器私有 result。
+        if isinstance(result, dict):
+            for evidence_key in ("drawingEvidence", "bomEvidence", "reviewFindings", "artifactRelations"):
+                if evidence_key in result:
+                    job[evidence_key] = result[evidence_key]
         ledger = write_artifact_ledger(path.parent, job, result)
         job["artifactLedgerPath"] = ledger["ledgerPath"]
         job["artifacts"] = ledger["artifacts"]
@@ -1000,9 +1018,18 @@ def process_job(
             message = str(result.get("message", "任务完成"))
             if review["status"] == "warning":
                 message = f"{message} 文件级检查存在警告，仍需 CAD 原生或人工复核。"
-            status = "review_required" if review["status"] == "warning" else "passed"
+            domain_status, domain_message = _domain_evidence_status(result)
+            status = domain_status or ("review_required" if review["status"] == "warning" else "passed")
+            if domain_message:
+                message = f"{message} {domain_message}。"
+            if status == "blocked":
+                job["blockedReasons"] = [domain_message or message]
+                job["stage"] = "blocked"
+            elif status == "failed":
+                job["error"] = domain_message or message
             set_job_state(job, status, 100, message)
-            append_event(path.parent, job, "run.review_required" if status == "review_required" else "run.passed", message)
+            event_name = "run.blocked" if status == "blocked" else "run.failed" if status == "failed" else "run.review_required" if status == "review_required" else "run.passed"
+            append_event(path.parent, job, event_name, message)
     except JobCancelled as error:
         job.pop("_runtime", None)
         job["cancelRequested"] = True

@@ -139,6 +139,10 @@ export type AutomationJob = {
   assumptions?: Array<Record<string, unknown>>;
   requiredArtifacts?: string[];
   verificationEvidence?: Array<Record<string, unknown>>;
+  drawingEvidence?: Record<string, unknown>;
+  bomEvidence?: Record<string, unknown>;
+  reviewFindings?: Array<Record<string, unknown>>;
+  artifactRelations?: Array<Record<string, unknown>>;
   blockedReasons?: string[];
   projectPath?: string;
   executor?: "mock" | "codex" | "agent";

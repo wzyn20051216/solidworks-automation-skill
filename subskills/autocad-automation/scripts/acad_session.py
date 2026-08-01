@@ -434,6 +434,7 @@ class AutoCADSession:
             command += "\n"
         self.active_document().SendCommand(command)
 
+
     def regen(self) -> None:
         """@brief 重生成当前文档。"""
         self.active_document().Regen(1)
@@ -579,3 +580,46 @@ def point_tuple(value: Any) -> Tuple[float, float, float]:
     if len(items) == 2:
         items.append(0.0)
     return (float(items[0]), float(items[1]), float(items[2]))
+
+
+SCRIPT_COMMANDS = {
+    "zoom_extents": "_.ZOOM\n_E\n",
+    "regen": "_.REGEN\n",
+    "qsave": "_.QSAVE\n",
+}
+
+
+def run_whitelisted_script_command(session: AutoCADSession, command_id: str) -> dict[str, Any]:
+    """@brief 执行固定白名单 AutoCAD 命令，禁止传入任意脚本文本。"""
+    if command_id not in SCRIPT_COMMANDS:
+        return {
+            "backend": "autocad_script",
+            "status": "blocked",
+            "stage": "preflight",
+            "artifacts": [],
+            "limitations": ["仅允许预定义命令，不能执行任意 AutoLISP/SCR"],
+            "retryable": False,
+            "error_code": "SCRIPT_COMMAND_NOT_ALLOWED",
+        }
+    try:
+        session.send_command(SCRIPT_COMMANDS[command_id])
+    except Exception as exc:
+        return {
+            "backend": "autocad_script",
+            "status": "failed",
+            "stage": "create",
+            "artifacts": [],
+            "limitations": ["命令可能异步，执行后必须保存并复核"],
+            "retryable": True,
+            "error_code": "AUTOCAD_SCRIPT_COMMAND_FAILED",
+            "error": str(exc),
+        }
+    return {
+        "backend": "autocad_script",
+        "status": "pilot",
+        "stage": "create",
+        "artifacts": [],
+        "limitations": ["命令可能异步，执行后必须保存并复核"],
+        "retryable": True,
+        "error_code": None,
+    }

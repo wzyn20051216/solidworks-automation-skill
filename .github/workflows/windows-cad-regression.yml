@@ -25,7 +25,23 @@ jobs:
         run: python tests/solidworks_week3_delivery_regression.py
         env:
           CAD_STUDIO_VISIBLE: "false"
+      - name: SolidWorks week 4 drawing and BOM regression
+        run: python tests/solidworks_week4_drawing_regression.py
+        env:
+          CAD_STUDIO_VISIBLE: "false"
       - name: AutoCAD week 4 real regression
         run: python tests/autocad_week4_drawing_regression.py
         env:
           CAD_STUDIO_VISIBLE: "false"
+      - name: AutoCAD backend preflight
+        run: python subskills/autocad-automation/scripts/acad_dotnet_preflight.py
+      - name: Upload CAD regression evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cad-regression-evidence
+          if-no-files-found: ignore
+          path: |
+            output/**
+            tests/output/**
+            cad-studio-diagnostics.zip
