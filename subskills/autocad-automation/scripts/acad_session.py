@@ -327,7 +327,11 @@ class AutoCADSession:
     @property
     def model(self) -> Any:
         """@brief 当前文档 ModelSpace。"""
-        return _retry_com_busy(lambda: self.active_document().ModelSpace, "读取 ModelSpace")
+        try:
+            return _retry_com_busy(lambda: self.active_document().ModelSpace, "读取 ModelSpace")
+        except AttributeError:
+            # SaveAs 后旧 Document 动态代理可能仍存在，但已不再暴露 ModelSpace。
+            return _retry_com_busy(lambda: self.refresh_document_proxy().ModelSpace, "重新绑定 ModelSpace")
 
     def create_layer(self, name: str, color: Optional[int] = None, linetype: Optional[str] = None) -> Any:
         """@brief 创建或获取图层。

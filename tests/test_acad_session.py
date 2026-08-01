@@ -143,6 +143,16 @@ def test_refresh_document_proxy_rebinds_active_document(monkeypatch):
     assert refreshed is not stale
 
 
+def test_model_rebinds_stale_document_without_modelspace():
+    active = FakeDocument()
+    session = acad_session.AutoCADSession()
+    session.app = type("App", (), {"ActiveDocument": active})()
+    session.doc = type("StaleDocument", (), {})()
+
+    assert session.model is active.ModelSpace
+    assert session.doc is active
+
+
 def test_documents_collection_accepts_proxy_without_count():
     session = acad_session.AutoCADSession()
     session.app = type("App", (), {"Documents": FakeDocumentsWithoutCount()})()
