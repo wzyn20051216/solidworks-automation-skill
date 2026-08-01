@@ -70,6 +70,14 @@ class FakeDocument:
     def __init__(self):
         self.ModelSpace = FakeModelSpace()
         self.Layers = FakeLayers()
+        self.Name = "Drawing1.dwg"
+
+
+class FakeDocumentsWithoutCount:
+    """@brief 模拟 AutoCAD 动态代理只暴露 Add、不暴露 Count。"""
+
+    def Add(self):
+        return FakeDocument()
 
 
 def _session(monkeypatch):
@@ -98,3 +106,22 @@ def test_iter_model_entities_uses_count_item_proxy(monkeypatch):
     session.doc.ModelSpace.entities.extend(["line", "circle"])
 
     assert list(session.iter_model_entities()) == ["line", "circle"]
+
+
+def test_refresh_document_proxy_rebinds_active_document(monkeypatch):
+    session = acad_session.AutoCADSession()
+    session.app = type("App", (), {"ActiveDocument": FakeDocument()})()
+    stale = FakeDocument()
+    session.doc = stale
+
+    refreshed = session.refresh_document_proxy()
+
+    assert refreshed is session.app.ActiveDocument
+    assert refreshed is not stale
+
+
+def test_documents_collection_accepts_proxy_without_count():
+    session = acad_session.AutoCADSession()
+    session.app = type("App", (), {"Documents": FakeDocumentsWithoutCount()})()
+
+    assert session._documents_collection() is session.app.Documents

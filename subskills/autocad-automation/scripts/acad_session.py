@@ -115,6 +115,24 @@ class AutoCADSession:
             raise RuntimeError("AutoCAD 当前没有活动文档，请先 new_document() 或 open_document()。") from exc
         return self.doc
 
+    def refresh_document_proxy(self) -> Any:
+        """@brief 重新绑定活动文档，绕开 AutoCAD 动态代理缓存错位。"""
+        if self.app is None:
+            self.connect()
+        last_error: Optional[Exception] = None
+        for attempt in range(8):
+            try:
+                document = self.app.ActiveDocument
+                _ = document.Name
+                self.doc = document
+                return document
+            except Exception as exc:
+                last_error = exc
+                time.sleep(0.08 + attempt * 0.04)
+        if last_error is not None:
+            raise RuntimeError("AutoCAD 活动文档代理刷新失败。") from last_error
+        raise RuntimeError("AutoCAD 活动文档代理刷新失败。")
+
     def _documents_collection(self) -> Any:
         """@brief 获取稳定的 Documents 集合代理。"""
         if self.app is None:
@@ -127,6 +145,13 @@ class AutoCADSession:
                 return documents
             except Exception as exc:
                 last_error = exc
+                try:
+                    # AutoCAD 2024 动态代理可能隐藏 Count 和成员探测；
+                    # 只要集合属性本身可取，就交给 Add/Open 调用和上层重试验证。
+                    documents = self.app.Documents
+                    return documents
+                except Exception:
+                    pass
                 time.sleep(0.2)
         if last_error is not None:
             raise RuntimeError("AutoCAD Documents 集合当前不可用。") from last_error
@@ -445,7 +470,7 @@ class AutoCADSession:
 
     def delete_selection_set(self, name: str) -> None:
         """@brief 删除同名 SelectionSet，若不存在则忽略。"""
-        doc = self.active_document()
+        doc = self.refresh_document_proxy()
         try:
             doc.SelectionSets.Item(name).Delete()
         except Exception:
@@ -457,9 +482,16 @@ class AutoCADSession:
         DXF/EPS 导出会忽略选择集内容，但 ActiveX Export 方法仍要求传入
         SelectionSet 参数。
         """
-        doc = self.active_document()
-        self.delete_selection_set(name)
-        return doc.SelectionSets.Add(name)
+        last_error: Optional[Exception] = None
+        for attempt in range(8):
+            try:
+                doc = self.refresh_document_proxy()
+                self.delete_selection_set(name)
+                return doc.SelectionSets.Add(name)
+            except Exception as exc:
+                last_error = exc
+                time.sleep(0.08 + attempt * 0.04)
+        raise RuntimeError("AutoCAD SelectionSet 创建失败。") from last_error
 
     def export_dxf(self, path: str | Path, selection_set_name: str = "CODEX_EMPTY_EXPORT_SET") -> Path:
         """@brief 使用 Document.Export 导出整张图为 DXF。
@@ -473,10 +505,11 @@ class AutoCADSession:
         if target.exists():
             target.unlink()
 
+        self.refresh_document_proxy()
         sset = self.create_empty_selection_set(selection_set_name)
         export_base = str(target.with_suffix(""))
         try:
-            self.active_document().Export(export_base, "DXF", sset)
+            self.refresh_document_proxy().Export(export_base, "DXF", sset)
         finally:
             try:
                 sset.Delete()
@@ -498,11 +531,12 @@ class AutoCADSession:
 
         self.regen()
         self.zoom_extents()
+        self.refresh_document_proxy()
         sset = self.create_empty_selection_set(selection_set_name)
         try:
             # 5 是 AutoCAD ActiveX 的 acSelectionSetAll；用于把全图对象交给 Export。
             sset.Select(5)
-            self.active_document().Export(str(target.with_suffix("")), "BMP", sset)
+            self.refresh_document_proxy().Export(str(target.with_suffix("")), "BMP", sset)
         finally:
             try:
                 sset.Delete()
@@ -513,8 +547,19 @@ class AutoCADSession:
     def close_document(self, save_changes: bool = False) -> None:
         """@brief 关闭当前文档。"""
         if self.doc is not None:
-            self.doc.Close(bool(save_changes))
+            last_error: Optional[Exception] = None
+            for attempt in range(6):
+                try:
+                    self.refresh_document_proxy().Close(bool(save_changes))
+                    self.doc = None
+                    return
+                except Exception as exc:
+                    last_error = exc
+                    time.sleep(0.08 + attempt * 0.05)
+            # 清理阶段不应覆盖图纸生成阶段的真实错误；调用方可继续退出。
             self.doc = None
+            if last_error is not None:
+                return
 
 
 def point_tuple(value: Any) -> Tuple[float, float, float]:
