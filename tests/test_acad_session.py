@@ -125,3 +125,23 @@ def test_documents_collection_accepts_proxy_without_count():
     session.app = type("App", (), {"Documents": FakeDocumentsWithoutCount()})()
 
     assert session._documents_collection() is session.app.Documents
+
+
+def test_new_document_retries_busy_add_and_active_document():
+    class BusyDocuments:
+        def __init__(self):
+            self.calls = 0
+
+        def Add(self):
+            self.calls += 1
+            if self.calls < 3:
+                raise RuntimeError("busy")
+
+    document = FakeDocument()
+    documents = BusyDocuments()
+    app = type("App", (), {"Documents": documents, "ActiveDocument": document})()
+    session = acad_session.AutoCADSession()
+    session.app = app
+
+    assert session.new_document() is document
+    assert documents.calls == 3

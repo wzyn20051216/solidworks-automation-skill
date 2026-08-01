@@ -48,7 +48,7 @@ python scripts/cad_studio.py cancel <job-id>
 - 🔧 **零件建模** - 草图绘制、拉伸、旋转、倒角、圆角、阵列等
 - 🧠 **VibeCAD 参数化规划** - 将自然语言需求转换为设计计划、制造规则检查、SolidWorks API 执行摘要和审查门禁
 - 🧵 **螺纹孔建模** - 攻丝底孔、M3/M4/M5/M6/M8 盲孔/通孔、孔口倒角、装饰螺纹与可见螺旋线兜底
-- 🧾 **AutoCAD / DWG 子技能** - 二维 DWG/DXF 绘图、线稿矢量化、图层/文字/标注处理、导出和图纸自检
+- 🧾 **AutoCAD / DWG 子技能** - DXF 无头预览与结构审查可用；AutoCAD 原生 DWG 绘图仍受本机 ActiveX 代理稳定性门禁，详见能力清单
 - 🔩 **装配体操作** - 添加组件、配合关系、干涉检查、爆炸视图
 - 📐 **工程图出图** - 三视图、剖视图、尺寸标注、BOM 表
 - 💾 **文件导出** - STEP、STL、IGES、PDF、DXF/DWG、Parasolid
@@ -241,7 +241,7 @@ npm run desktop:bundle
 | [`solidworks-vibecad`](subskills/solidworks-vibecad/README.md) | experimental | 自然语言需求 -> 参数化设计计划、制造规则检查、执行摘要、审查门禁 |
 | [`solidworks-fillet-chamfer-cnc`](subskills/solidworks-fillet-chamfer-cnc/README.md) | stable | CNC 安装座、连接块、支架、多圆角/倒角、孔槽和减重口袋 |
 | [`solidworks-threaded-holes`](subskills/solidworks-threaded-holes/README.md) | stable | M3-M12 螺纹孔、攻丝底孔、孔口倒角、螺纹属性和 STEP 输出 |
-| [`autocad-automation`](subskills/autocad-automation/README.md) | stable | AutoCAD DWG/DXF 二维绘图、线稿矢量化、图层/文字/标注处理、导出和图纸自检 |
+| [`autocad-automation`](subskills/autocad-automation/README.md) | pilot / blocked | DXF 无头预览与结构审查；AutoCAD 原生 DWG 绘图需本机 COM 真机复核 |
 
 更多路由说明见 [`SUBSKILLS.md`](SUBSKILLS.md)。
 

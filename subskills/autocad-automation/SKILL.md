@@ -10,7 +10,7 @@ metadata: { "os": ["win32"], "requires": { "anyBins": ["python", "py"], "pythonP
 
 ## 目标
 
-让代理在本机 Windows 桌面环境中可靠控制 AutoCAD，而不是每次凭记忆临时拼命令。默认路线是 Python + COM/ActiveX 直连正在运行或新启动的 `AutoCAD.Application`，并且默认把 AutoCAD 窗口切到前台、逐步绘制，让用户能直接看到画图过程；适合快速建图、批量修改、导入导出和检查 DWG。遇到 COM 无法稳定表达的事务、动态交互、复杂数据库遍历或企业级部署时，再切换到 AutoLISP/SCR、AutoCAD .NET、ObjectARX 或 APS Design Automation。
+让代理在本机 Windows 桌面环境中可靠控制 AutoCAD，而不是每次凭记忆临时拼命令。默认路线是 Python + COM/ActiveX，但原生写入必须先通过 `capabilities.yaml` 门禁和本机真机回归；当前 AutoCAD 2024 的 Documents/Layers/SelectionSets 动态代理不稳定，因此原生 DWG 绘图按 `not_implemented` 处理。DXF 无头读取、预览和结构审查可直接使用。遇到 COM 无法稳定表达的事务、动态交互、复杂数据库遍历或企业级部署时，再切换到 AutoLISP/SCR、AutoCAD .NET、ObjectARX 或 APS Design Automation。
 
 ## 适用场景
 

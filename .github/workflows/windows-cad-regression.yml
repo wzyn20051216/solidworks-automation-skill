@@ -1,0 +1,31 @@
+name: Windows CAD Regression
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  cad-regression:
+    # 需要预装 SolidWorks/AutoCAD 的 Windows 自托管测试机。
+    runs-on: [self-hosted, Windows, CAD]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install -r requirements.txt pytest
+      - name: Environment doctor
+        run: python scripts/cad_doctor.py
+      - name: Lifecycle stability simulation
+        run: python scripts/stability_regression.py
+      - name: SolidWorks week 3 real regression
+        run: python tests/solidworks_week3_delivery_regression.py
+        env:
+          CAD_STUDIO_VISIBLE: "false"
+      - name: AutoCAD week 4 real regression
+        run: python tests/autocad_week4_drawing_regression.py
+        env:
+          CAD_STUDIO_VISIBLE: "false"

@@ -162,14 +162,25 @@ class AutoCADSession:
         if self.app is None:
             self.connect()
         documents = self._documents_collection()
-        if template:
-            documents.Add(str(template))
-        else:
-            documents.Add()
+        add_error: Optional[Exception] = None
+        added = False
+        for attempt in range(20):
+            try:
+                if template:
+                    documents.Add(str(template))
+                else:
+                    documents.Add()
+                added = True
+                break
+            except Exception as exc:
+                add_error = exc
+                time.sleep(0.15 + attempt * 0.08)
+        if not added:
+            raise RuntimeError("AutoCAD 新建文档调用失败。") from add_error
         # AutoCAD 刚启动或刚新建图纸时，ActiveDocument 可能短暂返回不稳定代理；
         # 这里做一次小范围重试，并回退到 Documents 集合中的最后一张图。
         last_error: Optional[Exception] = None
-        for _ in range(20):
+        for _ in range(60):
             try:
                 self.doc = self.app.ActiveDocument
                 _ = self.doc.Name
@@ -182,7 +193,7 @@ class AutoCADSession:
                 return self.doc
             except Exception as exc:
                 last_error = exc
-            time.sleep(0.2)
+            time.sleep(0.25)
         if last_error is not None:
             raise RuntimeError("AutoCAD 新建文档后未能取得稳定文档对象。") from last_error
         return self.doc

@@ -1,5 +1,7 @@
 # AutoCAD Automation 子技能
 
+> 当前 DXF 无头预览与结构审查可用；AutoCAD 原生 DWG 写入仍受本机 ActiveX 真机门禁，不能按稳定能力宣传。
+
 本子技能是 `solidworks-automation-skill` 技能库中的 AutoCAD / DWG / DXF 专项能力。父技能负责 SolidWorks 三维建模、装配、工程图和导出；本子技能负责 Windows 桌面 AutoCAD 的 Python COM 自动化，包括二维绘图、批量改图、图层/文字/标注处理、DWG/DXF/PDF 导出、线稿矢量化和图纸自检。
 
 ## 适用场景
