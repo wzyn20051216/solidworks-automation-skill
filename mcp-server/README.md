@@ -101,6 +101,7 @@ claude mcp add --scope user solidworks -- python C:\path\to\solidworks-automatio
 |---|---|---|
 | `cadstudio_write_open_format` | 从本地 `.cadstudio.json` 白名单写出 STEP/IGES/BREP/STL/OBJ/GLB/DXF/SVG/PDF/PNG、Preview Manifest/Scene 和几何/哈希证据 | 否 |
 | `cadstudio_build_dxf_preview_scene` | 只读 DXF 白名单转换为不覆盖旧文件的 `.scene.json` | 否 |
+| `cadstudio_check_dfm` | 对 NeutralCadDocument 执行机加工、钣金、激光切割或 3D 打印 DFM 规则检查；缺关键输入返回 blocked，规则通过仍需人工复核 | 否 |
 | `solidworks_health_check` | 检查 Python 依赖、SolidWorks 检测、Motion 类型库和可选实时连接 | 否 |
 | `solidworks_connect` | 连接/启动 SolidWorks 并返回活动文档摘要 | 否 |
 | `solidworks_new_document` | 新建零件/装配体/工程图 | 是 |

@@ -14,6 +14,7 @@ export function artifactKindLabel(kind?: string, path?: string) {
   if (normalized.includes("dwg")) return "DWG";
   if (normalized.includes("dxf")) return "DXF";
   if (normalized.includes("pdf")) return "PDF";
+  if (normalized.includes("dfm")) return "DFM 复核报告";
   if (normalized.includes("png") || normalized.includes("preview")) return "预览图";
   if (normalized.includes("codex")) return "AI 结果";
   return kind || "交付物";
@@ -27,7 +28,7 @@ export function artifactGroup(artifact: ArtifactRecord): ArtifactGroup {
   if (/slddrw|dwg|dxf/.test(text)) return "drawing";
   if (/bom|bill|物料/.test(text)) return "bom";
   if (/png|bmp|jpg|jpeg|webp|preview|预览/.test(text)) return "preview";
-  if (/review|report|ledger|复核|报告/.test(text)) return "report";
+  if (/review|report|ledger|dfm|复核|报告/.test(text)) return "report";
   return "other";
 }
 
@@ -53,6 +54,10 @@ export function artifactStatusLabel(artifact: ArtifactRecord) {
 
 export function deliveryFormatStatus(format: string, job: AutomationJob | undefined, artifacts: ArtifactRecord[]) {
   if (format === "复核报告") return job?.reviewGatePath ? "ready" : job ? "missing" : "optional";
+  if (format === "DFM 报告") {
+    const ready = artifacts.some((artifact) => artifact.kind?.toLowerCase().includes("dfm") && artifact.exists !== false && artifact.producedThisRun !== false);
+    return ready ? "ready" : job?.dfmEvidence ? "missing" : "optional";
+  }
   const extensionMap: Record<string, string[]> = {
     STEP: [".step", ".stp"], STL: [".stl"], SLDPRT: [".sldprt"], SLDASM: [".sldasm"],
     DWG: [".dwg"], DXF: [".dxf"], PDF: [".pdf"], PNG: [".png"],

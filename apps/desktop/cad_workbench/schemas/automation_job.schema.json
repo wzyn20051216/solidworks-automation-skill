@@ -27,7 +27,7 @@
     },
     "kind": {
       "type": "string",
-      "enum": ["create_shell", "import_model", "delivery_package", "codex_task", "agent_task"]
+      "enum": ["create_shell", "import_model", "delivery_package", "dfm_review", "codex_task", "agent_task"]
     },
     "title": {
       "type": "string",
@@ -157,6 +157,10 @@
       "additionalProperties": true
     },
     "bomEvidence": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "dfmEvidence": {
       "type": "object",
       "additionalProperties": true
     },

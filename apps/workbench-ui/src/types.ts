@@ -105,7 +105,7 @@ export type CodexConfig = {
   realCutouts: boolean;
   localCadAutomation: boolean;
 };
-export type AutomationJobKind = "create_shell" | "import_model" | "delivery_package" | "codex_task" | "agent_task";
+export type AutomationJobKind = "create_shell" | "import_model" | "delivery_package" | "dfm_review" | "codex_task" | "agent_task";
 export type AutomationJobStatus = "queued" | "running" | "passed" | "review_required" | "failed" | "cancelled" | "approval_required" | "blocked";
 export type WorkerLogEntry = { status?: string; message?: string; at?: string; worker?: string; runnerId?: string; data?: unknown };
 export type ArtifactRecord = {
@@ -159,6 +159,7 @@ export type JobRunSnapshot = {
   reviewGate?: AutomationJob["reviewGate"];
   drawingEvidence?: DomainEvidence;
   bomEvidence?: DomainEvidence;
+  dfmEvidence?: DomainEvidence;
   reviewFindings?: Array<Record<string, unknown>>;
   artifactRelations?: ArtifactRelation[];
   blockedReasons?: string[];
@@ -200,6 +201,7 @@ export type AutomationJob = {
   verificationEvidence?: Array<Record<string, unknown>>;
   drawingEvidence?: DomainEvidence;
   bomEvidence?: DomainEvidence;
+  dfmEvidence?: DomainEvidence;
   reviewFindings?: Array<Record<string, unknown>>;
   artifactRelations?: ArtifactRelation[];
   backendDiagnostics?: Record<string, BackendDiagnostic> | BackendDiagnostic[];

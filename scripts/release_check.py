@@ -27,7 +27,14 @@ def run_release_check() -> dict[str, object]:
     ids = [item.get("id") for item in capabilities]
     if len(ids) != len(set(ids)) or len(ids) < 10:
         raise AssertionError("能力清单 ID 重复或数量不足")
-    required = ["SKILL.md", "README.md", "capabilities.yaml", "scripts/stability_regression.py", "scripts/release_check.py"]
+    required = [
+        "SKILL.md",
+        "README.md",
+        "capabilities.yaml",
+        "scripts/stability_regression.py",
+        "scripts/release_check.py",
+        "scripts/dfm_review.py",
+    ]
     missing = [item for item in required if not (ROOT / item).is_file()]
     if missing:
         raise AssertionError("发布文件缺失: " + ", ".join(missing))

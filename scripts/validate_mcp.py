@@ -20,6 +20,7 @@ SERVER_PATH = ROOT / "mcp-server" / "server.py"
 REQUIRED_TOOLS = {
     "cadstudio_write_open_format",
     "cadstudio_build_dxf_preview_scene",
+    "cadstudio_check_dfm",
     "solidworks_health_check",
     "solidworks_connect",
     "solidworks_new_document",

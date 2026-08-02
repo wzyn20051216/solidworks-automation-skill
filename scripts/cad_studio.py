@@ -58,6 +58,8 @@ def _retry_from_stage(job: dict[str, Any]) -> str:
     for key in ("drawingEvidence", "bomEvidence"):
         if (job.get(key) or {}).get("status") in {"blocked", "failed", "fail", "warning"}:
             return "drawing-bom"
+    if (job.get("dfmEvidence") or {}).get("status") in {"blocked", "failed", "fail", "warning"}:
+        return "dfm-review"
     if job.get("status") in {"failed", "review_required"}:
         return "final-review"
     return "requirements"
@@ -68,7 +70,7 @@ def _run_history_snapshot(job: dict[str, Any]) -> dict[str, Any]:
     fields = (
         "runId", "status", "stage", "createdAt", "updatedAt", "lastMessage", "error", "result",
         "artifacts", "artifactLedgerPath", "reviewGatePath", "reviewGate", "drawingEvidence",
-        "bomEvidence", "reviewFindings", "artifactRelations", "blockedReasons",
+        "bomEvidence", "dfmEvidence", "reviewFindings", "artifactRelations", "blockedReasons",
     )
     return {field: job[field] for field in fields if field in job}
 
@@ -101,7 +103,7 @@ def prepare_job_for_retry(job: dict[str, Any], updated_at: str) -> dict[str, Any
         "error", "result", "artifactLedgerPath", "reviewGatePath", "reviewGate", "reviewedAt",
         "reviewedBy", "reviewDecision", "reviewNote", "runnerId", "workerPid", "heartbeatAt",
         "leaseUntil", "cancelRequested", "workerLog", "drawingEvidence", "bomEvidence",
-        "reviewFindings", "artifactRelations", "blockedReasons",
+        "dfmEvidence", "reviewFindings", "artifactRelations", "blockedReasons",
     ):
         job.pop(field, None)
     return job
@@ -130,6 +132,10 @@ def main(argv: list[str] | None = None) -> int:
     preview_dxf = sub.add_parser("preview-dxf")
     preview_dxf.add_argument("--input", type=Path, required=True, help="只读 DXF 输入")
     preview_dxf.add_argument("--output", type=Path, required=True, help="不覆盖的 .scene.json 输出")
+    dfm = sub.add_parser("check-dfm")
+    dfm.add_argument("--input", type=Path, required=True, help="NeutralCadDocument .cadstudio.json")
+    dfm.add_argument("--output", type=Path, required=True, help="不覆盖旧文件的 DFM report JSON 输出")
+    dfm.add_argument("--process", default="auto", help="machining/sheet_metal/laser_cutting/3d_printing；auto 时读取文档 metadata")
     args = parser.parse_args(argv)
 
     if args.command == "doctor":
@@ -188,6 +194,12 @@ def main(argv: list[str] | None = None) -> int:
             "limitations": scene["limitations"],
         }, ensure_ascii=False, indent=2))
         return 0
+    if args.command == "check-dfm":
+        from dfm_review import write_dfm_report
+
+        result = write_dfm_report(args.input, args.output, process=args.process)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 1 if result.get("status") in {"blocked", "failed"} else 0
     return 2
 
 

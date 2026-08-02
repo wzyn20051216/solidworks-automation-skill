@@ -18,6 +18,7 @@ const stageLabels: Record<string, string> = {
   "assembly-mates": "装配配合",
   "motion-study": "运动算例",
   "drawing-bom": "工程图与 BOM",
+  "dfm-review": "DFM 制造复核",
   "export-delivery": "导出交付",
   "final-review": "最终复核",
   intake: "需求接收",
@@ -42,8 +43,8 @@ export function retryStageForJob(job?: AutomationJob) {
     ["blocked", "failed", "review_required"].includes(phase.status ?? ""),
   );
   if (failedPhase?.id) return failedPhase.id;
-  for (const evidence of [job.drawingEvidence, job.bomEvidence]) {
-    if (evidence && ["blocked", "failed", "fail", "warning"].includes(String(evidence.status))) return "drawing-bom";
+  for (const [key, evidence] of [["drawing-bom", job.drawingEvidence], ["drawing-bom", job.bomEvidence], ["dfm-review", job.dfmEvidence] ] as const) {
+    if (evidence && ["blocked", "failed", "fail", "warning"].includes(String(evidence.status))) return key;
   }
   if (["failed", "review_required"].includes(job.status)) return "final-review";
   return "requirements";
@@ -79,14 +80,14 @@ export function assessDelivery(job?: AutomationJob): DeliveryAssessment {
   for (const requirement of job.requiredArtifacts ?? []) {
     if (!readyArtifacts.some((artifact) => artifactMatchesRequirement(artifact, requirement))) issues.push(`缺少要求产物：${requirement}`);
   }
-  for (const evidence of [job.drawingEvidence, job.bomEvidence]) {
+  for (const evidence of [job.drawingEvidence, job.bomEvidence, job.dfmEvidence]) {
     if (!evidence) continue;
     if (evidence.error_code) issues.push(String(evidence.error_code));
     if (Array.isArray(evidence.limitations)) issues.push(...evidence.limitations.map(String));
   }
   if (job.blockedReasons?.length) issues.push(...job.blockedReasons);
   const uniqueIssues = [...new Set(issues.filter(Boolean))];
-  const evidenceStatuses = [job.drawingEvidence?.status, job.bomEvidence?.status].map(String);
+  const evidenceStatuses = [job.drawingEvidence?.status, job.bomEvidence?.status, job.dfmEvidence?.status].map(String);
   if (job.status === "blocked" || evidenceStatuses.includes("blocked")) {
     return { disposition: "blocked", title: "交付已阻断", summary: "环境、许可证或能力门禁尚未满足。", issues: uniqueIssues, readyArtifacts: readyArtifacts.length, currentArtifacts: artifacts.length };
   }
@@ -102,7 +103,7 @@ export function assessDelivery(job?: AutomationJob): DeliveryAssessment {
   if ((requiresArtifacts(job) && readyArtifacts.length === 0) || uniqueIssues.some((issue) => issue.startsWith("缺少要求产物"))) {
     return { disposition: "incomplete", title: "交付证据不完整", summary: "任务已结束，但本轮要求的文件或账本尚未齐全。", issues: uniqueIssues.length ? uniqueIssues : ["没有可确认的本轮 CAD 产物"], readyArtifacts: readyArtifacts.length, currentArtifacts: artifacts.length };
   }
-  const manualReviewRequired = [job.drawingEvidence, job.bomEvidence].some((item) => item?.manual_review_required);
+  const manualReviewRequired = [job.drawingEvidence, job.bomEvidence, job.dfmEvidence].some((item) => item?.manual_review_required);
   if (job.status === "review_required" || manualReviewRequired || job.reviewGate?.status === "warning") {
     return { disposition: "review_required", title: "等待人工复核", summary: "文件已生成，需原生打开并核对尺寸、特征和版面后才能交付。", issues: uniqueIssues, readyArtifacts: readyArtifacts.length, currentArtifacts: artifacts.length };
   }
@@ -155,6 +156,7 @@ export function createRunSnapshot(job: AutomationJob): JobRunSnapshot {
     reviewGate: job.reviewGate,
     drawingEvidence: job.drawingEvidence,
     bomEvidence: job.bomEvidence,
+    dfmEvidence: job.dfmEvidence,
     reviewFindings: job.reviewFindings,
     artifactRelations: job.artifactRelations,
     blockedReasons: job.blockedReasons,

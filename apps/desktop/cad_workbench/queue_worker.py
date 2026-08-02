@@ -7,6 +7,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 import uuid
 import shutil
@@ -47,7 +48,7 @@ JobHandler = Callable[[dict[str, Any]], dict[str, Any]]
 CommandRunner = Callable[[Sequence[str], Path, int], subprocess.CompletedProcess[str]]
 
 WORKER_NAME = "cad-workbench-python-worker"
-KNOWN_JOB_KINDS = {"create_shell", "import_model", "delivery_package", "codex_task", "agent_task"}
+KNOWN_JOB_KINDS = {"create_shell", "import_model", "delivery_package", "dfm_review", "codex_task", "agent_task"}
 TERMINAL_STATES = {"passed", "review_required", "failed", "cancelled", "blocked"}
 NON_EXECUTABLE_STATES = {"approval_required", *TERMINAL_STATES}
 DEFAULT_CODEX_TIMEOUT_SECONDS = 1800
@@ -540,15 +541,15 @@ def set_job_state(job: dict[str, Any], status: str, progress: int, message: str)
 
 
 def _domain_evidence_status(result: dict[str, Any]) -> tuple[str | None, str | None]:
-    """@brief 根据工程图/BOM 领域证据决定更严格的终态。"""
-    evidence_items = [result.get("drawingEvidence"), result.get("bomEvidence")]
+    """@brief 根据工程图/BOM/DFM 领域证据决定更严格的终态。"""
+    evidence_items = [result.get("drawingEvidence"), result.get("bomEvidence"), result.get("dfmEvidence")]
     statuses = {str(item.get("status")) for item in evidence_items if isinstance(item, dict) and item.get("status")}
     if "blocked" in statuses:
-        return "blocked", "工程图或 BOM 环境/能力门禁阻止交付"
+        return "blocked", "工程图、BOM 或 DFM 环境/能力门禁阻止交付"
     if "failed" in statuses or "fail" in statuses:
-        return "failed", "工程图或 BOM 复核失败，任务不可交付"
+        return "failed", "工程图、BOM 或 DFM 复核失败，任务不可交付"
     if any(isinstance(item, dict) and item.get("manual_review_required") for item in evidence_items):
-        return "review_required", "工程图或 BOM 已生成，但仍需人工复核"
+        return "review_required", "工程图、BOM 或 DFM 已生成，但仍需人工复核"
     return None, None
 
 
@@ -606,6 +607,150 @@ def _artifact_roots(job: dict[str, Any], cwd: Path) -> list[Path]:
 def _path_in_roots(path: Path, roots: list[Path]) -> bool:
     """@brief 判断路径是否位于任一允许根目录内。"""
     return any(root == path or root in path.parents for root in roots)
+
+
+def _resolve_job_path(value: Any, base_dir: Path) -> Path | None:
+    """@brief 将任务输入中的路径解析为绝对路径。"""
+    if not value:
+        return None
+    candidate = Path(str(value)).expanduser()
+    return (candidate if candidate.is_absolute() else base_dir / candidate).resolve()
+
+
+def _dfm_input_path(job: dict[str, Any], base_dir: Path) -> Path | None:
+    """@brief 从 Job 2.0 输入、UI 配置或项目路径中定位 NeutralCadDocument。"""
+    ui_config = job.get("uiConfig") if isinstance(job.get("uiConfig"), dict) else {}
+    for key in ("neutralDocumentPath", "cadstudioPath", "inputPath"):
+        candidate = _resolve_job_path(ui_config.get(key), base_dir)
+        if candidate and candidate.is_file():
+            return candidate
+    for item in job.get("inputs") or []:
+        if not isinstance(item, dict):
+            continue
+        raw_path = item.get("path") or item.get("inputPath") or item.get("documentPath") or item.get("neutralDocumentPath") or item.get("source")
+        candidate = _resolve_job_path(raw_path, base_dir)
+        if candidate and candidate.is_file() and candidate.suffix.lower() == ".json":
+            name = candidate.name.lower()
+            input_type = str(item.get("type") or item.get("kind") or "").lower()
+            if "cadstudio" in name or "neutral" in input_type or "cadstudio" in input_type:
+                return candidate
+    project_path = _resolve_job_path(job.get("projectPath"), base_dir)
+    if project_path and project_path.is_file() and project_path.suffix.lower() == ".json":
+        return project_path
+    return None
+
+
+def _dfm_output_path(job: dict[str, Any], source: Path, base_dir: Path) -> Path:
+    """@brief 返回 DFM 报告默认输出路径。"""
+    ui_config = job.get("uiConfig") if isinstance(job.get("uiConfig"), dict) else {}
+    raw_output = ui_config.get("dfmReportPath") or job.get("dfmReportPath")
+    if raw_output:
+        candidate = _resolve_job_path(raw_output, base_dir)
+        if candidate:
+            return candidate
+    output_dir = _resolve_job_path(ui_config.get("outputDir"), base_dir)
+    if output_dir is None:
+        runtime = job.get("_runtime") if isinstance(job.get("_runtime"), dict) else {}
+        job_path = Path(str(runtime.get("jobPath"))) if runtime.get("jobPath") else base_dir / "job.json"
+        output_dir = job_path.parent / "dfm-reports"
+    return output_dir / f"{source.stem}_dfm_report.json"
+
+
+def _dfm_synthetic_document(job: dict[str, Any], base_dir: Path) -> Path | None:
+    """@brief 从 UI 尺寸配置生成可追溯的 DFM 草案文档。"""
+    ui_config = job.get("uiConfig") if isinstance(job.get("uiConfig"), dict) else {}
+    geometry = ui_config.get("geometry") if isinstance(ui_config.get("geometry"), dict) else {}
+    manufacturing = ui_config.get("manufacturing") if isinstance(ui_config.get("manufacturing"), dict) else {}
+    try:
+        length = float(geometry.get("length") or 0)
+        width = float(geometry.get("width") or 0)
+        height = float(geometry.get("height") or 0)
+    except (TypeError, ValueError):
+        return None
+    if length <= 0 or width <= 0 or height <= 0:
+        return None
+    output_dir = _resolve_job_path(ui_config.get("outputDir"), base_dir)
+    if output_dir is None:
+        runtime = job.get("_runtime") if isinstance(job.get("_runtime"), dict) else {}
+        job_path = Path(str(runtime.get("jobPath"))) if runtime.get("jobPath") else base_dir / "job.json"
+        output_dir = job_path.parent / "dfm-reports"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    safe_run_id = re.sub(r"[^A-Za-z0-9_-]+", "_", str(job.get("runId") or job.get("id") or uuid.uuid4().hex))[:120]
+    target = output_dir / f"{safe_run_id}_ui_config.cadstudio.json"
+    payload = {
+        "documentId": safe_run_id,
+        "title": job.get("title") or "CAD Studio UI DFM 草案",
+        "units": manufacturing.get("unit") or "mm",
+        "features": [
+            {
+                "id": "ui-envelope",
+                "type": "box",
+                "name": "UI 配置包络",
+                "parameters": {"length": length, "width": width, "height": height},
+                "evidenceRefs": ["uiConfig.geometry"],
+            }
+        ],
+        "metadata": {
+            "source": "ui_config_synthetic_neutral_document",
+            "manufacturing": {
+                "process": manufacturing.get("process"),
+                "material": "" if manufacturing.get("material") == "auto" else manufacturing.get("material"),
+                "wallThickness": geometry.get("wallThickness"),
+            },
+        },
+    }
+    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return target
+
+
+def run_dfm_review_job(job: dict[str, Any]) -> dict[str, Any]:
+    """@brief 本地执行 NeutralCadDocument DFM 复核，不依赖 SolidWorks/AutoCAD。"""
+    base_dir = Path(str(job.get("cwd") or Path.cwd())).expanduser().resolve()
+    source = _dfm_input_path(job, base_dir)
+    if source is None:
+        source = _dfm_synthetic_document(job, base_dir)
+    if source is None:
+        evidence = {
+            "schemaVersion": "1.0",
+            "status": "blocked",
+            "stage": "dfm_review",
+            "process": "unknown",
+            "checks": [],
+            "missingInputs": ["inputs[].path"],
+            "artifacts": [],
+            "manualReviewRequired": True,
+            "manual_review_required": True,
+            "retryable": False,
+            "error_code": "dfm_input_missing",
+            "message": "未找到 NeutralCadDocument .cadstudio.json 输入。",
+        }
+        return {
+            "mode": "local-dfm",
+            "message": "DFM 复核被阻断：缺少 NeutralCadDocument 输入。",
+            "outputs": [],
+            "artifacts": [],
+            "dfmEvidence": evidence,
+            "reviewFindings": [evidence],
+            "projectPath": job.get("projectPath"),
+        }
+    ui_config = job.get("uiConfig") if isinstance(job.get("uiConfig"), dict) else {}
+    process = str(job.get("process") or ui_config.get("process") or "auto")
+    scripts_dir = Path(__file__).resolve().parents[3] / "scripts"
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+    from dfm_review import write_dfm_report
+
+    evidence = write_dfm_report(source, _dfm_output_path(job, source, base_dir), process=process)
+    return {
+        "mode": "local-dfm",
+        "message": "DFM 复核报告已生成，机器规则仅用于风险提示，仍需人工确认。",
+        "outputs": evidence.get("artifacts", []),
+        "artifacts": evidence.get("artifacts", []),
+        "checks": evidence.get("checks", []),
+        "dfmEvidence": evidence,
+        "reviewFindings": evidence.get("reviewFindings", []),
+        "projectPath": job.get("projectPath"),
+    }
 
 
 def _snapshot_cad_artifacts(roots: list[Path], limit: int = 10000) -> dict[str, dict[str, Any]]:
@@ -956,7 +1101,7 @@ MOCK_HANDLERS: Mapping[str, JobHandler] = {
     "import_model": mock_import_model,
     "delivery_package": mock_delivery_package,
 }
-DEFAULT_HANDLERS: Mapping[str, JobHandler] = {}
+DEFAULT_HANDLERS: Mapping[str, JobHandler] = {"dfm_review": run_dfm_review_job}
 
 
 def process_job(
@@ -1015,7 +1160,7 @@ def process_job(
         job["result"] = result
         # Job 2.0 领域证据保持在顶层，便于 UI、CLI 和后续重试无需解析执行器私有 result。
         if isinstance(result, dict):
-            for evidence_key in ("drawingEvidence", "bomEvidence", "reviewFindings", "artifactRelations"):
+            for evidence_key in ("drawingEvidence", "bomEvidence", "dfmEvidence", "reviewFindings", "artifactRelations"):
                 if evidence_key in result:
                     job[evidence_key] = result[evidence_key]
         ledger = write_artifact_ledger(path.parent, job, result)

@@ -130,6 +130,20 @@
       "allowed_modes": ["interactive", "reviewed"]
     },
     {
+      "id": "dfm_checks",
+      "label": "机加工、钣金、激光切割与 3D 打印 DFM 复核",
+      "level": "pilot",
+      "backends": ["local-python"],
+      "verified_versions": [],
+      "dependencies": ["python"],
+      "limitations": [
+        "仅检查结构化 NeutralCadDocument 和制造元数据，不读取 SolidWorks/AutoCAD 的完整 B-Rep、工艺库或供应商机台参数",
+        "机器规则全部通过仍必须人工确认材料、公差、载荷、装配、刀具/模具、打印方向和供应商能力",
+        "缺少材料、壁厚、K 因子、割缝或成型空间等关键输入时返回 blocked"
+      ],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
       "id": "autocad_basic_drafting",
       "label": "AutoCAD 二维绘图与批量改图",
       "level": "not_implemented",
@@ -168,6 +182,26 @@
       "dependencies": ["SolidWorks"],
       "limitations": ["尚无稳定执行器和真实回归样件"],
       "allowed_modes": ["interactive"]
+    },
+    {
+      "id": "surface_modeling",
+      "label": "复杂曲面与连续性检查",
+      "level": "reference_only",
+      "backends": ["solidworks-com", "headless-occt"],
+      "verified_versions": [],
+      "dependencies": ["SolidWorks 或 OCP"],
+      "limitations": ["当前没有放样、扫描、边界曲面、缝合、加厚和 G0/G1/G2 连续性的完整执行器与黄金样件"],
+      "allowed_modes": ["interactive"]
+    },
+    {
+      "id": "mold_tools",
+      "label": "模具工具与分型检查",
+      "level": "not_implemented",
+      "backends": ["solidworks-com"],
+      "verified_versions": [],
+      "dependencies": ["SolidWorks 模具工具与许可证"],
+      "limitations": ["尚未实现分型线、分型面、型芯型腔和拔模分析执行器"],
+      "allowed_modes": []
     },
     {
       "id": "simulation_and_fea",

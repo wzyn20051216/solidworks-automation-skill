@@ -1,5 +1,10 @@
 """CAD Studio CLI 与桌面端任务语义的一致性测试。"""
 
+import json
+import subprocess
+import sys
+from pathlib import Path
+
 from scripts.cad_studio import prepare_job_for_retry
 
 
@@ -55,3 +60,30 @@ def test_cli_retry_rejects_active_job():
         assert "不可重试" in str(exc)
     else:
         raise AssertionError("运行中任务不应允许重试")
+
+
+def test_check_dfm_cli_generates_report(tmp_path: Path):
+    """@brief check-dfm 命令必须输出真实 JSON 报告。"""
+    source = tmp_path / "plate.cadstudio.json"
+    source.write_text(
+        json.dumps(
+            {
+                "documentId": "plate",
+                "features": [{"id": "base", "type": "box", "parameters": {"length": 100, "width": 50, "height": 8}}],
+                "metadata": {"manufacturing": {"process": "machining", "material": "Al6061", "wallThickness": 3}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "dfm.json"
+    completed = subprocess.run(
+        [sys.executable, "scripts/cad_studio.py", "check-dfm", "--input", str(source), "--output", str(output)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "review_required"
+    assert Path(payload["reportPath"]).exists()
+    assert payload["artifacts"][0]["producedThisRun"] is True

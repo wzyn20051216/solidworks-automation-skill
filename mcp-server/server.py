@@ -148,6 +148,7 @@ class ExportFormat(str, Enum):
 
 
 HEADLESS_OPEN_FORMATS = {"cadstudio", "step", "iges", "brep", "stl", "obj", "glb", "dxf", "svg", "pdf", "png"}
+DFM_PROCESSES = {"auto", "machining", "sheet_metal", "laser_cutting", "3d_printing", "CNC", "FDM", "SLA"}
 
 
 class BasicPartShape(str, Enum):
@@ -239,6 +240,37 @@ class CadStudioDxfPreviewInput(BaseInput):
             raise ValueError(f"Refusing to overwrite existing PreviewScene: {path.name}")
         return value
 
+
+class CadStudioDfmReviewInput(BaseInput):
+    """Input for NeutralCadDocument DFM review."""
+
+    input_path: str = Field(..., min_length=1, description="Absolute .cadstudio.json NeutralCadDocument path.")
+    output_path: str = Field(..., min_length=1, description="Absolute JSON report path; existing files are versioned instead of overwritten.")
+    process: str = Field(default="auto", description="auto, machining, sheet_metal, laser_cutting, 3d_printing, CNC, FDM, or SLA.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+    @field_validator("input_path")
+    @classmethod
+    def input_path_must_exist(cls, value: str) -> str:
+        path = Path(os.path.expandvars(value)).expanduser()
+        if path.suffix.lower() != ".json" or not path.is_file():
+            raise ValueError(f"Input must be an existing .cadstudio.json file: {value}")
+        return value
+
+    @field_validator("output_path")
+    @classmethod
+    def output_path_must_be_json(cls, value: str) -> str:
+        path = Path(os.path.expandvars(value)).expanduser()
+        if path.suffix.lower() != ".json":
+            raise ValueError(f"Output must be a JSON report path: {value}")
+        return value
+
+    @field_validator("process")
+    @classmethod
+    def process_must_be_whitelisted(cls, value: str) -> str:
+        if value not in DFM_PROCESSES:
+            raise ValueError("Unsupported DFM process: " + value)
+        return value
 
 class SolidWorksHealthCheckInput(BaseInput):
     """Input for checking the local SolidWorks automation environment."""
@@ -728,6 +760,29 @@ def cadstudio_build_dxf_preview_scene(params: CadStudioDxfPreviewInput) -> str:
             "layerCount": len(scene["layers"]),
             "limitations": scene["limitations"],
         }
+
+    return _run_locked(op, params.response_format, load_automation=False)
+
+
+@mcp.tool(
+    name="cadstudio_check_dfm",
+    title="Review Neutral CAD DFM Risks",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+def cadstudio_check_dfm(params: CadStudioDfmReviewInput) -> str:
+    """Run whitelisted DFM checks for machining, sheet metal, laser cutting, or 3D printing."""
+
+    def op():
+        from dfm_review import write_dfm_report
+
+        input_path = Path(os.path.expandvars(params.input_path)).expanduser().resolve()
+        output_path = Path(os.path.expandvars(params.output_path)).expanduser().resolve()
+        return write_dfm_report(input_path, output_path, process=params.process)
 
     return _run_locked(op, params.response_format, load_automation=False)
 

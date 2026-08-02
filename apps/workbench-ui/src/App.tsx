@@ -381,7 +381,7 @@ const materialLabels: Record<CodexConfig["material"], string> = {
   Al6061: "Al6061",
 };
 
-const deliveryFormats = ["STEP", "STL", "SLDPRT", "SLDASM", "DWG", "DXF", "PDF", "PNG", "复核报告"];
+const deliveryFormats = ["STEP", "STL", "SLDPRT", "SLDASM", "DWG", "DXF", "PDF", "PNG", "DFM 报告", "复核报告"];
 
 function nextPaint() {
   return new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -390,6 +390,7 @@ function nextPaint() {
 function jobKindDetail(kind: AutomationJobKind) {
   if (kind === "create_shell") return { title: "新建 CAD 任务", detail: "生成零件、装配、外壳、孔槽和基础检查任务" };
   if (kind === "import_model") return { title: "导入已有文件", detail: "读取 CAD 模型、工程图或图片草图作为参考" };
+  if (kind === "dfm_review") return { title: "DFM 制造复核", detail: "检查机加工、钣金、激光切割或 3D 打印风险" };
   if (kind === "codex_task" || kind === "agent_task") return { title: "Agent 执行", detail: "把图形化配置转换为当前 AI 的非交互执行任务" };
   return { title: "生成交付包", detail: "整理 STEP、STL、PDF、DWG 和交付清单" };
 }
@@ -758,6 +759,9 @@ function reviewOptionsFor(job?: AutomationJob): Array<readonly [string, string]>
   if (/BOM|物料|明细表/i.test(descriptor) || job?.bomEvidence) {
     options.push(["bom", "已核对 BOM、配置、材料、零件号和数量与模型一致"]);
   }
+  if (/DFM|制造|CNC|钣金|激光|打印/i.test(descriptor) || job?.dfmEvidence) {
+    options.push(["dfm", "已结合材料、工艺、尺寸、公差和供应商能力完成 DFM 人工复核"]);
+  }
   return options;
 }
 
@@ -822,6 +826,7 @@ function capabilityIdsForConfig(config: CodexConfig) {
   if (config.target === "sheet_metal") ids.add("sheet_metal");
   if (config.target === "drawing" || config.expectedOutput === "drawing_package") ids.add("drawings_and_bom");
   if (config.cadApplication === "autocad") ids.add("autocad_basic_drafting");
+  if (config.process !== "auto") ids.add("dfm_checks");
   if (config.expectedOutput !== "research_report") ids.add("export_delivery");
   return Array.from(ids);
 }
@@ -1786,6 +1791,71 @@ function App() {
     void enqueueCodexTaskWithConfig(nextConfig);
   }
 
+  async function enqueueDfmReviewTask() {
+    if (submissionKind) return;
+    if (!isTauriRuntime()) {
+      setWindowHint("浏览器预览不会创建 DFM 任务，请启动桌面版");
+      return;
+    }
+    setSubmissionKind("task");
+    setWindowHint("正在准备 DFM 复核...");
+    await nextPaint();
+    try {
+      const activeRuntime = await ensureRuntimeHealth();
+      const capabilityIds = ["dfm_checks"];
+      const job = createJob("dfm_review", recentProjectPath, {
+        projectId: activeProjectId,
+        title: "DFM 制造风险复核",
+        detail: `${processLabels[codexConfig.process]} · ${materialLabels[codexConfig.material]} · 配置包络`,
+        target: "DFM",
+        expectedOutput: "DFM report",
+        objective: "基于当前制造配置检查材料、壁厚、包络、孔径、工艺参数和打印/切割风险。",
+        capabilities: capabilityIds,
+        capabilitySnapshot: capabilitySnapshot(activeRuntime, capabilityIds),
+        requiredArtifacts: ["dfm_report"],
+        requiredOutputs: ["dfm_report"],
+        preferredBackend: "headless",
+        fallbackPolicy: "allow_open_formats",
+        cwd: activeRuntime.skillRoot,
+        skillPath: activeRuntime.solidworksSkillPath,
+        policy: {
+          sandbox: "workspace-write",
+          approval: "never",
+          requireSkillRead: true,
+          requireTests: true,
+          requireCommit: false,
+          requirePush: false,
+          requireReviewerPass: true,
+        },
+        uiConfig: {
+          outputDir: codexConfig.outputDir,
+          process: codexConfig.process,
+          geometry: {
+            length: codexConfig.length,
+            width: codexConfig.width,
+            height: codexConfig.height,
+            wallThickness: codexConfig.wallThickness,
+          },
+          manufacturing: {
+            process: codexConfig.process,
+            material: codexConfig.material,
+            unit: codexConfig.unit,
+          },
+        },
+      });
+      await persistJob(job);
+      upsertJob(job);
+      setActiveAgentJobId(job.id);
+      setExpandedJobId(job.id);
+      setWindowHint("DFM 任务已进入本地队列");
+      if (!workerStatus.running) void startLocalWorker();
+    } catch (error) {
+      setWindowHint(`DFM 任务未创建：${String(error)}`);
+    } finally {
+      setSubmissionKind(null);
+    }
+  }
+
   async function cancelJob(id: string) {
     if (isTauriRuntime()) {
       try {
@@ -2683,6 +2753,7 @@ function App() {
           </div>
           {resultJob?.drawingEvidence ? <div className="review-mini"><span>工程图证据</span><strong>{reviewStatusLabel(resultJob.drawingEvidence.status)}</strong><small>{resultJob.drawingEvidence.error_code || retryStageLabel(resultJob.drawingEvidence.stage)}</small></div> : null}
           {resultJob?.bomEvidence ? <div className="review-mini"><span>BOM 证据</span><strong>{reviewStatusLabel(resultJob.bomEvidence.status)}</strong><small>{resultJob.bomEvidence.error_code || retryStageLabel(resultJob.bomEvidence.stage)}</small></div> : null}
+          {resultJob?.dfmEvidence ? <div className="review-mini"><span>DFM 证据</span><strong>{reviewStatusLabel(resultJob.dfmEvidence.status)}</strong><small>{resultJob.dfmEvidence.error_code || retryStageLabel(resultJob.dfmEvidence.stage)}</small></div> : null}
           {diagnostics.length ? (
             <div className="delivery-diagnostics">
               <div className="delivery-section-heading"><strong>后端诊断</strong><span>{diagnostics.length} 项</span></div>
@@ -3473,6 +3544,18 @@ function App() {
               >
                 {submissionKind === "task" ? <SpinnerGap className="spin" size={18} /> : <Lightning size={18} weight="duotone" />}
                 {submissionKind === "task" ? "正在创建任务" : `交给 ${agentProviderCatalog[apiConfig.agentProvider].name} 执行`}
+              </motion.button>
+              <motion.button
+                className="ghost-button bridge-run"
+                type="button"
+                disabled={submissionKind !== null}
+                aria-busy={submissionKind === "task"}
+                onClick={() => void enqueueDfmReviewTask()}
+                whileHover={submissionKind || reducedMotion ? undefined : { y: -2 }}
+                whileTap={submissionKind ? undefined : { scale: 0.975 }}
+              >
+                {submissionKind === "task" ? <SpinnerGap className="spin" size={18} /> : <ShieldCheck size={18} weight="duotone" />}
+                {submissionKind === "task" ? "正在创建 DFM 任务" : "运行 DFM 检查"}
               </motion.button>
             </div>
           </section>

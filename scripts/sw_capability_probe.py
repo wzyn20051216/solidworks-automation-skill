@@ -45,7 +45,7 @@ CAPABILITY_KEYWORDS = {
     "surface_modeling": ("ISurface", "IKnitSurfaceFeatureData"),
     "mold_tools": ("IMold", "ICavityFeatureData"),
     "motion_study": ("IMotionStudyManager", "IMotionStudy", "IMotionStudyResults"),
-    "routing": ("IRoute", "IRoutingComponent"),
+    "routing": ("IRouteManager", "IRouteProperty", "IAutoRoute"),
 }
 
 CAPABILITY_ALIASES = {
@@ -55,8 +55,8 @@ CAPABILITY_ALIASES = {
     "drawings": "drawings_and_bom",
     "sheet_metal": "sheet_metal",
     "weldments": "weldments",
-    "surface_modeling": "part_and_features",
-    "mold_tools": "routing",
+    "surface_modeling": "surface_modeling",
+    "mold_tools": "mold_tools",
     "motion_study": "motion_study",
     "routing": "routing",
 }

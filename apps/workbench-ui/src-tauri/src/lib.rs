@@ -736,7 +736,12 @@ fn validate_new_queue_job(job: &Value) -> Result<(), String> {
         .ok_or_else(|| "missing job kind".to_string())?;
     if !matches!(
         kind,
-        "create_shell" | "import_model" | "delivery_package" | "codex_task" | "agent_task"
+        "create_shell"
+            | "import_model"
+            | "delivery_package"
+            | "dfm_review"
+            | "codex_task"
+            | "agent_task"
     ) {
         return Err(format!("未知任务类型: {kind}"));
     }
@@ -1027,13 +1032,17 @@ fn retry_from_stage(job: &Value) -> String {
             return id.to_string();
         }
     }
-    for evidence_key in ["drawingEvidence", "bomEvidence"] {
+    for evidence_key in ["drawingEvidence", "bomEvidence", "dfmEvidence"] {
         let evidence = job.get(evidence_key);
         let status = evidence
             .and_then(|item| item.get("status"))
             .and_then(Value::as_str);
         if matches!(status, Some("blocked" | "failed" | "fail" | "warning")) {
-            return "drawing-bom".to_string();
+            return if evidence_key == "dfmEvidence" {
+                "dfm-review".to_string()
+            } else {
+                "drawing-bom".to_string()
+            };
         }
     }
     match job.get("status").and_then(Value::as_str) {
@@ -1061,6 +1070,7 @@ fn run_history_snapshot(job: &Value) -> Value {
         "reviewGate",
         "drawingEvidence",
         "bomEvidence",
+        "dfmEvidence",
         "reviewFindings",
         "artifactRelations",
         "blockedReasons",
@@ -1138,6 +1148,7 @@ fn prepare_job_for_retry(
         "workerLog",
         "drawingEvidence",
         "bomEvidence",
+        "dfmEvidence",
         "reviewFindings",
         "artifactRelations",
         "blockedReasons",
@@ -2017,6 +2028,13 @@ fn required_review_checks(job: &Value) -> Vec<&'static str> {
             .any(|token| descriptor.contains(token))
     {
         checks.push("bom");
+    }
+    if job.get("dfmEvidence").is_some()
+        || ["DFM", "制造", "CNC", "SHEET_METAL", "LASER", "3D_PRINTING"]
+            .iter()
+            .any(|token| descriptor.contains(token))
+    {
+        checks.push("dfm");
     }
     checks
 }

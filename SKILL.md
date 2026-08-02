@@ -112,6 +112,7 @@ session.export(model, r"C:\temp\cylinder.step")
 | OBJ/STL 高还原网格参考导入 | `scripts/sw_import_mesh_reference.py` | `references/mesh-reference-import.md` |
 | 结果自审查 | `scripts/sw_review.py` | `references/review.md` |
 | 语义实体引用 | `scripts/sw_entity_reference.py` | 逐步替代 Face1/Edge1 和屏幕坐标 |
+| DFM 制造风险复核 | `scripts/dfm_review.py`、`scripts/cad_studio.py check-dfm` | 机加工、钣金、激光切割和 3D 打印的结构化规则检查 |
 | 本地 MCP Server | `mcp-server/server.py` | `mcp-server/README.md`、`references/mcp-server.md` |
 | MCP 协议验证 | `scripts/validate_mcp.py` | `mcp-server/README.md` |
 | 未封装 API 查证 | - | `references/api-lookup.md` |
@@ -143,19 +144,20 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 1. 先根据 `preferredBackend`、`requiredOutputs`、`nativeFormatRequired` 和 `fallbackPolicy` 判定后端；不要先假定必须有 SolidWorks。
 2. 需要原生 SolidWorks 格式时运行 `sw_preflight.py`；缺依赖则请求用户授权自动安装，缺 SolidWorks 则只阻断原生阶段。
 3. 不需要原生格式或允许开放格式回退时，运行 `python scripts/cad_studio.py write-open-format --input model.cadstudio.json --out-dir output`。
-4. 原生 SolidWorks 路线优先用 `SolidWorksSession()` 管理连接、打开、新建、保存、导出；需要底层控制时再组合 `sw_connect.py`、`sw_part.py` 等函数。
-4. 当用户需求偏自然语言、参数不完整或需要“行业知识库 + 提示词模板 + 参数化设计计划”时，先读取 `subskills/solidworks-vibecad/SKILL.md`，生成 `design_plan.json` 和执行摘要。
-5. 圆角/倒角很多的 CNC 件、安装座、连接块、支架，先读取 `subskills/solidworks-fillet-chamfer-cnc/SKILL.md`，按“基础体 -> 外轮廓圆角/倒角 -> 孔槽切除 -> 孔口倒角 -> 审查”的稳定顺序执行。
-6. 螺丝孔、螺纹孔、攻牙孔、M3/M4/M5/M6/M8 盲孔或通孔任务，先读取 `subskills/solidworks-threaded-holes/SKILL.md`；默认按“攻丝底孔 -> 尝试 Thread/CosmeticThread -> 可见 3D 螺旋线兜底 -> 孔口倒角 -> 属性和审查”的稳定路线执行。
-7. 普通盲孔、通孔、圆柱沉孔、锥形沉头孔、半圆端槽或孔阵列任务，读取 `references/complex-hole-features.md` 并优先调用 `scripts/sw_hole_features.py`；创建参数证据必须再与 `collect_geometry_measurements()`、`validate_hole_positions()` 和剖视图交叉复核。
-8. CAD、机械图纸、工程图、3D 打印外壳、开孔图、DWG、DXF、二维图纸、线稿转 CAD、批量改 DWG 或 AutoCAD 原生预览任务，先读取 `subskills/autocad-automation/SKILL.md`。机械/3D 打印开孔交付必须按可制造图纸处理：所有孔、槽、接口、水口、螺丝孔和螺丝柱同时给出规格、数量和定位尺寸；图面拥挤时用孔表/槽表，不得用长引线替代关键尺寸。普通“照图画 CAD”只保留原图矢量化线条，最终审查必须确认没有手工猜测的外围轮廓、五官辅助线、Logo 几何、水波线、替代文字或图内审查说明。
-9. 当用户要求真实产品“原版外观”“1:1 复刻”“不像概念版”，先读取 `references/mesh-reference-import.md`：公开网格/蓝图参考优先，不要在低保真手搓底稿上反复精修；需要导入 OBJ/STL 时优先用 `scripts/sw_import_mesh_reference.py`。
-10. 如果必须由大模型生成 VBA 宏，先使用 `sw_macro_guard.py` 做模型分流、代码校验、重试和本地模板兜底。
-11. 使用 `session.export()` 或 `sw_export.py` 保存/导出文件。
-12. 使用 `sw_review.py` 导出预览图并自审查；如果有 GUI/桌面截图能力，打开 SolidWorks 视图截图复核。
-13. 遇到钣金、焊件、复杂曲面、模具、Routing、Simulation/FEA、复杂 Motion 或配置族任务，先运行 `sw_capability_probe.py` 并读取 `references/complex-mechanical-routing.md`；以 `capabilities.yaml` 的等级和允许模式做门禁，`reference_only/not_implemented` 能力不能假装已自动化完成。
-14. 需要企业/项目机械知识时读取 `references/enterprise-agent-rag.md`；默认只用本地知识，云 RAG 必须显式启用、声明 `external_network` 并完成人工审批。
-15. 当一个需求同时跨越零件、孔槽/圆角、装配 Mate、Motion、工程图/BOM 和多格式交付中的两个以上工程域时，调用 `apps/desktop/cad_workbench/engineering_orchestrator.py` 生成阶段 DAG。必须按依赖串行执行关键 CAD 写操作，每阶段独立保存产物和验收证据；局部修改只重规划受影响阶段及其后继，禁止把整项工程塞进一条超长 Prompt 后一次性宣称完成。
+4. 需要制造性快速复核时，运行 `python scripts/cad_studio.py check-dfm --input model.cadstudio.json --output output/dfm_report.json --process machining`；支持 `machining`、`sheet_metal`、`laser_cutting` 和 `3d_printing`。报告缺少材料、壁厚、K 因子、割缝或成型空间等关键输入时返回 `blocked`，规则通过也必须人工复核。
+5. 原生 SolidWorks 路线优先用 `SolidWorksSession()` 管理连接、打开、新建、保存、导出；需要底层控制时再组合 `sw_connect.py`、`sw_part.py` 等函数。
+6. 当用户需求偏自然语言、参数不完整或需要“行业知识库 + 提示词模板 + 参数化设计计划”时，先读取 `subskills/solidworks-vibecad/SKILL.md`，生成 `design_plan.json` 和执行摘要。
+7. 圆角/倒角很多的 CNC 件、安装座、连接块、支架，先读取 `subskills/solidworks-fillet-chamfer-cnc/SKILL.md`，按“基础体 -> 外轮廓圆角/倒角 -> 孔槽切除 -> 孔口倒角 -> 审查”的稳定顺序执行。
+8. 螺丝孔、螺纹孔、攻牙孔、M3/M4/M5/M6/M8 盲孔或通孔任务，先读取 `subskills/solidworks-threaded-holes/SKILL.md`；默认按“攻丝底孔 -> 尝试 Thread/CosmeticThread -> 可见 3D 螺旋线兜底 -> 孔口倒角 -> 属性和审查”的稳定路线执行。
+9. 普通盲孔、通孔、圆柱沉孔、锥形沉头孔、半圆端槽或孔阵列任务，读取 `references/complex-hole-features.md` 并优先调用 `scripts/sw_hole_features.py`；创建参数证据必须再与 `collect_geometry_measurements()`、`validate_hole_positions()` 和剖视图交叉复核。
+10. CAD、机械图纸、工程图、3D 打印外壳、开孔图、DWG、DXF、二维图纸、线稿转 CAD、批量改 DWG 或 AutoCAD 原生预览任务，先读取 `subskills/autocad-automation/SKILL.md`。机械/3D 打印开孔交付必须按可制造图纸处理：所有孔、槽、接口、水口、螺丝孔和螺丝柱同时给出规格、数量和定位尺寸；图面拥挤时用孔表/槽表，不得用长引线替代关键尺寸。普通“照图画 CAD”只保留原图矢量化线条，最终审查必须确认没有手工猜测的外围轮廓、五官辅助线、Logo 几何、水波线、替代文字或图内审查说明。
+11. 当用户要求真实产品“原版外观”“1:1 复刻”“不像概念版”，先读取 `references/mesh-reference-import.md`：公开网格/蓝图参考优先，不要在低保真手搓底稿上反复精修；需要导入 OBJ/STL 时优先用 `scripts/sw_import_mesh_reference.py`。
+12. 如果必须由大模型生成 VBA 宏，先使用 `sw_macro_guard.py` 做模型分流、代码校验、重试和本地模板兜底。
+13. 使用 `session.export()` 或 `sw_export.py` 保存/导出文件。
+14. 使用 `sw_review.py` 导出预览图并自审查；如果有 GUI/桌面截图能力，打开 SolidWorks 视图截图复核。
+15. 遇到钣金、焊件、复杂曲面、模具、Routing、Simulation/FEA、复杂 Motion 或配置族任务，先运行 `sw_capability_probe.py` 并读取 `references/complex-mechanical-routing.md`；以 `capabilities.yaml` 的等级和允许模式做门禁，`reference_only/not_implemented` 能力不能假装已自动化完成。
+16. 需要企业/项目机械知识时读取 `references/enterprise-agent-rag.md`；默认只用本地知识，云 RAG 必须显式启用、声明 `external_network` 并完成人工审批。
+17. 当一个需求同时跨越零件、孔槽/圆角、装配 Mate、Motion、工程图/BOM 和多格式交付中的两个以上工程域时，调用 `apps/desktop/cad_workbench/engineering_orchestrator.py` 生成阶段 DAG。必须按依赖串行执行关键 CAD 写操作，每阶段独立保存产物和验收证据；局部修改只重规划受影响阶段及其后继，禁止把整项工程塞进一条超长 Prompt 后一次性宣称完成。
 
 ### 机械图纸默认底线
 
