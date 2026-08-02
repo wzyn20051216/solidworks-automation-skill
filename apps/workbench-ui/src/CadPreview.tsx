@@ -7,7 +7,7 @@ import { PreviewEvidencePanel } from "./preview/PreviewEvidencePanel";
 import { PreviewInspector } from "./preview/PreviewInspector";
 import { PreviewStatus } from "./preview/PreviewStatus";
 import { PreviewToolbar } from "./preview/PreviewToolbar";
-import type { PreviewActions, PreviewLayer, PreviewManifest, PreviewMode, PreviewPhase, PreviewSelection, PreviewStats } from "./preview/previewTypes";
+import type { PreviewActions, PreviewLayer, PreviewManifest, PreviewMode, PreviewPhase, PreviewScene, PreviewSelection, PreviewStats } from "./preview/previewTypes";
 import { fileName, mimeType, modeForPath, resolveSiblingPath } from "./preview/previewUtils";
 
 export type CadPreviewArtifact = {
@@ -20,6 +20,7 @@ export type CadPreviewArtifact = {
   fallback?: string;
   isDemo?: boolean;
   sha256?: string;
+  previewScene?: PreviewScene;
 };
 
 type LoadedPreview = {
@@ -27,6 +28,7 @@ type LoadedPreview = {
   path: string;
   mode: PreviewMode;
   manifest?: PreviewManifest | null;
+  manifestPath?: string;
   revoke?: () => void;
 };
 
@@ -35,7 +37,7 @@ function isLocalRuntime() {
 }
 
 async function readPreviewUrl(path: string) {
-  if (/^(https?:|asset:|data:|blob:)/i.test(path) || !isLocalRuntime()) return { url: path, revoke: undefined };
+  if (/^(https?:|asset:|data:|blob:)/i.test(path) || path.startsWith("/") || !isLocalRuntime()) return { url: path, revoke: undefined };
   const payload = await invoke<ArrayBuffer | number[]>("read_preview_file", { path });
   const bytes = payload instanceof ArrayBuffer ? payload : new Uint8Array(payload);
   const objectUrl = URL.createObjectURL(new Blob([bytes], { type: mimeType(path) }));
@@ -91,7 +93,6 @@ export function CadPreview({ artifact }: { artifact?: CadPreviewArtifact }) {
 
   useEffect(() => {
     let disposed = false;
-    let revoke: (() => void) | undefined;
     setLoaded(null);
     setSelection(null);
     setStats({});
@@ -105,6 +106,24 @@ export function CadPreview({ artifact }: { artifact?: CadPreviewArtifact }) {
     }
     const load = async () => {
       try {
+        if (artifact?.previewScene) {
+          const objectUrl = URL.createObjectURL(new Blob([JSON.stringify(artifact.previewScene)], { type: "application/json" }));
+          const manifest = manifestFromArtifact(artifact);
+          if (!disposed) {
+            setLoaded({
+              url: objectUrl,
+              path: artifact.path || "demo-showcase.scene.json",
+              mode: "dxf",
+              manifest,
+              manifestPath: artifact.previewManifest,
+              revoke: () => URL.revokeObjectURL(objectUrl),
+            });
+            setPreviewPhase("正在解码", "读取演示 PreviewScene");
+          } else {
+            URL.revokeObjectURL(objectUrl);
+          }
+          return;
+        }
         setPreviewPhase("正在读取文件", fileName(sourcePath));
         let manifest = manifestFromArtifact(artifact);
         let displayPath = artifact?.path || sourcePath;
@@ -119,18 +138,42 @@ export function CadPreview({ artifact }: { artifact?: CadPreviewArtifact }) {
           mode = modeForPath(displayPath);
         }
         const loadedUrl = await readPreviewUrl(displayPath);
-        revoke = loadedUrl.revoke;
-        if (!disposed) {
-          setLoaded({ url: loadedUrl.url, path: displayPath, mode, manifest, revoke });
-          setPreviewPhase(mode === "image" ? "可交互" : "正在解码", mode === "image" ? "图像回退预览已就绪" : fileName(displayPath));
+        if (disposed) {
+          loadedUrl.revoke?.();
+          return;
         }
+        setLoaded({ url: loadedUrl.url, path: displayPath, mode, manifest, manifestPath: sourcePath, revoke: loadedUrl.revoke });
+        setPreviewPhase(mode === "image" ? "可交互" : "正在解码", mode === "image" ? "图像回退预览已就绪" : fileName(displayPath));
       } catch (error) {
         if (!disposed) setPreviewPhase("预览失败", (error as Error).message);
       }
     };
     void load();
-    return () => { disposed = true; revoke?.(); };
+    return () => { disposed = true; };
   }, [artifact, setPreviewPhase]);
+
+  useEffect(() => () => loaded?.revoke?.(), [loaded]);
+
+  const handleModelFailure = useCallback((reason: string) => {
+    const fallback = loaded?.manifest?.fallbackImage;
+    if (!fallback) {
+      setPreviewPhase("预览失败", reason);
+      return;
+    }
+    const fallbackPath = resolveSiblingPath(loaded.manifestPath || loaded.path, fallback);
+    setPreviewPhase("正在读取文件", `${reason} 正在切换 PNG 回退。`);
+    void readPreviewUrl(fallbackPath).then((fallbackUrl) => {
+      setLoaded((current) => ({
+        url: fallbackUrl.url,
+        path: fallbackPath,
+        mode: "image",
+        manifest: current?.manifest,
+        manifestPath: current?.manifestPath,
+        revoke: fallbackUrl.revoke,
+      }));
+      setPreviewPhase("可交互", `${reason} 已显示 PNG 回退预览。`);
+    }).catch((error: Error) => setPreviewPhase("预览失败", `${reason} PNG 回退失败: ${error.message}`));
+  }, [loaded, setPreviewPhase]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -173,7 +216,7 @@ export function CadPreview({ artifact }: { artifact?: CadPreviewArtifact }) {
         />
         <div className="cad-preview-stage">
           {loaded?.mode === "mesh" ? (
-            <ModelViewport ref={modelActionsRef} url={loaded.url} path={loaded.path} onPhase={setPreviewPhase} onSelection={setSelection} onStats={setStats} onProjection={setProjection} />
+            <ModelViewport ref={modelActionsRef} url={loaded.url} path={loaded.path} onPhase={setPreviewPhase} onSelection={setSelection} onStats={setStats} onProjection={setProjection} onFailure={handleModelFailure} />
           ) : loaded?.mode === "dxf" ? (
             <DxfViewport ref={dxfActionsRef} url={loaded.url} visibleLayers={visibleLayers} onLayers={setLayers} onStats={setStats} onPhase={setPreviewPhase} onSelection={setSelection} />
           ) : loaded?.mode === "image" ? (

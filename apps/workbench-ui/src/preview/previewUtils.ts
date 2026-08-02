@@ -19,6 +19,7 @@ export function resolveSiblingPath(basePath: string | undefined, nextPath: strin
 }
 
 export function modeForPath(path?: string): PreviewMode {
+  if (path?.toLowerCase().split(/[?#]/)[0].endsWith(".scene.json")) return "dxf";
   const ext = extensionOf(path);
   if (["stl", "glb", "gltf", "obj"].includes(ext)) return "mesh";
   if (ext === "dxf") return "dxf";

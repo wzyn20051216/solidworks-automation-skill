@@ -11,6 +11,7 @@ type ModelViewportProps = {
   onSelection: (selection: PreviewSelection | null) => void;
   onStats: (stats: PreviewStats) => void;
   onProjection: (projection: "perspective" | "orthographic") => void;
+  onFailure: (reason: string) => void;
 };
 
 function boundsLabel(size: { x: number; y: number; z: number }) {
@@ -18,7 +19,7 @@ function boundsLabel(size: { x: number; y: number; z: number }) {
 }
 
 /** @brief Three.js 网格视口，采用按需渲染避免预览空转。 */
-export const ModelViewport = forwardRef<PreviewActions, ModelViewportProps>(function ModelViewport({ url, path, onPhase, onSelection, onStats, onProjection }, ref) {
+export const ModelViewport = forwardRef<PreviewActions, ModelViewportProps>(function ModelViewport({ url, path, onPhase, onSelection, onStats, onProjection, onFailure }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<PreviewActions | null>(null);
 
@@ -46,7 +47,8 @@ export const ModelViewport = forwardRef<PreviewActions, ModelViewportProps>(func
     onSelection(null);
     onPhase("正在检查", "检查 WebGL 能力");
     if (!hasWebGlSupport()) {
-      onPhase("预览失败", "当前环境不支持 WebGL，请使用 PNG 回退预览或更新显卡驱动。 ");
+      const reason = "当前环境不支持 WebGL。";
+      onFailure(reason);
       return;
     }
     onPhase("正在解码", "加载 Three.js 与模型解析器");
@@ -184,7 +186,9 @@ export const ModelViewport = forwardRef<PreviewActions, ModelViewportProps>(func
       onProjection(projection);
       onPhase("可交互", `${meshCount} 个网格 · 按需渲染`);
       render();
-    }).catch((error: Error) => { if (!disposed) onPhase("预览失败", `模型读取失败: ${error.message}`); });
+    }).catch((error: Error) => {
+      if (!disposed) onFailure(`模型读取失败: ${error.message}`);
+    });
     return () => {
       disposed = true;
       actionsRef.current = null;
@@ -195,13 +199,13 @@ export const ModelViewport = forwardRef<PreviewActions, ModelViewportProps>(func
         const mesh = child as import("three").Mesh;
         mesh.geometry?.dispose();
         const materials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
-        cleanupMaterials = materials.map((material) => () => material.dispose());
+        cleanupMaterials.push(...materials.map((material) => () => material.dispose()));
       });
       cleanupMaterials.forEach((cleanup) => cleanup());
       renderer?.dispose();
       host.replaceChildren();
     };
-  }, [onPhase, onProjection, onSelection, onStats, path, url]);
+  }, [onFailure, onPhase, onProjection, onSelection, onStats, path, url]);
 
   return <div ref={hostRef} className="cad-preview-canvas" onContextMenu={(event) => event.preventDefault()} />;
 });

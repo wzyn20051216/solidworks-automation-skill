@@ -39,6 +39,7 @@ import { ConversationControls } from "./components/ConversationControls";
 import { ManualReviewPanel } from "./components/ManualReviewPanel";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
 import { TaskSequence } from "./components/TaskSequence";
+import { PreviewShowcase } from "./preview/PreviewShowcase";
 import { collectJobArtifacts, deliveryFormatStatus, groupedArtifacts } from "./domain/artifacts";
 import {
   artifactVersionComparison,
@@ -2896,6 +2897,7 @@ function App() {
             </ol>
           </article>
         </div>
+        <PreviewShowcase />
         <div className="help-note">
           <ShieldCheck size={19} weight="duotone" />
           <p>任务记录、审批和复核保存在本机。删除左侧任务只清理历史元数据，不会删除你已经导出的 CAD 文件。</p>
