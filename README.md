@@ -54,7 +54,7 @@ python scripts/cad_studio.py preview-dxf --input .\drawing.dxf --output .\output
 - 🧾 **AutoCAD / DWG 子技能** - DXF 无头预览与结构审查可用；AutoCAD 原生 DWG 绘图仍受本机 ActiveX 代理稳定性门禁，详见能力清单
 - 🔩 **装配体操作** - 添加组件、配合关系、干涉检查、爆炸视图
 - 📐 **工程图出图** - 三视图、剖视图、尺寸标注、BOM 表
-- 💾 **文件导出** - STEP、STL、IGES、PDF、DXF/DWG、Parasolid
+- 💾 **文件导出** - STEP、STL、IGES、PDF、DXF/DWG、Parasolid；SW2024 原生 Pack and Go 漏枚举时可生成带哈希清单的 `pilot` 依赖暂存包
 - 🧩 **网格参考导入** - 将公开 GLB/OBJ/STL 外观参考模型缩放、转换并导入为 SolidWorks 参考零件
 - 🎨 **外观材质** - 文档、特征、组件级颜色设置，支持装配体分色建模
 - 🎬 **Motion Study** - 自动创建运动算例、匀速旋转马达并计算/播放动画
@@ -247,7 +247,7 @@ npm run desktop:bundle
 | [`solidworks-vibecad`](subskills/solidworks-vibecad/README.md) | experimental | 自然语言需求 -> 参数化设计计划、制造规则检查、执行摘要、审查门禁 |
 | [`solidworks-fillet-chamfer-cnc`](subskills/solidworks-fillet-chamfer-cnc/README.md) | stable | CNC 安装座、连接块、支架、多圆角/倒角、孔槽和减重口袋 |
 | [`solidworks-threaded-holes`](subskills/solidworks-threaded-holes/README.md) | stable | M3-M12 螺纹孔、攻丝底孔、孔口倒角、螺纹属性和 STEP 输出 |
-| [`autocad-automation`](subskills/autocad-automation/README.md) | pilot / blocked | DXF 无头预览与结构审查；AutoCAD 原生 DWG 绘图需本机 COM 真机复核 |
+| [`autocad-automation`](subskills/autocad-automation/README.md) | verified / pilot / blocked | DXF 无头预览与结构审查；AutoCAD 2024 .NET 白名单后端须经最近连续三次证据复验后为 verified；COM 原生写入仍受门禁 |
 
 更多路由说明见 [`SUBSKILLS.md`](SUBSKILLS.md)。
 

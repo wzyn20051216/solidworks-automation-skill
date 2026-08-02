@@ -34,6 +34,7 @@ RUNTIME_REQUIRED_CHECKS = (
 )
 DEFAULT_EVIDENCE_PATH = ROOT / "output" / "autocad-dotnet" / "latest-report.json"
 REQUIRED_ARTIFACT_SUFFIXES = (".dll", ".dwg", ".pdf", ".png")
+REQUIRED_CONSECUTIVE_PASSES = 3
 
 
 def _find_managed_api(installation: dict[str, Any]) -> list[str]:
@@ -98,8 +99,9 @@ def _runtime_evidence(path: Path) -> dict[str, Any]:
         if digest != item.get("sha256"):
             artifact_errors.append(f"产物 SHA-256 变化: {artifact}")
     missing_artifacts = [suffix for suffix in REQUIRED_ARTIFACT_SUFFIXES if suffix not in ledger_by_suffix]
+    expected_backend = payload.get("backend") == "autocad_dotnet"
     passed = (
-        payload.get("backend") == "autocad_dotnet"
+        expected_backend
         and payload.get("status") == "pass"
         and not missing
         and not missing_artifacts
@@ -113,6 +115,47 @@ def _runtime_evidence(path: Path) -> dict[str, Any]:
         "missing_checks": missing,
         "missing_artifacts": missing_artifacts,
         "artifact_errors": artifact_errors,
+        "payload_status": payload.get("status"),
+        "stage": payload.get("stage"),
+        "reported_error_code": payload.get("error_code"),
+    }
+
+
+def _runtime_history(evidence_path: Path, *, required: int = REQUIRED_CONSECUTIVE_PASSES) -> dict[str, Any]:
+    """@brief 复验最近连续真机回归，达到门槛后允许升级 verified。"""
+    root = evidence_path.resolve().parent
+    if evidence_path.name == "final-report.json":
+        root = root.parent
+    candidates = sorted(
+        (path for path in root.glob("*/final-report.json") if path.is_file()),
+        key=lambda path: path.parent.name,
+        reverse=True,
+    )
+    runs: list[dict[str, Any]] = []
+    consecutive = 0
+    for candidate in candidates:
+        evidence = _runtime_evidence(candidate)
+        entry = {
+            "path": str(candidate),
+            "status": evidence["status"],
+            "payload_status": evidence.get("payload_status"),
+            "stage": evidence.get("stage"),
+            "error_code": evidence.get("reported_error_code"),
+            "artifact_errors": evidence.get("artifact_errors", []),
+            "missing_checks": evidence.get("missing_checks", []),
+            "missing_artifacts": evidence.get("missing_artifacts", []),
+        }
+        runs.append(entry)
+        if evidence["status"] != "pass":
+            break
+        consecutive += 1
+        if consecutive >= required:
+            break
+    return {
+        "status": "verified" if consecutive >= required else "pilot",
+        "required": required,
+        "consecutive_passes": consecutive,
+        "runs": runs,
     }
 
 
@@ -148,9 +191,11 @@ def run_preflight(*, install_sdk: bool = False, evidence_path: Path | None = Non
     dotnet_ready = bool(sdk["sdk_versions"])
     missing_managed_api = [name for name in REQUIRED_MANAGED_DLLS if name not in managed_names]
     api_ready = not missing_managed_api
-    evidence = _runtime_evidence(evidence_path or DEFAULT_EVIDENCE_PATH)
+    resolved_evidence_path = evidence_path or DEFAULT_EVIDENCE_PATH
+    evidence = _runtime_evidence(resolved_evidence_path)
+    history = _runtime_history(resolved_evidence_path)
     runtime_ready = evidence["status"] == "pass"
-    dotnet_status = "pilot" if dotnet_ready and api_ready and runtime_ready else "blocked"
+    dotnet_status = history["status"] if dotnet_ready and api_ready and runtime_ready else "blocked"
     if not dotnet_ready or not api_ready:
         dotnet_error = "AUTOCAD_DOTNET_PREREQUISITE_MISSING"
         dotnet_stage = "preflight"
@@ -164,6 +209,7 @@ def run_preflight(*, install_sdk: bool = False, evidence_path: Path | None = Non
         "sdk": sdk,
         "managed_api": {"paths": managed_api, "status": "pass" if api_ready else "blocked", "missing": missing_managed_api, "error_code": None if api_ready else "AUTOCAD_MANAGED_API_MISSING"},
         "runtime_evidence": evidence,
+        "runtime_history": history,
         "writable": writable,
         "backends": {
             "dxf_headless": {"backend": "dxf_headless", "status": "pilot", "stage": "preflight", "artifacts": [], "limitations": ["只读 DXF"], "retryable": False},
@@ -174,7 +220,7 @@ def run_preflight(*, install_sdk: bool = False, evidence_path: Path | None = Non
                 "status": dotnet_status,
                 "stage": dotnet_stage,
                 "artifacts": [str(evidence_path or DEFAULT_EVIDENCE_PATH)] if runtime_ready else [],
-                "limitations": [] if runtime_ready else ["需要 .NET SDK、本机 Autodesk Managed API DLL，并通过 NETLOAD、DWG 重开、PDF/PNG 和实体复核"],
+                "limitations": ([] if dotnet_status == "verified" else [f"需要最近连续 {REQUIRED_CONSECUTIVE_PASSES} 次真机回归通过后升级 verified"]) if runtime_ready else ["需要 .NET SDK、本机 Autodesk Managed API DLL，并通过 NETLOAD、DWG 重开、PDF/PNG 和实体复核"],
                 "retryable": True,
                 "error_code": dotnet_error,
             },

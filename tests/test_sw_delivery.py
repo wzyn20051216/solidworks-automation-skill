@@ -233,7 +233,7 @@ def test_pack_and_go_falls_back_to_comtypes_backend(tmp_path, monkeypatch):
     assert report["fallback_errors"] == ["pywin32: pywin32 GetPackAndGo failed"]
 
 
-def test_pack_and_go_fails_when_native_package_misses_dependencies(tmp_path):
+def test_pack_and_go_stages_dependencies_when_native_package_misses_dependencies(tmp_path):
     source = tmp_path / "assembly.sldasm"
     source.write_text("assembly", encoding="utf-8")
     dependency = tmp_path / "needed.sldprt"
@@ -242,12 +242,56 @@ def test_pack_and_go_fails_when_native_package_misses_dependencies(tmp_path):
 
     report = sw_delivery.pack_and_go(model, tmp_path / "package")
 
+    assert report["success"] is True
+    assert report["status"] == "pilot"
+    assert report["backend"] == "solidworks-native+staged_dependencies"
+    assert report["error_code"] == "SW_PACK_AND_GO_NATIVE_ENUMERATION_INCOMPLETE"
+    assert report["manual_review_required"] is True
+    assert report["missing_dependencies"] == []
+    assert report["native_missing_dependencies"] == [str(dependency)]
+    assert report["fallback_used"] is True
+    manifest = Path(report["manifest"])
+    assert manifest.is_file()
+    assert {Path(item["path"]).name for item in report["outputs"]} >= {source.name, dependency.name, manifest.name}
+    assert report["status_codes"] == [0, 0]
+
+
+def test_pack_and_go_can_strictly_block_native_dependency_gap(tmp_path):
+    source = tmp_path / "assembly.sldasm"
+    source.write_text("assembly", encoding="utf-8")
+    dependency = tmp_path / "needed.sldprt"
+    dependency.write_text("part", encoding="utf-8")
+    model = FakeDependencyAssembly(source, [], [dependency])
+
+    report = sw_delivery.pack_and_go(model, tmp_path / "package", fallback_policy="blocked")
+
     assert report["success"] is False
     assert report["status"] == "blocked"
     assert report["error_code"] == "SW_PACK_AND_GO_DEPENDENCY_ENUMERATION_INCOMPLETE"
-    assert report["manual_review_required"] is True
+    assert report["fallback_used"] is False
     assert report["missing_dependencies"] == [str(dependency)]
-    assert report["status_codes"] == [0, 0]
+    assert report["fallback_policy"] == "blocked"
+
+
+def test_pack_and_go_rejects_staged_destination_name_collision(tmp_path):
+    source = tmp_path / "assembly.sldasm"
+    source.write_text("assembly", encoding="utf-8")
+    first_root = tmp_path / "one"
+    second_root = tmp_path / "two"
+    first_root.mkdir()
+    second_root.mkdir()
+    first = first_root / "same.sldprt"
+    second = second_root / "same.sldprt"
+    first.write_text("one", encoding="utf-8")
+    second.write_text("two", encoding="utf-8")
+    model = FakeDependencyAssembly(source, [], [first, second])
+
+    report = sw_delivery.pack_and_go(model, tmp_path / "package", flatten=True)
+
+    assert report["success"] is False
+    assert report["status"] == "blocked"
+    assert report["error_code"] == "SW_PACK_AND_GO_DEPENDENCY_ENUMERATION_INCOMPLETE"
+    assert any("重名冲突" in item for item in report["fallback_errors"])
 
 
 def test_model_doc_extension_wraps_parent_with_generated_interface(tmp_path, monkeypatch):

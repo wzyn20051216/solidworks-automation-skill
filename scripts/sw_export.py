@@ -163,8 +163,21 @@ def _activate_source_document(sw, model, source_path):
     errors = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
     try:
         active = sw.ActivateDoc3(title, False, 0, errors)
+    except TypeError:
+        ole_object = getattr(sw, "_oleobj_", None)
+        if ole_object is None:
+            raise
+        dynamic_sw = _win32com.dynamic.DumbDispatch(ole_object, "SldWorks.Application")
+        active = dynamic_sw.ActivateDoc3(title, False, 0, errors)
     except Exception:
-        sw.ActivateDoc2(title, False, errors)
+        try:
+            sw.ActivateDoc2(title, False, errors)
+        except TypeError:
+            ole_object = getattr(sw, "_oleobj_", None)
+            if ole_object is None:
+                raise
+            dynamic_sw = _win32com.dynamic.DumbDispatch(ole_object, "SldWorks.Application")
+            dynamic_sw.ActivateDoc2(title, False, errors)
         active = get_com_member(sw, "ActiveDoc")
     if active is None:
         raise RuntimeError(f"SolidWorks 无法激活源文档: {source_path}")
@@ -225,11 +238,12 @@ def batch_export_formats(
             documents.append(document_result)
             continue
         try:
-            was_open = bool(sw.GetOpenDocumentByName(source_path))
+            existing_model = sw.GetOpenDocumentByName(source_path)
         except Exception:
-            was_open = False
+            existing_model = None
+        was_open = bool(existing_model)
         document_result["was_open"] = was_open
-        model = open_document(sw, source_path, silent=True, raise_on_error=False)
+        model = existing_model or open_document(sw, source_path, silent=True, raise_on_error=False)
         if model is None:
             document_result["error"] = "SolidWorks 无法打开源文件"
             documents.append(document_result)

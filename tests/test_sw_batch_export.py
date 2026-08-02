@@ -18,7 +18,7 @@ class FakeSolidWorks:
         self.closed = []
 
     def GetOpenDocumentByName(self, path):
-        return object() if str(Path(path).resolve()).casefold() in self.open_paths else None
+        return FakeModel(Path(path).name) if str(Path(path).resolve()).casefold() in self.open_paths else None
 
     def CloseDoc(self, title):
         self.closed.append(title)
@@ -84,6 +84,42 @@ def test_activate_source_document_verifies_active_path(tmp_path):
 
     active = sw_export._activate_source_document(
         ActivatingSolidWorks(),
+        ActiveModel(source.name),
+        source,
+    )
+
+    assert active.GetPathName() == str(source)
+
+
+def test_activate_source_document_falls_back_to_dynamic_proxy(tmp_path, monkeypatch):
+    """@brief SW2024 makepy 拒绝 by-ref VARIANT 时改用动态代理。"""
+    source = tmp_path / "part.sldprt"
+    source.write_text("part", encoding="utf-8")
+
+    class ActiveModel(FakeModel):
+        def GetPathName(self):
+            return str(source)
+
+    class GeneratedSolidWorks:
+        _oleobj_ = object()
+
+        def ActivateDoc3(self, *_args):
+            raise TypeError("int() argument must not be VARIANT")
+
+    class DynamicSolidWorks:
+        def ActivateDoc3(self, title, _preferences, _option, errors):
+            assert title == source.name
+            errors.value = 0
+            return ActiveModel(title)
+
+    monkeypatch.setattr(
+        sw_export._win32com.dynamic,
+        "DumbDispatch",
+        lambda ole_object, _name: DynamicSolidWorks() if ole_object is GeneratedSolidWorks._oleobj_ else None,
+    )
+
+    active = sw_export._activate_source_document(
+        GeneratedSolidWorks(),
         ActiveModel(source.name),
         source,
     )

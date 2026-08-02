@@ -73,10 +73,23 @@ def test_insert_dimensions_prefers_document_api():
         Extension = object()
 
         def InsertModelAnnotations3(self, *args):
-            assert args == (0, 32, True, True, False, False)
+            assert args == (0, 32768, True, False, False, False)
             return True
 
     assert insert_dimensions(Document()) is True
+
+
+def test_insert_dimensions_prefers_sw2024_array_api():
+    """@brief SW2024 InsertModelAnnotations4 返回实际注释数组时优先使用它。"""
+    class Document:
+        Extension = object()
+
+        def InsertModelAnnotations4(self, *args):
+            assert args == (0, 32768, True, False, False, False, False, False)
+            return [object()]
+
+    result = insert_dimensions(Document())
+    assert isinstance(result, list) and len(result) == 1  # 返回实际注释数组
 
 
 def test_insert_dimensions_returns_false_when_both_com_surfaces_are_missing():

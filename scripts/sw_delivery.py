@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import csv
+import ctypes
 import hashlib
+import json
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -221,6 +224,164 @@ def _missing_dependency_paths(dependencies: list[str], outputs: list[dict[str, A
     return missing
 
 
+def _safe_staged_destination(source: Path, sources: list[Path], target: Path, *, flatten: bool) -> Path:
+    """@brief 计算依赖暂存路径，并阻止写出目标目录。"""
+    target_root = target.resolve()
+    if flatten:
+        relative = Path(source.name)
+    else:
+        try:
+            common_root = Path(os.path.commonpath([str(item.resolve()) for item in sources]))
+            relative = source.resolve().relative_to(common_root)
+        except (OSError, ValueError):
+            # 不同盘符或外部引用没有共同根目录时，使用稳定的外部引用目录。
+            relative = Path("external") / hashlib.sha256(str(source.resolve()).encode("utf-8")).hexdigest()[:12] / source.name
+    destination = (target_root / relative).resolve()
+    try:
+        destination.relative_to(target_root)
+    except ValueError as exc:
+        raise RuntimeError(f"Pack and Go 暂存路径越界: {destination}") from exc
+    return destination
+
+
+def _stage_pack_and_go_dependencies(
+    source_path: str,
+    dependencies: list[str],
+    target: Path,
+    existing_files: dict[str, tuple[int, int] | None],
+    *,
+    flatten: bool,
+) -> dict[str, Any]:
+    """@brief 在原生清单不完整时生成可审计的依赖暂存包。
+
+    该后端只复制 SolidWorks 已报告的源文件，不修改 CAD 文件内容，也不宣称
+    这是原生 Pack and Go。每个文件和 manifest 都带有本轮产物与 SHA-256 证据。
+    """
+    raw_sources = [str(Path(source_path).expanduser().resolve()), *dependencies]
+    source_paths: list[Path] = []
+    seen_sources: set[str] = set()
+    for raw in raw_sources:
+        path = Path(raw).expanduser().resolve()
+        key = str(path).casefold()
+        if key in seen_sources:
+            continue
+        seen_sources.add(key)
+        if not path.is_file():
+            raise FileNotFoundError(f"Pack and Go 暂存源文件不存在: {path}")
+        source_paths.append(path)
+
+    destinations: dict[str, Path] = {}
+    for source in source_paths:
+        destination = _safe_staged_destination(source, source_paths, target, flatten=flatten)
+        key = str(destination).casefold()
+        previous = destinations.get(key)
+        if previous is not None and previous.resolve() != source.resolve():
+            raise RuntimeError(f"Pack and Go 暂存文件重名冲突: {previous.name} <- {previous}, {source}")
+        destinations[key] = source
+
+    staged_files: list[dict[str, Any]] = []
+    for key, source in destinations.items():
+        destination = _safe_staged_destination(source, source_paths, target, flatten=flatten)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if source.resolve() == destination.resolve():
+            raise RuntimeError(f"Pack and Go 暂存目标不能覆盖源文件: {source}")
+        shutil.copy2(source, destination)
+        signature = _file_signature(destination)
+        if signature is None or signature[0] <= 0:
+            raise RuntimeError(f"Pack and Go 暂存文件为空: {destination}")
+        staged_files.append({
+            "source": str(source),
+            "path": str(destination),
+            "size_bytes": signature[0],
+            "sha256": _sha256(destination),
+            "produced_this_run": str(destination) not in existing_files or existing_files.get(str(destination)) != signature,
+        })
+
+    manifest_path = target / "cadstudio-pack-manifest.json"
+    if manifest_path.exists() and str(manifest_path) in existing_files:
+        raise FileExistsError(f"Pack and Go 暂存清单已存在，未允许覆盖: {manifest_path}")
+    manifest = {
+        "schemaVersion": "1.0",
+        "backend": "staged_dependencies",
+        "nativeFormat": "SolidWorks",
+        "source": str(Path(source_path).expanduser().resolve()),
+        "dependencies": [str(Path(item).expanduser().resolve()) for item in dependencies],
+        "files": staged_files,
+        "limitations": [
+            "这是基于 SolidWorks GetDependencies2 的本地暂存包，不是原生 IPackAndGo 清单",
+            "外部引用、Toolbox、配置和工程图仍需人工在 SolidWorks 中复核",
+        ],
+    }
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    manifest_signature = _file_signature(manifest_path)
+    if manifest_signature is None or manifest_signature[0] <= 0:
+        raise RuntimeError(f"Pack and Go 暂存清单为空: {manifest_path}")
+    staged_files.append({
+        "path": str(manifest_path),
+        "size_bytes": manifest_signature[0],
+        "sha256": _sha256(manifest_path),
+        "produced_this_run": str(manifest_path) not in existing_files or existing_files.get(str(manifest_path)) != manifest_signature,
+        "kind": "manifest",
+    })
+    return {
+        "backend": "staged_dependencies",
+        "outputs": staged_files,
+        "produced_count": len(staged_files),
+        "manifest": str(manifest_path),
+    }
+
+
+def _comtypes_document_names(package, document_count: int) -> list[str]:
+    """@brief 通过 IPackAndGo::IGetDocumentNames 读取固定长度原生数组。
+
+    SW2024 的 Automation ``GetDocumentNames`` 在部分 Python COM 代理上只返回
+    顶层文档。官方同时提供了基于 ``GetDocumentNamesCount`` 的原生
+    ``IGetDocumentNames``；这里显式分配 BSTR 数组，避免 SAFEARRAY 封送差异。
+    """
+    if document_count <= 0:
+        return []
+    names = (ctypes.c_wchar_p * document_count)()
+    # comtypes 会自动分配 [out] 数组，只需传入 Count。
+    result = package.IGetDocumentNames(document_count)
+    # comtypes 对 [out, retval] 的 VARIANT_BOOL 可能直接返回 bool，也可能返回元组。
+    if result is False:
+        raise RuntimeError("IPackAndGo.IGetDocumentNames 返回 False")
+    returned_names = result[0] if isinstance(result, tuple) and result else result
+    if isinstance(returned_names, (list, tuple)):
+        return [str(item) for item in returned_names if item]
+    # 少数生成器仍直接填充本地缓冲；保留兼容路径。
+    return [str(item) for item in names if item]
+
+
+def _bstr_wrapper_array(paths: list[str]):
+    """@brief 生成与官方 C# BStrWrapper[] 等价的 COM BSTR SAFEARRAY。"""
+    try:
+        import comtypes.automation
+
+        variant = comtypes.automation.VARIANT()
+        variant.value = [str(path) for path in paths]
+        return variant
+    except Exception:
+        return tuple(str(path) for path in paths)
+
+
+def _ensure_pack_and_go_dependencies(package, dependencies: list[str], document_count: int) -> tuple[int, list[str]]:
+    """@brief 用原生 IGetDocumentNames 复核并补充 Pack and Go 外部文档。"""
+    enumerated = _comtypes_document_names(package, document_count)
+    known = {Path(path).resolve() for path in enumerated if path}
+    missing = [str(Path(path).resolve()) for path in dependencies if Path(path).resolve() not in known]
+    if missing:
+        # AddExternalDocuments 接受 VARIANT 字符串数组；添加后必须再次用原生数组
+        # 接口核验，不能仅凭 setter 返回值宣称成功。
+        if not bool(package.AddExternalDocuments(_bstr_wrapper_array(missing))):
+            raise RuntimeError(f"IPackAndGo.AddExternalDocuments 拒绝 {len(missing)} 个依赖")
+        document_count = int(package.GetDocumentNamesCount())
+        enumerated = _comtypes_document_names(package, document_count)
+        known = {Path(path).resolve() for path in enumerated if path}
+        missing = [str(Path(path).resolve()) for path in dependencies if Path(path).resolve() not in known]
+    return document_count, missing
+
+
 def _active_solidworks_major() -> int | None:
     """@brief 返回当前 SolidWorks 类型库主版本，例如 SW2024 为 32。"""
     try:
@@ -423,6 +584,7 @@ def _comtypes_pack_and_go(
     include_toolbox_components: bool,
     include_suppressed: bool,
     flatten: bool,
+    dependencies: list[str] | None = None,
 ) -> dict[str, Any]:
     """@brief 使用 comtypes 早绑定兜底执行 SolidWorks 原生 Pack and Go。"""
     import comtypes.client
@@ -446,12 +608,19 @@ def _comtypes_pack_and_go(
     document_type = SW_DOC_TYPES.get(Path(source_path).suffix.casefold())
     if document_type is None:
         raise ValueError(f"Pack and Go 不支持的文档类型: {source_path}")
-    open_result = sw.OpenDoc6(str(source_path), document_type, 1 | 512, "")
+    # 强制加载完整模型并覆盖轻量化默认设置，否则 Pack and Go 只会看到顶层文档。
+    open_result = sw.OpenDoc6(str(source_path), document_type, 1 | 16 | 64 | 512, "")
     try:
         document = _extract_comtypes_model(open_result)
     except RuntimeError:
         document = _comtypes_active_model(sw, source_path)
     extension = document.Extension.QueryInterface(SldWorks.IModelDocExtension)
+    if document_type == 2:
+        try:
+            document.QueryInterface(SldWorks.IAssemblyDoc).ResolveAllLightWeightComponents(True)
+            document.ForceRebuild3(False)
+        except Exception:
+            pass
     package = extension.GetPackAndGo()
     package.IncludeDrawings = bool(include_drawings)
     package.IncludeSimulationResults = bool(include_simulation_results)
@@ -459,6 +628,11 @@ def _comtypes_pack_and_go(
     package.IncludeSuppressed = bool(include_suppressed)
     package.FlattenToSingleFolder = bool(flatten)
     document_count = int(package.GetDocumentNamesCount())
+    enumeration_missing = []
+    if dependencies:
+        document_count, enumeration_missing = _ensure_pack_and_go_dependencies(package, dependencies, document_count)
+    if enumeration_missing:
+        raise RuntimeError(f"IPackAndGo 原生枚举仍缺少依赖: {enumeration_missing}")
     if not package.SetSaveToName(True, str(target) + os.sep):
         raise RuntimeError("IPackAndGo.SetSaveToName 拒绝目标目录")
 
@@ -470,6 +644,7 @@ def _comtypes_pack_and_go(
         "status_codes": status_codes,
         "outputs": outputs,
         "produced_count": len(outputs),
+        "enumeration_missing": enumeration_missing,
     }
 
 
@@ -483,8 +658,15 @@ def pack_and_go(
     include_suppressed: bool = False,
     flatten: bool = False,
     overwrite: bool = False,
+    fallback_policy: str = "stage_dependencies",
 ) -> dict[str, Any]:
-    """使用 SolidWorks 原生 Pack and Go 保存当前文档及引用文件。"""
+    """执行原生 Pack and Go，并按策略处理 SW2024 依赖枚举缺失。
+
+    ``fallback_policy=stage_dependencies`` 会在原生 API 已保存但漏枚举依赖时
+    生成明确标记的本地暂存包；``blocked`` 保持严格原生门禁。
+    """
+    if fallback_policy not in {"stage_dependencies", "blocked"}:
+        raise ValueError("fallback_policy 必须是 stage_dependencies 或 blocked")
     source_path = str(get_com_member(model, "GetPathName") or "")
     if not source_path or not Path(source_path).is_file():
         raise ValueError("当前文档必须先保存到磁盘，才能执行 Pack and Go")
@@ -496,6 +678,8 @@ def pack_and_go(
 
     dependencies = _document_dependency_paths(model, source_path)
     fallback_errors = []
+    native_error: str | None = None
+    result: dict[str, Any]
     try:
         extension = _model_doc_extension(model)
         result = _pywin32_pack_and_go(
@@ -510,16 +694,29 @@ def pack_and_go(
         )
     except Exception as exc:
         fallback_errors.append(f"pywin32: {exc}")
-        result = _comtypes_pack_and_go(
-            source_path,
-            target,
-            existing_files,
-            include_drawings=include_drawings,
-            include_simulation_results=include_simulation_results,
-            include_toolbox_components=include_toolbox_components,
-            include_suppressed=include_suppressed,
-            flatten=flatten,
-        )
+        try:
+            result = _comtypes_pack_and_go(
+                source_path,
+                target,
+                existing_files,
+                include_drawings=include_drawings,
+                include_simulation_results=include_simulation_results,
+                include_toolbox_components=include_toolbox_components,
+                include_suppressed=include_suppressed,
+                flatten=flatten,
+                dependencies=dependencies,
+            )
+        except Exception as comtypes_exc:
+            fallback_errors.append(f"comtypes: {comtypes_exc}")
+            native_error = str(comtypes_exc)
+            result = {
+                "backend": "native_unavailable",
+                "document_count": 0,
+                "status_codes": [],
+                "outputs": [],
+                "produced_count": 0,
+                "enumeration_missing": dependencies,
+            }
 
     missing_dependencies = _missing_dependency_paths(dependencies, result["outputs"])
     success = (
@@ -528,6 +725,8 @@ def pack_and_go(
         and bool(result["outputs"])
         and not missing_dependencies
     )
+    staged = None
+    native_status = "pass" if success else "blocked" if missing_dependencies and result["status_codes"] and all(code == 0 for code in result["status_codes"]) else "failed"
     if success:
         status = "pass"
         stage = "save"
@@ -535,21 +734,99 @@ def pack_and_go(
         retryable = False
         manual_review_required = True
         limitations = ["Pack and Go 产物仍需人工抽查外部引用、Toolbox 和工程图"]
+    elif missing_dependencies and fallback_policy == "stage_dependencies":
+        try:
+            staged = _stage_pack_and_go_dependencies(
+                source_path,
+                dependencies,
+                target,
+                existing_files,
+                flatten=flatten,
+            )
+        except Exception as exc:
+            fallback_errors.append(f"staged_dependencies: {exc}")
+            staged = None
+        if staged is not None:
+            success = True
+            status = "pilot"
+            stage = "review"
+            error_code = "SW_PACK_AND_GO_NATIVE_ENUMERATION_INCOMPLETE"
+            retryable = True
+            manual_review_required = True
+            limitations = [
+                "原生 IPackAndGo 未枚举全部依赖；已生成基于 GetDependencies2 的暂存包",
+                "暂存包不是原生 Pack and Go，外部引用、Toolbox、配置和工程图必须人工复核",
+            ]
+            result = {
+                **result,
+                "backend": "solidworks-native+staged_dependencies",
+                "outputs": staged["outputs"],
+                "produced_count": staged["produced_count"],
+                "manifest": staged["manifest"],
+            }
+            missing_dependencies = []
+        else:
+            # 暂存失败时保留原生漏包证据，不能把失败变成成功。
+            status = "blocked"
+            stage = "review"
+            error_code = "SW_PACK_AND_GO_DEPENDENCY_ENUMERATION_INCOMPLETE"
+            retryable = True
+            manual_review_required = True
+            limitations = ["SolidWorks 原生 Pack and Go 未枚举全部依赖，暂存回退也未完成"]
     elif missing_dependencies and result["status_codes"] and all(code == 0 for code in result["status_codes"]):
-        # SolidWorks 已成功保存顶层文件，但原生清单漏掉依赖；保留证据并阻止误交付。
+        # 严格原生策略：保留证据并阻止误交付。
         status = "blocked"
         stage = "review"
         error_code = "SW_PACK_AND_GO_DEPENDENCY_ENUMERATION_INCOMPLETE"
-        retryable = False
-        manual_review_required = True
-        limitations = ["SolidWorks 原生 Pack and Go 未枚举全部依赖，禁止用文件复制补齐"]
-    else:
-        status = "failed"
-        stage = "save"
-        error_code = "SW_PACK_AND_GO_SAVE_FAILED"
         retryable = True
-        manual_review_required = False
-        limitations = []
+        manual_review_required = True
+        limitations = ["SolidWorks 原生 Pack and Go 未枚举全部依赖；fallback_policy=blocked，未复制补齐"]
+    else:
+        if fallback_policy == "stage_dependencies" and dependencies:
+            try:
+                staged = _stage_pack_and_go_dependencies(
+                    source_path,
+                    dependencies,
+                    target,
+                    existing_files,
+                    flatten=flatten,
+                )
+            except Exception as exc:
+                fallback_errors.append(f"staged_dependencies: {exc}")
+                staged = None
+            if staged is not None:
+                success = True
+                status = "pilot"
+                stage = "review"
+                error_code = "SW_PACK_AND_GO_NATIVE_FAILED_STAGED"
+                retryable = True
+                manual_review_required = True
+                limitations = [
+                    "原生 Pack and Go 调用失败；已按 GetDependencies2 生成暂存包",
+                    "暂存包不是原生 Pack and Go，必须人工复核",
+                ]
+                result = {
+                    **result,
+                    "backend": "solidworks-native+staged_dependencies",
+                    "outputs": staged["outputs"],
+                    "produced_count": staged["produced_count"],
+                    "manifest": staged["manifest"],
+                }
+                missing_dependencies = []
+            else:
+                status = "failed"
+                stage = "save"
+                error_code = "SW_PACK_AND_GO_SAVE_FAILED"
+                retryable = True
+                manual_review_required = False
+                limitations = []
+        else:
+            status = "failed"
+            stage = "save"
+            error_code = "SW_PACK_AND_GO_SAVE_FAILED"
+            retryable = True
+            manual_review_required = False
+            limitations = []
     return {
         "success": success,
         "status": status,
@@ -561,12 +838,18 @@ def pack_and_go(
         "source": source_path,
         "output_dir": str(target),
         "backend": result["backend"],
+        "native_backend": result.get("backend") if staged is None else "solidworks-native",
+        "native_status": native_status,
         "document_count": result["document_count"],
         "status_codes": result["status_codes"],
         "outputs": result["outputs"],
         "produced_count": result["produced_count"],
         "dependencies": dependencies,
         "missing_dependencies": missing_dependencies,
+        "native_missing_dependencies": _missing_dependency_paths(dependencies, result.get("outputs", [])) if staged is None else list(dependencies),
+        "fallback_policy": fallback_policy,
+        "fallback_used": staged is not None,
+        "manifest": result.get("manifest"),
         "fallback_errors": fallback_errors,
         "options": {
             "include_drawings": include_drawings,

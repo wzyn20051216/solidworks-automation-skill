@@ -417,6 +417,16 @@ def open_document(sw, file_path, read_only=False, silent=False, raise_on_error=F
         print(message)
         return None
 
+    # 装配体会把组件文档加载到当前会话；再次 OpenDoc6 可能返回
+    # swFileWithSameTitleAlreadyOpen。复用同一路径对象也能保留文档所有权。
+    try:
+        existing_model = sw.GetOpenDocumentByName(file_path)
+    except Exception:
+        existing_model = None
+    if existing_model is not None:
+        print(f"已复用打开文档: {file_path}")
+        return existing_model
+
     ext = os.path.splitext(file_path)[1].lower()
     foreign_exts = {".step", ".stp", ".igs", ".iges"}
     type_map = {".sldprt": 1, ".sldasm": 2, ".slddrw": 3}
@@ -446,7 +456,23 @@ def open_document(sw, file_path, read_only=False, silent=False, raise_on_error=F
         warnings.value = 0
     else:
         doc_type = type_map.get(ext, 1)
-        model = sw.OpenDoc6(file_path, doc_type, options, "", errors, warnings)
+        try:
+            model = sw.OpenDoc6(file_path, doc_type, options, "", errors, warnings)
+        except TypeError:
+            # SW2024 的 makepy 强类型代理可能对 [out] long 再做 int(VARIANT)，
+            # 动态代理会把显式 by-ref VARIANT 正确传给原生 OpenDoc6。
+            ole_object = getattr(sw, "_oleobj_", None)
+            if ole_object is None:
+                raise
+            dynamic_sw = win32com_client.dynamic.DumbDispatch(ole_object, "SldWorks.Application")
+            model = dynamic_sw.OpenDoc6(file_path, doc_type, options, "", errors, warnings)
+        if isinstance(model, (tuple, list)):
+            values = list(model)
+            model = values[0] if values else None
+            if len(values) > 1 and values[1] is not None:
+                errors.value = int(values[1])
+            if len(values) > 2 and values[2] is not None:
+                warnings.value = int(values[2])
     if model:
         print(f"已打开: {file_path}")
     else:

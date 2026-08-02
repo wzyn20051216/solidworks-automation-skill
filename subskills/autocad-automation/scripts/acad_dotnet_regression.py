@@ -151,6 +151,36 @@ def _artifact_record(path: Path) -> dict[str, Any]:
     return {"path": str(path.resolve()), "size": path.stat().st_size, "sha256": digest.hexdigest()}
 
 
+def _persist_result(result: dict[str, Any], run_dir: Path) -> dict[str, Any]:
+    """@brief 持久化每次真机回归结果，失败也必须打断连续通过序列。"""
+    output_root = ROOT / "output" / "autocad-dotnet"
+    final_report = run_dir / "final-report.json"
+    final_report.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    artifacts = result.setdefault("artifacts", [])
+    if str(final_report) not in artifacts:
+        artifacts.append(str(final_report))
+    latest = output_root / "latest-report.json"
+    latest.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    history_path = output_root / "runtime-history.json"
+    try:
+        history = json.loads(history_path.read_text(encoding="utf-8")) if history_path.is_file() else {"schemaVersion": "1.0", "runs": []}
+    except (OSError, json.JSONDecodeError):
+        history = {"schemaVersion": "1.0", "runs": []}
+    runs = history.get("runs") if isinstance(history.get("runs"), list) else []
+    runs.append({
+        "runDir": str(run_dir),
+        "status": result.get("status"),
+        "stage": result.get("stage"),
+        "error_code": result.get("error_code"),
+        "generatedAt": result.get("generatedAt"),
+        "report": str(final_report),
+        "artifactDigests": [item["sha256"] for item in result.get("artifactLedger", []) if isinstance(item, dict) and item.get("sha256")],
+    })
+    history["runs"] = runs[-100:]
+    history_path.write_text(json.dumps(history, ensure_ascii=False, indent=2), encoding="utf-8")
+    return result
+
+
 def run_regression(*, real_cad: bool = False, timeout: int = 180) -> dict[str, Any]:
     """@brief 构建插件，并按需执行 AutoCAD Core Console 真机回归。"""
     installation = discover_installation("autocad")
@@ -181,10 +211,10 @@ def run_regression(*, real_cad: bool = False, timeout: int = 180) -> dict[str, A
     }
     if not dotnet:
         result.update(error_code="DOTNET_SDK_MISSING", limitations=["未发现 dotnet SDK"])
-        return result
+        return _persist_result(result, run_dir)
     if not install_dir:
         result.update(error_code="AUTOCAD_NOT_FOUND", limitations=["未发现 AutoCAD 2024 安装目录"])
-        return result
+        return _persist_result(result, run_dir)
 
     build = _run(
         [dotnet, "build", str(PROJECT), "--configuration", "Release", "--output", str(build_dir), f"-p:AutoCADInstallDir={install_dir}"],
@@ -195,18 +225,18 @@ def run_regression(*, real_cad: bool = False, timeout: int = 180) -> dict[str, A
     plugin = build_dir / "CadStudio.AutoCAD2024.dll"
     if build.get("returncode") != 0 or not plugin.is_file():
         result.update(status="failed", stage="build", error_code="AUTOCAD_DOTNET_BUILD_FAILED")
-        return result
+        return _persist_result(result, run_dir)
     result["artifacts"].append(str(plugin))
 
     if not real_cad:
         result.update(stage="load", error_code="AUTOCAD_DOTNET_RUNTIME_NOT_VERIFIED", limitations=["插件已构建，尚未执行真机 NETLOAD 回归"])
-        return result
+        return _persist_result(result, run_dir)
 
     core_console = install_dir / "accoreconsole.exe"
     template = _find_template()
     if not core_console.is_file() or not template:
         result.update(stage="preflight", error_code="AUTOCAD_CORE_CONSOLE_PREREQUISITE_MISSING", limitations=["缺少 accoreconsole.exe 或 acadiso.dwt"])
-        return result
+        return _persist_result(result, run_dir)
 
     system_variable_probe = run_dir / "cad-studio-system-variable-probe.scr"
     system_variable_probe.write_text(_system_variable_probe_text(), encoding="ascii")
@@ -223,7 +253,7 @@ def run_regression(*, real_cad: bool = False, timeout: int = 180) -> dict[str, A
     result["systemVariableProbe"] = {**system_variable_result, "originalValues": original_variables}
     if system_variable_result.get("returncode") != 0 or any(value is None for value in original_variables.values()):
         result.update(stage="preflight", error_code="AUTOCAD_SYSTEM_VARIABLE_PROBE_FAILED", limitations=["无法安全读取并恢复 SECURELOAD/FILEDIA/BACKGROUNDPLOT 原值"])
-        return result
+        return _persist_result(result, run_dir)
 
     script = run_dir / "cad-studio-dotnet-regression.scr"
     script.write_text(_script_text(plugin, {name: int(value) for name, value in original_variables.items()}), encoding="ascii")
@@ -244,7 +274,7 @@ def run_regression(*, real_cad: bool = False, timeout: int = 180) -> dict[str, A
             plugin_report = json.loads(report_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             result.update(status="failed", stage="review", error_code="AUTOCAD_DOTNET_EVIDENCE_INVALID", limitations=[str(exc)])
-            return result
+            return _persist_result(result, run_dir)
     else:
         plugin_report = {"status": "failed", "checks": {}, "error_code": "AUTOCAD_DOTNET_REPORT_MISSING"}
     checks = plugin_report.get("checks") if isinstance(plugin_report.get("checks"), dict) else {}
@@ -267,12 +297,7 @@ def run_regression(*, real_cad: bool = False, timeout: int = 180) -> dict[str, A
     result["artifacts"].extend(str(path) for path in (report_path, drawing_path, pdf_path, png_path) if path.is_file())
     ledger_paths = (plugin, drawing_path, pdf_path, png_path, report_path)
     result["artifactLedger"] = [_artifact_record(path) for path in ledger_paths if path.is_file()]
-    final_report = run_dir / "final-report.json"
-    final_report.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    result["artifacts"].append(str(final_report))
-    latest = ROOT / "output" / "autocad-dotnet" / "latest-report.json"
-    latest.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-    return result
+    return _persist_result(result, run_dir)
 
 
 def main() -> int:

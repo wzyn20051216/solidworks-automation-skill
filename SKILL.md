@@ -123,6 +123,10 @@ session.export(model, r"C:\temp\cylinder.step")
 | 综合机械工程 DAG 自动编排 | `apps/desktop/cad_workbench/engineering_orchestrator.py` | `references/complex-mechanical-routing.md` |
 | 常见错误排查 | - | `references/troubleshooting.md` |
 
+Pack and Go 的原生 `IPackAndGo` 在部分 SW2024 装配体上可能只枚举顶层文件。`scripts/sw_delivery.py::pack_and_go()` 默认使用
+`fallback_policy="stage_dependencies"`，依据 `GetDependencies2` 生成带 manifest 和 SHA-256 的 `pilot` 暂存包；需要严格原生语义时显式使用
+`fallback_policy="blocked"`。两者都不得绕过外部引用、Toolbox、配置和工程图的人工复核。
+
 ## OpenClaw 协作方式
 
 1. 先确认 SolidWorks 版本、界面语言、输入文件路径、输出路径，以及目标操作（建模 / 装配 / 出图 / 导出）。

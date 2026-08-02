@@ -489,6 +489,90 @@ def sketch_spline(model, points):
     return model.SketchManager.CreateSpline2(point_array, False)
 
 
+def auto_dimension_sketch(model, sketch=None, sketch_segments=None):
+    """@brief 按官方 AutoDimension2 流程为当前草图创建真实模型尺寸。
+
+    SolidWorks 的工程图 ``InsertModelAnnotations`` 只能导入模型中已有的
+    显示尺寸，不能凭空为拉伸深度或矩形轮廓生成尺寸。该函数在草图编辑态
+    选择水平/垂直基准线，再调用 ``ISketch.AutoDimension2``，因此生成的尺寸
+    会成为模型的真实 DisplayDimension，可被工程图导入并复核。
+
+    返回值包含 ``status_code``（官方约定 0 表示成功）、选择数量和是否创建
+    尺寸的可审计信息。函数不会把失败伪装成成功。
+    """
+    active = sketch or _safe_com_member(model.SketchManager, "ActiveSketch")
+    if active is None:
+        return {"status": "blocked", "status_code": None, "error_code": "SKETCH_NOT_ACTIVE", "selected": 0}
+
+    def segments():
+        supplied = _as_tuple(sketch_segments)
+        if supplied:
+            return supplied
+        for name in ("GetSketchSegments", "IGetSketchSegments"):
+            value = _safe_com_member(active, name)
+            result = _as_tuple(value)
+            if result:
+                return result
+        return ()
+
+    horizontal = None
+    vertical = None
+    for segment in segments():
+        try:
+            start = get_com_member(segment, "GetStartPoint2")
+            end = get_com_member(segment, "GetEndPoint2")
+            dx = abs(float(get_com_member(start, "X")) - float(get_com_member(end, "X")))
+            dy = abs(float(get_com_member(start, "Y")) - float(get_com_member(end, "Y")))
+        except Exception:
+            continue
+        if dx > dy and horizontal is None:
+            horizontal = segment
+        elif dy > dx and vertical is None:
+            vertical = segment
+
+    model.ClearSelection2(True)
+    selected = 0
+    # SW2024 swAutodimMark_e：2=水平基准，4=垂直基准。
+    # 官方示例要求垂直线作为水平基准、水平线作为垂直基准。
+    for segment, mark in ((vertical, 2), (horizontal, 4)):
+        if segment is None:
+            continue
+        try:
+            if bool(segment.Select3(selected > 0, mark, _empty_callout())):
+                selected += 1
+        except Exception:
+            try:
+                if bool(segment.Select4(selected > 0, _empty_callout())):
+                    selected += 1
+            except Exception:
+                pass
+
+    status_code = None
+    try:
+        # swAutodimEntitiesAll=1, Baseline=1, Below=-1, Left=-1。
+        status_code = int(get_com_member(active, "AutoDimension2", 1, 1, -1, 1, -1))
+    except Exception as exc:
+        model.ClearSelection2(True)
+        return {
+            "status": "failed",
+            "status_code": None,
+            "error_code": "SKETCH_AUTODIMENSION_CALL_FAILED",
+            "error": str(exc),
+            "selected": selected,
+        }
+    try:
+        model.GraphicsRedraw2()
+    except Exception:
+        pass
+    model.ClearSelection2(True)
+    return {
+        "status": "pass" if status_code == 0 else "blocked",
+        "status_code": status_code,
+        "error_code": None if status_code == 0 else "SKETCH_AUTODIMENSION_REJECTED",
+        "selected": selected,
+    }
+
+
 def add_dimension(model, x, y):
     """在指定位置添加尺寸标注"""
     return model.AddDimension2(x, y, 0)

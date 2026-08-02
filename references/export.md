@@ -96,14 +96,14 @@ def batch_convert(sw, input_dir, output_dir, input_ext=".sldprt", output_ext=".s
 
 1. 当前文档必须已经保存到磁盘。
 2. 目标目录非空时默认拒绝；只有显式 `overwrite=True` 才继续。
-3. 不用 Python 自行复制引用文件，不猜测装配引用关系。
-4. 返回逐文件大小、SHA-256 和 `produced_this_run`；状态码非零、本轮没有真实文件或依赖文件漏包时不得标记成功。
-5. 本机 SW2024 真机回归显示：装配依赖 API 能看到 `.SLDPRT` 引用，但原生 `IPackAndGo.GetDocumentNames()` 可能只返回顶层 `.SLDASM`。封装会把这类情况记录到 `missing_dependencies` 并令 `success=False`。
-6. Pack and Go 目前为 `pilot`，外部引用、Toolbox、压缩组件和工程图仍需人工抽查。
+3. 原生清单完整时不自行复制引用文件；若原生清单不完整且 `fallback_policy=stage_dependencies`（默认），才按 `GetDependencies2` 返回的实际路径生成明确标记的暂存包。
+4. 返回逐文件大小、SHA-256 和 `produced_this_run`；状态码非零、本轮没有真实文件或暂存源文件缺失时不得标记成功。
+5. 本机 SW2024 真机回归显示：装配依赖 API 能看到 `.SLDPRT` 引用，但原生 `IPackAndGo.GetDocumentNames()` 可能只返回顶层 `.SLDASM`。此时报告保留 `native_missing_dependencies`，暂存包使用 `backend=solidworks-native+staged_dependencies`、`status=pilot`，并生成 `cadstudio-pack-manifest.json`。
+6. 需要严格原生语义时传 `fallback_policy=blocked`；无论哪种模式，外部引用、Toolbox、配置、压缩组件和工程图仍需人工抽查。
 
-漏依赖时返回稳定门禁字段：`status=blocked`、`stage=review`、
-`error_code=SW_PACK_AND_GO_DEPENDENCY_ENUMERATION_INCOMPLETE`。综合回归可以继续验证
-批量导出和预览，但不得把该 Pack and Go 产物标为完整交付包。
+严格模式漏依赖时返回稳定门禁字段：`status=blocked`、`stage=review`、
+`error_code=SW_PACK_AND_GO_DEPENDENCY_ENUMERATION_INCOMPLETE`。默认暂存模式会返回
+`status=pilot`、`error_code=SW_PACK_AND_GO_NATIVE_ENUMERATION_INCOMPLETE`，这表示文件包可继续交付但不是原生 Pack and Go，必须人工复核。
 
 批量导出每种格式前都会激活源文档，并回读 `ActiveDoc.GetPathName()`。这是因为 SW2024
 对 STL 等导出器可能使用活动文档，即使对另一个 `IModelDoc2.Extension.SaveAs()` 调用返回成功；

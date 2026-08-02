@@ -61,6 +61,64 @@ def test_dotnet_preflight_marks_complete_runtime_evidence_as_pilot(monkeypatch, 
     assert report["backends"]["autocad_dotnet"]["status"] == "pilot"
 
 
+def test_dotnet_preflight_verifies_three_consecutive_runtime_runs(monkeypatch, tmp_path):
+    """@brief 最近三次报告及产物哈希均有效时升级 verified。"""
+    monkeypatch.setattr(_MODULE, "discover_installation", lambda _product: {"installed": True, "executable": r"D:\AutoCAD 2024\acad.exe"})
+    monkeypatch.setattr(_MODULE, "_sdk_info", lambda: {"dotnet": "dotnet", "sdk_versions": ["8.0.423"], "msbuild": None})
+    monkeypatch.setattr(_MODULE, "_find_managed_api", lambda _installation: [
+        r"D:\AutoCAD 2024\AcCoreMgd.dll", r"D:\AutoCAD 2024\AcDbMgd.dll", r"D:\AutoCAD 2024\AcMgd.dll",
+    ])
+    import hashlib
+    import json
+    for index in range(3):
+        run_dir = tmp_path / f"20260802T00000{index}Z"
+        run_dir.mkdir()
+        artifacts = []
+        for suffix in _MODULE.REQUIRED_ARTIFACT_SUFFIXES:
+            artifact = run_dir / f"artifact{suffix}"
+            artifact.write_bytes(f"verified-{index}-{suffix}".encode())
+            artifacts.append({"path": str(artifact), "size": artifact.stat().st_size, "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest()})
+        payload = {"backend": "autocad_dotnet", "status": "pass", "checks": {check: True for check in _MODULE.RUNTIME_REQUIRED_CHECKS}, "artifactLedger": artifacts}
+        (run_dir / "final-report.json").write_text(json.dumps(payload), encoding="utf-8")
+    latest = tmp_path / "20260802T000002Z" / "final-report.json"
+    report = run_preflight(evidence_path=latest)
+    assert report["backends"]["autocad_dotnet"]["status"] == "verified"
+    assert report["runtime_history"]["consecutive_passes"] == 3
+
+
+def test_dotnet_preflight_latest_failed_run_breaks_verified_history(monkeypatch, tmp_path):
+    """@brief 最近一次真机失败必须立即打断历史 verified。"""
+    monkeypatch.setattr(_MODULE, "discover_installation", lambda _product: {"installed": True, "executable": r"D:\AutoCAD 2024\acad.exe"})
+    monkeypatch.setattr(_MODULE, "_sdk_info", lambda: {"dotnet": "dotnet", "sdk_versions": ["8.0.423"], "msbuild": None})
+    monkeypatch.setattr(_MODULE, "_find_managed_api", lambda _installation: [
+        r"D:\AutoCAD 2024\AcCoreMgd.dll", r"D:\AutoCAD 2024\AcDbMgd.dll", r"D:\AutoCAD 2024\AcMgd.dll",
+    ])
+    import hashlib
+    import json
+    latest = None
+    for index in range(3):
+        run_dir = tmp_path / f"20260802T00000{index}Z"
+        run_dir.mkdir()
+        artifacts = []
+        for suffix in _MODULE.REQUIRED_ARTIFACT_SUFFIXES:
+            artifact = run_dir / f"artifact{suffix}"
+            artifact.write_bytes(f"verified-{index}-{suffix}".encode())
+            artifacts.append({"path": str(artifact), "size": artifact.stat().st_size, "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest()})
+        payload = {"backend": "autocad_dotnet", "status": "pass", "checks": {check: True for check in _MODULE.RUNTIME_REQUIRED_CHECKS}, "artifactLedger": artifacts}
+        latest = run_dir / "final-report.json"
+        latest.write_text(json.dumps(payload), encoding="utf-8")
+    failed_dir = tmp_path / "20260802T000003Z"
+    failed_dir.mkdir()
+    failed = failed_dir / "final-report.json"
+    failed.write_text(json.dumps({"backend": "autocad_dotnet", "status": "failed", "stage": "build", "checks": {}, "artifactLedger": []}), encoding="utf-8")
+
+    report = run_preflight(evidence_path=failed)
+
+    assert report["backends"]["autocad_dotnet"]["status"] == "blocked"
+    assert report["runtime_history"]["consecutive_passes"] == 0
+    assert report["runtime_history"]["runs"][0]["payload_status"] == "failed"
+
+
 def test_sdk_info_skips_runtime_only_dotnet(monkeypatch, tmp_path):
     runtime_only = tmp_path / "runtime" / "dotnet.exe"
     user_sdk = tmp_path / "user" / "Microsoft" / "dotnet" / "dotnet.exe"

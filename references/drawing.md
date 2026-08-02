@@ -46,7 +46,7 @@ view.ScaleRatio = (2.0, 1.0)  # 2:1 比例
 ```python
 drawing.InsertModelAnnotations3(
     InsertType,    # int: 0=整个模型
-    AnnotationType, # int: 32=标记为图纸的尺寸
+    AnnotationType, # int: 32768=标记为工程图的模型尺寸
     DuplicateDims, # bool
     AutoArrange,   # bool
     UseDoc,        # bool
@@ -56,7 +56,17 @@ drawing.InsertModelAnnotations3(
 
 > SW2024 的动态 pywin32 代理通常把 `InsertModelAnnotations3` 暴露在工程图
 > `IModelDoc2` 上，而不是 `IModelDocExtension`。技能脚本会先尝试文档对象，
-> 再兼容旧的 Extension 代理；返回 `False` 时不得把尺寸证据标记为已验证。
+> 再兼容旧的 Extension 代理。`32` 是几何公差，`32768` 才是标记为工程图
+> 的模型尺寸；返回 `False` 或
+> 复核不到尺寸实体时不得把尺寸证据标记为已验证。
+>
+> 该 API 只导入模型中已经存在的 `DisplayDimension`。对没有草图尺寸的矩形
+> 或只有拉伸参数的零件，先在草图编辑态调用 `sw_part.auto_dimension_sketch()`
+> 或由明确的参数化建模步骤创建模型尺寸；不得期待工程图 API 凭空生成尺寸。
+>
+> 能力清单将这一路径单独记录为 `drawing_dimension_insertion=verified`（SW2024）。
+> 完整工程图交付仍属于 `drawings_and_bom=pilot`，因为尺寸布局、孔槽定位链、
+> 图框、标题栏和 BOM 需要人工目视复核。
 
 ### 手动添加尺寸
 

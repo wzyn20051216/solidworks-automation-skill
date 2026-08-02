@@ -17,7 +17,7 @@ import threading
 from contextlib import redirect_stdout
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -421,7 +421,7 @@ class SolidWorksBomExportInput(BaseInput):
 
 
 class SolidWorksPackAndGoInput(BaseInput):
-    """Input for native SolidWorks Pack and Go."""
+    """Input for native Pack and Go plus the explicit dependency staging fallback."""
 
     output_dir: str = Field(..., min_length=1)
     include_drawings: bool = Field(default=True)
@@ -430,6 +430,10 @@ class SolidWorksPackAndGoInput(BaseInput):
     include_suppressed: bool = Field(default=False)
     flatten: bool = Field(default=False)
     overwrite: bool = Field(default=False)
+    fallback_policy: Literal["stage_dependencies", "blocked"] = Field(
+        default="stage_dependencies",
+        description="原生依赖枚举缺失时生成可审计暂存包，或严格阻断",
+    )
     response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
 
 
@@ -1378,6 +1382,7 @@ def solidworks_pack_and_go_tool(params: SolidWorksPackAndGoInput) -> str:
             include_suppressed=params.include_suppressed,
             flatten=params.flatten,
             overwrite=params.overwrite,
+            fallback_policy=params.fallback_policy,
         )
         result["document"] = _model_summary(model)
         return result

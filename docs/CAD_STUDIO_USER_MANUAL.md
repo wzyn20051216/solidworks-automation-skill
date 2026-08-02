@@ -86,9 +86,9 @@ python scripts/cad_studio.py doctor
 
 能力限制以仓库根目录 `capabilities.yaml` 为准。配置/设计表、钣金、焊件、Simulation/FEA 和 Routing 当前不会被标记为已交付；任务会进入“已阻断”并给出原因，除非明确选择人工复核模式。
 
-工程图和 BOM 任务会额外返回视图、真实尺寸、BOM 行、模型/工程图关系和复核发现。文件存在不等于交付完成：图框、尺寸链、孔表、标题栏和 BOM 仍需人工复核。
+工程图和 BOM 任务会额外返回视图、真实尺寸、BOM 行、模型/工程图关系和复核发现。SW2024 中“模型尺寸自动插入并回读真实尺寸实体”已作为独立能力验证；完整工程图仍为 `pilot`，文件存在不等于交付完成，图框、尺寸链布局、孔表、标题栏和 BOM 仍需人工复核。
 
-AutoCAD 后端分为 DXF 无头检查、白名单命令桥、COM 和 .NET。当前本机 AutoCAD 2024 的 COM 代理仍不稳定；独立的 .NET 后端已用本机 Managed API 完成白名单真机回归，可创建并重开真实 DWG，生成 PDF/PNG，并回读图元、图层和真实尺寸。该后端保持 `pilot`，不代表任意 DWG 操作或任意插件代码均可用。可运行：
+AutoCAD 后端分为 DXF 无头检查、白名单命令桥、COM 和 .NET。当前本机 AutoCAD 2024 的 COM 代理仍不稳定；独立的 .NET 后端已用本机 Managed API 连续完成白名单真机回归，可创建并重开真实 DWG，生成 PDF/PNG，并回读图元、图层和真实尺寸。前置检查会复验最近三次报告及产物哈希，完整时返回 `verified`，证据损坏时自动降级；这不代表任意 DWG 操作或任意插件代码均可用。可运行：
 
 ```powershell
 python subskills\autocad-automation\scripts\acad_dotnet_preflight.py

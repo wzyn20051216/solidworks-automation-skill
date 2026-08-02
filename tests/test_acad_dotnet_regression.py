@@ -49,3 +49,27 @@ def test_secureload_probe_parses_and_restores_supported_values(tmp_path):
     assert _MODULE._parse_system_variable("no matching prompt", "BACKGROUNDPLOT") is None
     text = _MODULE._script_text(tmp_path / "plugin.dll", {"SECURELOAD": 1, "FILEDIA": 0, "BACKGROUNDPLOT": 2})
     assert "_.SECURELOAD\n1\n_.FILEDIA\n0\n_.BACKGROUNDPLOT\n2\n_.QUIT" in text
+
+
+def test_persist_result_records_failed_run_in_history(tmp_path, monkeypatch):
+    """@brief 前置或构建失败也必须写 final report 和历史。"""
+    monkeypatch.setattr(_MODULE, "ROOT", tmp_path)
+    run_dir = tmp_path / "output" / "autocad-dotnet" / "20260802T000000Z"
+    run_dir.mkdir(parents=True)
+    result = {
+        "backend": "autocad_dotnet",
+        "status": "failed",
+        "stage": "build",
+        "error_code": "AUTOCAD_DOTNET_BUILD_FAILED",
+        "generatedAt": "2026-08-02T00:00:00+00:00",
+        "artifacts": [],
+    }
+
+    persisted = _MODULE._persist_result(result, run_dir)
+
+    final_report = run_dir / "final-report.json"
+    history = __import__("json").loads((tmp_path / "output" / "autocad-dotnet" / "runtime-history.json").read_text(encoding="utf-8"))
+    assert final_report.is_file()
+    assert persisted["artifacts"] == [str(final_report)]
+    assert history["runs"][0]["status"] == "failed"
+    assert history["runs"][0]["error_code"] == "AUTOCAD_DOTNET_BUILD_FAILED"

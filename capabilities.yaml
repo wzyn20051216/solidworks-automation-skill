@@ -59,10 +59,10 @@
       "id": "pack_and_go",
       "label": "SolidWorks 原生 Pack and Go",
       "level": "pilot",
-      "backends": ["solidworks-com", "local-filesystem"],
+      "backends": ["solidworks-com", "solidworks-native+staged_dependencies", "local-filesystem"],
       "verified_versions": ["2024"],
       "dependencies": ["SolidWorks", "pywin32", "comtypes"],
-      "limitations": ["默认拒绝非空目标目录；本机 SW2024 原生 Pack and Go 可能只输出顶层装配体，封装会以 missing_dependencies 标记失败；外部引用和 Toolbox 组件必须人工抽查"],
+      "limitations": ["原生 IPackAndGo 在部分 SW2024 装配体上可能只枚举顶层文件；默认会生成基于 GetDependencies2 的 pilot 暂存包，严格原生调用可设置 fallback_policy=blocked；外部引用、Toolbox、配置和工程图必须人工抽查"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {
@@ -84,6 +84,16 @@
       "dependencies": ["SolidWorks Motion Study 加载项"],
       "limitations": ["当前只验证旋转马达和结果审计，不承诺接触、阻尼、受力和完整 FEA"],
       "allowed_modes": ["reviewed"]
+    },
+    {
+      "id": "drawing_dimension_insertion",
+      "label": "SolidWorks 工程图模型尺寸自动插入",
+      "level": "verified",
+      "backends": ["solidworks-com"],
+      "verified_versions": ["2024"],
+      "dependencies": ["SolidWorks", "pywin32"],
+      "limitations": ["仅导入模型中已存在且标记为工程图的 DisplayDimension；模型缺少尺寸时先自动标注草图或补齐参数尺寸；仍需人工检查位置、重叠和尺寸链完整性"],
+      "allowed_modes": ["interactive", "reviewed"]
     },
     {
       "id": "drawings_and_bom",
@@ -246,11 +256,11 @@
     {
       "id": "autocad_dotnet_backend",
       "label": "AutoCAD .NET Managed API 桥接",
-      "level": "pilot",
+      "level": "verified",
       "backends": ["autocad-dotnet"],
       "verified_versions": ["2024"],
       "dependencies": [".NET SDK 8", ".NET Framework 4.8 引用程序集", "AutoCAD 2024 Managed API DLL"],
-      "limitations": ["仅验证 CADSTUDIOPROBE/CADSTUDIOCREATE 白名单命令、真实 DWG 保存重开、PDF/PNG 和实体/图层/尺寸复核", "不暴露任意 AutoLISP、SCR 或 .NET 代码执行；桌面部署仍需受信任路径或签名插件包", "AutoCAD 2025–2026 尚未完成该 .NET 插件真机回归"],
+      "limitations": ["已在 AutoCAD 2024 连续通过至少三次 CADSTUDIOPROBE/CADSTUDIOCREATE 白名单命令、真实 DWG 保存重开、PDF/PNG 和实体/图层/尺寸回归；运行时仍会逐次复验证据并在损坏时降级", "不暴露任意 AutoLISP、SCR 或 .NET 代码执行；桌面部署仍需受信任路径或签名插件包", "AutoCAD 2025–2026 尚未完成该 .NET 插件真机回归"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {

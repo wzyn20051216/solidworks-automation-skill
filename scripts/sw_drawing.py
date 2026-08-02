@@ -3,10 +3,10 @@ SolidWorks 工程图操作工具
 """
 try:
     from .sw_preflight import import_com_dependencies
-    from .sw_connect import get_com_member
+    from .sw_connect import create_empty_dispatch_variant, get_com_member
 except ImportError:
     from sw_preflight import import_com_dependencies
-    from sw_connect import get_com_member
+    from sw_connect import create_empty_dispatch_variant, get_com_member
 
 pythoncom, _win32com, VARIANT = import_com_dependencies()
 
@@ -79,21 +79,67 @@ def insert_dimensions(drawing_model, view=None):
     参数:
         view: 目标视图对象，None 则标注所有视图
     """
-    # SolidWorks 2024 的动态 COM 代理把该方法暴露在 IModelDoc2；
-    # 部分已生成的强类型代理则仍通过 IModelDocExtension 暴露，两个入口都兼容。
-    args = (
-        0,   # swImportModelItemsFromEntireModel
-        32,  # swInsertDimensionsMarkedForDrawing
-        True, True, False, False,
+    # SolidWorks 2024 新增 InsertModelAnnotations4，返回实际插入的 IAnnotation
+    # 数组；旧版/动态代理仍可能只有 InsertModelAnnotations3。优先使用 4，
+    # 再回退到 3，避免把“方法返回 True”误当成已经插入尺寸。
+    # SW2024 swInsertAnnotation_e：32768=标记为工程图的模型尺寸。
+    # 8 是通用尺寸类型、524288 是未标记尺寸；本机 SW2024 对二者组合静默
+    # 返回 None，而 32768 会返回真实 IAnnotation 数组。
+    args4 = (
+        0,          # swImportModelItemsFromEntireModel
+        32768,      # swInsertDimensionsMarkedForDrawing
+        True, False, False, False,
+        False, False,
     )
-    for owner in (drawing_model, getattr(drawing_model, "Extension", None)):
+    args3 = args4[:6]
+    # 官方 API 示例要求先激活一个工程图视图；未激活时 SW2024 会静默返回空结果。
+    try:
+        sheet = _safe_member(drawing_model, "GetCurrentSheet")
+        views = _as_sequence(_safe_member(sheet, "GetViews", default=[]))
+        if views:
+            # 三视图第一个通常是前视图；通过对象 Name 读取失败时使用已知顺序，
+            # 但仍要求 SelectByID2/ActivateView 真正返回成功。
+            first_view = views[0]
+            name = _safe_member(first_view, "Name", default="")
+            if name:
+                extension = getattr(drawing_model, "Extension", None)
+                if extension is not None:
+                    get_com_member(
+                        extension, "SelectByID2",
+                        name, "DRAWINGVIEW", 0, 0, 0, False, 0,
+                        create_empty_dispatch_variant(), 0,
+                    )
+                get_com_member(drawing_model, "ActivateView", name)
+    except Exception:
+        # 激活失败仍继续尝试，让结构复核决定是否有真实尺寸证据。
+        pass
+    owners = (drawing_model, getattr(drawing_model, "Extension", None))
+    for owner in owners:
         if owner is None:
             continue
         try:
-            method = getattr(owner, "InsertModelAnnotations3")
-            return method(*args)
+            method4 = getattr(owner, "InsertModelAnnotations4", None)
+            if method4 is not None:
+                inserted = get_com_member(owner, "InsertModelAnnotations4", *args4)
+                if inserted is not None:
+                    return inserted
+            method3 = getattr(owner, "InsertModelAnnotations3", None)
+            if method3 is not None:
+                return get_com_member(owner, "InsertModelAnnotations3", *args3)
         except (AttributeError, TypeError, pythoncom.com_error):
             continue
+    # 新建三视图后 SW2024 有时尚未建立可导入的视图缓存；强制重建后仅重试
+    # 一次。使用“标记为工程图”与消重语义，不会靠重复调用制造重复尺寸。
+    try:
+        get_com_member(drawing_model, "ForceRebuild3", False)
+        get_com_member(drawing_model, "GraphicsRedraw2")
+        for owner in owners:
+            if owner is not None and getattr(owner, "InsertModelAnnotations4", None) is not None:
+                inserted = get_com_member(owner, "InsertModelAnnotations4", *args4)
+                if inserted is not None:
+                    return inserted
+    except (AttributeError, TypeError, pythoncom.com_error):
+        pass
     # 调用方可以继续做结构复核，但必须把缺少真实尺寸证据显示为 warning。
     return False
 
@@ -186,7 +232,13 @@ def inspect_drawing_structure(drawing_model) -> dict:
                 "type": _safe_member(view, "Type", default=None),
                 "scale": _safe_member(view, "ScaleRatio", default=None),
             })
-            for dimension in _as_sequence(_safe_member(view, "GetDisplayDimensions", default=[])):
+            view_dimensions = _as_sequence(_safe_member(view, "GetDisplayDimensions", default=[]))
+            if not view_dimensions:
+                current = _safe_member(view, "GetFirstDisplayDimension5") or _safe_member(view, "GetFirstDisplayDimension")
+                while current is not None:
+                    view_dimensions.append(current)
+                    current = _safe_member(view, "GetNextDisplayDimension", current)
+            for dimension in view_dimensions:
                 dimensions.append({
                     "sheet": str(sheet_name),
                     "view": _safe_member(view, "Name", default=""),
