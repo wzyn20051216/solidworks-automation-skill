@@ -84,7 +84,18 @@ OCCT 当前覆盖盒体、圆柱、布尔合并和圆柱孔切除，回读实体
 python scripts/cad_studio.py doctor
 ```
 
-能力限制以仓库根目录 `capabilities.yaml` 为准。配置/设计表、钣金、焊件、Simulation/FEA 和 Routing 当前不会被标记为已交付；任务会进入“已阻断”并给出原因，除非明确选择人工复核模式。
+能力限制以仓库根目录 `capabilities.yaml` 为准。配置/设计表、钣金和焊件当前不会被标记为已交付；Simulation/FEA、Routing、复杂曲面和模具只进入受控 `pilot` 门禁，能生成前置/检查证据，但不能冒充原生完整交付。
+
+当前 CLI 也可独立运行这些受控门禁：
+
+```powershell
+python scripts\cad_studio.py check-dfm --input .\part.cadstudio.json --output .\output\dfm.json --profile .\supplier-profile.json
+python scripts\cad_studio.py routing-preflight
+python scripts\cad_studio.py check-routing --input .\route.json --output .\output\routing_report.json
+python scripts\cad_studio.py fea-preflight --solver auto
+python scripts\cad_studio.py prepare-fea --input .\fea.json --out-dir .\output\fea
+python scripts\cad_studio.py review-advanced-geometry --input .\surface-plan.json --output .\output\surface_report.json
+```
 
 工程图和 BOM 任务会额外返回视图、真实尺寸、BOM 行、模型/工程图关系和复核发现。SW2024 与 SW2026 SP01.1 中“模型尺寸自动插入并回读真实尺寸实体”已作为独立能力验证；SW2026 回归连续三次读取到 3 个真实视图和 6 个真实尺寸实体。完整工程图仍为 `pilot`，文件存在不等于交付完成，图幅、视图布局、尺寸链、孔表、标题栏和 BOM 仍需人工复核。
 

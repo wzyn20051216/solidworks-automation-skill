@@ -112,7 +112,10 @@ session.export(model, r"C:\temp\cylinder.step")
 | OBJ/STL 高还原网格参考导入 | `scripts/sw_import_mesh_reference.py` | `references/mesh-reference-import.md` |
 | 结果自审查 | `scripts/sw_review.py` | `references/review.md` |
 | 语义实体引用 | `scripts/sw_entity_reference.py` | 逐步替代 Face1/Edge1 和屏幕坐标 |
-| DFM 制造风险复核 | `scripts/dfm_review.py`、`scripts/cad_studio.py check-dfm` | 机加工、钣金、激光切割和 3D 打印的结构化规则检查 |
+| DFM 制造风险复核 | `scripts/dfm_review.py`、`scripts/dfm_profiles.py`、`scripts/cad_studio.py check-dfm` | 供应商 profile、B-Rep 证据、机加工、钣金、激光切割和 3D 打印的结构化规则检查 |
+| Routing 中性复核与前置 | `scripts/routing_review.py`、`scripts/cad_studio.py check-routing`、`scripts/cad_studio.py routing-preflight` | 端点、分段、长度、弯曲半径、碰撞/间隙、支撑、Routing BOM；原生写入必须等加载项/许可证证据 |
+| FEA 前置与输入生成 | `scripts/fea_analysis.py`、`scripts/cad_studio.py fea-preflight`、`scripts/cad_studio.py prepare-fea` | FEA 1.0 Schema、开放求解器发现、CalculiX 白名单输入；不等于安全认证 |
+| 复杂曲面与模具计划门禁 | `scripts/advanced_geometry.py`、`scripts/cad_studio.py review-advanced-geometry` | loft/sweep/knit/thicken、G0/G1/G2、拔模、分型和型芯型腔引用校验；不生成生产 B-Rep |
 | 本地 MCP Server | `mcp-server/server.py` | `mcp-server/README.md`、`references/mcp-server.md` |
 | MCP 协议验证 | `scripts/validate_mcp.py` | `mcp-server/README.md` |
 | 未封装 API 查证 | - | `references/api-lookup.md` |
@@ -146,7 +149,7 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 1. 先根据 `preferredBackend`、`requiredOutputs`、`nativeFormatRequired` 和 `fallbackPolicy` 判定后端；不要先假定必须有 SolidWorks。
 2. 需要原生 SolidWorks 格式时运行 `sw_preflight.py`；缺依赖则请求用户授权自动安装，缺 SolidWorks 则只阻断原生阶段。
 3. 不需要原生格式或允许开放格式回退时，运行 `python scripts/cad_studio.py write-open-format --input model.cadstudio.json --out-dir output`。
-4. 需要制造性快速复核时，运行 `python scripts/cad_studio.py check-dfm --input model.cadstudio.json --output output/dfm_report.json --process machining`；支持 `machining`、`sheet_metal`、`laser_cutting` 和 `3d_printing`。报告缺少材料、壁厚、K 因子、割缝或成型空间等关键输入时返回 `blocked`，规则通过也必须人工复核。
+4. 需要制造性快速复核时，运行 `python scripts/cad_studio.py check-dfm --input model.cadstudio.json --output output/dfm_report.json --process machining`；支持 `--profile supplier.json` 和 `--brep-evidence brep.json`。报告缺少材料、壁厚、K 因子、割缝、成型空间或要求的 B-Rep 证据时返回 `blocked`，规则通过也必须人工复核。
 5. 原生 SolidWorks 路线优先用 `SolidWorksSession()` 管理连接、打开、新建、保存、导出；需要底层控制时再组合 `sw_connect.py`、`sw_part.py` 等函数。
 6. 当用户需求偏自然语言、参数不完整或需要“行业知识库 + 提示词模板 + 参数化设计计划”时，先读取 `subskills/solidworks-vibecad/SKILL.md`，生成 `design_plan.json` 和执行摘要。
 7. 圆角/倒角很多的 CNC 件、安装座、连接块、支架，先读取 `subskills/solidworks-fillet-chamfer-cnc/SKILL.md`，按“基础体 -> 外轮廓圆角/倒角 -> 孔槽切除 -> 孔口倒角 -> 审查”的稳定顺序执行。
@@ -157,7 +160,7 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 12. 如果必须由大模型生成 VBA 宏，先使用 `sw_macro_guard.py` 做模型分流、代码校验、重试和本地模板兜底。
 13. 使用 `session.export()` 或 `sw_export.py` 保存/导出文件。
 14. 使用 `sw_review.py` 导出预览图并自审查；如果有 GUI/桌面截图能力，打开 SolidWorks 视图截图复核。
-15. 遇到钣金、焊件、复杂曲面、模具、Routing、Simulation/FEA、复杂 Motion 或配置族任务，先运行 `sw_capability_probe.py` 并读取 `references/complex-mechanical-routing.md`；以 `capabilities.yaml` 的等级和允许模式做门禁，`reference_only/not_implemented` 能力不能假装已自动化完成。
+15. 遇到钣金、焊件、复杂曲面、模具、Routing、Simulation/FEA、复杂 Motion 或配置族任务，先运行 `sw_capability_probe.py` 并读取 `references/complex-mechanical-routing.md`；Routing 先跑 `cad_studio.py routing-preflight` 或 `check-routing`，FEA 先跑 `fea-preflight` 或 `prepare-fea`，复杂曲面/模具先跑 `review-advanced-geometry`。以 `capabilities.yaml` 的等级和允许模式做门禁，`reference_only/not_implemented` 能力不能假装已自动化完成。
 16. 需要企业/项目机械知识时读取 `references/enterprise-agent-rag.md`；默认只用本地知识，云 RAG 必须显式启用、声明 `external_network` 并完成人工审批。
 17. 当一个需求同时跨越零件、孔槽/圆角、装配 Mate、Motion、工程图/BOM 和多格式交付中的两个以上工程域时，调用 `apps/desktop/cad_workbench/engineering_orchestrator.py` 生成阶段 DAG。必须按依赖串行执行关键 CAD 写操作，每阶段独立保存产物和验收证据；局部修改只重规划受影响阶段及其后继，禁止把整项工程塞进一条超长 Prompt 后一次性宣称完成。
 
@@ -201,7 +204,7 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 1. 读取 `mcp-server/README.md`。
 2. 若用户要求自动配置 MCP，优先运行多客户端注册器：`powershell -ExecutionPolicy Bypass -File mcp-server/register_all_ai_mcp.ps1 -InstallDependencies`；它会尝试注册 Codex、Claude Code、Claude Desktop、Cursor、Windsurf。
 3. 使用本地 `stdio` MCP server：`python mcp-server/server.py`。
-4. 无 CAD 开放格式写入优先调用 `cadstudio_write_open_format`；SolidWorks 原生操作再调用 `solidworks_health_check`、`solidworks_create_basic_part`、`solidworks_create_hole_feature`、`solidworks_inspect_hole_features`、`solidworks_add_component`、`solidworks_add_coincident_mate`、`solidworks_add_distance_mate`、`solidworks_add_concentric_mate`、`solidworks_set_component_fixed`、`solidworks_update_dimension`、`solidworks_set_custom_properties`、`solidworks_batch_export_files`、`solidworks_export_assembly_bom`、`solidworks_pack_and_go`、`solidworks_export_active`、`solidworks_review_active`、`solidworks_add_rotary_motor`、`solidworks_inspect_motion_studies`、`solidworks_validate_motion_study`。
+4. 无 CAD 开放格式写入优先调用 `cadstudio_write_open_format`；DFM、Routing、FEA 和复杂几何门禁分别调用 `cadstudio_check_dfm`、`cadstudio_check_routing`、`cadstudio_routing_preflight`、`cadstudio_fea_preflight`、`cadstudio_prepare_fea`、`cadstudio_review_advanced_geometry`；SolidWorks 原生操作再调用 `solidworks_health_check`、`solidworks_create_basic_part`、`solidworks_create_hole_feature`、`solidworks_inspect_hole_features`、`solidworks_add_component`、`solidworks_add_coincident_mate`、`solidworks_add_distance_mate`、`solidworks_add_concentric_mate`、`solidworks_set_component_fixed`、`solidworks_update_dimension`、`solidworks_set_custom_properties`、`solidworks_batch_export_files`、`solidworks_export_assembly_bom`、`solidworks_pack_and_go`、`solidworks_export_active`、`solidworks_review_active`、`solidworks_add_rotary_motor`、`solidworks_inspect_motion_studies`、`solidworks_validate_motion_study`。
 5. 不要暴露任意 Python/VBA 执行工具；新增 MCP 工具时应复用 `scripts/sw_*.py` 中已验证封装。
 6. SolidWorks COM 操作必须串行执行；MCP server 内部已使用全局锁降低桌面会话冲突。
 7. 基准 demo 使用 `examples/08_mini_fan_motion_assembly.py`；它验证自动建模、装配、Mate 和 Motion Study，不承诺圆角/倒角外观完美。

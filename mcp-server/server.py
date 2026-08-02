@@ -26,10 +26,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 SERVER_DIR = Path(__file__).resolve().parent
 REPO_DIR = SERVER_DIR.parent
 SCRIPTS_DIR = REPO_DIR / "scripts"
+if str(REPO_DIR) not in sys.path:
+    sys.path.insert(0, str(REPO_DIR))
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-from sw_preflight import missing_com_dependencies, solidworks_installed  # noqa: E402
+from scripts.sw_preflight import missing_com_dependencies, solidworks_installed  # noqa: E402
 
 
 pythoncom = None
@@ -42,16 +44,16 @@ def _load_automation_modules() -> None:
     if _automation_loaded:
         return
 
-    connect = importlib.import_module("sw_connect")
-    part = importlib.import_module("sw_part")
-    appearance = importlib.import_module("sw_appearance")
-    export = importlib.import_module("sw_export")
-    review = importlib.import_module("sw_review")
-    assembly = importlib.import_module("sw_assembly")
-    motion = importlib.import_module("sw_motion")
-    holes = importlib.import_module("sw_hole_features")
-    document_data = importlib.import_module("sw_document_data")
-    delivery = importlib.import_module("sw_delivery")
+    connect = importlib.import_module("scripts.sw_connect")
+    part = importlib.import_module("scripts.sw_part")
+    appearance = importlib.import_module("scripts.sw_appearance")
+    export = importlib.import_module("scripts.sw_export")
+    review = importlib.import_module("scripts.sw_review")
+    assembly = importlib.import_module("scripts.sw_assembly")
+    motion = importlib.import_module("scripts.sw_motion")
+    holes = importlib.import_module("scripts.sw_hole_features")
+    document_data = importlib.import_module("scripts.sw_document_data")
+    delivery = importlib.import_module("scripts.sw_delivery")
 
     exports = {
         "connect_solidworks": connect.connect_solidworks,
@@ -149,6 +151,7 @@ class ExportFormat(str, Enum):
 
 HEADLESS_OPEN_FORMATS = {"cadstudio", "step", "iges", "brep", "stl", "obj", "glb", "dxf", "svg", "pdf", "png"}
 DFM_PROCESSES = {"auto", "machining", "sheet_metal", "laser_cutting", "3d_printing", "CNC", "FDM", "SLA"}
+FEA_SOLVERS = {"auto", "calculix", "elmer"}
 
 
 class BasicPartShape(str, Enum):
@@ -247,6 +250,8 @@ class CadStudioDfmReviewInput(BaseInput):
     input_path: str = Field(..., min_length=1, description="Absolute .cadstudio.json NeutralCadDocument path.")
     output_path: str = Field(..., min_length=1, description="Absolute JSON report path; existing files are versioned instead of overwritten.")
     process: str = Field(default="auto", description="auto, machining, sheet_metal, laser_cutting, 3d_printing, CNC, FDM, or SLA.")
+    profile_paths: list[str] = Field(default_factory=list, max_length=8, description="Optional DFM profile JSON paths; merged as supplier capability intersection.")
+    brep_evidence_path: Optional[str] = Field(default=None, description="Optional SolidWorks/OCCT B-Rep evidence JSON path.")
     response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
 
     @field_validator("input_path")
@@ -270,6 +275,114 @@ class CadStudioDfmReviewInput(BaseInput):
     def process_must_be_whitelisted(cls, value: str) -> str:
         if value not in DFM_PROCESSES:
             raise ValueError("Unsupported DFM process: " + value)
+        return value
+
+    @field_validator("profile_paths")
+    @classmethod
+    def profile_paths_must_exist(cls, values: list[str]) -> list[str]:
+        missing = [value for value in values if not Path(os.path.expandvars(value)).expanduser().is_file()]
+        if missing:
+            raise ValueError("DFM profile files do not exist: " + ", ".join(missing[:5]))
+        return values
+
+    @field_validator("brep_evidence_path")
+    @classmethod
+    def brep_evidence_must_exist(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        path = Path(os.path.expandvars(value)).expanduser()
+        if path.suffix.lower() != ".json" or not path.is_file():
+            raise ValueError(f"B-Rep evidence must be an existing JSON file: {value}")
+        return value
+
+
+class CadStudioRoutingReviewInput(BaseInput):
+    """Input for neutral Routing review."""
+
+    input_path: str = Field(..., min_length=1, description="Absolute Routing JSON path.")
+    output_path: str = Field(..., min_length=1, description="Absolute JSON report path; existing files are versioned instead of overwritten.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+    @field_validator("input_path")
+    @classmethod
+    def input_path_must_exist(cls, value: str) -> str:
+        path = Path(os.path.expandvars(value)).expanduser()
+        if path.suffix.lower() != ".json" or not path.is_file():
+            raise ValueError(f"Routing input must be an existing JSON file: {value}")
+        return value
+
+    @field_validator("output_path")
+    @classmethod
+    def output_path_must_be_json(cls, value: str) -> str:
+        if Path(os.path.expandvars(value)).expanduser().suffix.lower() != ".json":
+            raise ValueError(f"Output must be a JSON report path: {value}")
+        return value
+
+
+class CadStudioRoutingPreflightInput(BaseInput):
+    """Input for SolidWorks Routing preflight."""
+
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+
+class CadStudioFeaPreflightInput(BaseInput):
+    """Input for open solver FEA preflight."""
+
+    solver: str = Field(default="auto", description="auto, calculix, or elmer.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+    @field_validator("solver")
+    @classmethod
+    def solver_must_be_whitelisted(cls, value: str) -> str:
+        if value not in FEA_SOLVERS:
+            raise ValueError("Unsupported FEA solver: " + value)
+        return value
+
+
+class CadStudioFeaPrepareInput(BaseInput):
+    """Input for preparing a whitelisted CalculiX FEA deck."""
+
+    input_path: str = Field(..., min_length=1, description="Absolute FEA 1.0 request JSON path.")
+    output_dir: str = Field(..., min_length=1, description="Output directory for versioned CalculiX .inp artifacts.")
+    solver: str = Field(default="auto", description="auto, calculix, or elmer.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+    @field_validator("input_path")
+    @classmethod
+    def input_path_must_exist(cls, value: str) -> str:
+        path = Path(os.path.expandvars(value)).expanduser()
+        if path.suffix.lower() != ".json" or not path.is_file():
+            raise ValueError(f"FEA input must be an existing JSON file: {value}")
+        return value
+
+    @field_validator("solver")
+    @classmethod
+    def solver_must_be_whitelisted(cls, value: str) -> str:
+        if value not in FEA_SOLVERS:
+            raise ValueError("Unsupported FEA solver: " + value)
+        return value
+
+
+class CadStudioAdvancedGeometryInput(BaseInput):
+    """Input for advanced surface/mold plan preflight."""
+
+    input_path: str = Field(..., min_length=1, description="Absolute advanced geometry plan JSON path.")
+    output_path: str = Field(..., min_length=1, description="Absolute JSON report path; existing files are versioned instead of overwritten.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+    @field_validator("input_path")
+    @classmethod
+    def input_path_must_exist(cls, value: str) -> str:
+        path = Path(os.path.expandvars(value)).expanduser()
+        if path.suffix.lower() != ".json" or not path.is_file():
+            raise ValueError(f"Advanced geometry input must be an existing JSON file: {value}")
+        return value
+
+    @field_validator("output_path")
+    @classmethod
+    def output_path_must_be_json(cls, value: str) -> str:
+        if Path(os.path.expandvars(value)).expanduser().suffix.lower() != ".json":
+            raise ValueError(f"Output must be a JSON report path: {value}")
         return value
 
 class SolidWorksHealthCheckInput(BaseInput):
@@ -727,7 +840,7 @@ def cadstudio_write_open_format(params: CadStudioOpenFormatInput) -> str:
     """Write STEP/IGES/BREP/STL/OBJ/GLB/DXF/SVG/PDF/PNG without SolidWorks or AutoCAD."""
 
     def op():
-        from headless_cad_writer import export_headless
+        from scripts.headless_cad_writer import export_headless
 
         input_path = Path(os.path.expandvars(params.input_path)).expanduser().resolve()
         output_dir = Path(os.path.expandvars(params.output_dir)).expanduser().resolve()
@@ -750,7 +863,7 @@ def cadstudio_build_dxf_preview_scene(params: CadStudioDxfPreviewInput) -> str:
     """Convert an existing DXF into a whitelisted PreviewScene JSON without running scripts."""
 
     def op():
-        from dxf_preview_scene import dxf_to_preview_scene
+        from scripts.dxf_preview_scene import dxf_to_preview_scene
 
         source = Path(os.path.expandvars(params.source_path)).expanduser().resolve()
         output = Path(os.path.expandvars(params.output_path)).expanduser().resolve()
@@ -782,11 +895,140 @@ def cadstudio_check_dfm(params: CadStudioDfmReviewInput) -> str:
     """Run whitelisted DFM checks for machining, sheet metal, laser cutting, or 3D printing."""
 
     def op():
-        from dfm_review import write_dfm_report
+        from scripts.dfm_review import write_dfm_report
 
         input_path = Path(os.path.expandvars(params.input_path)).expanduser().resolve()
         output_path = Path(os.path.expandvars(params.output_path)).expanduser().resolve()
-        return write_dfm_report(input_path, output_path, process=params.process)
+        profile_paths = [Path(os.path.expandvars(value)).expanduser().resolve() for value in params.profile_paths]
+        brep_evidence = Path(os.path.expandvars(params.brep_evidence_path)).expanduser().resolve() if params.brep_evidence_path else None
+        return write_dfm_report(input_path, output_path, process=params.process, profiles=profile_paths, brep_evidence=brep_evidence)
+
+    return _run_locked(op, params.response_format, load_automation=False)
+
+
+@mcp.tool(
+    name="cadstudio_check_routing",
+    title="Review Neutral Routing",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+def cadstudio_check_routing(params: CadStudioRoutingReviewInput) -> str:
+    """Review neutral routing topology, bend radius, clearance, supports, and BOM evidence."""
+
+    def op():
+        from scripts.routing_review import review_routing_file
+
+        input_path = Path(os.path.expandvars(params.input_path)).expanduser().resolve()
+        output_path = Path(os.path.expandvars(params.output_path)).expanduser().resolve()
+        return review_routing_file(input_path, output_path)
+
+    return _run_locked(op, params.response_format, load_automation=False)
+
+
+@mcp.tool(
+    name="cadstudio_routing_preflight",
+    title="Probe SolidWorks Routing Backend",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+def cadstudio_routing_preflight(params: CadStudioRoutingPreflightInput = CadStudioRoutingPreflightInput()) -> str:
+    """Probe SolidWorks Routing type library, add-in registration, and license evidence."""
+
+    def op():
+        from scripts.routing_review import probe_solidworks_routing
+
+        return probe_solidworks_routing()
+
+    return _run_locked(op, params.response_format, load_automation=False)
+
+
+@mcp.tool(
+    name="cadstudio_fea_preflight",
+    title="Probe Open FEA Solver",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+def cadstudio_fea_preflight(params: CadStudioFeaPreflightInput = CadStudioFeaPreflightInput()) -> str:
+    """Discover approved CalculiX or Elmer solver executables without running arbitrary commands."""
+
+    def op():
+        from scripts.fea_analysis import discover_solver
+
+        return discover_solver(params.solver)
+
+    return _run_locked(op, params.response_format, load_automation=False)
+
+
+@mcp.tool(
+    name="cadstudio_prepare_fea",
+    title="Prepare Whitelisted FEA Input",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+def cadstudio_prepare_fea(params: CadStudioFeaPrepareInput) -> str:
+    """Generate a versioned CalculiX .inp file from a structured FEA 1.0 request."""
+
+    def op():
+        from scripts.fea_analysis import build_calculix_input, validate_analysis
+
+        input_path = Path(os.path.expandvars(params.input_path)).expanduser().resolve()
+        output_dir = Path(os.path.expandvars(params.output_dir)).expanduser().resolve()
+        request = validate_analysis(input_path)
+        if params.solver != "auto":
+            request["solver"] = params.solver
+        if request["solver"] == "elmer":
+            return {
+                "schemaVersion": "1.0",
+                "status": "blocked",
+                "stage": "generate_input",
+                "checks": [],
+                "artifacts": [],
+                "manual_review_required": True,
+                "retryable": False,
+                "error_code": "fea_elmer_adapter_not_implemented",
+                "message": "Elmer 安全输入适配器尚未实现；当前 prepare_fea 只生成 CalculiX .inp。",
+            }
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return build_calculix_input(request, output_dir / f"{request['analysisId']}.inp")
+
+    return _run_locked(op, params.response_format, load_automation=False)
+
+
+@mcp.tool(
+    name="cadstudio_review_advanced_geometry",
+    title="Review Advanced Geometry Plan",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+def cadstudio_review_advanced_geometry(params: CadStudioAdvancedGeometryInput) -> str:
+    """Validate advanced surface/mold plans and return pilot/blocked preflight evidence."""
+
+    def op():
+        from scripts.advanced_geometry import write_preflight_report
+
+        input_path = Path(os.path.expandvars(params.input_path)).expanduser().resolve()
+        output_path = Path(os.path.expandvars(params.output_path)).expanduser().resolve()
+        return write_preflight_report(input_path, output_path)
 
     return _run_locked(op, params.response_format, load_automation=False)
 

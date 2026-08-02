@@ -101,7 +101,12 @@ claude mcp add --scope user solidworks -- python C:\path\to\solidworks-automatio
 |---|---|---|
 | `cadstudio_write_open_format` | 从本地 `.cadstudio.json` 白名单写出 STEP/IGES/BREP/STL/OBJ/GLB/DXF/SVG/PDF/PNG、Preview Manifest/Scene 和几何/哈希证据 | 否 |
 | `cadstudio_build_dxf_preview_scene` | 只读 DXF 白名单转换为不覆盖旧文件的 `.scene.json` | 否 |
-| `cadstudio_check_dfm` | 对 NeutralCadDocument 执行机加工、钣金、激光切割或 3D 打印 DFM 规则检查；缺关键输入返回 blocked，规则通过仍需人工复核 | 否 |
+| `cadstudio_check_dfm` | 对 NeutralCadDocument 执行机加工、钣金、激光切割或 3D 打印 DFM 规则检查，支持 supplier profile 与 B-Rep 证据；缺关键输入返回 blocked，规则通过仍需人工复核 | 否 |
+| `cadstudio_check_routing` | 校验中性 Routing 端点、分段、长度、弯曲半径、碰撞/间隙、支撑和 Routing BOM | 否 |
+| `cadstudio_routing_preflight` | 探测 SOLIDWORKS Routing 类型库、加载项注册和许可证证据；缺证据返回 blocked | 否 |
+| `cadstudio_fea_preflight` | 探测 CalculiX/Elmer 求解器，不执行任意命令 | 否 |
+| `cadstudio_prepare_fea` | 从 FEA 1.0 请求生成版本化 CalculiX `.inp`，不运行任意脚本 | 否 |
+| `cadstudio_review_advanced_geometry` | 校验复杂曲面/模具中性计划并返回 pilot/blocked 门禁证据 | 否 |
 | `solidworks_health_check` | 检查 Python 依赖、SolidWorks 检测、Motion 类型库和可选实时连接 | 否 |
 | `solidworks_connect` | 连接/启动 SolidWorks 并返回活动文档摘要 | 否 |
 | `solidworks_new_document` | 新建零件/装配体/工程图 | 是 |
@@ -233,12 +238,12 @@ claude mcp add --scope user solidworks -- python C:\path\to\solidworks-automatio
 ## 设计原则
 
 - 不开放任意 Python/VBA 执行工具，避免 MCP 客户端直接执行不受控脚本。
-- 所有工具名使用 `solidworks_` 前缀，避免与其他 MCP server 冲突。
+- CAD Studio 无头/门禁工具使用 `cadstudio_` 前缀，SolidWorks 原生工具使用 `solidworks_` 前缀，避免与其他 MCP server 冲突。
 - 所有 COM 操作串行执行，降低 SolidWorks 桌面会话崩溃概率。
 - 错误返回包含建议动作，方便 LLM 自行纠错。
 
 ## 已知限制
 
-- MCP 已覆盖基础盒体/圆柱、复杂孔槽、添加组件、常用 Mate、固定/浮动、外观、导出、审查、旋转马达和 Motion 结果门禁。
-- 放样、扫描、自由曲面和通用圆角/倒角仍建议通过 Python 脚本分步实现并审查。
+- MCP 已覆盖基础盒体/圆柱、复杂孔槽、添加组件、常用 Mate、固定/浮动、外观、导出、审查、旋转马达、Motion 结果门禁，以及 DFM/Routing/FEA/复杂几何的无头门禁。
+- 放样、扫描、自由曲面和模具当前只开放结构化计划门禁，不生成生产 B-Rep。
 - SolidWorks Motion / Simulation 许可证差异可能影响 Motion Study 的计算能力。

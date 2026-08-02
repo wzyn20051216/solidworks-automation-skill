@@ -6,7 +6,7 @@
 
 CAD Studio 桌面端与 Skill/CLI/MCP 是平级入口：既可通过 Python COM 控制本机 SolidWorks/AutoCAD，也可在没有 CAD 软件时使用无头后端写入开放格式。实际可执行范围以根目录 `capabilities.yaml` 为唯一真源；未验证能力不会被包装成已完成的无人值守交付。
 
-> 可靠性边界：当前真机基线为 SolidWorks 2024、SolidWorks 2026 SP01.1 和 AutoCAD 2024。SolidWorks 2026 仅对能力清单中列出 2026 的能力视为已验证；SolidWorks 2025 及其余未回归能力仍是兼容性目标。配置/设计表、钣金、焊件、Simulation/FEA 和 Routing 当前为 `reference_only` 或 `not_implemented`。
+> 可靠性边界：当前真机基线为 SolidWorks 2024、SolidWorks 2026 SP01.1 和 AutoCAD 2024。SolidWorks 2026 仅对能力清单中列出 2026 的能力视为已验证；SolidWorks 2025 及其余未回归能力仍是兼容性目标。配置/设计表、钣金和焊件仍为参考或兼容目标；Simulation/FEA、Routing、复杂曲面和模具已进入受控 `pilot` 门禁，但不能冒充原生完整交付。
 
 ### 运行前诊断
 
@@ -27,6 +27,11 @@ python scripts/cad_studio.py retry <job-id>
 python scripts/cad_studio.py cancel <job-id>
 python scripts/cad_studio.py write-open-format --input .\part.cadstudio.json --out-dir .\output
 python scripts/cad_studio.py preview-dxf --input .\drawing.dxf --output .\output\drawing.scene.json
+python scripts/cad_studio.py check-dfm --input .\part.cadstudio.json --output .\output\dfm.json --profile .\supplier-profile.json
+python scripts/cad_studio.py check-routing --input .\route.json --output .\output\routing_report.json
+python scripts/cad_studio.py fea-preflight --solver auto
+python scripts/cad_studio.py prepare-fea --input .\fea.json --out-dir .\output\fea
+python scripts/cad_studio.py review-advanced-geometry --input .\surface-plan.json --output .\output\surface_report.json
 ```
 
 <p align="center">
@@ -61,9 +66,11 @@ python scripts/cad_studio.py preview-dxf --input .\drawing.dxf --output .\output
 - 🔌 **MCP Server** - 将 SolidWorks COM 自动化封装成 Codex / Claude / Cursor 可调用的本地 MCP 工具，覆盖基础建模、装配、Mate、外观、导出、审查和旋转马达
 - 🔨 **钣金设计（参考）** - 文档与 API 路由已整理，当前不承诺无人值守交付
 - ⚡ **焊件设计（参考）** - 结构构件与切割清单尚无稳定回归执行器
-- 📊 **FEA 仿真（参考）** - 需要 Simulation 许可证和专项执行器，当前不会冒充已实现
+- 📊 **FEA 仿真（试点）** - 校验 FEA Schema、材料/网格/载荷/约束引用，探测 CalculiX/Elmer，并生成白名单 CalculiX 输入；缺求解器或结果证据时保持 `blocked`
 - 📝 **自定义属性** - 文件属性读写可用；配置/设计表按能力清单限制使用
-- 🏭 **DFM 制造复核（试点）** - 机加工、钣金、激光切割和 3D 打印的结构化风险检查；缺关键输入会阻断，规则通过仍需人工确认
+- 🏭 **DFM 制造复核（试点）** - 机加工、钣金、激光切割和 3D 打印的结构化风险检查，支持供应商 profile 与 B-Rep 证据绑定；规则通过仍需人工确认
+- 🧭 **Routing 中性复核（试点）** - 校验端点、分段、长度、弯曲半径、碰撞/间隙、支撑间距和 Routing BOM；未发现 Routing 加载项/许可证时原生写入保持 `blocked`
+- 🧰 **复杂曲面/模具计划（试点）** - 校验 loft/sweep/knit/thicken、G0/G1/G2、拔模、分型和型芯型腔引用；不生成生产 B-Rep，不替代模具设计
 - 👀 **结果自审查** - 导出多视角预览图、`review_report.json` 与 Markdown 摘要，帮助代理复核模型是否符合意图
 - 🔎 **API 查证优先** - 未封装接口先查官方 API Help / 本地 SDK，再实现、运行、自审查并沉淀
 
@@ -293,7 +300,7 @@ claude mcp list
 }
 ```
 
-第一阶段已暴露 `solidworks_connect`、`solidworks_open_document`、`solidworks_save_document`、`solidworks_export_active`、`solidworks_review_active`、`solidworks_add_rotary_motor` 等工具。更多说明见 [mcp-server/README.md](mcp-server/README.md)。
+第一阶段已暴露 `solidworks_connect`、`solidworks_open_document`、`solidworks_save_document`、`solidworks_export_active`、`solidworks_review_active`、`solidworks_add_rotary_motor` 等工具。CAD Studio 侧还暴露 `cadstudio_write_open_format`、`cadstudio_check_dfm`、`cadstudio_check_routing`、`cadstudio_fea_preflight`、`cadstudio_prepare_fea` 和 `cadstudio_review_advanced_geometry`。更多说明见 [mcp-server/README.md](mcp-server/README.md)。
 
 当前 MCP 还包含 `solidworks_health_check`、`solidworks_create_basic_part`、`solidworks_add_component`、`solidworks_add_coincident_mate`、`solidworks_add_distance_mate`、`solidworks_add_concentric_mate`、`solidworks_set_component_fixed`、`solidworks_set_appearance` 等基础工具。复杂圆角/倒角仍建议作为后续专项优化，不作为基准 demo 的成功标准。
 
@@ -462,9 +469,9 @@ model.Extension.SelectByID2(
 - **外观材质**: 设置文档、特征、组件级颜色；复杂颜色建议拆成多零件装配体
 - **配置管理**: 创建和切换配置,修改配置参数
 - **自定义属性**: 读写零件属性,支持配置特定属性
-- **设计表**: 通过 Excel 驱动参数化设计
+- **设计表**: 通过 Excel 驱动参数化设计，仍需专项回归后才能无人值守交付
 - **钣金展开**: 导出 DXF 展开图用于激光切割
-- **仿真分析**: 创建 FEA 算例,运行分析,获取结果
+- **仿真分析**: 当前提供 FEA Schema、开放求解器前置和 CalculiX 输入生成；真实求解结果必须人工复核，不能作为安全认证
 - **CAD Agent 自审查**: 自动导出多视角预览图、生成 `review_report.json`、给出 `pass/warn/fail` 与修复建议
 - **API 查证工作流**: 对尚未封装的 SolidWorks API，先查官方 API Help / 本地 SDK，再写最小验证脚本并沉淀稳定封装
 
@@ -536,7 +543,7 @@ model.Extension.SelectByID2(
 - 🎨 **Appearance and Materials** - Document, feature, and component-level color workflows
 - 🔨 **Sheet Metal (reference only)** - No unattended feature or flat-pattern delivery is claimed
 - ⚡ **Weldments (reference only)** - No unattended structural-member or cut-list delivery is claimed
-- 📊 **FEA Simulation (reference only)** - No unattended solver or result validation is claimed
+- 📊 **FEA Simulation (pilot)** - Structured FEA schema validation, solver preflight, and whitelisted CalculiX input generation; no safety certification is claimed
 - 📝 **Custom Properties** - Read/write file properties, configuration management
 - 👀 **CAD Agent Self-Review** - Export multi-view previews, JSON reports, Markdown summaries, and `pass/warn/fail` evaluations
 - 🔎 **Verified API Workflow** - Look up official API Help or local SDK docs before using unwrapped SolidWorks APIs

@@ -136,6 +136,21 @@ def main(argv: list[str] | None = None) -> int:
     dfm.add_argument("--input", type=Path, required=True, help="NeutralCadDocument .cadstudio.json")
     dfm.add_argument("--output", type=Path, required=True, help="不覆盖旧文件的 DFM report JSON 输出")
     dfm.add_argument("--process", default="auto", help="machining/sheet_metal/laser_cutting/3d_printing；auto 时读取文档 metadata")
+    dfm.add_argument("--profile", action="append", default=[], help="可重复指定 DFM Profile JSON，按供应商能力交集合并")
+    dfm.add_argument("--brep-evidence", type=Path, help="可选 SolidWorks/OCCT B-Rep 证据 JSON")
+    routing = sub.add_parser("check-routing")
+    routing.add_argument("--input", type=Path, required=True, help="Routing 中性 JSON 输入")
+    routing.add_argument("--output", type=Path, required=True, help="不覆盖旧文件的 Routing report JSON 输出")
+    sub.add_parser("routing-preflight")
+    fea_preflight = sub.add_parser("fea-preflight")
+    fea_preflight.add_argument("--solver", choices=("auto", "calculix", "elmer"), default="auto")
+    fea_prepare = sub.add_parser("prepare-fea")
+    fea_prepare.add_argument("--input", type=Path, required=True, help="FEA 1.0 请求 JSON")
+    fea_prepare.add_argument("--out-dir", type=Path, required=True, help="CalculiX 输入文件输出目录")
+    fea_prepare.add_argument("--solver", choices=("auto", "calculix", "elmer"), default="auto")
+    advanced = sub.add_parser("review-advanced-geometry")
+    advanced.add_argument("--input", type=Path, required=True, help="复杂曲面/模具中性计划 JSON")
+    advanced.add_argument("--output", type=Path, required=True, help="不覆盖旧文件的前置报告 JSON 输出")
     args = parser.parse_args(argv)
 
     if args.command == "doctor":
@@ -197,7 +212,54 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "check-dfm":
         from dfm_review import write_dfm_report
 
-        result = write_dfm_report(args.input, args.output, process=args.process)
+        result = write_dfm_report(args.input, args.output, process=args.process, profiles=args.profile, brep_evidence=args.brep_evidence)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 1 if result.get("status") in {"blocked", "failed"} else 0
+    if args.command == "check-routing":
+        from routing_review import review_routing_file
+
+        result = review_routing_file(args.input, args.output)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 1 if result.get("status") in {"blocked", "failed"} else 0
+    if args.command == "routing-preflight":
+        from routing_review import probe_solidworks_routing
+
+        result = probe_solidworks_routing()
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 1 if result.get("status") in {"blocked", "failed"} else 0
+    if args.command == "fea-preflight":
+        from fea_analysis import discover_solver
+
+        result = discover_solver(args.solver)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 1 if result.get("status") in {"blocked", "failed"} else 0
+    if args.command == "prepare-fea":
+        from fea_analysis import build_calculix_input, validate_analysis
+
+        request = validate_analysis(args.input)
+        if args.solver != "auto":
+            request["solver"] = args.solver
+        if request["solver"] == "elmer":
+            result = {
+                "schemaVersion": "1.0",
+                "status": "blocked",
+                "stage": "generate_input",
+                "checks": [],
+                "artifacts": [],
+                "manual_review_required": True,
+                "retryable": False,
+                "error_code": "fea_elmer_adapter_not_implemented",
+                "message": "Elmer 安全输入适配器尚未实现；当前 prepare-fea 只生成 CalculiX .inp。",
+            }
+        else:
+            args.out_dir.mkdir(parents=True, exist_ok=True)
+            result = build_calculix_input(request, args.out_dir / f"{request['analysisId']}.inp")
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 1 if result.get("status") in {"blocked", "failed"} else 0
+    if args.command == "review-advanced-geometry":
+        from advanced_geometry import write_preflight_report
+
+        result = write_preflight_report(args.input, args.output)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 1 if result.get("status") in {"blocked", "failed"} else 0
     return 2

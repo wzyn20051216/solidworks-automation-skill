@@ -55,7 +55,20 @@ SolidWorks 是 Windows 桌面 COM 应用，不是原生 MCP 服务。MCP Server 
 
 ## 工具命名
 
-所有工具使用 `solidworks_` 前缀，避免和其他 MCP server 冲突：
+工具名前缀按能力边界区分：`cadstudio_` 用于无头开放格式、DFM、Routing、FEA 和复杂几何门禁；`solidworks_` 用于真实 SolidWorks COM 操作。
+
+CAD Studio 门禁工具：
+
+- `cadstudio_write_open_format`
+- `cadstudio_build_dxf_preview_scene`
+- `cadstudio_check_dfm`
+- `cadstudio_check_routing`
+- `cadstudio_routing_preflight`
+- `cadstudio_fea_preflight`
+- `cadstudio_prepare_fea`
+- `cadstudio_review_advanced_geometry`
+
+SolidWorks 原生工具：
 
 - `solidworks_connect`
 - `solidworks_new_document`
@@ -91,12 +104,13 @@ SolidWorks 是 Windows 桌面 COM 应用，不是原生 MCP 服务。MCP Server 
 3. Motion Study：旋转马达、线性马达、计算/播放。
 4. 零件建模：受控草图原语和特征原语。
 5. 工程图：三视图、BOM、PDF 导出。
+6. 无头门禁：DFM profile、Routing 中性复核、FEA 输入生成、复杂几何计划复核。
 
 暂缓扩展：
 
 - 任意草图约束求解。
-- 复杂扫描/放样。
-- 接触、摩擦、碰撞等高阶运动仿真。
+- 复杂扫描/放样的生产 B-Rep 生成。
+- 接触、摩擦、碰撞等高阶运动仿真与安全认证。
 
 ## 返回格式
 

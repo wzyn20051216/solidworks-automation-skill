@@ -58,3 +58,66 @@ def test_mcp_builds_safe_dxf_preview_scene_and_refuses_overwrite(tmp_path: Path)
     assert output.is_file()
     with pytest.raises(ValueError, match="overwrite"):
         server.CadStudioDxfPreviewInput(source_path=str(source), output_path=str(output))
+
+
+def _fea_request() -> dict:
+    """@brief 返回 MCP prepare_fea 使用的最小静力请求。"""
+    return {
+        "schemaVersion": "1.0",
+        "analysisId": "mcp_static",
+        "analysisType": "static_linear",
+        "solver": "calculix",
+        "units": {"length": "mm", "force": "N", "stress": "MPa", "temperature": "C"},
+        "material": {"name": "Al6061", "elasticModulusMPa": 68900, "poissonRatio": 0.33, "densityKgM3": 2700},
+        "mesh": {
+            "nodes": [
+                {"id": 1, "x": 0, "y": 0, "z": 0},
+                {"id": 2, "x": 10, "y": 0, "z": 0},
+                {"id": 3, "x": 0, "y": 10, "z": 0},
+                {"id": 4, "x": 0, "y": 0, "z": 10},
+            ],
+            "elements": [{"id": 1, "type": "C3D4", "nodeIds": [1, 2, 3, 4]}],
+            "nodeSets": {"FixedNodes": [1, 2, 3], "LoadNode": [4]},
+            "elementSets": {"AllElements": [1]},
+        },
+        "constraints": [{"id": "fixed_base", "type": "fixed", "nodeSet": "FixedNodes"}],
+        "loads": [{"id": "tip_force", "type": "force", "nodeSet": "LoadNode", "dof": 3, "value": -100}],
+    }
+
+
+def test_mcp_prepare_fea_writes_without_loading_solidworks_automation(tmp_path: Path):
+    """@brief FEA MCP 工具只生成白名单输入，不加载 SolidWorks COM 自动化模块。"""
+    source = tmp_path / "fea.json"
+    source.write_text(json.dumps(_fea_request()), encoding="utf-8")
+    params = server.CadStudioFeaPrepareInput(input_path=str(source), output_dir=str(tmp_path / "fea-out"))
+
+    payload = json.loads(server.cadstudio_prepare_fea(params))
+
+    assert payload["status"] == "pass"
+    assert Path(payload["artifacts"][0]["path"]).is_file()
+    assert server._automation_loaded is False
+
+
+def test_mcp_routing_review_reports_neutral_evidence(tmp_path: Path):
+    """@brief Routing MCP 工具必须输出中性证据和报告文件。"""
+    source = tmp_path / "route.json"
+    source.write_text(
+        json.dumps(
+            {
+                "routeType": "cable",
+                "minimumBendRadius": 20,
+                "maximumSupportSpacing": 80,
+                "endpoints": [{"id": "A", "position": [0, 0, 0]}, {"id": "B", "position": [30, 40, 0]}],
+                "segments": [{"id": "S1", "start": "A", "end": "B", "bendRadius": 25, "diameter": 8}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    params = server.CadStudioRoutingReviewInput(input_path=str(source), output_path=str(tmp_path / "route_report.json"))
+
+    payload = json.loads(server.cadstudio_check_routing(params))
+
+    assert payload["status"] == "review_required", payload
+    assert payload["totalLength"] == 50
+    assert Path(payload["reportPath"]).is_file()
+    assert server._automation_loaded is False

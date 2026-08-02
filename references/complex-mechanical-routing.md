@@ -14,7 +14,7 @@ python scripts\sw_capability_probe.py --output capability_report.json
 - `implementation_status`：本技能是否已有经过真实回归的封装。
 - `ready_for_unattended_use`：是否允许无人值守执行。
 
-类型库存在不等于许可证可用，也不等于自动化已验证。`reference_only` 和 `not_implemented` 禁止向用户宣称已完成。
+类型库存在不等于许可证可用，也不等于自动化已验证。`reference_only`、`not_implemented` 和缺少证据的 `pilot` 禁止向用户宣称已完成。
 
 ## 当前能力等级
 
@@ -25,8 +25,10 @@ python scripts\sw_capability_probe.py --output capability_report.json
 | Motion Study 旋转马达 | Verified | 计算后调用 `collect_motion_study_summary()` 检查结果是否过期 |
 | 工程图 | Pilot | 必须人工复核图框、视图、尺寸链和 GB/T 格式 |
 | 配置、设计表 | Reference only | 先做最小样件回归，再用于客户模型 |
-| 钣金、焊件、复杂曲面 | Reference only | 不允许仅凭 `references/advanced.md` 直接无人值守交付 |
-| 模具、Routing、Simulation/FEA | Not implemented | 先查官方 API/许可证并新增专项执行器与回归样件 |
+| 钣金、焊件 | Reference only | 不允许仅凭 `references/advanced.md` 直接无人值守交付 |
+| 复杂曲面、模具 | Pilot | 只能运行 `review-advanced-geometry` 做结构化计划门禁；当前不生成生产 B-Rep |
+| Routing | Pilot | 只能运行 `routing-preflight` 或 `check-routing`；无加载项/许可证证据时原生写入必须 blocked |
+| Simulation/FEA | Pilot | 只能运行 `fea-preflight` 或 `prepare-fea`；无求解器或结果证据时不得冒充求解完成 |
 
 ## 复杂零件
 
@@ -54,4 +56,3 @@ python scripts\sw_capability_probe.py --output capability_report.json
 4. 添加静态测试和真实 SolidWorks 回归脚本。
 5. 生成机器可读验收证据和多视图预览。
 6. 把失败模式写入 `references/troubleshooting.md` 后才能把能力标为 Pilot；连续真实回归通过后才能标为 Verified。
-

@@ -147,9 +147,9 @@
       "verified_versions": [],
       "dependencies": ["python"],
       "limitations": [
-        "仅检查结构化 NeutralCadDocument 和制造元数据，不读取 SolidWorks/AutoCAD 的完整 B-Rep、工艺库或供应商机台参数",
+        "支持供应商 DFM Profile 能力交集、单位归一和 SolidWorks/OCCT B-Rep 证据绑定；缺失或伪造关键证据会返回 blocked",
         "机器规则全部通过仍必须人工确认材料、公差、载荷、装配、刀具/模具、打印方向和供应商能力",
-        "缺少材料、壁厚、K 因子、割缝或成型空间等关键输入时返回 blocked"
+        "DFM 报告是风险复核，不是制造认证；缺少材料、壁厚、K 因子、割缝或成型空间等关键输入时返回 blocked"
       ],
       "allowed_modes": ["interactive", "reviewed"]
     },
@@ -196,32 +196,32 @@
     {
       "id": "surface_modeling",
       "label": "复杂曲面与连续性检查",
-      "level": "reference_only",
-      "backends": ["solidworks-com", "headless-occt"],
+      "level": "pilot",
+      "backends": ["local-python", "headless-occt", "solidworks-com"],
       "verified_versions": [],
-      "dependencies": ["SolidWorks 或 OCP"],
-      "limitations": ["当前没有放样、扫描、边界曲面、缝合、加厚和 G0/G1/G2 连续性的完整执行器与黄金样件"],
-      "allowed_modes": ["interactive"]
+      "dependencies": ["python", "可选 OCP", "可选 SolidWorks"],
+      "limitations": ["当前只做 loft、sweep、knit、thicken 和 G0/G1/G2 连续性的结构化计划门禁；不生成生产 B-Rep，不替代 Class-A 或曲面质量审查"],
+      "allowed_modes": ["interactive", "reviewed"]
     },
     {
       "id": "mold_tools",
       "label": "模具工具与分型检查",
-      "level": "not_implemented",
-      "backends": ["solidworks-com"],
+      "level": "pilot",
+      "backends": ["local-python", "headless-occt", "solidworks-com"],
       "verified_versions": [],
-      "dependencies": ["SolidWorks 模具工具与许可证"],
-      "limitations": ["尚未实现分型线、分型面、型芯型腔和拔模分析执行器"],
-      "allowed_modes": []
+      "dependencies": ["python", "可选 OCP", "可选 SolidWorks 模具工具与许可证"],
+      "limitations": ["当前只校验拔模方向、分型边/面、型芯型腔引用和收缩率计划；不生成型芯型腔实体，不替代模具设计"],
+      "allowed_modes": ["interactive", "reviewed"]
     },
     {
       "id": "simulation_and_fea",
       "label": "仿真与 FEA",
-      "level": "reference_only",
-      "backends": ["solidworks-com"],
+      "level": "pilot",
+      "backends": ["local-python", "calculix", "elmer", "solidworks-simulation-adapter"],
       "verified_versions": [],
-      "dependencies": ["SolidWorks Simulation 许可证"],
-      "limitations": ["当前没有仿真执行器、结果校验或许可证检测"],
-      "allowed_modes": ["interactive"]
+      "dependencies": ["python", "可选 CalculiX ccx", "可选 ElmerSolver", "可选 SolidWorks Simulation 许可证"],
+      "limitations": ["当前只做 FEA 1.0 Schema、材料/网格/载荷/约束引用校验、开放求解器前置发现和 CalculiX 白名单输入生成；未发现求解器时必须 blocked", "FEA 结果不等于安全认证；即使求解成功也必须做网格收敛、载荷合理性和工程师复核"],
+      "allowed_modes": ["interactive", "reviewed"]
     },
     {
       "id": "autocad_headless_preview",
@@ -256,22 +256,22 @@
     {
       "id": "autocad_dotnet_backend",
       "label": "AutoCAD .NET Managed API 桥接",
-      "level": "verified",
+      "level": "pilot",
       "backends": ["autocad-dotnet"],
       "verified_versions": ["2024"],
       "dependencies": [".NET SDK 8", ".NET Framework 4.8 引用程序集", "AutoCAD 2024 Managed API DLL"],
-      "limitations": ["已在 AutoCAD 2024 连续通过至少三次 CADSTUDIOPROBE/CADSTUDIOCREATE 白名单命令、真实 DWG 保存重开、PDF/PNG 和实体/图层/尺寸回归；运行时仍会逐次复验证据并在损坏时降级", "不暴露任意 AutoLISP、SCR 或 .NET 代码执行；桌面部署仍需受信任路径或签名插件包", "AutoCAD 2025–2026 尚未完成该 .NET 插件真机回归"],
+      "limitations": ["AutoCAD 2024 已连续通过白名单命令、真实 DWG 保存重开、PDF/PNG 和实体/图层/尺寸回归，但仍需持续回归和人工复核，暂不允许无人值守交付", "运行时逐次复验证据并在损坏时降级；不暴露任意 AutoLISP、SCR 或 .NET 代码执行", "桌面部署仍需受信任路径或签名插件包；AutoCAD 2025–2026 尚未完成该 .NET 插件真机回归"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {
       "id": "routing",
       "label": "Routing",
-      "level": "not_implemented",
-      "backends": [],
+      "level": "pilot",
+      "backends": ["local-python", "solidworks-routing-preflight"],
       "verified_versions": [],
-      "dependencies": [],
-      "limitations": ["尚未实现"],
-      "allowed_modes": []
+      "dependencies": ["python", "可选 SolidWorks Routing 类型库和加载项许可证"],
+      "limitations": ["当前支持中性 Routing 端点、分段、长度、弯曲半径、碰撞/间隙、支撑间距和 BOM 复核；不生成 SOLIDWORKS Routing 原生特征", "本机 SW2026 可发现 SWRoutingLib.tlb 和核心接口，但未检测到 Routing AddIn 注册或许可证证据时原生写入必须 blocked"],
+      "allowed_modes": ["interactive", "reviewed"]
     }
   ]
 }

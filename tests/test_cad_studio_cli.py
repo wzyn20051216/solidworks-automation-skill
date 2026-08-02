@@ -87,3 +87,81 @@ def test_check_dfm_cli_generates_report(tmp_path: Path):
     assert payload["status"] == "review_required"
     assert Path(payload["reportPath"]).exists()
     assert payload["artifacts"][0]["producedThisRun"] is True
+
+
+def _fea_request() -> dict:
+    """@brief 返回 CLI prepare-fea 使用的最小静力请求。"""
+    return {
+        "schemaVersion": "1.0",
+        "analysisId": "cli_static",
+        "analysisType": "static_linear",
+        "solver": "calculix",
+        "units": {"length": "mm", "force": "N", "stress": "MPa", "temperature": "C"},
+        "material": {"name": "Al6061", "elasticModulusMPa": 68900, "poissonRatio": 0.33, "densityKgM3": 2700},
+        "mesh": {
+            "nodes": [
+                {"id": 1, "x": 0, "y": 0, "z": 0},
+                {"id": 2, "x": 10, "y": 0, "z": 0},
+                {"id": 3, "x": 0, "y": 10, "z": 0},
+                {"id": 4, "x": 0, "y": 0, "z": 10},
+            ],
+            "elements": [{"id": 1, "type": "C3D4", "nodeIds": [1, 2, 3, 4]}],
+            "nodeSets": {"FixedNodes": [1, 2, 3], "LoadNode": [4]},
+            "elementSets": {"AllElements": [1]},
+        },
+        "constraints": [{"id": "fixed_base", "type": "fixed", "nodeSet": "FixedNodes"}],
+        "loads": [{"id": "tip_force", "type": "force", "nodeSet": "LoadNode", "dof": 3, "value": -100}],
+    }
+
+
+def _advanced_geometry_plan() -> dict:
+    """@brief 返回 CLI 复杂几何门禁使用的最小有效计划。"""
+    return {
+        "schemaVersion": "1.0",
+        "planId": "cli_surface",
+        "units": "mm",
+        "entities": [
+            {"id": "profileA", "type": "profile", "source": "section:A"},
+            {"id": "profileB", "type": "profile", "source": "section:B"},
+        ],
+        "operations": [
+            {"id": "loftMain", "type": "loft", "profiles": ["profileA", "profileB"], "continuity": "G1", "output": "loftSurface"}
+        ],
+    }
+
+
+def test_cli_prepare_fea_generates_versioned_calculix_input(tmp_path: Path):
+    """@brief prepare-fea 必须生成本轮 CalculiX 输入且不依赖求解器安装。"""
+    source = tmp_path / "fea.json"
+    source.write_text(json.dumps(_fea_request()), encoding="utf-8")
+    completed = subprocess.run(
+        [sys.executable, "scripts/cad_studio.py", "prepare-fea", "--input", str(source), "--out-dir", str(tmp_path / "fea-out")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "pass"
+    artifact = Path(payload["artifacts"][0]["path"])
+    assert artifact.is_file()
+    assert artifact.read_text(encoding="ascii").startswith("** CAD Studio generated")
+
+
+def test_cli_review_advanced_geometry_writes_report(tmp_path: Path):
+    """@brief 复杂几何 CLI 只能输出 pilot/blocked 门禁报告，不声称产出几何。"""
+    source = tmp_path / "surface.json"
+    source.write_text(json.dumps(_advanced_geometry_plan()), encoding="utf-8")
+    completed = subprocess.run(
+        [sys.executable, "scripts/cad_studio.py", "review-advanced-geometry", "--input", str(source), "--output", str(tmp_path / "surface_report.json")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode in {0, 1}
+    payload = json.loads(completed.stdout)
+    assert payload["status"] in {"pilot", "blocked"}
+    assert payload["geometryProduced"] is False
+    assert Path(payload["reportPath"]).exists()

@@ -48,6 +48,10 @@ REQUIRED_FILES = [
     "scripts/headless_cad_writer.py",
     "scripts/headless_occt_service.py",
     "scripts/dxf_preview_scene.py",
+    "scripts/dfm_profiles.py",
+    "scripts/routing_review.py",
+    "scripts/fea_analysis.py",
+    "scripts/advanced_geometry.py",
     "requirements-occt.txt",
     "scripts/sw_entity_reference.py",
     "scripts/validate_mcp.py",
@@ -113,6 +117,8 @@ def check_json_files():
         ROOT / "apps/desktop/cad_workbench/schemas/neutral_cad_document.schema.json",
         ROOT / "apps/desktop/cad_workbench/schemas/preview_manifest.schema.json",
         ROOT / "apps/desktop/cad_workbench/schemas/evidence_graph.schema.json",
+        ROOT / "apps/desktop/cad_workbench/schemas/fea_analysis.schema.json",
+        ROOT / "apps/desktop/cad_workbench/schemas/advanced_geometry.schema.json",
         ROOT / "subskills/solidworks-vibecad/schemas/design_plan.schema.json",
     ]
     for path in targets:

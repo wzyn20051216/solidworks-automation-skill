@@ -97,10 +97,18 @@
 - 新增 `scripts/dxf_preview_scene.py`，只读白名单解析 LINE/CIRCLE/ARC/LWPOLYLINE/POLYLINE/TEXT/MTEXT/DIMENSION，限制 50 MB 和 200,000 实体；不支持实体只记录 warnings，不执行脚本。
 - CLI 新增 `cad-studio preview-dxf`，MCP 新增 `cadstudio_build_dxf_preview_scene`；输出必须是新建 `.scene.json`，拒绝覆盖旧文件。
 - 帮助页加入七个固定演示场景（安装板、带孔支架、CPU 外壳、小型装配体、GB/T 图框、FEA 云图示例、Routing 路径示例），全部标记 `demo-showcase/isDemo`，不会进入交付判断。
-- E2E 同时验证后端 Scene JSON、原始 DXF Worker、七个演示样例和 WebGL PNG 回退；FEA 云图和 Routing 路径只是教学演示，真实求解/原生 Routing 继续为 `reference_only/not_implemented`。
+- E2E 同时验证后端 Scene JSON、原始 DXF Worker、七个演示样例和 WebGL PNG 回退；FEA 云图和 Routing 路径只是教学演示，真实求解/原生 Routing 必须走新门禁，未满足依赖时返回 `blocked`。
+
+## 第 21 周补强：DFM、Routing、FEA 与复杂几何门禁
+
+- DFM 增加供应商 profile、单位归一、B-Rep 证据绑定和防伪检查；规则通过仍为 `review_required`。
+- Routing 增加中性端点/分段/长度/弯曲半径/碰撞间隙/支撑间距/Routing BOM 复核；SW2026 可发现 Routing 类型库但无加载项或许可证证据时原生写入保持 `blocked`。
+- FEA 增加 FEA 1.0 Schema、CalculiX/Elmer 前置和 CalculiX 白名单输入生成；本机缺求解器时不得创建假结果。
+- 复杂曲面/模具增加 loft、sweep、knit、thicken、连续性、拔模、分型和型芯型腔结构化门禁；当前不生成生产 B-Rep。
+- CLI/MCP 均新增白名单入口：`check-routing`、`routing-preflight`、`fea-preflight`、`prepare-fea`、`review-advanced-geometry`，并纳入协议验证。
 
 ## 1–20 周审计结论
 
-- 已有真实代码和自动化证据的范围：项目/交付门禁、开放格式几何、基础二维工程图结构、Preview Manifest/Scene、桌面/Skill/CLI/MCP 双入口和浏览器预览回退。
-- 仍需真实 CAD 自托管机或人工复核的范围：SolidWorks 工程图/BOM 视觉质量、AutoCAD 原生 DWG、复杂曲面、FEA、Routing，以及 20 MB/30 FPS 性能指标。
+- 已有真实代码和自动化证据的范围：项目/交付门禁、开放格式几何、基础二维工程图结构、Preview Manifest/Scene、桌面/Skill/CLI/MCP 双入口、浏览器预览回退、DFM profile/B-Rep 证据、Routing 中性复核、FEA 输入门禁和复杂几何计划门禁。
+- 仍需真实 CAD 自托管机或人工复核的范围：SolidWorks 工程图/BOM 视觉质量、AutoCAD 原生 DWG、复杂曲面 B-Rep 产物、FEA 求解与安全复核、SOLIDWORKS Routing 原生写入，以及 20 MB/30 FPS 性能指标。
 - 未通过上述回归的能力不会显示为已完成，也不会被交付门禁当作本轮产物。
