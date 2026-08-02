@@ -143,7 +143,9 @@ fn initialize_app_store(connection: &mut Connection) -> Result<(), String> {
         .optional()
         .map_err(|error| error.to_string())?;
     if version.as_deref() != Some("2") {
-        let transaction = connection.transaction().map_err(|error| error.to_string())?;
+        let transaction = connection
+            .transaction()
+            .map_err(|error| error.to_string())?;
         for namespace in ["settings", "conversations", "messages"] {
             let raw: Option<String> = transaction
                 .query_row(
@@ -154,7 +156,8 @@ fn initialize_app_store(connection: &mut Connection) -> Result<(), String> {
                 .optional()
                 .map_err(|error| error.to_string())?;
             if let Some(raw) = raw {
-                let payload = serde_json::from_str::<Value>(&raw).map_err(|error| error.to_string())?;
+                let payload =
+                    serde_json::from_str::<Value>(&raw).map_err(|error| error.to_string())?;
                 sync_entity_index(&transaction, namespace, &payload, 0)?;
             }
         }
@@ -170,20 +173,32 @@ fn initialize_app_store(connection: &mut Connection) -> Result<(), String> {
     Ok(())
 }
 
-fn entity_values<'a>(namespace: &str, payload: &'a Value) -> Option<(&'static str, Vec<&'a Value>)> {
+fn entity_values<'a>(
+    namespace: &str,
+    payload: &'a Value,
+) -> Option<(&'static str, Vec<&'a Value>)> {
     match namespace {
         "settings" => Some((
             "project",
-            payload.get("projects").and_then(Value::as_array)
-                .map(|items| items.iter().collect()).unwrap_or_default(),
+            payload
+                .get("projects")
+                .and_then(Value::as_array)
+                .map(|items| items.iter().collect())
+                .unwrap_or_default(),
         )),
         "conversations" => Some((
             "conversation",
-            payload.as_array().map(|items| items.iter().collect()).unwrap_or_default(),
+            payload
+                .as_array()
+                .map(|items| items.iter().collect())
+                .unwrap_or_default(),
         )),
         "messages" => Some((
             "message",
-            payload.as_array().map(|items| items.iter().collect()).unwrap_or_default(),
+            payload
+                .as_array()
+                .map(|items| items.iter().collect())
+                .unwrap_or_default(),
         )),
         _ => None,
     }
@@ -206,7 +221,11 @@ fn sync_entity_index(
         )
         .map_err(|error| error.to_string())?;
     for entity in entities {
-        let Some(entity_id) = entity.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) else {
+        let Some(entity_id) = entity
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+        else {
             continue;
         };
         let serialized = serde_json::to_string(entity).map_err(|error| error.to_string())?;
@@ -230,12 +249,18 @@ fn sync_entity_index(
 
 /// @brief 将共享队列中的任务元数据同步到 SQLite 索引，不复制 CAD 产物内容。
 fn sync_task_index(connection: &mut Connection, jobs: &[Value]) -> Result<(), String> {
-    let transaction = connection.transaction().map_err(|error| error.to_string())?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| error.to_string())?;
     transaction
         .execute("DELETE FROM entity_index WHERE entity_type = 'task'", [])
         .map_err(|error| error.to_string())?;
     for job in jobs {
-        let Some(id) = job.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) else {
+        let Some(id) = job
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+        else {
             continue;
         };
         transaction
@@ -322,7 +347,9 @@ fn write_app_store(app: AppHandle, namespace: String, payload: Value) -> Result<
         .duration_since(UNIX_EPOCH)
         .map_err(|error| error.to_string())?
         .as_secs() as i64;
-    let transaction = connection.transaction().map_err(|error| error.to_string())?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| error.to_string())?;
     transaction
         .execute(
             "INSERT INTO app_state(namespace, payload, updated_at) VALUES(?1, ?2, ?3)
@@ -372,7 +399,11 @@ fn app_store_migration_status(app: AppHandle) -> Result<Value, String> {
     }
     source.insert("task".to_string(), json!(task_jobs.len()));
     let task_indexed: i64 = connection
-        .query_row("SELECT COUNT(*) FROM entity_index WHERE entity_type = 'task'", [], |row| row.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM entity_index WHERE entity_type = 'task'",
+            [],
+            |row| row.get(0),
+        )
         .map_err(|error| error.to_string())?;
     indexed.insert("task".to_string(), json!(task_indexed));
     Ok(json!({
@@ -414,20 +445,15 @@ fn validate_preview_extension(path: &Path) -> Result<(), String> {
         .unwrap_or_default()
         .to_ascii_lowercase();
     if extension == "json"
-        && ![
-            "preview",
-            "manifest",
-            "scene",
-            "cadstudio",
-            "evidence",
-        ]
-        .iter()
-        .any(|token| file_name.contains(token))
+        && !["preview", "manifest", "scene", "cadstudio", "evidence"]
+            .iter()
+            .any(|token| file_name.contains(token))
     {
         return Err("只允许预览清单、场景、证据图或 .cadstudio.json 进入预览器。".to_string());
     }
     if ![
-        "stl", "glb", "gltf", "obj", "dxf", "json", "svg", "png", "jpg", "jpeg", "webp", "bmp", "gif",
+        "stl", "glb", "gltf", "obj", "dxf", "json", "svg", "png", "jpg", "jpeg", "webp", "bmp",
+        "gif",
     ]
     .contains(&extension.as_str())
     {
@@ -1003,7 +1029,9 @@ fn retry_from_stage(job: &Value) -> String {
     }
     for evidence_key in ["drawingEvidence", "bomEvidence"] {
         let evidence = job.get(evidence_key);
-        let status = evidence.and_then(|item| item.get("status")).and_then(Value::as_str);
+        let status = evidence
+            .and_then(|item| item.get("status"))
+            .and_then(Value::as_str);
         if matches!(status, Some("blocked" | "failed" | "fail" | "warning")) {
             return "drawing-bom".to_string();
         }
@@ -1966,9 +1994,7 @@ fn required_review_checks(job: &Value) -> Vec<&'static str> {
         .unwrap_or_default();
     let descriptor = format!(
         "{} {} {} {}",
-        job.get("kind")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
+        job.get("kind").and_then(Value::as_str).unwrap_or_default(),
         job.get("expectedOutput")
             .and_then(Value::as_str)
             .unwrap_or_default(),
@@ -1980,8 +2006,8 @@ fn required_review_checks(job: &Value) -> Vec<&'static str> {
     .to_uppercase();
     if job.get("drawingEvidence").is_some()
         || ["DWG", "DXF", "PDF", "SLDDRW", "DRAWING", "图纸"]
-        .iter()
-        .any(|token| descriptor.contains(token))
+            .iter()
+            .any(|token| descriptor.contains(token))
     {
         checks.push("drawing");
     }
@@ -2789,9 +2815,9 @@ pub fn run() {
 mod tests {
     use super::{
         asset_path, can_delete_job, database_provider_groups, derive_dangerous_capabilities,
-        initialize_app_store, is_queue_metadata_path, prepare_job_for_retry, sync_entity_index,
-        required_review_checks, sync_task_index,
-        validate_new_queue_job, validate_preview_extension, wallpaper_kind,
+        initialize_app_store, is_queue_metadata_path, prepare_job_for_retry,
+        required_review_checks, sync_entity_index, sync_task_index, validate_new_queue_job,
+        validate_preview_extension, wallpaper_kind,
     };
     use rusqlite::{params, Connection};
     use serde_json::json;
@@ -2926,7 +2952,10 @@ mod tests {
         assert_eq!(job["retryPolicy"]["overwrite"], false);
         assert_eq!(job["runHistory"].as_array().map(Vec::len), Some(1));
         assert_eq!(job["runHistory"][0]["artifacts"][0]["path"], "old.step");
-        assert_eq!(job["runHistory"][0]["reviewFindings"][0]["id"], "dimension-overlap");
+        assert_eq!(
+            job["runHistory"][0]["reviewFindings"][0]["id"],
+            "dimension-overlap"
+        );
         assert!(job["runHistory"][0].get("prompt").is_none());
         assert!(job["runHistory"][0].get("uiConfig").is_none());
         assert!(job.get("drawingEvidence").is_none());
@@ -2938,11 +2967,9 @@ mod tests {
     fn retry_history_keeps_latest_twenty_runs_without_recursive_history() {
         let mut job = queued_job();
         job["status"] = json!("failed");
-        job["runHistory"] = json!(
-            (0..20)
-                .map(|index| json!({"runId": format!("old-{index}")}))
-                .collect::<Vec<_>>()
-        );
+        job["runHistory"] = json!((0..20)
+            .map(|index| json!({"runId": format!("old-{index}")}))
+            .collect::<Vec<_>>());
 
         prepare_job_for_retry(&mut job, "retry-limited".to_string(), "unix:3".to_string())
             .expect("failed job should be retryable");
@@ -3102,7 +3129,8 @@ mod tests {
                 params![json!({"projects": [
                     {"id": "project-a", "name": "A"},
                     {"id": "project-b", "name": "B"}
-                ]}).to_string()],
+                ]})
+                .to_string()],
             )
             .expect("legacy projects");
         connection
@@ -3111,7 +3139,8 @@ mod tests {
                 params![json!([
                     {"id": "conversation-a", "projectId": "project-a", "title": "A"},
                     {"id": "conversation-b", "projectId": "project-b", "title": "B"}
-                ]).to_string()],
+                ])
+                .to_string()],
             )
             .expect("legacy conversations");
         connection
@@ -3135,7 +3164,10 @@ mod tests {
                     |row| row.get(0),
                 )
                 .expect("indexed count");
-            assert_eq!(actual, expected, "{entity_type} count changed during migration");
+            assert_eq!(
+                actual, expected,
+                "{entity_type} count changed during migration"
+            );
         }
     }
 

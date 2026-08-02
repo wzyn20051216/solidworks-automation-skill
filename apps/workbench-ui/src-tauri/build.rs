@@ -15,7 +15,10 @@ fn copy_release_tree(source: &Path, destination: &Path) {
         let entry = entry.expect("read release resource entry");
         let path = entry.path();
         let name = entry.file_name();
-        if EXCLUDED_DIRECTORIES.iter().any(|excluded| name == *excluded) {
+        if EXCLUDED_DIRECTORIES
+            .iter()
+            .any(|excluded| name == *excluded)
+        {
             continue;
         }
         let target = destination.join(name);
