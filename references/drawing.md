@@ -44,7 +44,7 @@ view.ScaleRatio = (2.0, 1.0)  # 2:1 比例
 ### 自动标注（模型项目）
 
 ```python
-drawing.Extension.InsertModelAnnotations3(
+drawing.InsertModelAnnotations3(
     InsertType,    # int: 0=整个模型
     AnnotationType, # int: 32=标记为图纸的尺寸
     DuplicateDims, # bool
@@ -53,6 +53,10 @@ drawing.Extension.InsertModelAnnotations3(
     UseView        # bool
 )
 ```
+
+> SW2024 的动态 pywin32 代理通常把 `InsertModelAnnotations3` 暴露在工程图
+> `IModelDoc2` 上，而不是 `IModelDocExtension`。技能脚本会先尝试文档对象，
+> 再兼容旧的 Extension 代理；返回 `False` 时不得把尺寸证据标记为已验证。
 
 ### 手动添加尺寸
 

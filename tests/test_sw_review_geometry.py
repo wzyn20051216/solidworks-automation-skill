@@ -1,8 +1,9 @@
 """@brief SolidWorks B-Rep 机器测量证据回归测试。"""
 
 import math
+from pathlib import Path
 
-from scripts.sw_review import collect_geometry_measurements, validate_hole_positions
+from scripts.sw_review import collect_geometry_measurements, inspect_bmp_preview, validate_hole_positions
 
 
 class FakeSurface:
@@ -120,3 +121,27 @@ def test_hole_position_acceptance_fails_outside_tolerance() -> None:
 
     assert result["status"] == "fail"
     assert result["checks"][0]["passed"] is False
+
+
+def test_bmp_preview_samples_geometry_away_from_file_header(tmp_path: Path) -> None:
+    """@brief 图框/几何在 BMP 中后段时不能误判为空白。"""
+    # 2x2、24 位、底部一行黑像素的最小 BI_RGB BMP。
+    pixels = b"\xff\xff\xff" * 2 + b"\x00\x00" + b"\x00\x00\x00" * 2 + b"\x00\x00"
+    header = bytearray(b"BM")
+    header.extend((54 + len(pixels)).to_bytes(4, "little"))
+    header.extend(b"\x00\x00\x00\x00")
+    header.extend((54).to_bytes(4, "little"))
+    header.extend((40).to_bytes(4, "little"))
+    header.extend((2).to_bytes(4, "little", signed=True))
+    header.extend((2).to_bytes(4, "little", signed=True))
+    header.extend((1).to_bytes(2, "little"))
+    header.extend((24).to_bytes(2, "little"))
+    header.extend((0).to_bytes(4, "little"))
+    header.extend(len(pixels).to_bytes(4, "little"))
+    header.extend(b"\x00" * 16)
+    target = tmp_path / "preview.bmp"
+    target.write_bytes(bytes(header) + pixels)
+
+    report = inspect_bmp_preview(target)
+    assert report["likely_blank"] is False
+    assert report["dark_pixel_ratio"] > 0

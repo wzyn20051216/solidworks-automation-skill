@@ -1,5 +1,5 @@
 """工程图结构复核无 COM 测试。"""
-from scripts.sw_drawing import inspect_drawing_structure
+from scripts.sw_drawing import inspect_drawing_structure, insert_dimensions
 
 
 class FakeDimension:
@@ -65,3 +65,23 @@ def test_inspect_drawing_structure_blocks_empty_drawing():
     assert result["status"] == "blocked"
     assert result["error_code"] == "DRAWING_VIEWS_MISSING"
     assert result["retryable"] is True
+
+
+def test_insert_dimensions_prefers_document_api():
+    """@brief SW2024 动态代理把尺寸接口放在文档对象时仍可调用。"""
+    class Document:
+        Extension = object()
+
+        def InsertModelAnnotations3(self, *args):
+            assert args == (0, 32, True, True, False, False)
+            return True
+
+    assert insert_dimensions(Document()) is True
+
+
+def test_insert_dimensions_returns_false_when_both_com_surfaces_are_missing():
+    """@brief 缺少尺寸接口时返回可审计失败，不抛出未处理异常。"""
+    class Document:
+        Extension = object()
+
+    assert insert_dimensions(Document()) is False

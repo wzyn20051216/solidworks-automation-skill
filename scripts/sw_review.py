@@ -80,6 +80,7 @@ def inspect_bmp_preview(path, sample_limit=200000):
         "width": None,
         "height": None,
         "unique_sample_values": 0,
+        "dark_pixel_ratio": 0.0,
         "likely_blank": True,
     })
     if not info["exists"] or info["size_bytes"] <= 0:
@@ -92,9 +93,44 @@ def inspect_bmp_preview(path, sample_limit=200000):
     try:
         with open(path, "rb") as file:
             data = file.read()
-        sample = data[54:54 + sample_limit] if len(data) > 54 else data
-        info["unique_sample_values"] = len(set(sample))
-        info["likely_blank"] = info["unique_sample_values"] < 8
+        # 不能只采样文件开头：SolidWorks 的图框和几何可能位于像素区中后段。
+        # 这里读取标准 BI_RGB BMP 的像素网格，兼容 24/32 位导出并避免引入图像依赖。
+        pixel_offset = int.from_bytes(data[10:14], "little") if len(data) >= 14 else 54
+        bits_per_pixel = int.from_bytes(data[28:30], "little") if len(data) >= 30 else 0
+        row_stride = ((width * bits_per_pixel + 31) // 32) * 4 if width and bits_per_pixel else 0
+        channels = bits_per_pixel // 8 if bits_per_pixel in (24, 32) else 0
+        samples = []
+        dark = 0
+        total = 0
+        if pixel_offset > 0 and row_stride > 0 and channels:
+            # BMP 高度为正时像素自底向上；负高度表示自顶向下。
+            signed_height = int.from_bytes(data[22:26], "little", signed=True)
+            top_down = signed_height < 0
+            sample_width = min(width, 96)
+            sample_height = min(abs(signed_height), 96)
+            for grid_y in range(sample_height):
+                y = grid_y * max(abs(signed_height) - 1, 1) // max(sample_height - 1, 1)
+                source_y = y if top_down else abs(signed_height) - 1 - y
+                row_start = pixel_offset + source_y * row_stride
+                for grid_x in range(sample_width):
+                    x = grid_x * max(width - 1, 1) // max(sample_width - 1, 1)
+                    start = row_start + x * channels
+                    pixel = data[start:start + channels]
+                    if len(pixel) != channels:
+                        continue
+                    # BGR(A) -> 亮度；低于 245 视为非白背景，机械线稿可稳定命中。
+                    luminance = (pixel[0] * 0.114) + (pixel[1] * 0.587) + (pixel[2] * 0.299)
+                    samples.append(tuple(pixel[:3]))
+                    dark += int(luminance < 245)
+                    total += 1
+        if not samples:
+            sample = data[pixel_offset:pixel_offset + sample_limit] if len(data) > pixel_offset else data
+            info["unique_sample_values"] = len(set(sample))
+            info["likely_blank"] = info["unique_sample_values"] < 8
+        else:
+            info["unique_sample_values"] = len(set(samples))
+            info["dark_pixel_ratio"] = dark / total if total else 0.0
+            info["likely_blank"] = info["dark_pixel_ratio"] < 0.0005
     except Exception as exc:
         info["error"] = str(exc)
     return info

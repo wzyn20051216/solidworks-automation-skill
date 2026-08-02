@@ -57,14 +57,14 @@ def run_regression(output_root: Path, *, run_id: str | None = None) -> dict:
         drawing_title = str(get_com_member(drawing, "GetTitle"))
         if not create_standard_views(drawing, str(part_path)):
             raise RuntimeError("创建标准三视图失败")
-        insert_dimensions(drawing)
+        dimensions_inserted = bool(insert_dimensions(drawing))
         structure = inspect_drawing_structure(drawing)
         if structure["status"] != "pass" or structure["view_count"] < 1:
             raise RuntimeError(f"工程图视图复核失败: {structure}")
         if not session.save(drawing, str(drawing_path)):
             raise RuntimeError("工程图保存失败")
         _require_file(drawing_path, "工程图")
-        if not export_sheet_to_pdf(drawing, str(pdf_path)):
+        if not export_sheet_to_pdf(drawing, str(pdf_path), sw_app=session.sw):
             raise RuntimeError("工程图 PDF 导出失败")
         _require_file(pdf_path, "PDF")
         preview_paths = save_review_previews(drawing, output_dir / "previews", basename="drawing", views=("front", "top", "right"))
@@ -77,6 +77,7 @@ def run_regression(output_root: Path, *, run_id: str | None = None) -> dict:
             "output_dir": str(output_dir),
             "outputs": {"part": _require_file(part_path, "零件"), "drawing": _require_file(drawing_path, "工程图"), "pdf": _require_file(pdf_path, "PDF")},
             "drawingEvidence": structure,
+            "dimensions_inserted": dimensions_inserted,
             "reviewFindings": structure.get("checks", []),
             "artifactRelations": [{"from": str(part_path), "to": str(drawing_path)}, {"from": str(drawing_path), "to": str(pdf_path)}],
             "previews": previews,

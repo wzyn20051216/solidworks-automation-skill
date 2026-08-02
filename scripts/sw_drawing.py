@@ -79,11 +79,23 @@ def insert_dimensions(drawing_model, view=None):
     参数:
         view: 目标视图对象，None 则标注所有视图
     """
-    return drawing_model.Extension.InsertModelAnnotations3(
-        0,  # swImportModelItemsFromEntireModel
-        32, # swInsertDimensionsMarkedForDrawing
-        True, True, False, False
+    # SolidWorks 2024 的动态 COM 代理把该方法暴露在 IModelDoc2；
+    # 部分已生成的强类型代理则仍通过 IModelDocExtension 暴露，两个入口都兼容。
+    args = (
+        0,   # swImportModelItemsFromEntireModel
+        32,  # swInsertDimensionsMarkedForDrawing
+        True, True, False, False,
     )
+    for owner in (drawing_model, getattr(drawing_model, "Extension", None)):
+        if owner is None:
+            continue
+        try:
+            method = getattr(owner, "InsertModelAnnotations3")
+            return method(*args)
+        except (AttributeError, TypeError, pythoncom.com_error):
+            continue
+    # 调用方可以继续做结构复核，但必须把缺少真实尺寸证据显示为 warning。
+    return False
 
 
 def add_note(drawing_model, x, y, text):
@@ -212,7 +224,7 @@ def inspect_drawing_structure(drawing_model) -> dict:
     return result
 
 
-def export_sheet_to_pdf(model, output_path, sheet_names=None):
+def export_sheet_to_pdf(model, output_path, sheet_names=None, sw_app=None):
     """
     将工程图导出为 PDF
 
@@ -220,15 +232,32 @@ def export_sheet_to_pdf(model, output_path, sheet_names=None):
         model: IModelDoc2（工程图文档）
         output_path: 输出 PDF 路径
         sheet_names: 图纸名称列表，None=所有图纸
+        sw_app: 可选的 SldWorks.Application 对象；传入会话对象可避免 SW2024
+            动态 IModelDoc2 未暴露 GetSldWorksObject 的兼容性问题。
     """
-    sw = model.GetSldWorksObject()
-    pdf_data = sw.GetExportFileData(1)  # 1 = swExportPDFData
+    sw = sw_app
+    if sw is None:
+        for prog_id in ("SldWorks.Application.32", "SldWorks.Application"):
+            try:
+                sw = _win32com.GetActiveObject(prog_id)
+                break
+            except Exception:
+                continue
+    if sw is None:
+        return False
+    try:
+        pdf_data = get_com_member(sw, "GetExportFileData", 1)  # 1 = swExportPDFData
+    except Exception:
+        return False
 
     if sheet_names is None:
         drawing = model
         sheet_names = get_com_member(drawing, "GetSheetNames")
 
-    pdf_data.SetSheets(0, sheet_names)  # 0 = swExportData_ExportSpecifiedSheets
+    try:
+        pdf_data.SetSheets(0, sheet_names)  # 0 = swExportData_ExportSpecifiedSheets
+    except Exception:
+        return False
 
     errors = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
     warnings = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
