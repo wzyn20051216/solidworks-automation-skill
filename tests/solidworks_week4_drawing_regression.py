@@ -17,9 +17,16 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from sw_connect import get_com_member, get_sw_version  # noqa: E402
-from sw_drawing import create_standard_views, export_sheet_to_pdf, inspect_drawing_structure, insert_dimensions  # noqa: E402
+from sw_drawing import (  # noqa: E402
+    create_adaptive_standard_views,
+    export_sheet_to_pdf,
+    inspect_drawing_structure,
+    insert_dimensions,
+    plan_standard_view_layout,
+    setup_current_sheet_as_a3,
+)
 from sw_part import auto_dimension_sketch, extrude_boss, sketch_rectangle  # noqa: E402
-from sw_review import inspect_bmp_preview, save_review_previews  # noqa: E402
+from sw_review import inspect_bmp_preview, review_drawing_layout, save_review_previews  # noqa: E402
 from sw_session import SolidWorksSession  # noqa: E402
 
 
@@ -27,6 +34,24 @@ def _require_file(path: Path, label: str) -> dict:
     if not path.is_file() or path.stat().st_size <= 0:
         raise RuntimeError(f"{label}未生成或为空: {path}")
     return {"path": str(path), "size_bytes": path.stat().st_size}
+
+
+def _sheet_format_candidates() -> list[str]:
+    """@brief 返回本机可用的 A3/GB 图框候选路径。"""
+    roots = [
+        Path(r"E:\SolidWroks2026\SOLIDWORKS"),
+        Path(r"E:\Solidworks\SOLIDWORKS"),
+        Path(r"C:\ProgramData\SOLIDWORKS"),
+    ]
+    candidates: list[str] = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        try:
+            candidates.extend(str(path) for path in root.rglob("*.slddrt") if "a3" in path.name.casefold())
+        except OSError:
+            continue
+    return candidates
 
 
 def run_regression(output_root: Path, *, version: int | None = None, run_id: str | None = None) -> dict:
@@ -63,8 +88,13 @@ def run_regression(output_root: Path, *, version: int | None = None, run_id: str
 
         drawing = session.new_drawing()
         drawing_title = str(get_com_member(drawing, "GetTitle"))
-        if not create_standard_views(drawing, str(part_path)):
-            raise RuntimeError("创建标准三视图失败")
+        sheet_setup = setup_current_sheet_as_a3(drawing, _sheet_format_candidates(), require_gbt=True)
+        if sheet_setup.get("status") != "pass":
+            raise RuntimeError(f"A3/GB 图框设置失败: {sheet_setup}")
+        layout = plan_standard_view_layout((0.12, 0.012, 0.08), paper_size="A3")
+        created_views = create_adaptive_standard_views(drawing, str(part_path), layout)
+        if created_views.get("status") != "pass" or created_views.get("view_count") != 3:
+            raise RuntimeError(f"创建 A3 自适应三视图失败: {created_views}")
         # 部分版本只有在工程图首次保存、视图引用落盘后才稳定暴露可导入的模型
         # 尺寸。这里保存的是本轮新产物，不会覆盖旧交付版本。
         if not session.save(drawing, str(drawing_path)):
@@ -76,9 +106,16 @@ def run_regression(output_root: Path, *, version: int | None = None, run_id: str
             drawing.GraphicsRedraw2()
         except Exception:
             pass
-        structure = inspect_drawing_structure(drawing)
+        structure = inspect_drawing_structure(
+            drawing,
+            paper_size_hint="A3",
+            title_block_box=layout.get("title_block_box"),
+        )
         if structure["status"] != "pass" or structure["view_count"] < 1:
             raise RuntimeError(f"工程图视图复核失败: {structure}")
+        layout_review = review_drawing_layout(structure)
+        if layout_review.get("status") == "blocked":
+            raise RuntimeError(f"工程图布局结构复核阻塞: {layout_review}")
         if not dimensions_inserted or structure.get("dimension_count", 0) < 1:
             raise RuntimeError(
                 "工程图未读取到本轮插入的真实尺寸实体: "
@@ -101,7 +138,11 @@ def run_regression(output_root: Path, *, version: int | None = None, run_id: str
             "solidworks": get_sw_version(session.sw),
             "connection": session.connection_info,
             "outputs": {"part": _require_file(part_path, "零件"), "drawing": _require_file(drawing_path, "工程图"), "pdf": _require_file(pdf_path, "PDF")},
+            "sheetSetup": sheet_setup,
+            "viewLayout": layout,
+            "createdViews": created_views,
             "drawingEvidence": structure,
+            "drawingLayoutReview": layout_review,
             "dimensions_inserted": dimensions_inserted,
             "modelDimensions": model_dimensions,
             "reviewFindings": structure.get("checks", []),

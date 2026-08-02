@@ -209,6 +209,296 @@ def _document_dependency_paths(model, source_path: str) -> list[str]:
     return paths
 
 
+def _optional_com_member(obj, name, *args, default=None):
+    """@brief 安全读取审计用 COM 成员，无法判断时保留 unknown。"""
+    if obj is None:
+        return default
+    try:
+        value = get_com_member(obj, name, *args)
+        return default if value is None else value
+    except Exception:
+        return default
+
+
+def _is_external_reference(path: str, source_path: str) -> bool | None:
+    """@brief 判断引用是否位于装配体目录树外。"""
+    try:
+        Path(path).expanduser().resolve().relative_to(Path(source_path).expanduser().resolve().parent)
+        return False
+    except ValueError:
+        return True
+    except (OSError, RuntimeError):
+        return None
+
+
+def _toolbox_state(component, referenced_model, path: str) -> tuple[str, str]:
+    """@brief 读取 ToolboxPartType；不可用时仅以路径作为候选证据。"""
+    extension = _optional_com_member(referenced_model, "Extension")
+    raw_type = _optional_com_member(extension, "ToolboxPartType")
+    mapping = {0: "not_toolbox", 1: "standard", 2: "copied"}
+    try:
+        if raw_type is not None and int(raw_type) in mapping:
+            return mapping[int(raw_type)], "IModelDocExtension.ToolboxPartType"
+    except (TypeError, ValueError):
+        pass
+    normalised = str(path).replace("/", "\\").casefold()
+    if "\\toolbox\\" in normalised or "\\solidworks data\\" in normalised or "\\browser\\" in normalised:
+        return "candidate", "path_heuristic"
+    return "unknown", "unavailable"
+
+
+def _suppression_state(component) -> tuple[str, int | None]:
+    """@brief 按 swComponentSuppressionState_e 记录组件加载状态。"""
+    raw_state = _optional_com_member(component, "GetSuppression")
+    mapping = {
+        0: "suppressed",
+        1: "lightweight",
+        2: "fully_resolved",
+        3: "resolved",
+        4: "fully_lightweight",
+        5: "internal_id_mismatch",
+    }
+    try:
+        state = int(raw_state)
+    except (TypeError, ValueError):
+        suppressed = _optional_com_member(component, "IsSuppressed")
+        if isinstance(suppressed, bool):
+            return ("suppressed" if suppressed else "unknown"), None
+        return "unknown", None
+    return mapping.get(state, "unknown"), state
+
+
+def _collect_component_audit_records(model, source_path: str) -> list[dict[str, Any]]:
+    """@brief 收集 Pack and Go 的配置、Toolbox 与压缩状态审计证据。"""
+    components = _optional_com_member(model, "GetComponents", False, default=[]) or []
+    records = []
+    for component in components:
+        path = str(_optional_com_member(component, "GetPathName", default="") or "")
+        referenced_model = _optional_com_member(component, "GetModelDoc2")
+        toolbox_state, toolbox_evidence = _toolbox_state(component, referenced_model, path)
+        load_state, suppression_code = _suppression_state(component)
+        records.append({
+            "component": str(_optional_com_member(component, "Name2", default="") or Path(path).stem or "virtual"),
+            "path": path,
+            "configuration": str(_optional_com_member(component, "ReferencedConfiguration", default="") or ""),
+            "load_state": load_state,
+            "suppression_code": suppression_code,
+            "is_suppressed": load_state == "suppressed",
+            "is_lightweight": load_state in {"lightweight", "fully_lightweight"},
+            "toolbox_state": toolbox_state,
+            "toolbox_evidence": toolbox_evidence,
+            "external_reference": _is_external_reference(path, source_path) if path else None,
+            "source_exists": Path(path).is_file() if path else False,
+        })
+    return records
+
+
+def _associated_drawing_paths(source_path: str, dependencies: list[str]) -> list[str]:
+    """@brief 查找模型同目录下真实存在的同名 SLDDrw。"""
+    found = []
+    seen = set()
+    for raw_path in [source_path, *dependencies]:
+        model_path = Path(raw_path).expanduser()
+        if model_path.suffix.casefold() not in {".sldprt", ".sldasm"} or not model_path.parent.is_dir():
+            continue
+        try:
+            matches = [
+                candidate
+                for candidate in model_path.parent.iterdir()
+                if candidate.is_file()
+                and candidate.stem.casefold() == model_path.stem.casefold()
+                and candidate.suffix.casefold() == ".slddrw"
+            ]
+        except OSError:
+            matches = []
+        for candidate in matches:
+            key = str(candidate.resolve()).casefold()
+            if key not in seen:
+                seen.add(key)
+                found.append(str(candidate.resolve()))
+    return found
+
+
+def _required_pack_dependency_paths(
+    dependencies: list[str],
+    component_records: list[dict[str, Any]],
+    associated_drawings: list[str],
+    *,
+    include_drawings: bool,
+    include_toolbox_components: bool,
+    include_suppressed: bool,
+) -> list[str]:
+    """@brief 按 Pack and Go 选项计算本轮必须落盘的引用文件。"""
+    metadata: dict[str, list[dict[str, Any]]] = {}
+    for record in component_records:
+        if record["path"]:
+            metadata.setdefault(str(Path(record["path"]).resolve()).casefold(), []).append(record)
+    required = []
+    seen = set()
+    for raw_path in dependencies:
+        path = str(Path(raw_path).expanduser().resolve())
+        records = metadata.get(path.casefold(), [])
+        if records and not include_suppressed and all(record["is_suppressed"] for record in records):
+            continue
+        if records and not include_toolbox_components and all(record["toolbox_state"] in {"standard", "copied", "candidate"} for record in records):
+            continue
+        if path.casefold() not in seen:
+            seen.add(path.casefold())
+            required.append(path)
+    if include_drawings:
+        for raw_path in associated_drawings:
+            path = str(Path(raw_path).expanduser().resolve())
+            if path.casefold() not in seen:
+                seen.add(path.casefold())
+                required.append(path)
+    return required
+
+
+def build_pack_and_go_audit_matrix(
+    source_path: str,
+    dependencies: list[str],
+    component_records: list[dict[str, Any]],
+    associated_drawings: list[str],
+    outputs: list[dict[str, Any]],
+    *,
+    include_drawings: bool,
+    include_toolbox_components: bool,
+    include_suppressed: bool,
+) -> dict[str, Any]:
+    """@brief 建立外部引用、Toolbox、配置、压缩组件和工程图审计矩阵。"""
+    required_dependencies = _required_pack_dependency_paths(
+        dependencies,
+        component_records,
+        associated_drawings,
+        include_drawings=include_drawings,
+        include_toolbox_components=include_toolbox_components,
+        include_suppressed=include_suppressed,
+    )
+    required_keys = {str(Path(path).resolve()).casefold() for path in required_dependencies}
+    output_by_name: dict[str, list[dict[str, Any]]] = {}
+    for output in outputs:
+        output_by_name.setdefault(Path(output["path"]).name.casefold(), []).append(output)
+    metadata_by_path: dict[str, list[dict[str, Any]]] = {}
+    for record in component_records:
+        if record["path"]:
+            metadata_by_path.setdefault(str(Path(record["path"]).resolve()).casefold(), []).append(record)
+
+    source = str(Path(source_path).expanduser().resolve())
+    candidate_paths = [source, *[str(Path(item).expanduser().resolve()) for item in dependencies], *associated_drawings]
+    seen = set()
+    rows = []
+    blocking_codes = []
+    review_codes = []
+    for raw_path in candidate_paths:
+        path = str(Path(raw_path).expanduser().resolve())
+        key = path.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        records = metadata_by_path.get(key, [])
+        is_source = key == source.casefold()
+        is_drawing = Path(path).suffix.casefold() == ".slddrw"
+        required = is_source or key in required_keys
+        matches = output_by_name.get(Path(path).name.casefold(), [])
+        if len(matches) > 1:
+            blocking_codes.append("SW_PACK_AUDIT_OUTPUT_NAME_AMBIGUOUS")
+        included = len(matches) == 1
+        source_exists = Path(path).is_file()
+        configurations = sorted({record["configuration"] for record in records if record["configuration"]})
+        load_states = sorted({record["load_state"] for record in records})
+        toolbox_states = sorted({record["toolbox_state"] for record in records})
+        external_reference = any(record["external_reference"] is True for record in records) if records else _is_external_reference(path, source)
+        if not source_exists:
+            blocking_codes.append("SW_PACK_AUDIT_SOURCE_REFERENCE_MISSING")
+        if required and not included:
+            if is_source:
+                blocking_codes.append("SW_PACK_AUDIT_SOURCE_OUTPUT_MISSING")
+            elif is_drawing:
+                blocking_codes.append("SW_PACK_AUDIT_ASSOCIATED_DRAWING_MISSING")
+            elif external_reference:
+                blocking_codes.append("SW_PACK_AUDIT_EXTERNAL_REFERENCE_MISSING")
+            elif any(state in {"standard", "copied", "candidate"} for state in toolbox_states):
+                blocking_codes.append("SW_PACK_AUDIT_TOOLBOX_COMPONENT_MISSING")
+            elif any(state == "suppressed" for state in load_states):
+                blocking_codes.append("SW_PACK_AUDIT_SUPPRESSED_COMPONENT_MISSING")
+            else:
+                blocking_codes.append("SW_PACK_AUDIT_REQUIRED_FILE_MISSING")
+        if external_reference:
+            review_codes.append("SW_PACK_AUDIT_EXTERNAL_REFERENCE_REVIEW_REQUIRED")
+        if configurations:
+            review_codes.append("SW_PACK_AUDIT_CONFIGURATION_CONTENT_REVIEW_REQUIRED")
+        if any(state in {"lightweight", "fully_lightweight", "suppressed", "internal_id_mismatch"} for state in load_states):
+            review_codes.append("SW_PACK_AUDIT_COMPONENT_STATE_REVIEW_REQUIRED")
+        if include_toolbox_components and any(state in {"standard", "copied", "candidate", "unknown"} for state in toolbox_states):
+            review_codes.append("SW_PACK_AUDIT_TOOLBOX_REVIEW_REQUIRED")
+        rows.append({
+            "source_path": path,
+            "file_name": Path(path).name,
+            "reference_kind": "source" if is_source else "associated_drawing" if is_drawing else "model_dependency",
+            "required": required,
+            "source_exists": source_exists,
+            "included": included,
+            "output_path": matches[0]["path"] if included else None,
+            "produced_this_run": bool(matches[0].get("produced_this_run")) if included else False,
+            "external_reference": external_reference,
+            "configurations": configurations,
+            "load_states": load_states or ["unknown"],
+            "toolbox_states": toolbox_states or ["unknown"],
+        })
+
+    tracked_names = {row["file_name"].casefold() for row in rows}
+    for output in outputs:
+        if Path(output["path"]).name.casefold() not in tracked_names:
+            rows.append({
+                "source_path": None,
+                "file_name": Path(output["path"]).name,
+                "reference_kind": "untracked_output",
+                "required": False,
+                "source_exists": None,
+                "included": True,
+                "output_path": output["path"],
+                "produced_this_run": bool(output.get("produced_this_run")),
+                "external_reference": None,
+                "configurations": [],
+                "load_states": ["unknown"],
+                "toolbox_states": ["unknown"],
+            })
+    blocking_codes = list(dict.fromkeys(blocking_codes))
+    review_codes = list(dict.fromkeys(review_codes))
+    status = "blocked" if blocking_codes else "review_required" if review_codes else "pass"
+    required_rows = [row for row in rows if row["required"]]
+    checks = [
+        {"id": "pack-required-files", "status": "pass" if all(row["included"] for row in required_rows) else "fail", "message": f"必需文件 {sum(row['included'] for row in required_rows)}/{len(required_rows)} 已落盘"},
+        {"id": "pack-external-references", "status": "warning" if any(row["external_reference"] for row in rows) else "pass", "message": "外部引用需要人工重开验证" if any(row["external_reference"] for row in rows) else "未发现项目目录外引用"},
+        {"id": "pack-toolbox", "status": "warning" if any("unknown" in row["toolbox_states"] or any(item in {"standard", "copied", "candidate"} for item in row["toolbox_states"]) for row in rows if row["reference_kind"] == "model_dependency") else "pass", "message": "Toolbox 状态已记录；候选或未知项需人工确认"},
+        {"id": "pack-configurations", "status": "warning" if any(row["configurations"] for row in rows) else "pass", "message": "配置引用已记录，配置内容仍需重开验证"},
+        {"id": "pack-component-states", "status": "warning" if any(any(state in {"lightweight", "fully_lightweight", "suppressed", "internal_id_mismatch"} for state in row["load_states"]) for row in rows) else "pass", "message": "压缩、轻化和异常组件状态已纳入矩阵"},
+        {"id": "pack-associated-drawings", "status": "pass" if all(row["included"] for row in rows if row["reference_kind"] == "associated_drawing" and row["required"]) else "fail", "message": "已核对本机存在的同名关联工程图"},
+    ]
+    return {
+        "schema_version": "1.0",
+        "status": status,
+        "stage": "review",
+        "rows": rows,
+        "checks": checks,
+        "summary": {
+            "row_count": len(rows),
+            "required_count": len(required_rows),
+            "included_required_count": sum(row["included"] for row in required_rows),
+            "external_reference_count": sum(row["external_reference"] is True for row in rows),
+            "toolbox_candidate_count": sum(any(state in {"standard", "copied", "candidate"} for state in row["toolbox_states"]) for row in rows),
+            "configuration_reference_count": sum(len(row["configurations"]) for row in rows),
+            "suppressed_or_lightweight_count": sum(any(state in {"suppressed", "lightweight", "fully_lightweight"} for state in row["load_states"]) for row in rows),
+            "associated_drawing_count": sum(row["reference_kind"] == "associated_drawing" for row in rows),
+        },
+        "blocking_error_codes": blocking_codes,
+        "review_codes": review_codes,
+        "manual_review_required": True,
+        "retryable": bool(blocking_codes),
+        "error_code": blocking_codes[0] if blocking_codes else None,
+    }
+
+
 def _missing_dependency_paths(dependencies: list[str], outputs: list[dict[str, Any]]) -> list[str]:
     """@brief 按文件名检查原生 Pack and Go 输出是否缺少依赖文件。"""
     produced_names = {Path(item["path"]).name.casefold() for item in outputs}
@@ -674,6 +964,16 @@ def pack_and_go(
         raise FileExistsError(f"Pack and Go 目标目录非空，未允许覆盖: {target}")
 
     dependencies = _document_dependency_paths(model, source_path)
+    component_records = _collect_component_audit_records(model, source_path)
+    associated_drawings = _associated_drawing_paths(source_path, dependencies)
+    required_dependencies = _required_pack_dependency_paths(
+        dependencies,
+        component_records,
+        associated_drawings,
+        include_drawings=include_drawings,
+        include_toolbox_components=include_toolbox_components,
+        include_suppressed=include_suppressed,
+    )
     fallback_errors = []
     native_error: str | None = None
     result: dict[str, Any]
@@ -701,7 +1001,7 @@ def pack_and_go(
                 include_toolbox_components=include_toolbox_components,
                 include_suppressed=include_suppressed,
                 flatten=flatten,
-                dependencies=dependencies,
+                dependencies=required_dependencies,
             )
         except Exception as comtypes_exc:
             fallback_errors.append(f"comtypes: {comtypes_exc}")
@@ -712,18 +1012,31 @@ def pack_and_go(
                 "status_codes": [],
                 "outputs": [],
                 "produced_count": 0,
-                "enumeration_missing": dependencies,
+                "enumeration_missing": required_dependencies,
             }
 
-    missing_dependencies = _missing_dependency_paths(dependencies, result["outputs"])
+    native_outputs = list(result["outputs"])
+    native_missing_dependencies = _missing_dependency_paths(required_dependencies, native_outputs)
+    native_audit = build_pack_and_go_audit_matrix(
+        source_path,
+        dependencies,
+        component_records,
+        associated_drawings,
+        native_outputs,
+        include_drawings=include_drawings,
+        include_toolbox_components=include_toolbox_components,
+        include_suppressed=include_suppressed,
+    )
+    missing_dependencies = list(native_missing_dependencies)
     success = (
         bool(result["status_codes"])
         and all(code == 0 for code in result["status_codes"])
         and bool(result["outputs"])
         and not missing_dependencies
+        and not native_audit["blocking_error_codes"]
     )
     staged = None
-    native_status = "pass" if success else "blocked" if missing_dependencies and result["status_codes"] and all(code == 0 for code in result["status_codes"]) else "failed"
+    native_status = "pass" if success else "blocked" if (missing_dependencies or native_audit["blocking_error_codes"]) and result["status_codes"] and all(code == 0 for code in result["status_codes"]) else "failed"
     if success:
         status = "pass"
         stage = "save"
@@ -731,11 +1044,11 @@ def pack_and_go(
         retryable = False
         manual_review_required = True
         limitations = ["Pack and Go 产物仍需人工抽查外部引用、Toolbox 和工程图"]
-    elif missing_dependencies and fallback_policy == "stage_dependencies":
+    elif (missing_dependencies or native_audit["blocking_error_codes"]) and fallback_policy == "stage_dependencies":
         try:
             staged = _stage_pack_and_go_dependencies(
                 source_path,
-                dependencies,
+                required_dependencies,
                 target,
                 existing_files,
                 flatten=flatten,
@@ -770,7 +1083,7 @@ def pack_and_go(
             retryable = True
             manual_review_required = True
             limitations = ["SolidWorks 原生 Pack and Go 未枚举全部依赖，暂存回退也未完成"]
-    elif missing_dependencies and result["status_codes"] and all(code == 0 for code in result["status_codes"]):
+    elif (missing_dependencies or native_audit["blocking_error_codes"]) and result["status_codes"] and all(code == 0 for code in result["status_codes"]):
         # 严格原生策略：保留证据并阻止误交付。
         status = "blocked"
         stage = "review"
@@ -779,11 +1092,11 @@ def pack_and_go(
         manual_review_required = True
         limitations = ["SolidWorks 原生 Pack and Go 未枚举全部依赖；fallback_policy=blocked，未复制补齐"]
     else:
-        if fallback_policy == "stage_dependencies" and dependencies:
+        if fallback_policy == "stage_dependencies" and (required_dependencies or native_audit["blocking_error_codes"]):
             try:
                 staged = _stage_pack_and_go_dependencies(
                     source_path,
-                    dependencies,
+                    required_dependencies,
                     target,
                     existing_files,
                     flatten=flatten,
@@ -824,6 +1137,16 @@ def pack_and_go(
             retryable = True
             manual_review_required = False
             limitations = []
+    final_audit = build_pack_and_go_audit_matrix(
+        source_path,
+        dependencies,
+        component_records,
+        associated_drawings,
+        result["outputs"],
+        include_drawings=include_drawings,
+        include_toolbox_components=include_toolbox_components,
+        include_suppressed=include_suppressed,
+    )
     return {
         "success": success,
         "status": status,
@@ -842,8 +1165,13 @@ def pack_and_go(
         "outputs": result["outputs"],
         "produced_count": result["produced_count"],
         "dependencies": dependencies,
+        "required_dependencies": required_dependencies,
+        "component_audit": component_records,
+        "associated_drawings": associated_drawings,
+        "audit_matrix": final_audit,
+        "native_audit_matrix": native_audit,
         "missing_dependencies": missing_dependencies,
-        "native_missing_dependencies": _missing_dependency_paths(dependencies, result.get("outputs", [])) if staged is None else list(dependencies),
+        "native_missing_dependencies": native_missing_dependencies,
         "fallback_policy": fallback_policy,
         "fallback_used": staged is not None,
         "manifest": result.get("manifest"),

@@ -113,6 +113,14 @@ def _validate_batch_export(report: dict, expected_count: int) -> list[dict]:
 
 def _validate_pack_and_go(report: dict, expected_sources: set[str]) -> str:
     """@brief 校验原生 Pack and Go 或明确标记的依赖暂存回退。"""
+    audit = report.get("audit_matrix") or {}
+    if not audit.get("rows") or not audit.get("checks"):
+        raise RuntimeError(f"Pack and Go 缺少审计矩阵: {report}")
+    summary = audit.get("summary") or {}
+    if int(summary.get("required_count") or 0) < len(expected_sources):
+        raise RuntimeError(f"Pack and Go 必需文件审计数量不足: {summary}")
+    if audit.get("status") == "blocked" and not audit.get("blocking_error_codes"):
+        raise RuntimeError(f"Pack and Go 审计阻塞但缺少错误码: {audit}")
     if report.get("status") == "blocked" and report.get("error_code") == "SW_PACK_AND_GO_DEPENDENCY_ENUMERATION_INCOMPLETE":
         if any(code != 0 for code in report.get("status_codes", [])):
             raise RuntimeError(f"Pack and Go 阻塞但返回非零状态码: {report}")
@@ -127,6 +135,8 @@ def _validate_pack_and_go(report: dict, expected_sources: set[str]) -> str:
     missing = sorted(name for name in expected_sources if name.casefold() not in packaged_names)
     if missing:
         raise RuntimeError(f"Pack and Go 缺少引用文件: {missing}")
+    if audit.get("error_code") in {"SW_PACK_AUDIT_SOURCE_OUTPUT_MISSING", "SW_PACK_AUDIT_REQUIRED_FILE_MISSING"}:
+        raise RuntimeError(f"Pack and Go 审计发现必需文件漏包: {audit}")
     return "pilot" if report.get("status") == "pilot" else "pass"
 
 

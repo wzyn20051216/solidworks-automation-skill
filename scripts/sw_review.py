@@ -35,6 +35,92 @@ STANDARD_VIEWS = {
 }
 
 
+def _drawing_boxes_overlap(first, second, padding_m=0.001) -> bool:
+    """@brief 判断两个工程图二维边界框是否相交。"""
+    if not first or not second:
+        return False
+    required = {"left", "bottom", "right", "top"}
+    if not required <= set(first) or not required <= set(second):
+        return False
+    return not (
+        float(first["right"]) + padding_m <= float(second["left"])
+        or float(second["right"]) + padding_m <= float(first["left"])
+        or float(first["top"]) + padding_m <= float(second["bottom"])
+        or float(second["top"]) + padding_m <= float(first["bottom"])
+    )
+
+
+def review_drawing_layout(structure, *, padding_m=0.001) -> dict:
+    """@brief 复核视图、尺寸文字与标题栏的结构化碰撞证据。
+
+    该规则只能依据 SolidWorks 返回的包围盒筛出风险，不能替代 PDF/PNG 目视复核。
+    """
+    views = list(structure.get("views") or [])
+    dimensions = list(structure.get("dimensions") or [])
+    title_block = structure.get("title_block") or {}
+    title_box = title_block.get("box")
+    findings = []
+
+    def add_finding(code, severity, first_kind, first_name, second_kind, second_name):
+        """@brief 追加稳定字段的工程图碰撞记录。"""
+        findings.append({
+            "code": code,
+            "severity": severity,
+            "first": {"kind": first_kind, "name": str(first_name or "")},
+            "second": {"kind": second_kind, "name": str(second_name or "")},
+        })
+
+    for index, view in enumerate(views):
+        for other in views[index + 1:]:
+            if _drawing_boxes_overlap(view.get("box"), other.get("box"), padding_m):
+                add_finding("DRAWING_VIEW_OVERLAP", "fail", "view", view.get("name"), "view", other.get("name"))
+        if _drawing_boxes_overlap(view.get("box"), title_box, padding_m):
+            add_finding("DRAWING_VIEW_TITLE_BLOCK_INTRUSION", "fail", "view", view.get("name"), "title_block", "title_block")
+
+    for index, dimension in enumerate(dimensions):
+        for other in dimensions[index + 1:]:
+            if _drawing_boxes_overlap(dimension.get("box"), other.get("box"), padding_m):
+                add_finding("DRAWING_DIMENSION_TEXT_OVERLAP", "fail", "dimension", dimension.get("name"), "dimension", other.get("name"))
+        if _drawing_boxes_overlap(dimension.get("box"), title_box, padding_m):
+            add_finding("DRAWING_DIMENSION_TITLE_BLOCK_INTRUSION", "fail", "dimension", dimension.get("name"), "title_block", "title_block")
+        for view in views:
+            if dimension.get("view") == view.get("name"):
+                continue
+            if _drawing_boxes_overlap(dimension.get("box"), view.get("box"), padding_m):
+                add_finding("DRAWING_DIMENSION_OTHER_VIEW_INTRUSION", "warning", "dimension", dimension.get("name"), "view", view.get("name"))
+
+    view_boxes_complete = bool(views) and all(item.get("box") for item in views)
+    dimension_boxes_complete = bool(dimensions) and all(item.get("box") for item in dimensions)
+    checks = [
+        {"id": "drawing-view-count", "status": "pass" if len(views) >= 3 else "fail", "message": f"读取到 {len(views)} 个工程图视图"},
+        {"id": "drawing-view-boxes", "status": "pass" if view_boxes_complete else "warning", "message": "视图边界完整" if view_boxes_complete else "视图边界证据不完整"},
+        {"id": "drawing-dimension-boxes", "status": "pass" if dimension_boxes_complete else "warning", "message": "尺寸文字边界完整" if dimension_boxes_complete else "尺寸文字边界证据不完整"},
+        {"id": "drawing-title-block-box", "status": "pass" if title_box else "warning", "message": "标题栏区域可用于碰撞检查" if title_box else "缺少标题栏区域证据"},
+        {"id": "drawing-layout-collisions", "status": "fail" if findings else "pass", "message": f"发现 {len(findings)} 项布局碰撞" if findings else "未发现结构化布局碰撞"},
+    ]
+    if len(views) < 3:
+        status = "blocked"
+        error_code = "DRAWING_STANDARD_VIEWS_MISSING"
+    elif findings:
+        status = "review_required"
+        error_code = "DRAWING_LAYOUT_COLLISION_DETECTED"
+    elif not view_boxes_complete or not dimension_boxes_complete or not title_box:
+        status = "review_required"
+        error_code = "DRAWING_LAYOUT_EVIDENCE_INCOMPLETE"
+    else:
+        status = "pass"
+        error_code = None
+    return {
+        "status": status,
+        "stage": "review",
+        "checks": checks,
+        "findings": findings,
+        "manual_review_required": True,
+        "retryable": status != "pass",
+        "error_code": error_code,
+    }
+
+
 def _expand_path(path):
     """展开输出路径。"""
     return Path(os.path.expandvars(str(path))).expanduser().resolve()

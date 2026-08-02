@@ -10,18 +10,23 @@ class FakeReferencedModel:
 
 
 class FakeComponent:
-    def __init__(self, path, configuration, name, properties, excluded=False):
+    def __init__(self, path, configuration, name, properties, excluded=False, suppression=2, toolbox_type=0):
         self.path = str(path)
         self.ReferencedConfiguration = configuration
         self.Name2 = name
         self.ExcludeFromBOM = excluded
         self.model = FakeReferencedModel(properties)
+        self.model.Extension = type("Extension", (), {"ToolboxPartType": toolbox_type})()
+        self.suppression = suppression
 
     def GetPathName(self):
         return self.path
 
     def GetModelDoc2(self):
         return self.model
+
+    def GetSuppression(self):
+        return self.suppression
 
 
 class FakePackAndGo:
@@ -424,3 +429,106 @@ def test_pack_and_go_rejects_nonempty_target_by_default(tmp_path):
     else:
         raise AssertionError("nonempty target must require overwrite")
     assert (target / "keep.txt").read_text(encoding="utf-8") == "keep"
+
+
+def test_pack_audit_matrix_records_external_toolbox_configuration_and_lightweight(tmp_path):
+    """@brief 审计矩阵必须保留外部、Toolbox、配置和轻化组件的独立证据。"""
+    project = tmp_path / "project"
+    external = tmp_path / "vendor" / "toolbox" / "bolt.sldprt"
+    source = project / "assembly.sldasm"
+    drawing = project / "assembly.slddrw"
+    output_dir = tmp_path / "package"
+    project.mkdir()
+    external.parent.mkdir(parents=True)
+    output_dir.mkdir()
+    source.write_text("assembly", encoding="utf-8")
+    drawing.write_text("drawing", encoding="utf-8")
+    external.write_text("bolt", encoding="utf-8")
+    output_paths = []
+    for path in (source, drawing, external):
+        target = output_dir / path.name
+        target.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+        output_paths.append({"path": str(target), "produced_this_run": True})
+    component = FakeComponent(external, "M6x20", "bolt-1", {}, suppression=1, toolbox_type=1)
+    records = sw_delivery._collect_component_audit_records(FakeAssembly(source, [component]), str(source))
+
+    result = sw_delivery.build_pack_and_go_audit_matrix(
+        str(source), [str(external)], records, [str(drawing)], output_paths,
+        include_drawings=True, include_toolbox_components=True, include_suppressed=False,
+    )
+
+    bolt = next(row for row in result["rows"] if row["file_name"] == external.name)
+    assert result["status"] == "review_required"
+    assert result["blocking_error_codes"] == []
+    assert bolt["external_reference"] is True
+    assert bolt["configurations"] == ["M6x20"]
+    assert bolt["load_states"] == ["lightweight"]
+    assert bolt["toolbox_states"] == ["standard"]
+    assert result["summary"]["associated_drawing_count"] == 1
+
+
+def test_pack_audit_matrix_blocks_missing_associated_drawing(tmp_path):
+    """@brief include_drawings 为真时，同名真实工程图漏包必须阻断。"""
+    source = tmp_path / "assembly.sldasm"
+    drawing = tmp_path / "assembly.slddrw"
+    output = tmp_path / "package" / source.name
+    source.write_text("assembly", encoding="utf-8")
+    drawing.write_text("drawing", encoding="utf-8")
+    output.parent.mkdir()
+    output.write_text("assembly", encoding="utf-8")
+
+    result = sw_delivery.build_pack_and_go_audit_matrix(
+        str(source), [], [], [str(drawing)], [{"path": str(output), "produced_this_run": True}],
+        include_drawings=True, include_toolbox_components=True, include_suppressed=False,
+    )
+
+    assert result["status"] == "blocked"
+    assert result["error_code"] == "SW_PACK_AUDIT_ASSOCIATED_DRAWING_MISSING"
+    drawing_row = next(row for row in result["rows"] if row["reference_kind"] == "associated_drawing")
+    assert drawing_row["required"] is True
+    assert drawing_row["included"] is False
+
+
+def test_pack_audit_matrix_respects_toolbox_and_suppressed_options(tmp_path):
+    """@brief 未请求 Toolbox/压缩组件时，不得把对应缺文件误判为漏包。"""
+    source = tmp_path / "assembly.sldasm"
+    toolbox = tmp_path / "toolbox" / "bolt.sldprt"
+    suppressed = tmp_path / "hidden.sldprt"
+    output = tmp_path / "package" / source.name
+    source.write_text("assembly", encoding="utf-8")
+    toolbox.parent.mkdir()
+    toolbox.write_text("bolt", encoding="utf-8")
+    suppressed.write_text("hidden", encoding="utf-8")
+    output.parent.mkdir()
+    output.write_text("assembly", encoding="utf-8")
+    components = [
+        FakeComponent(toolbox, "M6", "bolt", {}, suppression=2, toolbox_type=1),
+        FakeComponent(suppressed, "默认", "hidden", {}, suppression=0, toolbox_type=0),
+    ]
+    records = sw_delivery._collect_component_audit_records(FakeAssembly(source, components), str(source))
+
+    result = sw_delivery.build_pack_and_go_audit_matrix(
+        str(source), [str(toolbox), str(suppressed)], records, [], [{"path": str(output), "produced_this_run": True}],
+        include_drawings=False, include_toolbox_components=False, include_suppressed=False,
+    )
+
+    dependency_rows = [row for row in result["rows"] if row["reference_kind"] == "model_dependency"]
+    assert result["blocking_error_codes"] == []
+    assert all(row["required"] is False for row in dependency_rows)
+
+
+def test_pack_and_go_report_exposes_stable_audit_matrix(tmp_path):
+    """@brief Pack and Go 公共结果必须附带原生与最终审计矩阵。"""
+    source = tmp_path / "assembly.sldasm"
+    part = tmp_path / "part.sldprt"
+    source.write_text("assembly", encoding="utf-8")
+    part.write_text("part", encoding="utf-8")
+    component = FakeComponent(part, "默认", "part-1", {})
+    model = FakeDependencyAssembly(source, [component], [part])
+
+    report = sw_delivery.pack_and_go(model, tmp_path / "package")
+
+    assert report["audit_matrix"]["schema_version"] == "1.0"
+    assert report["native_audit_matrix"]["summary"]["required_count"] == 2
+    assert report["component_audit"][0]["configuration"] == "默认"
+    assert report["associated_drawings"] == []
