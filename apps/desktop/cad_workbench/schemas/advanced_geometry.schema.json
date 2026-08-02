@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cadstudio.local/schemas/advanced-geometry-1.0.json",
+  "title": "CAD Studio Advanced Geometry Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "planId", "units", "entities", "operations"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "planId": { "$ref": "#/$defs/id" },
+    "units": { "const": "mm" },
+    "entities": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "type", "source"],
+        "properties": { "id": { "$ref": "#/$defs/id" }, "type": { "enum": ["profile", "path", "surface", "face", "edge", "solid", "direction"] }, "source": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "operations": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": true, "required": ["id", "type"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "type": { "enum": ["loft", "sweep", "knit", "thicken", "continuity_check", "draft", "parting", "core_cavity"] },
+          "continuity": { "enum": ["G0", "G1", "G2"] },
+          "toleranceMm": { "type": "number", "exclusiveMinimum": 0 },
+          "thicknessMm": { "type": "number", "exclusiveMinimum": 0 },
+          "angleDeg": { "type": "number", "exclusiveMinimum": 0, "maximum": 30 }
+        }
+      }
+    }
+  },
+  "$defs": { "id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$" } }
+}

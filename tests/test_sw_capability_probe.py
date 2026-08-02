@@ -28,11 +28,15 @@ def test_advanced_interfaces_do_not_inherit_unrelated_verified_levels(monkeypatc
     report = sw_capability_probe.probe_capabilities()
 
     assert report["capabilities"]["surface_modeling"]["manifest_capability_id"] == "surface_modeling"
-    assert report["capabilities"]["surface_modeling"]["implementation_status"] == "reference_only"
+    assert report["capabilities"]["surface_modeling"]["implementation_status"] == "pilot"
     assert report["capabilities"]["mold_tools"]["manifest_capability_id"] == "mold_tools"
-    assert report["capabilities"]["mold_tools"]["implementation_status"] == "not_implemented"
+    assert report["capabilities"]["mold_tools"]["implementation_status"] == "pilot"
     assert report["capabilities"]["routing"]["interfaces_found"] == ["IRouteManager", "IRouteProperty", "IAutoRoute"]
-    assert report["capabilities"]["routing"]["implementation_status"] == "not_implemented"
+    assert report["capabilities"]["routing"]["implementation_status"] == "pilot"
+    assert all(
+        report["capabilities"][capability]["implementation_status"] != "verified"
+        for capability in ("surface_modeling", "mold_tools", "routing")
+    )
     assert all(
         report["capabilities"][capability]["ready_for_unattended_use"] is False
         for capability in ("surface_modeling", "mold_tools", "routing")
