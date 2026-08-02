@@ -1,13 +1,13 @@
 # CAD Studio 用户说明书
 
-本文面向第一次使用 CAD Studio 的机械工程师、学生和设计人员。软件通过本机 Agent CLI 调用 AI，再由 AI 按 `solidworks-automation` skill 规划并控制 SolidWorks / AutoCAD。工程文件和任务记录默认保存在本机。
+本文面向第一次使用 CAD Studio 的机械工程师、学生和设计人员。CAD Studio 与 Skill/CLI/MCP 是平级入口，共用 CAD Core、任务协议、能力清单和证据系统；用户不安装桌面软件也可以直接运行 Skill/CLI/MCP。工程文件和任务记录默认保存在本机。
 
 ## 1. 软件能做什么
 
-- 从自然语言创建零件、外壳、夹具、钣金件和装配体。
+- 从自然语言规划并创建基础零件、外壳、夹具和装配体；钣金等未验证能力按能力清单进入人工复核或阻断。
 - 修改已有 SLDPRT、SLDASM、STEP、STL、DWG、DXF、PDF 或参考图片。
 - 创建通孔、盲孔、沉孔、沉头孔、螺纹孔、长圆孔、半圆槽和阵列孔。
-- 输出 STEP、STL、SLDPRT、SLDASM、DWG、DXF、PDF、PNG 和复核报告。
+- 无 CAD 软件时输出 `.cadstudio.json`、STL、OBJ、DXF、SVG、PDF、PNG 和复核报告；原生 SLDPRT/SLDASM/SLDDRW/DWG 需要对应 CAD 软件和已验证后端。
 - 自动选择 CAD 软件、材料、工艺和执行阶段，也允许用户手动指定。
 - 对综合工程执行“需求分析 -> 方案 -> 零件 -> 装配 -> 运动/干涉 -> 图纸 -> 交付”编排。
 - 通过人工审批和复核门禁，避免未经确认直接控制桌面 CAD 或交付错误文件。
@@ -46,7 +46,7 @@ CAD Studio 不附带模型额度，也不保存 API Key。模型账号、套餐�
 
 - Python 3.8 或更高版本，推荐 64 位 Python 3.11/3.12。
 - Python 依赖：`pywin32`、`comtypes`。
-- SolidWorks 2024-2026（主动验证）；2020-2023 仅兼容性支持。AutoCAD 2024-2026 为主动验证矩阵。
+- 当前真机首验基线为 SolidWorks 2024 和 AutoCAD 2024；2025-2026 是兼容性目标，完成对应真机回归前不标记为已验证。
 - Python、SolidWorks 和 AutoCAD 应与操作系统保持 64 位一致。
 
 安装 Python 依赖：
@@ -55,7 +55,28 @@ CAD Studio 不附带模型额度，也不保存 API Key。模型账号、套餐�
 python -m pip install "pywin32>=305" "comtypes>=1.2.0"
 ```
 
-没有安装 CAD 软件时，仍可使用需求整理、工程规划、脚本生成和知识检索，但不能声称已生成或验证原生 CAD 文件。
+### 2.4 无 CAD 软件开放格式后端
+
+没有安装 SolidWorks/AutoCAD 时，不再只停留在需求整理和脚本生成。当前无头后端可以从 NeutralCadDocument 真实写出 `.cadstudio.json`、STEP、IGES、BREP、STL、OBJ、GLB、DXF、SVG、PDF、PNG，并生成几何证据、Preview Manifest、回退图片和 SHA-256：
+
+```powershell
+python scripts\cad_studio.py write-open-format `
+  --input .\part.cadstudio.json `
+  --out-dir .\output `
+  --formats cadstudio step iges brep stl obj glb dxf svg pdf png
+```
+
+已有 DXF 可单独生成浏览器预览场景：
+
+```powershell
+python scripts\cad_studio.py preview-dxf `
+  --input .\drawing.dxf `
+  --output .\output\drawing.scene.json
+```
+
+该转换只读取 LINE、CIRCLE、ARC、LWPOLYLINE、POLYLINE、TEXT、MTEXT 和 DIMENSION，输入上限为 50 MB/200000 个实体；不支持实体会写入限制，不会执行脚本或覆盖旧场景文件。
+
+OCCT 当前覆盖盒体、圆柱、布尔合并和圆柱孔切除，回读实体有效性、体积、包围盒和拓扑数量；复杂特征仍返回 `blocked`。原生 SLDPRT/SLDASM/SLDDRW/DWG 缺少厂商软件或授权 SDK 时必须返回 `blocked`，不能通过改扩展名伪造。
 
 首次执行前建议运行：
 

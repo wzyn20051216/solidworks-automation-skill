@@ -1,13 +1,14 @@
 # SolidWorks MCP Server
 
-本目录提供一个本地 `stdio` MCP Server，把 `solidworks-automation-skill/scripts` 中的 Python COM 封装暴露为 MCP 工具。
+本目录提供一个本地 `stdio` MCP Server，同时暴露无 CAD 开放格式工具和 SolidWorks COM 白名单工具。MCP 与 CAD Studio、Skill、CLI 共用能力清单和数据协议。
 
 SolidWorks 是 Windows 桌面 COM 应用，不适合远程多客户端并发；因此本 server 默认使用 `stdio`，并在内部用全局锁串行执行所有 SolidWorks 操作。
 
 ## 环境要求
 
 - Windows 10/11
-- SolidWorks 已安装并至少启动过一次，完成 COM 注册
+- 仅调用 `cadstudio_write_open_format` 时不需要安装 SolidWorks/AutoCAD
+- 调用 `solidworks_*` 原生工具时需要 SolidWorks 已安装并至少启动过一次，完成 COM 注册
 - Python 3.8+
 - Python 依赖：
 
@@ -98,6 +99,8 @@ claude mcp add --scope user solidworks -- python C:\path\to\solidworks-automatio
 
 | 工具 | 说明 | 是否修改 SolidWorks |
 |---|---|---|
+| `cadstudio_write_open_format` | 从本地 `.cadstudio.json` 白名单写出 STEP/IGES/BREP/STL/OBJ/GLB/DXF/SVG/PDF/PNG、Preview Manifest/Scene 和几何/哈希证据 | 否 |
+| `cadstudio_build_dxf_preview_scene` | 只读 DXF 白名单转换为不覆盖旧文件的 `.scene.json` | 否 |
 | `solidworks_health_check` | 检查 Python 依赖、SolidWorks 检测、Motion 类型库和可选实时连接 | 否 |
 | `solidworks_connect` | 连接/启动 SolidWorks 并返回活动文档摘要 | 否 |
 | `solidworks_new_document` | 新建零件/装配体/工程图 | 是 |

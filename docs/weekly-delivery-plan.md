@@ -65,3 +65,34 @@
 - 交付中心使用本轮产物、领域证据、人工复核和阻断原因统一判定 `ready/review_required/blocked/failed/incomplete`，不再把文件存在或侧栏“已完成”直接等同于可交付。
 - 交付页新增本轮有效产物数、版本记录、SHA-256 变化摘要、产物追溯和 AutoCAD 后端诊断；模型、图纸、BOM 等分组共用一个预览，避免窄窗口重复渲染大预览。
 - `ai_team/delivery-gate-e2e.cjs` 在真实 Chromium 中验证 1440×900 待复核状态和 760×900 已批准状态，无横向溢出、无重复预览，并确保只有人工批准后显示“本轮可交付”。
+
+## 第 7–8 周结果：无头几何双后端
+
+- `scripts/headless_occt_service.py` 以独立子进程调用 OCP，真实写入 STEP、IGES、BREP、STL、OBJ、GLB，并回读有效性、体积、包围盒和拓扑统计；当前黄金样例为盒体、圆柱、布尔合并和圆柱孔切除。
+- `scripts/headless_cad_writer.py` 保留 `.cadstudio.json`、版本化输出、SHA-256 和 `producedThisRun` 账本；缺少 OCP 或遇到未支持特征时返回 `pilot/blocked`，不写部分网格冒充完整实体。
+- 7 项 OCP/开放格式回归和版本化不覆盖回归通过；复杂曲面、钣金、焊件和参数化特征仍未实现。
+
+## 第 9–12 周结果：无头二维写入
+
+- DXF 写入现在包含 `OUTLINE/HOLES/CENTER/DIMENSION/FRAME/TITLE/TEXT` 图层、真实线性/直径 DIMENSION、孔中心线和可选 A4/A3/A2/A1 GB/T 风格图框及标题栏字段。
+- SVG、PDF、PNG 默认从同一份 DXF 通过 ezdxf/matplotlib 渲染，依赖缺失时使用明确标注的简化回退；不写入 DWG。
+- 10 项二维写入、DXF 审查和 PreviewScene 回归通过；图框布局、中文字体和最终制造性仍需工程师目视复核，能力保持 `pilot`。
+
+## 第 13–16 周结果：JS 预览第一版
+
+- `ModelViewport` 支持 GLB/GLTF/STL/OBJ 的按需 Three.js 加载、标准视图、正交/透视、选择、按需渲染和资源释放；WebGL 不可用或模型解码失败时切换 Manifest 的 PNG 回退。
+- `DxfViewport` 使用 Worker 解析 DXF/PreviewScene，支持图层开关、实体选择、尺寸/文字和 Evidence 引用；`.scene.json` 已纳入前端格式路由。
+- 真实 Chromium E2E 覆盖桌面、760px 窄窗和 390px 移动窗口，检查 Canvas 像素、无横向溢出、来源标记和回退图；尚未完成 20 MB/30 FPS 的独立性能基准，不宣称达到该指标。
+
+## 第 17–20 周结果：DXF 检视台与演示边界
+
+- 新增 `scripts/dxf_preview_scene.py`，只读白名单解析 LINE/CIRCLE/ARC/LWPOLYLINE/POLYLINE/TEXT/MTEXT/DIMENSION，限制 50 MB 和 200,000 实体；不支持实体只记录 warnings，不执行脚本。
+- CLI 新增 `cad-studio preview-dxf`，MCP 新增 `cadstudio_build_dxf_preview_scene`；输出必须是新建 `.scene.json`，拒绝覆盖旧文件。
+- 帮助页加入七个固定演示场景（安装板、带孔支架、CPU 外壳、小型装配体、GB/T 图框、FEA 云图示例、Routing 路径示例），全部标记 `demo-showcase/isDemo`，不会进入交付判断。
+- E2E 同时验证后端 Scene JSON、原始 DXF Worker、七个演示样例和 WebGL PNG 回退；FEA 云图和 Routing 路径只是教学演示，真实求解/原生 Routing 继续为 `reference_only/not_implemented`。
+
+## 1–20 周审计结论
+
+- 已有真实代码和自动化证据的范围：项目/交付门禁、开放格式几何、基础二维工程图结构、Preview Manifest/Scene、桌面/Skill/CLI/MCP 双入口和浏览器预览回退。
+- 仍需真实 CAD 自托管机或人工复核的范围：SolidWorks 工程图/BOM 视觉质量、AutoCAD 原生 DWG、复杂曲面、FEA、Routing，以及 20 MB/30 FPS 性能指标。
+- 未通过上述回归的能力不会显示为已完成，也不会被交付门禁当作本轮产物。

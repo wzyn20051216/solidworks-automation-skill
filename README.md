@@ -4,9 +4,9 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![SolidWorks](https://img.shields.io/badge/SolidWorks-2024--2026-red.svg)](https://www.solidworks.com/)
 
-通过 Python COM 接口自动化控制 SolidWorks 的本地优先工具集，可被 Codex / Claude / OpenClaw 等代理复用。实际可执行范围以根目录 `capabilities.yaml` 为唯一真源；未验证能力不会被包装成已完成的无人值守交付。
+CAD Studio 桌面端与 Skill/CLI/MCP 是平级入口：既可通过 Python COM 控制本机 SolidWorks/AutoCAD，也可在没有 CAD 软件时使用无头后端写入开放格式。实际可执行范围以根目录 `capabilities.yaml` 为唯一真源；未验证能力不会被包装成已完成的无人值守交付。
 
-> 可靠性边界：SolidWorks 2024–2026 是当前主动验证矩阵，2020–2023 仅兼容性支持。配置/设计表、钣金、焊件、Simulation/FEA 和 Routing 当前为 `reference_only` 或 `not_implemented`，请在人工复核模式下使用。
+> 可靠性边界：当前真机首验基线为 SolidWorks 2024 和 AutoCAD 2024；2025–2026 是兼容性目标，未完成对应真机回归前不标记为已验证。配置/设计表、钣金、焊件、Simulation/FEA 和 Routing 当前为 `reference_only` 或 `not_implemented`。
 
 ### 运行前诊断
 
@@ -25,6 +25,8 @@ python scripts/cad_studio.py status
 python scripts/cad_studio.py run --enable-mock
 python scripts/cad_studio.py retry <job-id>
 python scripts/cad_studio.py cancel <job-id>
+python scripts/cad_studio.py write-open-format --input .\part.cadstudio.json --out-dir .\output
+python scripts/cad_studio.py preview-dxf --input .\drawing.dxf --output .\output\drawing.scene.json
 ```
 
 <p align="center">
@@ -46,6 +48,7 @@ python scripts/cad_studio.py cancel <job-id>
 ### ✨ 特性
 
 - 🔧 **零件建模** - 草图绘制、拉伸、旋转、倒角、圆角、阵列等
+- 🧱 **无 CAD 开放格式后端** - OCCT/OCP 隔离进程真实写入 STEP、IGES、BREP、STL、OBJ、GLB，二维后端写入 DXF、SVG、PDF、PNG；复杂特征按能力门禁阻断
 - 🧠 **VibeCAD 参数化规划** - 将自然语言需求转换为设计计划、制造规则检查、SolidWorks API 执行摘要和审查门禁
 - 🧵 **螺纹孔建模** - 攻丝底孔、M3/M4/M5/M6/M8 盲孔/通孔、孔口倒角、装饰螺纹与可见螺旋线兜底
 - 🧾 **AutoCAD / DWG 子技能** - DXF 无头预览与结构审查可用；AutoCAD 原生 DWG 绘图仍受本机 ActiveX 代理稳定性门禁，详见能力清单
@@ -66,9 +69,11 @@ python scripts/cad_studio.py cancel <job-id>
 ### 📋 环境要求
 
 - **操作系统**: Windows 10/11
-- **SolidWorks**: 2024-2026 主动验证；2020-2023 兼容性支持
+- **SolidWorks/AutoCAD**: 原生格式操作需要合法安装；当前真机首验版本为 2024
 - **Python**: 3.8 或更高版本
 - **核心依赖库**: `pywin32`、`comtypes`
+- **无头写入**: 不要求安装 SolidWorks/AutoCAD；DXF 需要 `ezdxf`
+- **OCCT 几何后端**: 安装 `requirements-occt.txt` 后启用 STEP/IGES/BREP/GLB 和布尔孔切除
 - **网格转换可选依赖**: `trimesh`、`pygltflib`、`numpy`、`Pillow`
 
 > 运行前可执行 `python scripts/sw_preflight.py`。如果缺少 `comtypes` / `win32com`，脚本会先询问是否授权 AI 自动配置本地环境；如果未检测到 SolidWorks，会直接停止并提示先手动安装 SolidWorks。
@@ -212,7 +217,7 @@ solidworks-automation-skill/
 
 ### 🖥️ CAD Studio 桌面软件
 
-正式桌面端位于 `apps/workbench-ui/`，采用 React + Tauri。它支持 Codex、Claude Code、Gemini CLI、OpenCode，读取 CC Switch 模型路由，并通过本地 Python worker 执行 SolidWorks / AutoCAD skill、阶段编排、审批、产物账本和人工复核。
+正式桌面端位于 `apps/workbench-ui/`，采用 React + Tauri。它与 Skill/CLI/MCP 共用任务协议、能力清单和证据系统，不是 Skill 的必需前置。没有 CAD 软件时可选择无头开放格式后端；需要 SLDPRT/SLDASM/SLDDRW/DWG 时再路由到对应原生后端。
 
 开发预览：
 

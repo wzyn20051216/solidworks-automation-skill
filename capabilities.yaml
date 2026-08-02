@@ -1,8 +1,8 @@
 {
   "schema_version": "1.0",
   "verified_versions": {
-    "solidworks": ["2024", "2025", "2026"],
-    "autocad": ["2024", "2025", "2026"]
+    "solidworks": ["2024"],
+    "autocad": ["2024"]
   },
   "capabilities": [
     {
@@ -20,7 +20,7 @@
       "label": "参数化零件与基础特征",
       "level": "verified",
       "backends": ["solidworks-com"],
-      "verified_versions": ["2024", "2025", "2026"],
+      "verified_versions": ["2024"],
       "dependencies": ["SolidWorks", "pywin32", "comtypes"],
       "limitations": ["复杂曲面、模具和高级拓扑引用不属于无人值守能力"],
       "allowed_modes": ["interactive", "reviewed"]
@@ -30,7 +30,7 @@
       "label": "孔槽、螺纹、圆角与倒角",
       "level": "verified",
       "backends": ["solidworks-com"],
-      "verified_versions": ["2024", "2025", "2026"],
+      "verified_versions": ["2024"],
       "dependencies": ["SolidWorks", "pywin32", "comtypes"],
       "limitations": ["每个孔槽必须有规格、数量和定位证据"],
       "allowed_modes": ["interactive", "reviewed"]
@@ -70,7 +70,7 @@
       "label": "装配体与配合",
       "level": "verified",
       "backends": ["solidworks-com"],
-      "verified_versions": ["2024", "2025", "2026"],
+      "verified_versions": ["2024"],
       "dependencies": ["SolidWorks", "pywin32", "comtypes"],
       "limitations": ["必须回读配合特征和自由度；不等于完整干涉或受力分析"],
       "allowed_modes": ["interactive", "reviewed"]
@@ -80,7 +80,7 @@
       "label": "旋转马达 Motion Study",
       "level": "pilot",
       "backends": ["solidworks-com"],
-      "verified_versions": ["2024", "2025", "2026"],
+      "verified_versions": ["2024"],
       "dependencies": ["SolidWorks Motion Study 加载项"],
       "limitations": ["当前只验证旋转马达和结果审计，不承诺接触、阻尼、受力和完整 FEA"],
       "allowed_modes": ["reviewed"]
@@ -90,7 +90,7 @@
       "label": "工程图、尺寸链与 BOM",
       "level": "pilot",
       "backends": ["solidworks-com", "autocad-com"],
-      "verified_versions": ["2024", "2025", "2026"],
+      "verified_versions": ["2024"],
       "dependencies": ["SolidWorks 或 AutoCAD"],
       "limitations": ["图框、标题栏、尺寸链、孔表和 GB/T 风格必须人工目视复核"],
       "allowed_modes": ["interactive", "reviewed"]
@@ -99,10 +99,24 @@
       "id": "export_delivery",
       "label": "文件导出与交付包",
       "level": "verified",
-      "backends": ["solidworks-com", "autocad-com", "local-filesystem"],
-      "verified_versions": ["2024", "2025", "2026"],
+      "backends": ["solidworks-com", "autocad-com", "headless-open-format", "local-filesystem"],
+      "verified_versions": ["2024"],
       "dependencies": ["目标 CAD 软件或对应无头转换器"],
       "limitations": ["专有格式仍需目标 CAD 原生打开复核"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "headless_open_format_writing",
+      "label": "无 CAD 开放格式写入",
+      "level": "pilot",
+      "backends": ["headless-occt", "headless-open-format", "local-python", "ezdxf"],
+      "verified_versions": [],
+      "dependencies": ["python", "cadquery-ocp", "trimesh", "ezdxf"],
+      "limitations": [
+        "当前真实写入 .cadstudio.json、STEP、IGES、BREP、STL、OBJ、GLB、DXF、SVG、PDF、PNG，并生成几何与 SHA-256 证据",
+        "OCCT 当前覆盖盒体、圆柱、布尔合并和圆柱孔切除；复杂特征仍返回 blocked",
+        "不会伪造 SLDPRT、SLDASM、SLDDRW 或 DWG；FEA、安全认证和制造性结论不由几何写入器提供"
+      ],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {
@@ -172,7 +186,17 @@
       "backends": ["ezdxf"],
       "verified_versions": [],
       "dependencies": ["可选 ezdxf"],
-      "limitations": ["只读 DXF；不能读取或写入 DWG，不能替代 AutoCAD 原生 DWG/PDF 复核"],
+      "limitations": ["只读 DXF；可生成受实体和文件大小限制的 PreviewScene JSON 与 PNG；不能读取或写入 DWG，不能替代 AutoCAD 原生 DWG/PDF 复核"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "dxf_preview_scene",
+      "label": "DXF 安全 PreviewScene 转换",
+      "level": "pilot",
+      "backends": ["ezdxf", "local-python"],
+      "verified_versions": [],
+      "dependencies": ["python", "ezdxf"],
+      "limitations": ["只读白名单实体；输入上限 50 MB/200000 实体；不支持实体只记录 warnings；输出不得覆盖旧场景文件"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {

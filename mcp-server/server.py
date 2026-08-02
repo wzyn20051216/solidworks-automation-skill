@@ -147,6 +147,9 @@ class ExportFormat(str, Enum):
     DXF = "dxf"
 
 
+HEADLESS_OPEN_FORMATS = {"cadstudio", "step", "iges", "brep", "stl", "obj", "glb", "dxf", "svg", "pdf", "png"}
+
+
 class BasicPartShape(str, Enum):
     """Low-risk basic part primitives exposed over MCP."""
 
@@ -183,6 +186,58 @@ class SolidWorksConnectInput(BaseInput):
     visible: bool = Field(default=True, description="Whether a newly started SolidWorks instance should be visible.")
     wait_seconds: int = Field(default=5, ge=0, le=60, description="Seconds to wait after starting SolidWorks.")
     response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+
+class CadStudioOpenFormatInput(BaseInput):
+    """Input for no-CAD open-format export from a NeutralCadDocument."""
+
+    input_path: str = Field(..., min_length=1, description="Absolute .cadstudio.json NeutralCadDocument path.")
+    output_dir: str = Field(..., min_length=1, description="Absolute output directory for open-format artifacts.")
+    formats: list[str] = Field(default_factory=lambda: ["cadstudio", "step", "iges", "brep", "stl", "obj", "glb", "dxf", "svg", "pdf", "png"], min_length=1, max_length=12)
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+    @field_validator("input_path")
+    @classmethod
+    def input_path_must_exist(cls, value: str) -> str:
+        path = Path(os.path.expandvars(value)).expanduser()
+        if path.suffix.lower() != ".json" or not path.is_file():
+            raise ValueError(f"Input must be an existing .cadstudio.json file: {value}")
+        return value
+
+    @field_validator("formats")
+    @classmethod
+    def formats_must_be_whitelisted(cls, values: list[str]) -> list[str]:
+        normalized = [value.lower().lstrip(".") for value in values]
+        unsupported = [value for value in normalized if value not in HEADLESS_OPEN_FORMATS]
+        if unsupported:
+            raise ValueError("Unsupported open formats: " + ", ".join(unsupported))
+        return normalized
+
+
+class CadStudioDxfPreviewInput(BaseInput):
+    """Input for read-only DXF to PreviewScene conversion."""
+
+    source_path: str = Field(..., min_length=1, description="Absolute existing DXF path.")
+    output_path: str = Field(..., min_length=1, description="Absolute non-existing .scene.json output path.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+    @field_validator("source_path")
+    @classmethod
+    def source_must_be_existing_dxf(cls, value: str) -> str:
+        path = Path(os.path.expandvars(value)).expanduser()
+        if path.suffix.lower() != ".dxf" or not path.is_file():
+            raise ValueError(f"Source must be an existing DXF file: {value}")
+        return value
+
+    @field_validator("output_path")
+    @classmethod
+    def output_must_be_new_scene_json(cls, value: str) -> str:
+        path = Path(os.path.expandvars(value)).expanduser()
+        if not path.name.lower().endswith(".scene.json"):
+            raise ValueError("Output must use the .scene.json suffix")
+        if path.exists():
+            raise ValueError(f"Refusing to overwrite existing PreviewScene: {path.name}")
+        return value
 
 
 class SolidWorksHealthCheckInput(BaseInput):
@@ -620,6 +675,61 @@ def _run_locked(operation, response_format: ResponseFormat, load_automation: boo
             return _result(payload, response_format)
         except Exception as exc:
             return _tool_error(exc, response_format)
+
+
+@mcp.tool(
+    name="cadstudio_write_open_format",
+    title="Write No-CAD Open Format Artifacts",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+def cadstudio_write_open_format(params: CadStudioOpenFormatInput) -> str:
+    """Write STEP/IGES/BREP/STL/OBJ/GLB/DXF/SVG/PDF/PNG without SolidWorks or AutoCAD."""
+
+    def op():
+        from headless_cad_writer import export_headless
+
+        input_path = Path(os.path.expandvars(params.input_path)).expanduser().resolve()
+        output_dir = Path(os.path.expandvars(params.output_dir)).expanduser().resolve()
+        return export_headless(input_path, output_dir, params.formats)
+
+    return _run_locked(op, params.response_format, load_automation=False)
+
+
+@mcp.tool(
+    name="cadstudio_build_dxf_preview_scene",
+    title="Build Safe DXF Preview Scene",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+def cadstudio_build_dxf_preview_scene(params: CadStudioDxfPreviewInput) -> str:
+    """Convert an existing DXF into a whitelisted PreviewScene JSON without running scripts."""
+
+    def op():
+        from dxf_preview_scene import dxf_to_preview_scene
+
+        source = Path(os.path.expandvars(params.source_path)).expanduser().resolve()
+        output = Path(os.path.expandvars(params.output_path)).expanduser().resolve()
+        scene = dxf_to_preview_scene(source, output)
+        return {
+            "status": "pass",
+            "backend": "ezdxf-preview-scene",
+            "source": source.name,
+            "output": str(output),
+            "entityCount": len(scene["entities"]),
+            "layerCount": len(scene["layers"]),
+            "limitations": scene["limitations"],
+        }
+
+    return _run_locked(op, params.response_format, load_automation=False)
 
 
 @mcp.tool(

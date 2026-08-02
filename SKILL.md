@@ -10,7 +10,7 @@ metadata: { "openclaw": { "homepage": "https://github.com/wzyn20051216/solidwork
 
 ### 环境要求
 
-- Windows 系统 + SolidWorks 已安装并运行
+- Windows 系统；原生 SolidWorks 格式需要 SolidWorks，开放格式无头写入不要求安装 CAD 软件
 - Python 3.8+ + `pywin32` / `comtypes`
 - MCP/工具化调用需要 `mcp` / `pydantic`
 - 处理 GLB/GLTF/OBJ/STL 网格参考模型时，可能还需要 `trimesh` / `pygltflib` / `numpy` / `Pillow`
@@ -32,12 +32,21 @@ python SKILL_DIR/scripts/cad_studio.py doctor
 
 `capabilities.yaml` 是 Skill、MCP、队列和 UI 共用的能力唯一真源。能力等级为 `verified`、`pilot`、`reference_only` 或 `not_implemented`；后两者不得作为无人值守交付。
 
+### 双入口与双后端
+
+- CAD Studio 与 Skill/CLI/MCP 是平级入口，共用 Automation Job、NeutralCadDocument、Preview Manifest、Evidence Graph 和能力清单。
+- 检测不到 SolidWorks/AutoCAD 时，只阻断 `SLDPRT/SLDASM/SLDDRW/DWG` 等原生格式；开放格式任务优先路由到 `headless_open_format_writing`。
+- 无头写入使用 `scripts/headless_cad_writer.py`；OCCT/OCP 隔离进程真实写入 STEP、IGES、BREP、STL、OBJ、GLB，二维后端写入 DXF、SVG、PDF、PNG，并生成几何与 SHA-256 证据。
+- DXF 交付会额外生成 `preview_scene`；已有 DXF 可通过 `python scripts/cad_studio.py preview-dxf --input drawing.dxf --output drawing.scene.json` 或 MCP `cadstudio_build_dxf_preview_scene` 转成受限 PreviewScene。该命令只读白名单实体并拒绝覆盖旧文件。
+- OCCT 当前覆盖盒体、圆柱、布尔合并和圆柱孔切除；复杂特征或缺少 OCP 运行时时保持 `blocked`。禁止通过改扩展名或空文件伪造支持。
+- `delivery-preview` 只允许显示当前任务真实产物；固定样例必须标记 `demo-showcase` 与 `isDemo: true`，不得进入交付判断。
+
 规则：
 
 1. 检测到缺少 `comtypes` / `win32com` / `pythoncom` 时，向用户弹出友好确认：
    `检测到当前 Python 环境缺少 comtypes / win32com 库，是否授权 AI 自动为您配置本地环境？[Y/N]`
 2. 用户输入 `Y` / `yes` 后，代理可在本地 shell 中自动执行 `python -m pip install "pywin32>=305" "comtypes>=1.2.0"` 补齐依赖；用户拒绝时停止并给出手动安装命令。
-3. 检测不到 SolidWorks 安装或 COM 注册时，直接停止，不要继续生成或执行 CAD 脚本；提示用户：需要先手动安装 SolidWorks，并至少启动一次完成 COM 注册。
+3. 检测不到 SolidWorks 安装或 COM 注册时，停止原生 SolidWorks 操作；若原生格式并非必需且 `fallbackPolicy=allow_open_formats`，继续执行无头开放格式后端，不要把整个任务误标为失败。
 
 ### Python 依赖提醒
 
@@ -82,6 +91,7 @@ session.export(model, r"C:\temp\cylinder.step")
 | 需求 | 脚本 | 参考文档 |
 |---|---|---|
 | 入口自检与依赖补齐 | `scripts/sw_preflight.py` | `references/troubleshooting.md` |
+| 无 CAD 开放格式写入 | `scripts/headless_cad_writer.py`、`scripts/cad_studio.py write-open-format` | `capabilities.yaml`、公共 CAD Core Schema |
 | 高级能力/类型库探测 | `scripts/sw_capability_probe.py` | `references/complex-mechanical-routing.md` |
 | 多模型宏生成防护 | `scripts/sw_macro_guard.py` | `references/openclaw.md` |
 | 友好会话 API | `scripts/sw_session.py` | - |
@@ -130,9 +140,10 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 
 ## 使用流程
 
-1. 先运行 `sw_preflight.py`：缺依赖则请求用户授权自动安装；缺 SolidWorks 则停止并提示手动安装。
-2. 优先用 `SolidWorksSession()` 管理连接、打开、新建、保存、导出。
-3. 需要底层控制时再组合 `sw_connect.py`、`sw_part.py` 等函数。
+1. 先根据 `preferredBackend`、`requiredOutputs`、`nativeFormatRequired` 和 `fallbackPolicy` 判定后端；不要先假定必须有 SolidWorks。
+2. 需要原生 SolidWorks 格式时运行 `sw_preflight.py`；缺依赖则请求用户授权自动安装，缺 SolidWorks 则只阻断原生阶段。
+3. 不需要原生格式或允许开放格式回退时，运行 `python scripts/cad_studio.py write-open-format --input model.cadstudio.json --out-dir output`。
+4. 原生 SolidWorks 路线优先用 `SolidWorksSession()` 管理连接、打开、新建、保存、导出；需要底层控制时再组合 `sw_connect.py`、`sw_part.py` 等函数。
 4. 当用户需求偏自然语言、参数不完整或需要“行业知识库 + 提示词模板 + 参数化设计计划”时，先读取 `subskills/solidworks-vibecad/SKILL.md`，生成 `design_plan.json` 和执行摘要。
 5. 圆角/倒角很多的 CNC 件、安装座、连接块、支架，先读取 `subskills/solidworks-fillet-chamfer-cnc/SKILL.md`，按“基础体 -> 外轮廓圆角/倒角 -> 孔槽切除 -> 孔口倒角 -> 审查”的稳定顺序执行。
 6. 螺丝孔、螺纹孔、攻牙孔、M3/M4/M5/M6/M8 盲孔或通孔任务，先读取 `subskills/solidworks-threaded-holes/SKILL.md`；默认按“攻丝底孔 -> 尝试 Thread/CosmeticThread -> 可见 3D 螺旋线兜底 -> 孔口倒角 -> 属性和审查”的稳定路线执行。
@@ -186,7 +197,7 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 1. 读取 `mcp-server/README.md`。
 2. 若用户要求自动配置 MCP，优先运行多客户端注册器：`powershell -ExecutionPolicy Bypass -File mcp-server/register_all_ai_mcp.ps1 -InstallDependencies`；它会尝试注册 Codex、Claude Code、Claude Desktop、Cursor、Windsurf。
 3. 使用本地 `stdio` MCP server：`python mcp-server/server.py`。
-4. 工具调用优先走 `solidworks_health_check`、`solidworks_create_basic_part`、`solidworks_create_hole_feature`、`solidworks_inspect_hole_features`、`solidworks_add_component`、`solidworks_add_coincident_mate`、`solidworks_add_distance_mate`、`solidworks_add_concentric_mate`、`solidworks_set_component_fixed`、`solidworks_update_dimension`、`solidworks_set_custom_properties`、`solidworks_batch_export_files`、`solidworks_export_assembly_bom`、`solidworks_pack_and_go`、`solidworks_export_active`、`solidworks_review_active`、`solidworks_add_rotary_motor`、`solidworks_inspect_motion_studies`、`solidworks_validate_motion_study`。
+4. 无 CAD 开放格式写入优先调用 `cadstudio_write_open_format`；SolidWorks 原生操作再调用 `solidworks_health_check`、`solidworks_create_basic_part`、`solidworks_create_hole_feature`、`solidworks_inspect_hole_features`、`solidworks_add_component`、`solidworks_add_coincident_mate`、`solidworks_add_distance_mate`、`solidworks_add_concentric_mate`、`solidworks_set_component_fixed`、`solidworks_update_dimension`、`solidworks_set_custom_properties`、`solidworks_batch_export_files`、`solidworks_export_assembly_bom`、`solidworks_pack_and_go`、`solidworks_export_active`、`solidworks_review_active`、`solidworks_add_rotary_motor`、`solidworks_inspect_motion_studies`、`solidworks_validate_motion_study`。
 5. 不要暴露任意 Python/VBA 执行工具；新增 MCP 工具时应复用 `scripts/sw_*.py` 中已验证封装。
 6. SolidWorks COM 操作必须串行执行；MCP server 内部已使用全局锁降低桌面会话冲突。
 7. 基准 demo 使用 `examples/08_mini_fan_motion_assembly.py`；它验证自动建模、装配、Mate 和 Motion Study，不承诺圆角/倒角外观完美。

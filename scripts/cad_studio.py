@@ -123,6 +123,13 @@ def main(argv: list[str] | None = None) -> int:
     cancel.add_argument("job_id")
     diagnostics = sub.add_parser("export-diagnostics")
     diagnostics.add_argument("--output", type=Path, default=Path.cwd() / "cad-studio-diagnostics.zip")
+    write_open = sub.add_parser("write-open-format")
+    write_open.add_argument("--input", type=Path, required=True, help="NeutralCadDocument .cadstudio.json")
+    write_open.add_argument("--out-dir", type=Path, required=True)
+    write_open.add_argument("--formats", nargs="+", default=["cadstudio", "step", "iges", "brep", "stl", "obj", "glb", "dxf", "svg", "pdf", "png"])
+    preview_dxf = sub.add_parser("preview-dxf")
+    preview_dxf.add_argument("--input", type=Path, required=True, help="只读 DXF 输入")
+    preview_dxf.add_argument("--output", type=Path, required=True, help="不覆盖的 .scene.json 输出")
     args = parser.parse_args(argv)
 
     if args.command == "doctor":
@@ -160,6 +167,26 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "export-diagnostics":
         path = create_diagnostic_bundle(args.output)
         print(json.dumps({"status": "created", "path": path.name}, ensure_ascii=False))
+        return 0
+    if args.command == "write-open-format":
+        from headless_cad_writer import export_headless
+
+        result = export_headless(args.input, args.out_dir, args.formats)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result.get("status") in {"pass", "pilot"} else 1
+    if args.command == "preview-dxf":
+        from dxf_preview_scene import dxf_to_preview_scene
+
+        scene = dxf_to_preview_scene(args.input, args.output)
+        print(json.dumps({
+            "status": "pass",
+            "backend": "ezdxf-preview-scene",
+            "input": args.input.name,
+            "output": str(args.output.resolve()),
+            "entityCount": len(scene["entities"]),
+            "layerCount": len(scene["layers"]),
+            "limitations": scene["limitations"],
+        }, ensure_ascii=False, indent=2))
         return 0
     return 2
 
