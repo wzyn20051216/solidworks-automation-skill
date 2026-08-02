@@ -88,18 +88,19 @@ def batch_convert(sw, input_dir, output_dir, input_ext=".sldprt", output_ext=".s
 
 ## Pack and Go
 
-`scripts/sw_delivery.py::pack_and_go()` 使用 SolidWorks 原生 `IModelDocExtension.GetPackAndGo()`、`IPackAndGo.SetSaveToName()` 和 `IModelDocExtension.SavePackAndGo()`。这些签名已由本机 SolidWorks 2024 Interop 与官方 API Help 交叉核对。
+`scripts/sw_delivery.py::pack_and_go()` 使用 SolidWorks 原生 `IModelDocExtension.GetPackAndGo()`、`IPackAndGo.SetSaveToName()` 和 `IModelDocExtension.SavePackAndGo()`。这些签名已由本机 SolidWorks 2024/2026 Interop、类型库与官方 API Help 交叉核对。
 
-兼容性说明：官方与 Interop 都把 `GetPackAndGo()` 暴露为零参数返回 `IPackAndGo`；但本机 SW2024 + pywin32 运行时对象会报“非选择性的参数”。封装函数会先走 pywin32 官方零参数路径，失败后改用 `comtypes` 早绑定调用原生 Pack and Go，并保留 pywin32 错误上下文。
+兼容性说明：官方与 Interop 都把 `GetPackAndGo()` 暴露为零参数返回 `IPackAndGo`；但本机 SW2024/2026 + pywin32 运行时对象会报“非选择性的参数”。封装函数会先走 pywin32 官方零参数路径，失败后改用 `comtypes` 早绑定调用原生 Pack and Go，并保留 pywin32 错误上下文。`comtypes` 优先附着活动实例，只有确认由本次回退创建的实例才允许退出。
 
 安全边界：
 
 1. 当前文档必须已经保存到磁盘。
 2. 目标目录非空时默认拒绝；只有显式 `overwrite=True` 才继续。
-3. 原生清单完整时不自行复制引用文件；若原生清单不完整且 `fallback_policy=stage_dependencies`（默认），才按 `GetDependencies2` 返回的实际路径生成明确标记的暂存包。
+3. `GetDocumentNames()` 的保存前枚举不作为最终成功条件；先执行 `SavePackAndGo()`，再以本轮实际落盘文件和 `GetDependencies2` 做依赖审计。`AddExternalDocuments` 用于外部附加文件，不用于补装配体原生零件。
 4. 返回逐文件大小、SHA-256 和 `produced_this_run`；状态码非零、本轮没有真实文件或暂存源文件缺失时不得标记成功。
-5. 本机 SW2024 真机回归显示：装配依赖 API 能看到 `.SLDPRT` 引用，但原生 `IPackAndGo.GetDocumentNames()` 可能只返回顶层 `.SLDASM`。此时报告保留 `native_missing_dependencies`，暂存包使用 `backend=solidworks-native+staged_dependencies`、`status=pilot`，并生成 `cadstudio-pack-manifest.json`。
-6. 需要严格原生语义时传 `fallback_policy=blocked`；无论哪种模式，外部引用、Toolbox、配置、压缩组件和工程图仍需人工抽查。
+5. 本机 SW2026 SP01.1 连续三次回归中，保存前原生枚举和实际落盘均包含 1 个 `.SLDASM` 与 2 个 `.SLDPRT`，`document_count=3`、状态码均为 0、`missing_dependencies=[]`，未使用暂存回退。
+6. 若其他版本或复杂装配在实际落盘后仍缺依赖，默认 `fallback_policy=stage_dependencies` 按 `GetDependencies2` 生成 `backend=solidworks-native+staged_dependencies`、`status=pilot` 的暂存包和 `cadstudio-pack-manifest.json`；严格原生语义使用 `fallback_policy=blocked`。
+7. 无论哪种模式，外部引用、Toolbox、配置、压缩组件和关联工程图仍需人工抽查。
 
 严格模式漏依赖时返回稳定门禁字段：`status=blocked`、`stage=review`、
 `error_code=SW_PACK_AND_GO_DEPENDENCY_ENUMERATION_INCOMPLETE`。默认暂存模式会返回

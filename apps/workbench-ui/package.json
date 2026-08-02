@@ -8,9 +8,10 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "tauri": "tauri",
-    "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build --no-bundle",
-    "desktop:bundle": "tauri build"
+    "sync:skill": "python ../../scripts/sync_bundled_skill.py",
+    "desktop:dev": "npm run sync:skill && tauri dev",
+    "desktop:build": "npm run sync:skill && tauri build --no-bundle",
+    "desktop:bundle": "npm run sync:skill && tauri build"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

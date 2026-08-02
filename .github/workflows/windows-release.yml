@@ -32,11 +32,14 @@ jobs:
         run: python -m pip install pytest -r requirements.txt -r mcp-server/requirements.txt
       - name: Verify Python runtime contracts
         run: python -c "import ezdxf; from mcp.server.fastmcp import FastMCP; print('ezdxf and MCP runtime imports passed')"
+      - name: Generate bundled desktop skill
+        run: python scripts/sync_bundled_skill.py
       - name: Run Python tests
         run: |
           python -m pytest -q
           python scripts/validate_skill.py
           python scripts/validate_mcp.py
+          python scripts/release_check.py
       - name: Install frontend dependencies
         working-directory: apps/workbench-ui
         run: npm ci

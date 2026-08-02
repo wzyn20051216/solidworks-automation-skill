@@ -6,7 +6,7 @@
 
 CAD Studio 桌面端与 Skill/CLI/MCP 是平级入口：既可通过 Python COM 控制本机 SolidWorks/AutoCAD，也可在没有 CAD 软件时使用无头后端写入开放格式。实际可执行范围以根目录 `capabilities.yaml` 为唯一真源；未验证能力不会被包装成已完成的无人值守交付。
 
-> 可靠性边界：当前真机首验基线为 SolidWorks 2024 和 AutoCAD 2024；2025–2026 是兼容性目标，未完成对应真机回归前不标记为已验证。配置/设计表、钣金、焊件、Simulation/FEA 和 Routing 当前为 `reference_only` 或 `not_implemented`。
+> 可靠性边界：当前真机基线为 SolidWorks 2024、SolidWorks 2026 SP01.1 和 AutoCAD 2024。SolidWorks 2026 仅对能力清单中列出 2026 的能力视为已验证；SolidWorks 2025 及其余未回归能力仍是兼容性目标。配置/设计表、钣金、焊件、Simulation/FEA 和 Routing 当前为 `reference_only` 或 `not_implemented`。
 
 ### 运行前诊断
 
@@ -54,7 +54,7 @@ python scripts/cad_studio.py preview-dxf --input .\drawing.dxf --output .\output
 - 🧾 **AutoCAD / DWG 子技能** - DXF 无头预览与结构审查可用；AutoCAD 原生 DWG 绘图仍受本机 ActiveX 代理稳定性门禁，详见能力清单
 - 🔩 **装配体操作** - 添加组件、配合关系、干涉检查、爆炸视图
 - 📐 **工程图出图** - 三视图、剖视图、尺寸标注、BOM 表
-- 💾 **文件导出** - STEP、STL、IGES、PDF、DXF/DWG、Parasolid；SW2024 原生 Pack and Go 漏枚举时可生成带哈希清单的 `pilot` 依赖暂存包
+- 💾 **文件导出** - STEP、STL、IGES、PDF、DXF/DWG、Parasolid；SW2026 SP01.1 基础装配已通过原生 Pack and Go 连续回归，复杂引用缺失时仍按门禁生成带哈希清单的 `pilot` 暂存包
 - 🧩 **网格参考导入** - 将公开 GLB/OBJ/STL 外观参考模型缩放、转换并导入为 SolidWorks 参考零件
 - 🎨 **外观材质** - 文档、特征、组件级颜色设置，支持装配体分色建模
 - 🎬 **Motion Study** - 自动创建运动算例、匀速旋转马达并计算/播放动画
@@ -70,7 +70,7 @@ python scripts/cad_studio.py preview-dxf --input .\drawing.dxf --output .\output
 ### 📋 环境要求
 
 - **操作系统**: Windows 10/11
-- **SolidWorks/AutoCAD**: 原生格式操作需要合法安装；当前真机首验版本为 2024
+- **SolidWorks/AutoCAD**: 原生格式操作需要合法安装；当前真机版本为 SolidWorks 2024/2026 和 AutoCAD 2024，具体能力以 `capabilities.yaml` 的版本字段为准
 - **Python**: 3.8 或更高版本
 - **核心依赖库**: `pywin32`、`comtypes`
 - **无头写入**: 不要求安装 SolidWorks/AutoCAD；DXF 需要 `ezdxf`
@@ -532,10 +532,10 @@ model.Extension.SelectByID2(
 - 🔧 **Part Modeling** - Sketching, extrusion, revolution, chamfer, fillet, patterns
 - 🔩 **Assembly Operations** - Add components, mates, interference detection, exploded views
 - 📐 **Drawing Creation** - Standard views, section views, dimensions, BOM tables
-- 💾 **File Export** - STEP, STL, IGES, PDF, DXF/DWG, Parasolid
+- 💾 **File Export** - STEP, STL, IGES, PDF, DXF/DWG, Parasolid; native Pack and Go remains capability-gated
 - 🎨 **Appearance and Materials** - Document, feature, and component-level color workflows
-- 🔨 **Sheet Metal** - Base flange, edge flange, flat pattern export
-- ⚡ **Weldments** - Structural members, cut lists
+- 🔨 **Sheet Metal (reference only)** - No unattended feature or flat-pattern delivery is claimed
+- ⚡ **Weldments (reference only)** - No unattended structural-member or cut-list delivery is claimed
 - 📊 **FEA Simulation (reference only)** - No unattended solver or result validation is claimed
 - 📝 **Custom Properties** - Read/write file properties, configuration management
 - 👀 **CAD Agent Self-Review** - Export multi-view previews, JSON reports, Markdown summaries, and `pass/warn/fail` evaluations
@@ -544,7 +544,7 @@ model.Extension.SelectByID2(
 ### 📋 Requirements
 
 - **OS**: Windows 10/11
-- **SolidWorks**: 2024-2026 actively verified; 2020-2023 compatibility support only
+- **SolidWorks**: 2024 and 2026 are tested only for the workflows listed in `capabilities.yaml`; 2025 remains a compatibility target, and 2020-2023 are compatibility support only
 - **Python**: 3.8+
 - **Dependencies**: `pywin32`, `comtypes`
 

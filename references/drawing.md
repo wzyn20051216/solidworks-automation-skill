@@ -54,7 +54,7 @@ drawing.InsertModelAnnotations3(
 )
 ```
 
-> SW2024 的动态 pywin32 代理通常把 `InsertModelAnnotations3` 暴露在工程图
+> SW2024/2026 的动态 pywin32 代理通常把 `InsertModelAnnotations3` 暴露在工程图
 > `IModelDoc2` 上，而不是 `IModelDocExtension`。技能脚本会先尝试文档对象，
 > 再兼容旧的 Extension 代理。`32` 是几何公差，`32768` 才是标记为工程图
 > 的模型尺寸；返回 `False` 或
@@ -64,7 +64,8 @@ drawing.InsertModelAnnotations3(
 > 或只有拉伸参数的零件，先在草图编辑态调用 `sw_part.auto_dimension_sketch()`
 > 或由明确的参数化建模步骤创建模型尺寸；不得期待工程图 API 凭空生成尺寸。
 >
-> 能力清单将这一路径单独记录为 `drawing_dimension_insertion=verified`（SW2024）。
+> 能力清单将这一路径单独记录为 `drawing_dimension_insertion=verified`（SW2024/2026）。
+> SW2026 SP01.1 已连续三次回读 3 个真实视图和 6 个真实尺寸实体。
 > 完整工程图交付仍属于 `drawings_and_bom=pilot`，因为尺寸布局、孔槽定位链、
 > 图框、标题栏和 BOM 需要人工目视复核。
 

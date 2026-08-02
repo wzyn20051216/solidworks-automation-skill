@@ -123,9 +123,7 @@ session.export(model, r"C:\temp\cylinder.step")
 | 综合机械工程 DAG 自动编排 | `apps/desktop/cad_workbench/engineering_orchestrator.py` | `references/complex-mechanical-routing.md` |
 | 常见错误排查 | - | `references/troubleshooting.md` |
 
-Pack and Go 的原生 `IPackAndGo` 在部分 SW2024 装配体上可能只枚举顶层文件。`scripts/sw_delivery.py::pack_and_go()` 默认使用
-`fallback_policy="stage_dependencies"`，依据 `GetDependencies2` 生成带 manifest 和 SHA-256 的 `pilot` 暂存包；需要严格原生语义时显式使用
-`fallback_policy="blocked"`。两者都不得绕过外部引用、Toolbox、配置和工程图的人工复核。
+Pack and Go 在 SW2026 SP01.1 的基础两零件装配上已连续三次通过原生回归：`SavePackAndGo()` 实际输出装配体和两个零件，状态码均为 0，未使用暂存回退。部分版本的 `GetDocumentNames()` 仍可能在保存前只枚举顶层文件；不要用 `AddExternalDocuments` 补装配体原生零件，应先执行原生保存，再审计实际落盘依赖。若落盘仍缺依赖，`scripts/sw_delivery.py::pack_and_go()` 默认按 `GetDependencies2` 生成带 manifest 和 SHA-256 的 `pilot` 暂存包；需要严格原生语义时使用 `fallback_policy="blocked"`。外部引用、Toolbox、配置和工程图仍必须人工复核，因此总能力保持 `pilot`。
 
 ## OpenClaw 协作方式
 

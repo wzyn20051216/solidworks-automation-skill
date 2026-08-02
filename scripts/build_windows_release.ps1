@@ -5,6 +5,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
+$syncScript = Join-Path $PSScriptRoot "sync_bundled_skill.py"
+& python $syncScript
+if ($LASTEXITCODE -ne 0) { throw "Bundled skill synchronization failed." }
 $uiRoot = Join-Path $repoRoot "apps\workbench-ui"
 $tauriRoot = Join-Path $uiRoot "src-tauri"
 $releaseRoot = Join-Path $repoRoot "release-output"

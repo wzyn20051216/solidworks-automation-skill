@@ -99,6 +99,36 @@ class FakeVariant:
         self.value = value
 
 
+class FakeRawOleObject:
+    """@brief 模拟官方 TLB 的无参数、直接返回 IDispatch 调用。"""
+
+    def __init__(self, package):
+        self.package = package
+
+    def GetIDsOfNames(self, name):
+        assert name == "GetPackAndGo"
+        return 207
+
+    def InvokeTypes(self, dispid, lcid, dispatch_kind, return_type, argument_types):
+        assert dispid == 207
+        assert lcid == 0
+        assert dispatch_kind == sw_delivery.pythoncom.DISPATCH_METHOD
+        assert return_type == (sw_delivery.pythoncom.VT_DISPATCH, 0)
+        assert argument_types == ()
+        return self.package
+
+
+class FakeRawExtension(FakeExtension):
+    """@brief 模拟动态调用失败但底层官方签名可用的 pywin32 包装。"""
+
+    def __init__(self, source):
+        super().__init__(source)
+        self._oleobj_ = FakeRawOleObject(self.package)
+
+    def GetPackAndGo(self):
+        raise TypeError("动态代理未正确封送直接返回接口")
+
+
 class FakeAssembly:
     def __init__(self, source, components):
         self.source = str(source)
@@ -202,6 +232,68 @@ def test_pack_and_go_accepts_byref_packandgo_output(tmp_path, monkeypatch):
 
     assert report["success"] is True
     assert report["document_count"] == 2
+
+
+def test_pack_and_go_uses_official_noarg_invoketypes_signature(tmp_path):
+    """@brief 动态代理失败时按 TLB 的直接 IDispatch 返回值获取对象。"""
+    source = tmp_path / "assembly.sldasm"
+    source.write_text("assembly", encoding="utf-8")
+    model = FakeAssembly(source, [])
+    model.Extension = FakeRawExtension(source)
+
+    report = sw_delivery.pack_and_go(model, tmp_path / "package")
+
+    assert report["success"] is True
+    assert report["backend"] == "pywin32"
+    assert report["document_count"] == 2
+
+
+def test_comtypes_connection_does_not_own_active_instance():
+    """@brief 已有实例必须只附着，不能误标为本次启动。"""
+    active = object()
+
+    class FakeClient:
+        @staticmethod
+        def GetActiveObject(progid):
+            assert progid == "SldWorks.Application.34"
+            return active
+
+        @staticmethod
+        def CreateObject(_progid):
+            raise AssertionError("已有活动实例时不得创建新实例")
+
+    app, started_here, error = sw_delivery._connect_comtypes_solidworks(
+        FakeClient,
+        ["SldWorks.Application.34"],
+    )
+
+    assert app is active
+    assert started_here is False
+    assert error is None
+
+
+def test_comtypes_connection_owns_only_fallback_created_instance():
+    """@brief 无活动实例时才允许创建并取得退出所有权。"""
+    created = object()
+
+    class FakeClient:
+        @staticmethod
+        def GetActiveObject(_progid):
+            raise RuntimeError("not running")
+
+        @staticmethod
+        def CreateObject(progid):
+            assert progid == "SldWorks.Application.34"
+            return created
+
+    app, started_here, error = sw_delivery._connect_comtypes_solidworks(
+        FakeClient,
+        ["SldWorks.Application.34"],
+    )
+
+    assert app is created
+    assert started_here is True
+    assert "not running" in str(error)
 
 
 def test_pack_and_go_falls_back_to_comtypes_backend(tmp_path, monkeypatch):

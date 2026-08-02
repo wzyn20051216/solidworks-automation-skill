@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "verified_versions": {
-    "solidworks": ["2024"],
+    "solidworks": ["2024", "2026"],
     "autocad": ["2024"]
   },
   "capabilities": [
@@ -20,7 +20,7 @@
       "label": "参数化零件与基础特征",
       "level": "verified",
       "backends": ["solidworks-com"],
-      "verified_versions": ["2024"],
+      "verified_versions": ["2024", "2026"],
       "dependencies": ["SolidWorks", "pywin32", "comtypes"],
       "limitations": ["复杂曲面、模具和高级拓扑引用不属于无人值守能力"],
       "allowed_modes": ["interactive", "reviewed"]
@@ -40,7 +40,7 @@
       "label": "命名尺寸参数修改",
       "level": "pilot",
       "backends": ["solidworks-com"],
-      "verified_versions": ["2024"],
+      "verified_versions": ["2024", "2026"],
       "dependencies": ["SolidWorks", "pywin32"],
       "limitations": ["必须提供准确尺寸名；配置族批量修改仍需人工复核"],
       "allowed_modes": ["interactive", "reviewed"]
@@ -50,7 +50,7 @@
       "label": "自定义属性与装配 BOM CSV",
       "level": "pilot",
       "backends": ["solidworks-com", "local-filesystem"],
-      "verified_versions": ["2024"],
+      "verified_versions": ["2024", "2026"],
       "dependencies": ["SolidWorks", "pywin32"],
       "limitations": ["CSV 必须与 SolidWorks 原生 BOM、配置和工程图人工核对"],
       "allowed_modes": ["interactive", "reviewed"]
@@ -60,9 +60,9 @@
       "label": "SolidWorks 原生 Pack and Go",
       "level": "pilot",
       "backends": ["solidworks-com", "solidworks-native+staged_dependencies", "local-filesystem"],
-      "verified_versions": ["2024"],
+      "verified_versions": ["2024", "2026"],
       "dependencies": ["SolidWorks", "pywin32", "comtypes"],
-      "limitations": ["原生 IPackAndGo 在部分 SW2024 装配体上可能只枚举顶层文件；默认会生成基于 GetDependencies2 的 pilot 暂存包，严格原生调用可设置 fallback_policy=blocked；外部引用、Toolbox、配置和工程图必须人工抽查"],
+      "limitations": ["SW2026 SP01.1 的基础两零件装配已连续三次通过原生 Pack and Go 回归；其他版本或复杂引用若实际落盘缺少依赖，默认生成基于 GetDependencies2 的 pilot 暂存包，严格原生调用可设置 fallback_policy=blocked；外部引用、Toolbox、配置和工程图必须人工抽查"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {
@@ -90,7 +90,7 @@
       "label": "SolidWorks 工程图模型尺寸自动插入",
       "level": "verified",
       "backends": ["solidworks-com"],
-      "verified_versions": ["2024"],
+      "verified_versions": ["2024", "2026"],
       "dependencies": ["SolidWorks", "pywin32"],
       "limitations": ["仅导入模型中已存在且标记为工程图的 DisplayDimension；模型缺少尺寸时先自动标注草图或补齐参数尺寸；仍需人工检查位置、重叠和尺寸链完整性"],
       "allowed_modes": ["interactive", "reviewed"]
@@ -110,7 +110,7 @@
       "label": "文件导出与交付包",
       "level": "verified",
       "backends": ["solidworks-com", "autocad-com", "headless-open-format", "local-filesystem"],
-      "verified_versions": ["2024"],
+      "verified_versions": ["2024", "2026"],
       "dependencies": ["目标 CAD 软件或对应无头转换器"],
       "limitations": ["专有格式仍需目标 CAD 原生打开复核"],
       "allowed_modes": ["interactive", "reviewed"]

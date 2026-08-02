@@ -109,7 +109,7 @@ warnings = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
 
 场景：`model.Extension.GetPackAndGo()` 或强类型 `IModelDocExtension.GetPackAndGo()` 报缺少必要参数，但官方 API 和 Interop 反射都显示它是零参数返回 `IPackAndGo`。
 
-原因：部分 SW2024 + pywin32 运行时对象会把 `[out, retval] IPackAndGo**` 编组错位。实测显式 `VT_BYREF | VT_DISPATCH` 仍可能拿不到返回指针。
+原因：本机 SW2024/2026 + pywin32 运行时对象会把 `[out, retval] IPackAndGo**` 编组错位。实测官方零参数动态调用和显式 `VT_BYREF | VT_DISPATCH` 都可能拿不到返回指针。
 
 稳定写法：优先使用 `sw_delivery.pack_and_go()`。封装会先尝试 pywin32 官方零参数调用；若 pywin32 抛出签名错误，再使用 `comtypes` 早绑定调用原生 `IModelDocExtension.GetPackAndGo()` / `SavePackAndGo()`。
 
@@ -124,7 +124,7 @@ assert report["success"], report
 
 场景：`IModelDoc2.GetDependencies2()` 能返回装配体引用的 `.SLDPRT`，但 `IPackAndGo.GetDocumentNames()` 只有顶层 `.SLDASM`，保存后交付包也只有装配文件。
 
-处理：不要用 Python 手工复制零件来伪装 Pack and Go 成功。`sw_delivery.pack_and_go()` 会把依赖 API 返回但原生包未输出的文件列入 `missing_dependencies`，返回 `success=False`、`status=blocked` 和错误码 `SW_PACK_AND_GO_DEPENDENCY_ENUMERATION_INCOMPLETE`。这类结果必须保留为 `pilot/blocked` 证据；其余批量导出和预览可以继续回归，但该目录不能作为完整 Pack and Go 交付包。
+处理：不要把保存前枚举直接当作最终产物，也不要用 `AddExternalDocuments` 补装配体原生零件。`sw_delivery.pack_and_go()` 会先执行原生 `SavePackAndGo()`，再按本轮实际落盘文件审计依赖；SW2026 SP01.1 的基础两零件装配已连续三次输出完整的 1 个装配体和 2 个零件。若实际落盘仍缺依赖，默认策略生成明确标记的 `pilot` 暂存包，严格策略返回 `status=blocked` 和 `SW_PACK_AND_GO_DEPENDENCY_ENUMERATION_INCOMPLETE`；两者都必须保留缺失证据并人工复核。
 
 ### STL 导出了当前装配体而不是目标零件
 
@@ -666,5 +666,6 @@ sw.UserControl = True
 | 2023 | 31 | SldWorks.Application.31 |
 | 2024 | 32 | SldWorks.Application.32 |
 | 2025 | 33 | SldWorks.Application.33 |
+| 2026 | 34 | SldWorks.Application.34 |
 
 公式: `修订号 = (年份 - 2000) + 8`

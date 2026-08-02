@@ -30,7 +30,15 @@
 ## 第 3 周补充结果
 
 - SolidWorks 2024 零件、尺寸修改、属性回读、装配体、BOM 和批量导出已通过真实回归。
-- Pack and Go 原生 API 在本机只返回顶层装配体，封装保留为 `pilot`，缺少依赖时返回 `missing_dependencies`，禁止把不完整包标为交付成功。
+- SW2024 早期回归中 Pack and Go 原生枚举只返回顶层装配体，封装因此保留依赖审计和回退门禁，禁止把不完整包标为交付成功。
+
+## SolidWorks 2026 SP01.1 升级回归结果
+
+- 本机安装发现与 COM 类型库已适配 `E:\SolidWroks2026\SOLIDWORKS\SLDWORKS.exe`，识别修订号 `34.1.1`、`sldworks.tlb`、Motion 和 Routing 类型库。
+- 工程图回归连续三次生成 3 个真实视图和 6 个真实尺寸实体，SLDPRT、SLDDRW、PDF 与非空预览均来自本轮任务。
+- Pack and Go 最终代码连续三次原生通过；每轮均输出 1 个 SLDASM 和 2 个 SLDPRT，`document_count=3`、状态码 `[0,0,0]`、`missing_dependencies=[]`，且未使用暂存回退。
+- `comtypes` 回退优先附着活动实例，只退出本轮明确创建的实例；最终两轮和收尾轮结束后均无遗留 `SLDWORKS.exe`。
+- `pack_and_go` 总等级仍为 `pilot`：复杂外部引用、Toolbox、配置、压缩组件和关联工程图尚未形成连续回归矩阵。
 
 ## 第 4 周补充结果
 

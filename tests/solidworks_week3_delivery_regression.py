@@ -1,6 +1,6 @@
 """第 3 周 SolidWorks 参数、属性与交付能力真机回归。
 
-该脚本需要 Windows、SolidWorks 2024 和 pywin32/comtypes。它不会被普通
+该脚本需要 Windows、受支持的 SolidWorks 和 pywin32/comtypes。它不会被普通
 pytest 自动收集，必须人工或由 Windows 自托管 CI 显式执行。
 """
 from __future__ import annotations
@@ -144,6 +144,7 @@ def _close_created_documents(session: SolidWorksSession, titles: list[str]) -> N
 def run_regression(
     output_root: Path,
     *,
+    version: int | None = None,
     visible: bool = True,
     wait_seconds: int = 20,
     run_id: str | None = None,
@@ -163,7 +164,7 @@ def run_regression(
     assembly_path = native_dir / "W3-DELIVERY-ASSEMBLY.SLDASM"
     bom_path = output_dir / "W3-DELIVERY-BOM.csv"
     created_titles: list[str] = []
-    session = SolidWorksSession(version=2024, visible=visible, wait_seconds=wait_seconds)
+    session = SolidWorksSession(version=version, visible=visible, wait_seconds=wait_seconds)
     result = {
         "run_id": run_id,
         "output_dir": str(output_dir),
@@ -243,11 +244,11 @@ def run_regression(
         result["pack_and_go"] = package
         if pack_status == "blocked":
             result.setdefault("limitations", []).append(
-                "SolidWorks 2024 原生 Pack and Go 依赖枚举阻塞，已保留顶层产物和缺失依赖证据"
+                "当前 SolidWorks 原生 Pack and Go 依赖枚举阻塞，已保留顶层产物和缺失依赖证据"
             )
         elif pack_status == "pilot":
             result.setdefault("limitations", []).append(
-                "SolidWorks 2024 原生 Pack and Go 未枚举全部依赖，已生成 GetDependencies2 暂存包；仍需人工复核"
+                "当前 SolidWorks 原生 Pack and Go 未枚举全部依赖，已生成 GetDependencies2 暂存包；仍需人工复核"
             )
 
         exports = batch_export_formats(
@@ -300,6 +301,7 @@ def parse_args() -> argparse.Namespace:
         help="输出根目录；每次运行会创建独立时间戳子目录。",
     )
     parser.add_argument("--run-id", default="", help="指定本轮目录名，默认使用当前时间。")
+    parser.add_argument("--version", type=int, help="指定 SolidWorks 年份，例如 2026；默认连接最新注册版本。")
     parser.add_argument("--hidden", action="store_true", help="尝试隐藏新启动的 SolidWorks 窗口。")
     parser.add_argument("--wait-seconds", type=int, default=20, help="启动 SolidWorks 的等待秒数。")
     return parser.parse_args()
@@ -314,6 +316,7 @@ def main() -> int:
     try:
         result = run_regression(
             output_root,
+            version=args.version,
             visible=not args.hidden,
             wait_seconds=args.wait_seconds,
             run_id=run_id,

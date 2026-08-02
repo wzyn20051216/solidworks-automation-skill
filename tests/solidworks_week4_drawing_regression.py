@@ -1,4 +1,4 @@
-"""SolidWorks 2024 第 4 周工程图+BOM 真机回归。
+"""SolidWorks 第 4 周工程图+BOM 真机回归。
 
 需要 Windows + SolidWorks + pywin32/comtypes；不会被普通 pytest 收集。
 """
@@ -16,7 +16,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from sw_connect import get_com_member  # noqa: E402
+from sw_connect import get_com_member, get_sw_version  # noqa: E402
 from sw_drawing import create_standard_views, export_sheet_to_pdf, inspect_drawing_structure, insert_dimensions  # noqa: E402
 from sw_part import auto_dimension_sketch, extrude_boss, sketch_rectangle  # noqa: E402
 from sw_review import inspect_bmp_preview, save_review_previews  # noqa: E402
@@ -29,7 +29,7 @@ def _require_file(path: Path, label: str) -> dict:
     return {"path": str(path), "size_bytes": path.stat().st_size}
 
 
-def run_regression(output_root: Path, *, run_id: str | None = None) -> dict:
+def run_regression(output_root: Path, *, version: int | None = None, run_id: str | None = None) -> dict:
     run_id = run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = output_root / run_id
     output_dir.mkdir(parents=True, exist_ok=False)
@@ -38,7 +38,7 @@ def run_regression(output_root: Path, *, run_id: str | None = None) -> dict:
     pdf_path = output_dir / "W4-001-plate.pdf"
     report_path = output_dir / "W4-001-drawing-report.json"
     visible = os.environ.get("CAD_STUDIO_VISIBLE", "true").lower() not in {"0", "false", "no"}
-    session = SolidWorksSession(version=2024, visible=visible, wait_seconds=12)
+    session = SolidWorksSession(version=version, visible=visible, wait_seconds=20)
     part_title = None
     drawing_title = None
     try:
@@ -65,7 +65,7 @@ def run_regression(output_root: Path, *, run_id: str | None = None) -> dict:
         drawing_title = str(get_com_member(drawing, "GetTitle"))
         if not create_standard_views(drawing, str(part_path)):
             raise RuntimeError("创建标准三视图失败")
-        # SW2024 只有在工程图首次保存、视图引用落盘后才稳定暴露可导入的模型
+        # 部分版本只有在工程图首次保存、视图引用落盘后才稳定暴露可导入的模型
         # 尺寸。这里保存的是本轮新产物，不会覆盖旧交付版本。
         if not session.save(drawing, str(drawing_path)):
             raise RuntimeError("工程图首次保存失败")
@@ -79,6 +79,11 @@ def run_regression(output_root: Path, *, run_id: str | None = None) -> dict:
         structure = inspect_drawing_structure(drawing)
         if structure["status"] != "pass" or structure["view_count"] < 1:
             raise RuntimeError(f"工程图视图复核失败: {structure}")
+        if not dimensions_inserted or structure.get("dimension_count", 0) < 1:
+            raise RuntimeError(
+                "工程图未读取到本轮插入的真实尺寸实体: "
+                f"inserted={dimensions_inserted}, dimension_count={structure.get('dimension_count', 0)}"
+            )
         if not session.save(drawing, str(drawing_path)):
             raise RuntimeError("工程图保存失败")
         _require_file(drawing_path, "工程图")
@@ -93,6 +98,8 @@ def run_regression(output_root: Path, *, run_id: str | None = None) -> dict:
             "status": "ok",
             "run_id": run_id,
             "output_dir": str(output_dir),
+            "solidworks": get_sw_version(session.sw),
+            "connection": session.connection_info,
             "outputs": {"part": _require_file(part_path, "零件"), "drawing": _require_file(drawing_path, "工程图"), "pdf": _require_file(pdf_path, "PDF")},
             "drawingEvidence": structure,
             "dimensions_inserted": dimensions_inserted,
@@ -117,9 +124,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="运行 SolidWorks 第 4 周工程图真机回归")
     parser.add_argument("--output-dir", default=str(Path(tempfile.gettempdir()) / "solidworks_week4_drawing_regression"))
     parser.add_argument("--run-id", default="")
+    parser.add_argument("--version", type=int, help="指定 SolidWorks 年份，例如 2026；默认连接最新注册版本。")
     args = parser.parse_args()
     try:
-        result = run_regression(Path(args.output_dir).expanduser().resolve(), run_id=args.run_id or None)
+        result = run_regression(
+            Path(args.output_dir).expanduser().resolve(),
+            version=args.version,
+            run_id=args.run_id or None,
+        )
     except Exception as exc:
         result = {"status": "failed", "error": str(exc), "traceback": traceback.format_exc()}
     print(json.dumps(result, ensure_ascii=False, indent=2))

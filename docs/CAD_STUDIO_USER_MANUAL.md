@@ -46,7 +46,7 @@ CAD Studio 不附带模型额度，也不保存 API Key。模型账号、套餐�
 
 - Python 3.8 或更高版本，推荐 64 位 Python 3.11/3.12。
 - Python 依赖：`pywin32`、`comtypes`。
-- 当前真机首验基线为 SolidWorks 2024 和 AutoCAD 2024；2025-2026 是兼容性目标，完成对应真机回归前不标记为已验证。
+- 当前真机基线为 SolidWorks 2024、SolidWorks 2026 SP01.1 和 AutoCAD 2024；SolidWorks 2026 仅对 `capabilities.yaml` 中明确列出 2026 的能力视为已验证，SolidWorks 2025 和其余能力仍是兼容性目标。
 - Python、SolidWorks 和 AutoCAD 应与操作系统保持 64 位一致。
 
 安装 Python 依赖：
@@ -86,7 +86,7 @@ python scripts/cad_studio.py doctor
 
 能力限制以仓库根目录 `capabilities.yaml` 为准。配置/设计表、钣金、焊件、Simulation/FEA 和 Routing 当前不会被标记为已交付；任务会进入“已阻断”并给出原因，除非明确选择人工复核模式。
 
-工程图和 BOM 任务会额外返回视图、真实尺寸、BOM 行、模型/工程图关系和复核发现。SW2024 中“模型尺寸自动插入并回读真实尺寸实体”已作为独立能力验证；完整工程图仍为 `pilot`，文件存在不等于交付完成，图框、尺寸链布局、孔表、标题栏和 BOM 仍需人工复核。
+工程图和 BOM 任务会额外返回视图、真实尺寸、BOM 行、模型/工程图关系和复核发现。SW2024 与 SW2026 SP01.1 中“模型尺寸自动插入并回读真实尺寸实体”已作为独立能力验证；SW2026 回归连续三次读取到 3 个真实视图和 6 个真实尺寸实体。完整工程图仍为 `pilot`，文件存在不等于交付完成，图幅、视图布局、尺寸链、孔表、标题栏和 BOM 仍需人工复核。
 
 AutoCAD 后端分为 DXF 无头检查、白名单命令桥、COM 和 .NET。当前本机 AutoCAD 2024 的 COM 代理仍不稳定；独立的 .NET 后端已用本机 Managed API 连续完成白名单真机回归，可创建并重开真实 DWG，生成 PDF/PNG，并回读图元、图层和真实尺寸。前置检查会复验最近三次报告及产物哈希，完整时返回 `verified`，证据损坏时自动降级；这不代表任意 DWG 操作或任意插件代码均可用。可运行：
 

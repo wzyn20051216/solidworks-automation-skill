@@ -353,35 +353,6 @@ def _comtypes_document_names(package, document_count: int) -> list[str]:
     return [str(item) for item in names if item]
 
 
-def _bstr_wrapper_array(paths: list[str]):
-    """@brief 生成与官方 C# BStrWrapper[] 等价的 COM BSTR SAFEARRAY。"""
-    try:
-        import comtypes.automation
-
-        variant = comtypes.automation.VARIANT()
-        variant.value = [str(path) for path in paths]
-        return variant
-    except Exception:
-        return tuple(str(path) for path in paths)
-
-
-def _ensure_pack_and_go_dependencies(package, dependencies: list[str], document_count: int) -> tuple[int, list[str]]:
-    """@brief 用原生 IGetDocumentNames 复核并补充 Pack and Go 外部文档。"""
-    enumerated = _comtypes_document_names(package, document_count)
-    known = {Path(path).resolve() for path in enumerated if path}
-    missing = [str(Path(path).resolve()) for path in dependencies if Path(path).resolve() not in known]
-    if missing:
-        # AddExternalDocuments 接受 VARIANT 字符串数组；添加后必须再次用原生数组
-        # 接口核验，不能仅凭 setter 返回值宣称成功。
-        if not bool(package.AddExternalDocuments(_bstr_wrapper_array(missing))):
-            raise RuntimeError(f"IPackAndGo.AddExternalDocuments 拒绝 {len(missing)} 个依赖")
-        document_count = int(package.GetDocumentNamesCount())
-        enumerated = _comtypes_document_names(package, document_count)
-        known = {Path(path).resolve() for path in enumerated if path}
-        missing = [str(Path(path).resolve()) for path in dependencies if Path(path).resolve() not in known]
-    return document_count, missing
-
-
 def _active_solidworks_major() -> int | None:
     """@brief 返回当前 SolidWorks 类型库主版本，例如 SW2024 为 32。"""
     try:
@@ -441,7 +412,7 @@ def _coerce_dispatch(value):
 
 
 def _get_pack_and_go(extension):
-    """@brief 获取 IPackAndGo，兼容 pywin32 返回值和 by-ref 输出差异。"""
+    """@brief 获取 IPackAndGo，优先遵循当前类型库的无参数返回值签名。"""
     errors: list[str] = []
     try:
         package = get_com_member(extension, "GetPackAndGo")
@@ -449,17 +420,6 @@ def _get_pack_and_go(extension):
             return package
     except Exception as exc:
         errors.append(f"zero-arg: {exc}")
-
-    output = _VARIANT(pythoncom.VT_BYREF | pythoncom.VT_DISPATCH, None)
-    member = getattr(extension, "GetPackAndGo", None)
-    if callable(member):
-        try:
-            result = member(output)
-            package = _coerce_dispatch(result) or _coerce_dispatch(output.value)
-            if package is not None:
-                return package
-        except Exception as exc:
-            errors.append(f"byref-method: {exc}")
 
     ole_object = getattr(extension, "_oleobj_", None)
     if ole_object is not None:
@@ -469,15 +429,26 @@ def _get_pack_and_go(extension):
                 dispid,
                 0,
                 pythoncom.DISPATCH_METHOD,
-                (pythoncom.VT_EMPTY, 0),
-                ((pythoncom.VT_BYREF | pythoncom.VT_DISPATCH, 0),),
-                output,
+                (pythoncom.VT_DISPATCH, 0),
+                (),
             )
+            package = _coerce_dispatch(result)
+            if package is not None:
+                return package
+        except Exception as exc:
+            errors.append(f"noarg-invoketypes: {exc}")
+
+    # 仅保留给旧版异常包装器的兼容路径；当前官方类型库不是 by-ref 签名。
+    output = _VARIANT(pythoncom.VT_BYREF | pythoncom.VT_DISPATCH, None)
+    member = getattr(extension, "GetPackAndGo", None)
+    if callable(member):
+        try:
+            result = member(output)
             package = _coerce_dispatch(result) or _coerce_dispatch(output.value)
             if package is not None:
                 return package
         except Exception as exc:
-            errors.append(f"byref-invoketypes: {exc}")
+            errors.append(f"legacy-byref-method: {exc}")
 
     detail = "; ".join(errors) or "未返回对象"
     raise RuntimeError(f"SolidWorks 未返回 IPackAndGo 对象: {detail}")
@@ -574,6 +545,22 @@ def _comtypes_active_model(sw, source_path: str):
     return document
 
 
+def _connect_comtypes_solidworks(client, progids: list[str]):
+    """@brief 优先附着活动实例，返回应用对象、所有权标记和最后错误。"""
+    last_error = None
+    for progid in progids:
+        try:
+            return client.GetActiveObject(progid), False, last_error
+        except Exception as exc:
+            last_error = exc
+    for progid in progids:
+        try:
+            return client.CreateObject(progid), True, last_error
+        except Exception as exc:
+            last_error = exc
+    return None, False, last_error
+
+
 def _comtypes_pack_and_go(
     source_path: str,
     target: Path,
@@ -594,58 +581,68 @@ def _comtypes_pack_and_go(
     major = _active_solidworks_major()
     progids = [f"SldWorks.Application.{major}"] if major is not None else []
     progids.append("SldWorks.Application")
-    last_error = None
-    sw = None
-    for progid in progids:
-        try:
-            sw = comtypes.client.CreateObject(progid)
-            break
-        except Exception as exc:
-            last_error = exc
+    sw, started_here, last_error = _connect_comtypes_solidworks(comtypes.client, progids)
     if sw is None:
         raise RuntimeError(f"comtypes 无法创建 SolidWorks 应用: {last_error}")
 
-    document_type = SW_DOC_TYPES.get(Path(source_path).suffix.casefold())
-    if document_type is None:
-        raise ValueError(f"Pack and Go 不支持的文档类型: {source_path}")
-    # 强制加载完整模型并覆盖轻量化默认设置，否则 Pack and Go 只会看到顶层文档。
-    open_result = sw.OpenDoc6(str(source_path), document_type, 1 | 16 | 64 | 512, "")
+    document = None
     try:
-        document = _extract_comtypes_model(open_result)
-    except RuntimeError:
-        document = _comtypes_active_model(sw, source_path)
-    extension = document.Extension.QueryInterface(SldWorks.IModelDocExtension)
-    if document_type == 2:
+        document_type = SW_DOC_TYPES.get(Path(source_path).suffix.casefold())
+        if document_type is None:
+            raise ValueError(f"Pack and Go 不支持的文档类型: {source_path}")
+        # 强制加载完整模型并覆盖轻量化默认设置，否则 Pack and Go 只会看到顶层文档。
+        open_result = sw.OpenDoc6(str(source_path), document_type, 1 | 16 | 64 | 512, "")
         try:
-            document.QueryInterface(SldWorks.IAssemblyDoc).ResolveAllLightWeightComponents(True)
-            document.ForceRebuild3(False)
-        except Exception:
-            pass
-    package = extension.GetPackAndGo()
-    package.IncludeDrawings = bool(include_drawings)
-    package.IncludeSimulationResults = bool(include_simulation_results)
-    package.IncludeToolboxComponents = bool(include_toolbox_components)
-    package.IncludeSuppressed = bool(include_suppressed)
-    package.FlattenToSingleFolder = bool(flatten)
-    document_count = int(package.GetDocumentNamesCount())
-    enumeration_missing = []
-    if dependencies:
-        document_count, enumeration_missing = _ensure_pack_and_go_dependencies(package, dependencies, document_count)
-    if enumeration_missing:
-        raise RuntimeError(f"IPackAndGo 原生枚举仍缺少依赖: {enumeration_missing}")
-    if not package.SetSaveToName(True, str(target) + os.sep):
-        raise RuntimeError("IPackAndGo.SetSaveToName 拒绝目标目录")
+            document = _extract_comtypes_model(open_result)
+        except RuntimeError:
+            document = _comtypes_active_model(sw, source_path)
+        extension = document.Extension.QueryInterface(SldWorks.IModelDocExtension)
+        if document_type == 2:
+            try:
+                document.QueryInterface(SldWorks.IAssemblyDoc).ResolveAllLightWeightComponents(True)
+                document.ForceRebuild3(False)
+            except Exception:
+                pass
+        package = extension.GetPackAndGo()
+        package.IncludeDrawings = bool(include_drawings)
+        package.IncludeSimulationResults = bool(include_simulation_results)
+        package.IncludeToolboxComponents = bool(include_toolbox_components)
+        package.IncludeSuppressed = bool(include_suppressed)
+        package.FlattenToSingleFolder = bool(flatten)
+        document_count = int(package.GetDocumentNamesCount())
+        enumerated_names = _comtypes_document_names(package, document_count)
+        enumerated_paths = {Path(path).resolve() for path in enumerated_names if path}
+        enumeration_missing = [
+            str(Path(path).resolve())
+            for path in (dependencies or [])
+            if Path(path).resolve() not in enumerated_paths
+        ]
+        # AddExternalDocuments 用于附加非模型依赖文件，不保证接受装配体的原生零件引用。
+        # 即使枚举不完整也执行原生保存，随后以实际落盘文件审计是否缺失依赖。
+        if not package.SetSaveToName(True, str(target) + os.sep):
+            raise RuntimeError("IPackAndGo.SetSaveToName 拒绝目标目录")
 
-    status_codes = _status_codes(extension.SavePackAndGo(package))
-    outputs = _collect_new_outputs(target, existing_files)
-    return {
-        "backend": "comtypes",
-        "document_count": document_count,
-        "status_codes": status_codes,
-        "outputs": outputs,
-        "produced_count": len(outputs),
-        "enumeration_missing": enumeration_missing,
-    }
+        status_codes = _status_codes(extension.SavePackAndGo(package))
+        outputs = _collect_new_outputs(target, existing_files)
+        return {
+            "backend": "comtypes",
+            "document_count": document_count,
+            "status_codes": status_codes,
+            "outputs": outputs,
+            "produced_count": len(outputs),
+            "enumeration_missing": enumeration_missing,
+        }
+    finally:
+        if started_here:
+            if document is not None:
+                try:
+                    sw.CloseDoc(str(document.GetTitle()))
+                except Exception:
+                    pass
+            try:
+                sw.ExitApp()
+            except Exception:
+                pass
 
 
 def pack_and_go(
@@ -660,7 +657,7 @@ def pack_and_go(
     overwrite: bool = False,
     fallback_policy: str = "stage_dependencies",
 ) -> dict[str, Any]:
-    """执行原生 Pack and Go，并按策略处理 SW2024 依赖枚举缺失。
+    """执行原生 Pack and Go，并按策略处理不同版本的依赖枚举缺失。
 
     ``fallback_policy=stage_dependencies`` 会在原生 API 已保存但漏枚举依赖时
     生成明确标记的本地暂存包；``blocked`` 保持严格原生门禁。
