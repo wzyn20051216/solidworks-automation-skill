@@ -11,9 +11,11 @@ from pathlib import Path
 try:
     from .sw_preflight import import_com_dependencies, missing_com_dependencies, solidworks_installed
     from .capabilities import capability_index, load_capabilities, manifest_path
+    from .cad_installation import discover_installations
 except ImportError:
     from sw_preflight import import_com_dependencies, missing_com_dependencies, solidworks_installed
     from capabilities import capability_index, load_capabilities, manifest_path
+    from cad_installation import discover_installations
 
 
 TYPELIB_PATTERNS = {
@@ -63,7 +65,16 @@ CAPABILITY_ALIASES = {
 
 
 def _find_typelib(patterns: list[str]) -> Path | None:
-    """@brief 返回第一个实际存在的类型库。"""
+    """@brief 从实际安装目录和兼容路径中返回第一个类型库。"""
+    target_name = Path(patterns[0]).name if patterns else ""
+    if target_name:
+        for installation in discover_installations("solidworks"):
+            executable = installation.get("executable")
+            if not executable:
+                continue
+            path = Path(executable).parent / target_name
+            if path.is_file():
+                return path.resolve()
     for pattern in patterns:
         for raw_path in glob.glob(os.path.expandvars(pattern)):
             path = Path(raw_path).resolve()

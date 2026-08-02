@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-from cad_installation import discover_all
+from cad_installation import discover_all, discover_installations
 
 
 def _check(name: str, ok: bool, message: str, *, severity: str = "error", code: str | None = None) -> dict[str, Any]:
@@ -36,13 +36,17 @@ def _is_writable(path: Path) -> bool:
 
 def _solidworks_installation() -> dict[str, Any]:
     installation = discover_all()["solidworks"]
+    available = discover_installations("solidworks")
     return {
         "registered": installation["registered"],
         "executables": [installation["executable"]] if installation["executable"] else [],
         "executable": installation["executable"],
         "source": installation["source"],
         "version": installation["version"],
+        "servicePack": installation.get("servicePack"),
+        "displayName": installation.get("displayName"),
         "shortcut": installation["shortcut"],
+        "available": available,
     }
 
 

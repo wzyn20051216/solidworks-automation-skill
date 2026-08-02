@@ -11,10 +11,12 @@ try:
     from .sw_preflight import import_com_dependencies
     from .sw_connect import safe_get_com_member
     from .sw_assembly import find_largest_cylinder_face
+    from .cad_installation import discover_installations
 except ImportError:
     from sw_preflight import import_com_dependencies
     from sw_connect import safe_get_com_member
     from sw_assembly import find_largest_cylinder_face
+    from cad_installation import discover_installations
 
 pythoncom, win32com_client, VARIANT = import_com_dependencies()
 
@@ -24,8 +26,14 @@ SW_MOTION_STUDY_BASIC_MOTION = 1
 
 
 def _motion_typelib_candidates():
-    """枚举常见 SolidWorks Motion Study 类型库路径。"""
+    """@brief 从已发现安装和兼容目录枚举 Motion Study 类型库路径。"""
+    discovered = []
+    for installation in discover_installations("solidworks"):
+        executable = installation.get("executable")
+        if executable:
+            discovered.append(str(Path(executable).parent / "swmotionstudy.tlb"))
     patterns = [
+        *discovered,
         r"C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\swmotionstudy.tlb",
         r"C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS*\swmotionstudy.tlb",
         r"C:\Program Files\Dassault Systemes\SOLIDWORKS*\swmotionstudy.tlb",

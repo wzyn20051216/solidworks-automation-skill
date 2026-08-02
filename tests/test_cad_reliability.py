@@ -15,6 +15,7 @@ from cad_doctor import run_doctor  # noqa: E402
 from capabilities import capability_index, load_capabilities, unattended_allowed  # noqa: E402
 from cad_workbench.queue_worker import process_job, read_job  # noqa: E402
 from sw_connect import _prog_id_for_version, close_owned_solidworks  # noqa: E402
+import cad_installation  # noqa: E402
 from cad_installation import discover_installation, resolve_shortcut_target  # noqa: E402
 
 
@@ -125,3 +126,38 @@ def test_discover_installation_supports_injected_filesystem():
     result = discover_installation("autocad", exists=lambda path: str(path).lower() == r"d:\autocad 2024\acad.exe")
     assert result["installed"] is True
     assert result["executable"].lower().endswith(r"autocad 2024\acad.exe")
+
+
+def test_discover_installation_prefers_newest_uninstall_registry_entry(monkeypatch):
+    """@brief 多版本并存时必须选择最新版本，并兼容非标准安装目录名称。"""
+    monkeypatch.setattr(cad_installation, "_shortcut_paths", lambda _product: [])
+    monkeypatch.setattr(cad_installation, "_registry_paths", lambda _product: [])
+    monkeypatch.setattr(cad_installation, "_common_candidates", lambda _product: [])
+    monkeypatch.setattr(
+        cad_installation,
+        "_uninstall_registry_candidates",
+        lambda _product: [
+            {
+                "path": Path(r"E:\Solidworks\SOLIDWORKS\SLDWORKS.exe"),
+                "source": "uninstall-registry",
+                "version": "2024",
+                "service_pack": "SP03.1",
+                "display_name": "SOLIDWORKS 2024 SP03.1",
+                "shortcut": None,
+            },
+            {
+                "path": Path(r"E:\SolidWroks2026\SOLIDWORKS\SLDWORKS.exe"),
+                "source": "uninstall-registry",
+                "version": "2026",
+                "service_pack": "SP01.1",
+                "display_name": "SOLIDWORKS 2026 SP01.1",
+                "shortcut": None,
+            },
+        ],
+    )
+
+    result = discover_installation("solidworks", exists=lambda _path: True)
+
+    assert result["version"] == "2026"
+    assert result["servicePack"] == "SP01.1"
+    assert result["executable"] == r"E:\SolidWroks2026\SOLIDWORKS\SLDWORKS.exe"
