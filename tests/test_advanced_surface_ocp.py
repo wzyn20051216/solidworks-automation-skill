@@ -164,6 +164,22 @@ def test_smooth_loft_rejects_excessive_bulge(tmp_path: Path) -> None:
     assert report["artifacts"] == []
 
 
+def test_execute_advanced_surface_blocks_when_ocp_dependency_is_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """@brief OCP 运行时缺失属于环境阻断，不应误报为普通几何失败。"""
+    import scripts.advanced_surface_ocp as surface_module
+
+    def missing_dependency(_request: dict):
+        raise ModuleNotFoundError("No module named 'OCP'")
+
+    monkeypatch.setattr(surface_module, "_smooth_loft", missing_dependency)
+    report = surface_module.execute_advanced_surface(_smooth_loft_request(), tmp_path)
+
+    assert report["status"] == "blocked"
+    assert report["stage"] == "preflight"
+    assert report["error_code"] == "ocp_surface_dependency_missing"
+    assert report["geometryProduced"] is False
+
+
 @pytest.mark.parametrize(
     "path",
     [

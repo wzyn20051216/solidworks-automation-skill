@@ -25,6 +25,7 @@ _SOLVER_ENV = {"calculix": "CADSTUDIO_CALCULIX_EXE", "elmer": "CADSTUDIO_ELMER_E
 _SOLVER_NAMES = {"calculix": ("ccx", "ccx.exe"), "elmer": ("ElmerSolver", "ElmerSolver.exe")}
 _MAX_INPUT_BYTES = 64 * 1024 * 1024
 _RESULT_NUMBER = re.compile(r"[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[Ee][-+]?\d+)?")
+_NONFINITE_RESULT = re.compile(r"(?i)(?:nan|inf(?:inity)?|1\.#[a-z]+)")
 
 
 def _now_iso() -> str:
@@ -417,6 +418,7 @@ def parse_calculix_results(job_dir: str | Path, stem: str) -> dict[str, Any]:
         "displacement": [], "stress": [], "equivalent_plastic_strain": [],
     }
     duplicate_node = False
+    nonfinite_result_token = False
     with frd.open("r", encoding="ascii", errors="replace") as handle:
         for line in handle:
             stripped = line.strip()
@@ -445,6 +447,8 @@ def parse_calculix_results(job_dir: str | Path, stem: str) -> dict[str, Any]:
                 current_rows = {}
                 continue
             if current and line.startswith(" -1"):
+                if _NONFINITE_RESULT.search(line):
+                    nonfinite_result_token = True
                 values = [float(item) for item in _RESULT_NUMBER.findall(line)]
                 if len(values) < 3:
                     continue
@@ -467,7 +471,7 @@ def parse_calculix_results(job_dir: str | Path, stem: str) -> dict[str, Any]:
         math.isfinite(value)
         for row in [*displacements, *stresses, *plastic_rows.values()]
         for value in row
-    )
+    ) and not nonfinite_result_token
     max_displacement = max((math.sqrt(sum(value * value for value in row)) for row in displacements), default=None)
 
     def von_mises(row: tuple[float, float, float, float, float, float]) -> float:
@@ -511,6 +515,7 @@ def parse_calculix_results(job_dir: str | Path, stem: str) -> dict[str, Any]:
             "maximumVonMisesStressMPa": max_von_mises,
             "convergedIncrementCount": len(increment_lines),
             "finiteValues": finite,
+            "nonfiniteResultToken": nonfinite_result_token,
             "resultTerminated": result_terminated,
             "nodeSetsMatch": node_sets_match,
             "failureMarkers": failure_markers,

@@ -263,14 +263,19 @@ def test_parse_calculix_results_uses_latest_complete_result_blocks(tmp_path: Pat
     assert report["summary"]["maximumVonMisesStressMPa"] == pytest.approx(4.0)
 
 
-def test_parse_calculix_results_rejects_nonfinite_plastic_strain(tmp_path: Path) -> None:
+@pytest.mark.parametrize(("token", "token_detected"), [("1.0E309", False), ("NaN", True)])
+def test_parse_calculix_results_rejects_nonfinite_plastic_strain(
+    tmp_path: Path,
+    token: str,
+    token_detected: bool,
+) -> None:
     """@brief 非有限 PEEQ 必须使非线性结果失败，不能只检查位移和应力。"""
-    stem = "nonfinite_peeq"
+    stem = f"nonfinite_peeq_{token_detected}"
     (tmp_path / f"{stem}.frd").write_text(
         "    1UVERSION           Version 2.23\n"
         " -4  DISP        4    1\n -1         1 0.0 0.0 0.2\n -3\n"
         " -4  STRESS      6    1\n -1         1 2.0 2.0 6.0 0.0 0.0 0.0\n -3\n"
-        " -4  PE          1    1\n -1         1 1.0E309\n -3\n"
+        f" -4  PE          1    1\n -1         1 {token}\n -3\n"
         " 9999\n",
         encoding="ascii",
     )
@@ -284,6 +289,7 @@ def test_parse_calculix_results_rejects_nonfinite_plastic_strain(tmp_path: Path)
     assert report["status"] == "failed"
     assert report["error_code"] == "fea_result_incomplete_or_nonfinite"
     assert report["summary"]["finiteValues"] is False
+    assert report["summary"]["nonfiniteResultToken"] is token_detected
 
 
 @pytest.mark.parametrize("defect", ["truncated", "mismatched_nodes", "duplicate_node", "failed_marker"])

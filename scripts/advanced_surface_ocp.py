@@ -484,6 +484,8 @@ def execute_advanced_surface(value: str | Path | dict[str, Any], output_dir: str
         return _persist_result(request, shape, output_dir, backend=f"headless_ocp_{request['operation']}", extra=extra)
     except ValueError as exc:
         return _surface_result("blocked", "create", "ocp_surface_operation_blocked", str(exc))
+    except (ImportError, ModuleNotFoundError) as exc:
+        return _surface_result("blocked", "preflight", "ocp_surface_dependency_missing", str(exc))
     except Exception as exc:
         return _surface_result("failed", "create_or_review", "ocp_surface_operation_failed", str(exc))
 
