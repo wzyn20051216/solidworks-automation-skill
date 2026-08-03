@@ -103,12 +103,12 @@
 
 - DFM 增加供应商 profile、单位归一、B-Rep 证据绑定和防伪检查；规则通过仍为 `review_required`。
 - Routing 增加中性端点/分段/长度/弯曲半径/碰撞间隙/支撑间距/Routing BOM 复核；SW2026 可发现 Routing 类型库但无加载项或许可证证据时原生写入保持 `blocked`。
-- FEA 增加 FEA 1.0 Schema、CalculiX/Elmer 前置和 CalculiX 白名单输入生成；本机缺求解器时不得创建假结果。
-- 复杂曲面/模具增加 loft、sweep、knit、thicken、连续性、拔模、分型和型芯型腔结构化门禁；当前不生成生产 B-Rep。
-- CLI/MCP 均新增白名单入口：`check-routing`、`routing-preflight`、`fea-preflight`、`prepare-fea`、`review-advanced-geometry`，并纳入协议验证。
+- FEA 增加 FEA 1.0 Schema、CalculiX/Elmer 前置和 CalculiX 白名单输入；CalculiX 2.23 已真实完成受限线性静力样件求解并解析位移、应力和收敛证据。
+- 复杂曲面/模具增加结构化门禁；OCP 7.9.3.1.1 已真实生成并重开受限封闭直纹 Loft 的 STEP/BREP，平滑 Loft、连续性和模具仍未完成。
+- CLI/MCP 均新增白名单入口：`check-routing`、`routing-preflight`、`fea-preflight`、`prepare-fea`、`run-fea`、`review-advanced-geometry`、`create-ocp-loft`，并纳入协议验证。
 
 ## 1–20 周审计结论
 
-- 已有真实代码和自动化证据的范围：项目/交付门禁、开放格式几何、基础二维工程图结构、Preview Manifest/Scene、桌面/Skill/CLI/MCP 双入口、浏览器预览回退、DFM profile/B-Rep 证据、Routing 中性复核、FEA 输入门禁和复杂几何计划门禁。
-- 仍需真实 CAD 自托管机或人工复核的范围：SolidWorks 工程图/BOM 视觉质量、AutoCAD 原生 DWG、复杂曲面 B-Rep 产物、FEA 求解与安全复核、SOLIDWORKS Routing 原生写入，以及 20 MB/30 FPS 性能指标。
+- 已有真实代码和自动化证据的范围：项目/交付门禁、开放格式几何、基础二维工程图结构、Preview Manifest/Scene、桌面/Skill/CLI/MCP 双入口、浏览器预览回退、DFM profile/B-Rep 证据、Routing 中性复核、CalculiX 受限线性静力求解，以及 OCP 受限封闭直纹 Loft。
+- 仍需真实 CAD 自托管机或人工复核的范围：SolidWorks 工程图/BOM 最终视觉质量、AutoCAD 原生 DWG、平滑/连续复杂曲面、FEA 网格收敛与安全复核、SOLIDWORKS Routing 原生写入，以及 20 MB/30 FPS 性能指标。
 - 未通过上述回归的能力不会显示为已完成，也不会被交付门禁当作本轮产物。

@@ -100,9 +100,9 @@
       "label": "工程图、尺寸链与 BOM",
       "level": "pilot",
       "backends": ["solidworks-com", "autocad-com"],
-      "verified_versions": ["2024"],
+      "verified_versions": ["2024", "2026"],
       "dependencies": ["SolidWorks 或 AutoCAD"],
-      "limitations": ["图框、标题栏、尺寸链、孔表和 GB/T 风格必须人工目视复核"],
+      "limitations": ["SW2026 已验证三视图、6 个真实尺寸实体、PDF 和非空 BMP；IAnnotation 不提供尺寸文字原生包围盒，只能用锚点/字体保守估算并人工目视复核", "图框、标题栏、尺寸链、孔表和 GB/T 风格必须人工目视复核"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {
@@ -120,11 +120,11 @@
       "label": "无 CAD 开放格式写入",
       "level": "pilot",
       "backends": ["headless-occt", "headless-open-format", "local-python", "ezdxf"],
-      "verified_versions": [],
+      "verified_versions": ["OCP 7.9.3.1.1"],
       "dependencies": ["python", "cadquery-ocp", "trimesh", "ezdxf"],
       "limitations": [
         "当前真实写入 .cadstudio.json、STEP、IGES、BREP、STL、OBJ、GLB、DXF、SVG、PDF、PNG，并生成几何与 SHA-256 证据",
-        "OCCT 当前覆盖盒体、圆柱、布尔合并和圆柱孔切除；复杂特征仍返回 blocked",
+        "OCCT 当前覆盖盒体、圆柱、布尔合并、圆柱孔切除和独立入口的受限封闭直纹 Loft；其余复杂特征仍返回 blocked",
         "不会伪造 SLDPRT、SLDASM、SLDDRW 或 DWG；FEA、安全认证和制造性结论不由几何写入器提供"
       ],
       "allowed_modes": ["interactive", "reviewed"]
@@ -200,7 +200,7 @@
       "backends": ["local-python", "headless-occt", "solidworks-com"],
       "verified_versions": [],
       "dependencies": ["python", "可选 OCP", "可选 SolidWorks"],
-      "limitations": ["当前只做 loft、sweep、knit、thicken 和 G0/G1/G2 连续性的结构化计划门禁；不生成生产 B-Rep，不替代 Class-A 或曲面质量审查"],
+      "limitations": ["headless-occt 已真实生成并重开受限封闭直纹 Loft 的 STEP/BREP，并输出 STL；平滑 Loft、sweep、knit、thicken 仍只做结构化计划门禁", "当前不证明 G1/G2、Class-A、模具质量或可制造性"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {
@@ -208,7 +208,7 @@
       "label": "模具工具与分型检查",
       "level": "pilot",
       "backends": ["local-python", "headless-occt", "solidworks-com"],
-      "verified_versions": [],
+      "verified_versions": ["CalculiX 2.23"],
       "dependencies": ["python", "可选 OCP", "可选 SolidWorks 模具工具与许可证"],
       "limitations": ["当前只校验拔模方向、分型边/面、型芯型腔引用和收缩率计划；不生成型芯型腔实体，不替代模具设计"],
       "allowed_modes": ["interactive", "reviewed"]
@@ -220,7 +220,7 @@
       "backends": ["local-python", "calculix", "elmer", "solidworks-simulation-adapter"],
       "verified_versions": [],
       "dependencies": ["python", "可选 CalculiX ccx", "可选 ElmerSolver", "可选 SolidWorks Simulation 许可证"],
-      "limitations": ["当前只做 FEA 1.0 Schema、材料/网格/载荷/约束引用校验、开放求解器前置发现和 CalculiX 白名单输入生成；未发现求解器时必须 blocked", "FEA 结果不等于安全认证；即使求解成功也必须做网格收敛、载荷合理性和工程师复核"],
+      "limitations": ["已真实运行受限线性静力 C3D4/C3D8 CalculiX 任务并解析位移、应力、版本和收敛增量；未发现求解器或结果证据不完整时必须 blocked/failed", "尚未完成网格收敛序列、复杂接触、非线性和工程认证；FEA 结果不等于安全认证"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {

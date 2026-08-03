@@ -31,7 +31,9 @@ python scripts/cad_studio.py check-dfm --input .\part.cadstudio.json --output .\
 python scripts/cad_studio.py check-routing --input .\route.json --output .\output\routing_report.json
 python scripts/cad_studio.py fea-preflight --solver auto
 python scripts/cad_studio.py prepare-fea --input .\fea.json --out-dir .\output\fea
+python scripts/cad_studio.py run-fea --input .\fea.json --out-dir .\output\fea --timeout 120
 python scripts/cad_studio.py review-advanced-geometry --input .\surface-plan.json --output .\output\surface_report.json
+python scripts/cad_studio.py create-ocp-loft --input .\loft.json --out-dir .\output\loft
 ```
 
 <p align="center">
@@ -66,11 +68,11 @@ python scripts/cad_studio.py review-advanced-geometry --input .\surface-plan.jso
 - 🔌 **MCP Server** - 将 SolidWorks COM 自动化封装成 Codex / Claude / Cursor 可调用的本地 MCP 工具，覆盖基础建模、装配、Mate、外观、导出、审查和旋转马达
 - 🔨 **钣金设计（参考）** - 文档与 API 路由已整理，当前不承诺无人值守交付
 - ⚡ **焊件设计（参考）** - 结构构件与切割清单尚无稳定回归执行器
-- 📊 **FEA 仿真（试点）** - 校验 FEA Schema、材料/网格/载荷/约束引用，探测 CalculiX/Elmer，并生成白名单 CalculiX 输入；缺求解器或结果证据时保持 `blocked`
+- 📊 **FEA 仿真（试点）** - CalculiX 2.23 已真实求解受限线性静力样件并解析位移、应力和收敛证据；缺求解器或结果证据时保持 `blocked/failed`，结果不等于安全认证
 - 📝 **自定义属性** - 文件属性读写可用；配置/设计表按能力清单限制使用
 - 🏭 **DFM 制造复核（试点）** - 机加工、钣金、激光切割和 3D 打印的结构化风险检查，支持供应商 profile 与 B-Rep 证据绑定；规则通过仍需人工确认
 - 🧭 **Routing 中性复核（试点）** - 校验端点、分段、长度、弯曲半径、碰撞/间隙、支撑间距和 Routing BOM；未发现 Routing 加载项/许可证时原生写入保持 `blocked`
-- 🧰 **复杂曲面/模具计划（试点）** - 校验 loft/sweep/knit/thicken、G0/G1/G2、拔模、分型和型芯型腔引用；不生成生产 B-Rep，不替代模具设计
+- 🧰 **复杂曲面/模具（试点）** - OCP 可真实生成并重开受限封闭直纹 Loft 的 STEP/BREP/STL；平滑 Loft、sweep/knit/thicken、G1/G2 和模具能力仍走门禁，不替代 Class-A 或模具设计
 - 👀 **结果自审查** - 导出多视角预览图、`review_report.json` 与 Markdown 摘要，帮助代理复核模型是否符合意图
 - 🔎 **API 查证优先** - 未封装接口先查官方 API Help / 本地 SDK，再实现、运行、自审查并沉淀
 
@@ -82,6 +84,7 @@ python scripts/cad_studio.py review-advanced-geometry --input .\surface-plan.jso
 - **核心依赖库**: `pywin32`、`comtypes`
 - **无头写入**: 不要求安装 SolidWorks/AutoCAD；DXF 需要 `ezdxf`
 - **OCCT 几何后端**: 安装 `requirements-occt.txt` 后启用 STEP/IGES/BREP/GLB 和布尔孔切除
+- **开放 FEA**: CalculiX 可作为外部 GPL 求解器放在 D/E 盘；程序不会把其二进制打包进 MIT 发布物
 - **网格转换可选依赖**: `trimesh`、`pygltflib`、`numpy`、`Pillow`
 
 > 运行前可执行 `python scripts/sw_preflight.py`。如果缺少 `comtypes` / `win32com`，脚本会先询问是否授权 AI 自动配置本地环境；如果未检测到 SolidWorks，会直接停止并提示先手动安装 SolidWorks。
@@ -471,7 +474,7 @@ model.Extension.SelectByID2(
 - **自定义属性**: 读写零件属性,支持配置特定属性
 - **设计表**: 通过 Excel 驱动参数化设计，仍需专项回归后才能无人值守交付
 - **钣金展开**: 导出 DXF 展开图用于激光切割
-- **仿真分析**: 当前提供 FEA Schema、开放求解器前置和 CalculiX 输入生成；真实求解结果必须人工复核，不能作为安全认证
+- **仿真分析**: CalculiX 2.23 已真实执行受限线性静力求解并解析位移、应力和收敛证据；仍必须做网格收敛和人工复核，不能作为安全认证
 - **CAD Agent 自审查**: 自动导出多视角预览图、生成 `review_report.json`、给出 `pass/warn/fail` 与修复建议
 - **API 查证工作流**: 对尚未封装的 SolidWorks API，先查官方 API Help / 本地 SDK，再写最小验证脚本并沉淀稳定封装
 
@@ -543,7 +546,8 @@ model.Extension.SelectByID2(
 - 🎨 **Appearance and Materials** - Document, feature, and component-level color workflows
 - 🔨 **Sheet Metal (reference only)** - No unattended feature or flat-pattern delivery is claimed
 - ⚡ **Weldments (reference only)** - No unattended structural-member or cut-list delivery is claimed
-- 📊 **FEA Simulation (pilot)** - Structured FEA schema validation, solver preflight, and whitelisted CalculiX input generation; no safety certification is claimed
+- 📊 **FEA Simulation (pilot)** - CalculiX 2.23 runs restricted linear-static jobs with parsed displacement, stress, and convergence evidence; no safety certification is claimed
+- 🧰 **Surface Modeling (pilot)** - Restricted ruled lofts produce and reopen real STEP/BREP artifacts; smooth lofts, G1/G2, Class-A, and mold-quality surfaces remain gated
 - 📝 **Custom Properties** - Read/write file properties, configuration management
 - 👀 **CAD Agent Self-Review** - Export multi-view previews, JSON reports, Markdown summaries, and `pass/warn/fail` evaluations
 - 🔎 **Verified API Workflow** - Look up official API Help or local SDK docs before using unwrapped SolidWorks APIs

@@ -106,7 +106,9 @@ claude mcp add --scope user solidworks -- python C:\path\to\solidworks-automatio
 | `cadstudio_routing_preflight` | 探测 SOLIDWORKS Routing 类型库、加载项注册和许可证证据；缺证据返回 blocked | 否 |
 | `cadstudio_fea_preflight` | 探测 CalculiX/Elmer 求解器，不执行任意命令 | 否 |
 | `cadstudio_prepare_fea` | 从 FEA 1.0 请求生成版本化 CalculiX `.inp`，不运行任意脚本 | 否 |
+| `cadstudio_run_fea` | 运行白名单 CalculiX 线性静力任务并解析位移、应力和收敛证据 | 否 |
 | `cadstudio_review_advanced_geometry` | 校验复杂曲面/模具中性计划并返回 pilot/blocked 门禁证据 | 否 |
+| `cadstudio_create_ocp_loft` | 从白名单封闭截面生成真实直纹 Loft STEP/BREP/STL，并重开验证 B-Rep | 否 |
 | `solidworks_health_check` | 检查 Python 依赖、SolidWorks 检测、Motion 类型库和可选实时连接 | 否 |
 | `solidworks_connect` | 连接/启动 SolidWorks 并返回活动文档摘要 | 否 |
 | `solidworks_new_document` | 新建零件/装配体/工程图 | 是 |
@@ -244,6 +246,6 @@ claude mcp add --scope user solidworks -- python C:\path\to\solidworks-automatio
 
 ## 已知限制
 
-- MCP 已覆盖基础盒体/圆柱、复杂孔槽、添加组件、常用 Mate、固定/浮动、外观、导出、审查、旋转马达、Motion 结果门禁，以及 DFM/Routing/FEA/复杂几何的无头门禁。
-- 放样、扫描、自由曲面和模具当前只开放结构化计划门禁，不生成生产 B-Rep。
-- SolidWorks Motion / Simulation 许可证差异可能影响 Motion Study 的计算能力。
+- MCP 已覆盖基础盒体/圆柱、复杂孔槽、添加组件、常用 Mate、固定/浮动、外观、导出、审查、旋转马达、Motion 结果门禁，以及 DFM/Routing/FEA/复杂几何的受控入口。
+- 受限封闭直纹 Loft 可生成并重开真实 STEP/BREP；平滑 Loft、扫描、自由曲面、G1/G2 和模具仍只开放结构化计划门禁。
+- SolidWorks Motion / Simulation 许可证差异可能影响计算能力；缺少合法加载项或授权时返回 `blocked`，不尝试绕过。

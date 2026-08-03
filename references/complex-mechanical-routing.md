@@ -26,9 +26,9 @@ python scripts\sw_capability_probe.py --output capability_report.json
 | 工程图 | Pilot | 必须人工复核图框、视图、尺寸链和 GB/T 格式 |
 | 配置、设计表 | Reference only | 先做最小样件回归，再用于客户模型 |
 | 钣金、焊件 | Reference only | 不允许仅凭 `references/advanced.md` 直接无人值守交付 |
-| 复杂曲面、模具 | Pilot | 只能运行 `review-advanced-geometry` 做结构化计划门禁；当前不生成生产 B-Rep |
+| 复杂曲面、模具 | Pilot | `create-ocp-loft` 可生成并重开受限封闭直纹 Loft；平滑 Loft、sweep/knit/thicken、G1/G2 和模具仍只做门禁 |
 | Routing | Pilot | 只能运行 `routing-preflight` 或 `check-routing`；无加载项/许可证证据时原生写入必须 blocked |
-| Simulation/FEA | Pilot | 只能运行 `fea-preflight` 或 `prepare-fea`；无求解器或结果证据时不得冒充求解完成 |
+| Simulation/FEA | Pilot | `run-fea` 可运行受限 CalculiX 线性静力任务；结果必须含位移、应力和收敛证据，仍需网格收敛及工程复核 |
 
 ## 复杂零件
 

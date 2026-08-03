@@ -76,7 +76,7 @@ python scripts\cad_studio.py preview-dxf `
 
 该转换只读取 LINE、CIRCLE、ARC、LWPOLYLINE、POLYLINE、TEXT、MTEXT 和 DIMENSION，输入上限为 50 MB/200000 个实体；不支持实体会写入限制，不会执行脚本或覆盖旧场景文件。
 
-OCCT 当前覆盖盒体、圆柱、布尔合并和圆柱孔切除，回读实体有效性、体积、包围盒和拓扑数量；复杂特征仍返回 `blocked`。原生 SLDPRT/SLDASM/SLDDRW/DWG 缺少厂商软件或授权 SDK 时必须返回 `blocked`，不能通过改扩展名伪造。
+OCCT 当前覆盖盒体、圆柱、布尔合并、圆柱孔切除，以及独立入口的受限封闭直纹 Loft，并回读实体有效性、体积、包围盒和拓扑数量；平滑 Loft 和其余复杂特征仍返回 `blocked`。原生 SLDPRT/SLDASM/SLDDRW/DWG 缺少厂商软件或授权 SDK 时必须返回 `blocked`，不能通过改扩展名伪造。
 
 首次执行前建议运行：
 
@@ -84,7 +84,7 @@ OCCT 当前覆盖盒体、圆柱、布尔合并和圆柱孔切除，回读实体
 python scripts/cad_studio.py doctor
 ```
 
-能力限制以仓库根目录 `capabilities.yaml` 为准。配置/设计表、钣金和焊件当前不会被标记为已交付；Simulation/FEA、Routing、复杂曲面和模具只进入受控 `pilot` 门禁，能生成前置/检查证据，但不能冒充原生完整交付。
+能力限制以仓库根目录 `capabilities.yaml` 为准。配置/设计表、钣金和焊件当前不会被标记为已交付。Simulation/FEA 可用 CalculiX 执行受限线性静力任务，复杂曲面可用 OCP 执行受限封闭直纹 Loft；二者仍是 `pilot`，缺少结果证据、网格收敛或曲面质量证明时不能冒充完整工程交付。
 
 当前 CLI 也可独立运行这些受控门禁：
 
@@ -94,7 +94,9 @@ python scripts\cad_studio.py routing-preflight
 python scripts\cad_studio.py check-routing --input .\route.json --output .\output\routing_report.json
 python scripts\cad_studio.py fea-preflight --solver auto
 python scripts\cad_studio.py prepare-fea --input .\fea.json --out-dir .\output\fea
+python scripts\cad_studio.py run-fea --input .\fea.json --out-dir .\output\fea --timeout 120
 python scripts\cad_studio.py review-advanced-geometry --input .\surface-plan.json --output .\output\surface_report.json
+python scripts\cad_studio.py create-ocp-loft --input .\loft.json --out-dir .\output\loft
 ```
 
 工程图和 BOM 任务会额外返回视图、真实尺寸、BOM 行、模型/工程图关系和复核发现。SW2024 与 SW2026 SP01.1 中“模型尺寸自动插入并回读真实尺寸实体”已作为独立能力验证；SW2026 回归连续三次读取到 3 个真实视图和 6 个真实尺寸实体。完整工程图仍为 `pilot`，文件存在不等于交付完成，图幅、视图布局、尺寸链、孔表、标题栏和 BOM 仍需人工复核。
