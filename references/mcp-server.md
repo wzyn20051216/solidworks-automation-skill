@@ -67,6 +67,7 @@ CAD Studio 门禁工具：
 - `cadstudio_fea_preflight`
 - `cadstudio_prepare_fea`
 - `cadstudio_run_fea`
+- `cadstudio_run_fea_convergence`
 - `cadstudio_review_advanced_geometry`
 - `cadstudio_create_ocp_loft`
 
@@ -106,13 +107,13 @@ SolidWorks 原生工具：
 3. Motion Study：旋转马达、线性马达、计算/播放。
 4. 零件建模：受控草图原语和特征原语。
 5. 工程图：三视图、BOM、PDF 导出。
-6. 无头能力：DFM profile、Routing 中性复核、CalculiX 受限求解、OCP 受限直纹 Loft 和其余复杂几何计划复核。
+6. 无头能力：DFM profile、Routing 中性复核、CalculiX 受限线性/非线性与网格序列、OCP 受限曲面和其余复杂几何计划复核。
 
 暂缓扩展：
 
 - 任意草图约束求解。
 - 平滑 Loft、复杂扫描、G1/G2/Class-A 和模具质量 B-Rep 生成。
-- 接触、摩擦、碰撞等高阶运动仿真与安全认证。
+- 大型接触、自动穿透验收、碰撞等高阶仿真与安全认证。
 
 ## 返回格式
 

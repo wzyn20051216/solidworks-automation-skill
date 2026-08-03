@@ -28,7 +28,7 @@ python scripts\sw_capability_probe.py --output capability_report.json
 | 钣金、焊件 | Reference only | 不允许仅凭 `references/advanced.md` 直接无人值守交付 |
 | 复杂曲面、模具 | Pilot | `create-ocp-loft` 可生成并重开受限封闭直纹 Loft；平滑 Loft、sweep/knit/thicken、G1/G2 和模具仍只做门禁 |
 | Routing | Pilot | 只能运行 `routing-preflight` 或 `check-routing`；无加载项/许可证证据时原生写入必须 blocked |
-| Simulation/FEA | Pilot | `run-fea` 可运行受限 CalculiX 线性静力任务；结果必须含位移、应力和收敛证据，仍需网格收敛及工程复核 |
+| Simulation/FEA | Pilot | `run-fea` 可运行受限线性/非线性静力，`run-fea-convergence` 执行 3-8 档网格序列；塑性、接触和收敛均必须保留工程复核 |
 
 ## 复杂零件
 

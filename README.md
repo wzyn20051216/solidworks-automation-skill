@@ -32,6 +32,7 @@ python scripts/cad_studio.py check-routing --input .\route.json --output .\outpu
 python scripts/cad_studio.py fea-preflight --solver auto
 python scripts/cad_studio.py prepare-fea --input .\fea.json --out-dir .\output\fea
 python scripts/cad_studio.py run-fea --input .\fea.json --out-dir .\output\fea --timeout 120
+python scripts/cad_studio.py run-fea-convergence --input .\fea-convergence.json --out-dir .\output\fea-convergence --timeout-per-case 120
 python scripts/cad_studio.py review-advanced-geometry --input .\surface-plan.json --output .\output\surface_report.json
 python scripts/cad_studio.py create-ocp-loft --input .\loft.json --out-dir .\output\loft
 ```
@@ -68,7 +69,7 @@ python scripts/cad_studio.py create-ocp-loft --input .\loft.json --out-dir .\out
 - 🔌 **MCP Server** - 将 SolidWorks COM 自动化封装成 Codex / Claude / Cursor 可调用的本地 MCP 工具，覆盖基础建模、装配、Mate、外观、导出、审查和旋转马达
 - 🔨 **钣金设计（参考）** - 文档与 API 路由已整理，当前不承诺无人值守交付
 - ⚡ **焊件设计（参考）** - 结构构件与切割清单尚无稳定回归执行器
-- 📊 **FEA 仿真（试点）** - CalculiX 2.23 已真实求解受限线性静力样件并解析位移、应力和收敛证据；缺求解器或结果证据时保持 `blocked/failed`，结果不等于安全认证
+- 📊 **FEA 仿真（试点）** - CalculiX 2.23 已真实求解线性静力、NLGEOM、受限塑性和双实体面接触样件，并可运行网格收敛序列；结果统一保留人工复核，不等于安全认证
 - 📝 **自定义属性** - 文件属性读写可用；配置/设计表按能力清单限制使用
 - 🏭 **DFM 制造复核（试点）** - 机加工、钣金、激光切割和 3D 打印的结构化风险检查，支持供应商 profile 与 B-Rep 证据绑定；规则通过仍需人工确认
 - 🧭 **Routing 中性复核（试点）** - 校验端点、分段、长度、弯曲半径、碰撞/间隙、支撑间距和 Routing BOM；未发现 Routing 加载项/许可证时原生写入保持 `blocked`
@@ -474,7 +475,7 @@ model.Extension.SelectByID2(
 - **自定义属性**: 读写零件属性,支持配置特定属性
 - **设计表**: 通过 Excel 驱动参数化设计，仍需专项回归后才能无人值守交付
 - **钣金展开**: 导出 DXF 展开图用于激光切割
-- **仿真分析**: CalculiX 2.23 已真实执行受限线性静力求解并解析位移、应力和收敛证据；仍必须做网格收敛和人工复核，不能作为安全认证
+- **仿真分析**: CalculiX 2.23 已真实执行线性静力、NLGEOM、受限塑性、面接触和网格序列；大型接触、穿透量、屈曲、模态与热耦合仍未完成，不能作为安全认证
 - **CAD Agent 自审查**: 自动导出多视角预览图、生成 `review_report.json`、给出 `pass/warn/fail` 与修复建议
 - **API 查证工作流**: 对尚未封装的 SolidWorks API，先查官方 API Help / 本地 SDK，再写最小验证脚本并沉淀稳定封装
 
@@ -546,7 +547,7 @@ model.Extension.SelectByID2(
 - 🎨 **Appearance and Materials** - Document, feature, and component-level color workflows
 - 🔨 **Sheet Metal (reference only)** - No unattended feature or flat-pattern delivery is claimed
 - ⚡ **Weldments (reference only)** - No unattended structural-member or cut-list delivery is claimed
-- 📊 **FEA Simulation (pilot)** - CalculiX 2.23 runs restricted linear-static jobs with parsed displacement, stress, and convergence evidence; no safety certification is claimed
+- 📊 **FEA Simulation (pilot)** - CalculiX 2.23 runs restricted linear static, NLGEOM, plastic-curve, surface-contact, and mesh-sequence jobs; engineering review remains mandatory
 - 🧰 **Surface Modeling (pilot)** - Restricted ruled lofts produce and reopen real STEP/BREP artifacts; smooth lofts, G1/G2, Class-A, and mold-quality surfaces remain gated
 - 📝 **Custom Properties** - Read/write file properties, configuration management
 - 👀 **CAD Agent Self-Review** - Export multi-view previews, JSON reports, Markdown summaries, and `pass/warn/fail` evaluations

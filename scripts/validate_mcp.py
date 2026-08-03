@@ -26,6 +26,7 @@ REQUIRED_TOOLS = {
     "cadstudio_fea_preflight",
     "cadstudio_prepare_fea",
     "cadstudio_run_fea",
+    "cadstudio_run_fea_convergence",
     "cadstudio_review_advanced_geometry",
     "cadstudio_create_ocp_loft",
     "solidworks_health_check",

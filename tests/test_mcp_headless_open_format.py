@@ -112,6 +112,22 @@ def test_mcp_run_fea_uses_structured_runner_without_loading_solidworks(tmp_path:
     assert server._automation_loaded is False
 
 
+def test_mcp_run_fea_convergence_uses_whitelisted_sequence_runner(tmp_path: Path, monkeypatch):
+    """@brief 收敛工具只调用结构化序列执行器，不暴露任意求解器命令。"""
+    source = tmp_path / "convergence.json"
+    source.write_text("{}", encoding="utf-8")
+    expected = {"status": "review_required", "converged": False, "artifacts": []}
+    monkeypatch.setattr("scripts.fea_convergence.run_convergence_study", lambda *_args, **_kwargs: expected)
+    params = server.CadStudioFeaConvergenceInput(
+        input_path=str(source), output_dir=str(tmp_path / "convergence-out"), timeout_seconds_per_case=30
+    )
+
+    payload = json.loads(server.cadstudio_run_fea_convergence(params))
+
+    assert payload == expected
+    assert server._automation_loaded is False
+
+
 def test_mcp_create_ocp_loft_uses_restricted_backend(tmp_path: Path, monkeypatch):
     """@brief OCP Loft MCP 只调用结构化几何封装，不加载 SolidWorks。"""
     source = tmp_path / "loft.json"

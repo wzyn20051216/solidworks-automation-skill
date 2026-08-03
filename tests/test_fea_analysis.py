@@ -32,6 +32,39 @@ def _request() -> dict:
     }
 
 
+def _nonlinear_request() -> dict:
+    """@brief 返回含材料塑性和面接触的 FEA 1.1 请求。"""
+    request = _request()
+    request.update({
+        "schemaVersion": "1.1",
+        "analysisId": "contact_nonlinear",
+        "analysisType": "static_nonlinear",
+        "nonlinearControls": {
+            "initialIncrement": 0.05,
+            "timePeriod": 1.0,
+            "minimumIncrement": 1e-5,
+            "maximumIncrement": 0.1,
+            "maximumIncrements": 200,
+        },
+        "surfaces": {
+            "MasterFace": {"elementSet": "MasterElements", "face": "S1"},
+            "SlaveFace": {"elementSet": "SlaveElements", "face": "S2"},
+        },
+        "contacts": [{
+            "id": "interface", "masterSurface": "MasterFace", "slaveSurface": "SlaveFace",
+            "frictionCoefficient": 0.2, "normalStiffnessMPaPerMm": 21000,
+            "tangentialStickSlopeMPaPerMm": 10500,
+        }],
+    })
+    request["mesh"]["elements"].append({"id": 2, "type": "C3D4", "nodeIds": [1, 2, 3, 4]})
+    request["mesh"]["elementSets"].update({"MasterElements": [1], "SlaveElements": [2]})
+    request["material"]["plasticCurve"] = [
+        {"yieldStressMPa": 250, "plasticStrain": 0.0},
+        {"yieldStressMPa": 300, "plasticStrain": 0.05},
+    ]
+    return request
+
+
 def test_validate_analysis_accepts_consistent_mesh_and_references() -> None:
     """@brief 合法材料、网格、载荷和约束应通过。"""
     validated = validate_analysis(_request())
@@ -84,6 +117,43 @@ def test_calculix_sets_wrap_after_sixteen_ids(tmp_path: Path) -> None:
     start = content.index("*NSET,NSET=ManyNodes")
     member_lines = content[start + 1:start + 3]
     assert [len(line.split(",")) for line in member_lines] == [16, 4]
+
+
+def test_nonlinear_contact_input_uses_only_whitelisted_keywords(tmp_path: Path) -> None:
+    """@brief 几何非线性、塑性和面接触应生成固定 CalculiX 关键字。"""
+    request = _nonlinear_request()
+    assert validate_analysis(request)["analysisType"] == "static_nonlinear"
+    report = build_calculix_input(request, tmp_path / "nonlinear.inp")
+    content = Path(report["artifacts"][0]["path"]).read_text(encoding="ascii")
+    assert "*STEP,NLGEOM,INC=200" in content
+    assert "*PLASTIC\n250,0\n300,0.05" in content
+    assert "*SURFACE,NAME=MasterFace,TYPE=ELEMENT\nMasterElements,S1" in content
+    assert "*SURFACE BEHAVIOR,PRESSURE-OVERCLOSURE=LINEAR\n21000" in content
+    assert "*FRICTION\n0.2,10500" in content
+    assert "*CONTACT PAIR,INTERACTION=CADSTUDIO_CONTACT_interface,TYPE=SURFACE TO SURFACE" in content
+    assert content.index("*CONTACT PAIR") < content.index("*STEP,NLGEOM")
+    assert report["requestEvidence"] == {
+        "geometricNonlinearity": True,
+        "plasticCurvePointCount": 2,
+        "contactPairCount": 1,
+    }
+
+
+@pytest.mark.parametrize(
+    ("mutator", "message"),
+    [
+        (lambda payload: payload["nonlinearControls"].update({"initialIncrement": 2}), "minimum <= initial"),
+        (lambda payload: payload["surfaces"]["MasterFace"].update({"face": "S5"}), "不适用于"),
+        (lambda payload: payload["contacts"][0].update({"masterSurface": "Missing"}), "已定义 surface"),
+        (lambda payload: payload["material"]["plasticCurve"][1].update({"plasticStrain": 0}), "严格递增"),
+    ],
+)
+def test_nonlinear_extensions_reject_invalid_increment_surface_contact_and_curve(mutator, message: str) -> None:
+    """@brief 非法增量、单元面、接触引用和塑性曲线必须在写文件前阻断。"""
+    request = _nonlinear_request()
+    mutator(request)
+    with pytest.raises(ValueError, match=message):
+        validate_analysis(request)
 
 
 def test_pressure_requires_explicit_element_face_and_gravity_uses_defined_all_set(tmp_path: Path) -> None:
@@ -156,12 +226,17 @@ def test_parse_calculix_results_reports_displacement_stress_and_convergence(tmp_
         encoding="ascii",
     )
     (tmp_path / f"{stem}.sta").write_text("     1          1     1     1  1.0  1.0  1.0\n", encoding="ascii")
+    (tmp_path / f"{stem}.cvg").write_text(
+        "     1     1     1     1       28  0.0  0.0  0.0  0.0\n",
+        encoding="ascii",
+    )
     report = parse_calculix_results(tmp_path, stem)
     assert report["status"] == "pass"
     assert report["summary"]["solverVersion"] == "2.23"
     assert report["summary"]["maximumDisplacementMm"] == pytest.approx(2.0e-4)
     assert report["summary"]["maximumVonMisesStressMPa"] == pytest.approx(4.0)
     assert report["summary"]["convergedIncrementCount"] == 1
+    assert report["summary"]["maximumContactElementCount"] == 28
 
 
 def test_parse_calculix_results_uses_latest_complete_result_blocks(tmp_path: Path) -> None:
@@ -220,9 +295,10 @@ def test_run_non_static_analysis_blocks_before_creating_output(tmp_path: Path) -
 
 
 def test_fea_json_schema_is_valid_and_accepts_golden_request() -> None:
-    """@brief 公共 JSON Schema 本身及黄金请求均应通过 Draft 2020-12。"""
+    """@brief 公共 JSON Schema 本身及 1.0/1.1 黄金请求均应通过 Draft 2020-12。"""
     jsonschema = pytest.importorskip("jsonschema")
     schema_path = Path(__file__).parents[1] / "apps" / "desktop" / "cad_workbench" / "schemas" / "fea_analysis.schema.json"
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     jsonschema.Draft202012Validator.check_schema(schema)
     jsonschema.validate(_request(), schema)
+    jsonschema.validate(_nonlinear_request(), schema)

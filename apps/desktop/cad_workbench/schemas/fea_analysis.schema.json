@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cadstudio.local/schemas/fea-analysis-1.0.json",
+  "$id": "https://cadstudio.local/schemas/fea-analysis-1.1.json",
   "title": "CAD Studio FEA Analysis",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "analysisId", "analysisType", "solver", "units", "material", "mesh", "constraints", "loads"],
   "properties": {
-    "schemaVersion": { "const": "1.0" },
+    "schemaVersion": { "enum": ["1.0", "1.1"] },
     "analysisId": { "$ref": "#/$defs/id" },
-    "analysisType": { "enum": ["static_linear", "modal", "thermal_steady"] },
+    "analysisType": { "enum": ["static_linear", "static_nonlinear", "modal", "thermal_steady"] },
     "solver": { "enum": ["auto", "calculix", "elmer"] },
     "units": {
       "type": "object",
@@ -30,7 +30,18 @@
         "elasticModulusMPa": { "type": "number", "exclusiveMinimum": 0 },
         "poissonRatio": { "type": "number", "exclusiveMinimum": -1, "exclusiveMaximum": 0.5 },
         "densityKgM3": { "type": "number", "exclusiveMinimum": 0 },
-        "conductivityWmK": { "type": "number", "exclusiveMinimum": 0 }
+        "conductivityWmK": { "type": "number", "exclusiveMinimum": 0 },
+        "plasticCurve": {
+          "type": "array", "minItems": 2, "maxItems": 64,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["yieldStressMPa", "plasticStrain"],
+            "properties": {
+              "yieldStressMPa": { "type": "number", "exclusiveMinimum": 0 },
+              "plasticStrain": { "type": "number", "minimum": 0 }
+            }
+          }
+        }
       }
     },
     "mesh": {
@@ -93,8 +104,51 @@
           { "if": { "properties": { "type": { "const": "gravity" } } }, "then": { "required": ["magnitude", "direction"] } }
         ]
       }
+    },
+    "nonlinearControls": {
+      "type": "object", "additionalProperties": false,
+      "required": ["initialIncrement", "timePeriod", "minimumIncrement", "maximumIncrement", "maximumIncrements"],
+      "properties": {
+        "initialIncrement": { "type": "number", "exclusiveMinimum": 0 },
+        "timePeriod": { "type": "number", "exclusiveMinimum": 0 },
+        "minimumIncrement": { "type": "number", "exclusiveMinimum": 0 },
+        "maximumIncrement": { "type": "number", "exclusiveMinimum": 0 },
+        "maximumIncrements": { "type": "integer", "minimum": 1, "maximum": 1000 }
+      }
+    },
+    "surfaces": {
+      "type": "object", "maxProperties": 64, "propertyNames": { "$ref": "#/$defs/id" },
+      "additionalProperties": {
+        "type": "object", "additionalProperties": false,
+        "required": ["elementSet", "face"],
+        "properties": {
+          "elementSet": { "$ref": "#/$defs/id" },
+          "face": { "enum": ["S1", "S2", "S3", "S4", "S5", "S6"] }
+        }
+      }
+    },
+    "contacts": {
+      "type": "array", "maxItems": 32,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["id", "masterSurface", "slaveSurface", "frictionCoefficient", "normalStiffnessMPaPerMm", "tangentialStickSlopeMPaPerMm"],
+        "properties": {
+          "id": { "$ref": "#/$defs/id" },
+          "masterSurface": { "$ref": "#/$defs/id" },
+          "slaveSurface": { "$ref": "#/$defs/id" },
+          "frictionCoefficient": { "type": "number", "minimum": 0, "maximum": 2 },
+          "normalStiffnessMPaPerMm": { "type": "number", "exclusiveMinimum": 0 },
+          "tangentialStickSlopeMPaPerMm": { "type": "number", "minimum": 0 }
+        }
+      }
     }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "analysisType": { "const": "static_nonlinear" } }, "required": ["analysisType"] },
+      "then": { "properties": { "schemaVersion": { "const": "1.1" } }, "required": ["nonlinearControls"] }
+    }
+  ],
   "$defs": {
     "id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$" },
     "sets": {

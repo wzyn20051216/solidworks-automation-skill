@@ -380,6 +380,23 @@ class CadStudioFeaRunInput(BaseInput):
         return value
 
 
+class CadStudioFeaConvergenceInput(BaseInput):
+    """Input for running a whitelisted CalculiX mesh convergence sequence."""
+
+    input_path: str = Field(..., min_length=1, description="Absolute FEA convergence 1.0 request JSON path.")
+    output_dir: str = Field(..., min_length=1, description="Output directory for versioned convergence artifacts.")
+    timeout_seconds_per_case: int = Field(default=600, ge=1, le=86400, description="Timeout for each mesh case.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+    @field_validator("input_path")
+    @classmethod
+    def input_path_must_exist(cls, value: str) -> str:
+        path = Path(os.path.expandvars(value)).expanduser()
+        if path.suffix.lower() != ".json" or not path.is_file():
+            raise ValueError(f"FEA convergence input must be an existing JSON file: {value}")
+        return value
+
+
 class CadStudioAdvancedGeometryInput(BaseInput):
     """Input for advanced surface/mold plan preflight."""
 
@@ -1062,6 +1079,33 @@ def cadstudio_run_fea(params: CadStudioFeaRunInput) -> str:
         input_path = Path(os.path.expandvars(params.input_path)).expanduser().resolve()
         output_dir = Path(os.path.expandvars(params.output_dir)).expanduser().resolve()
         return run_analysis(input_path, output_dir, timeout_seconds=params.timeout_seconds)
+
+    return _run_locked(op, params.response_format, load_automation=False)
+
+
+@mcp.tool(
+    name="cadstudio_run_fea_convergence",
+    title="Run FEA Mesh Convergence Sequence",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+def cadstudio_run_fea_convergence(params: CadStudioFeaConvergenceInput) -> str:
+    """Run 3-8 approved CalculiX meshes and compare displacement/stress convergence."""
+
+    def op():
+        from scripts.fea_convergence import run_convergence_study
+
+        input_path = Path(os.path.expandvars(params.input_path)).expanduser().resolve()
+        output_dir = Path(os.path.expandvars(params.output_dir)).expanduser().resolve()
+        return run_convergence_study(
+            input_path,
+            output_dir,
+            timeout_seconds_per_case=params.timeout_seconds_per_case,
+        )
 
     return _run_locked(op, params.response_format, load_automation=False)
 

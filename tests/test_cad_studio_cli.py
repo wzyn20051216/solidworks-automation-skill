@@ -151,6 +151,28 @@ def test_cli_prepare_fea_generates_versioned_calculix_input(tmp_path: Path):
     assert artifact.read_text(encoding="ascii").startswith("** CAD Studio generated")
 
 
+def test_cli_run_fea_convergence_rejects_invalid_request_without_output(tmp_path: Path):
+    """@brief 收敛 CLI 必须在求解前阻断无效协议，且不留下结果目录。"""
+    source = tmp_path / "bad-convergence.json"
+    source.write_text("{}", encoding="utf-8")
+    output = tmp_path / "convergence-out"
+    completed = subprocess.run(
+        [
+            sys.executable, "scripts/cad_studio.py", "run-fea-convergence",
+            "--input", str(source), "--out-dir", str(output), "--timeout-per-case", "30",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 1
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "blocked"
+    assert payload["error_code"] == "fea_convergence_invalid_request"
+    assert not output.exists()
+
+
 def test_cli_review_advanced_geometry_writes_report(tmp_path: Path):
     """@brief 复杂几何 CLI 只能输出 pilot/blocked 门禁报告，不声称产出几何。"""
     source = tmp_path / "surface.json"

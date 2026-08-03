@@ -152,6 +152,10 @@ def main(argv: list[str] | None = None) -> int:
     fea_run.add_argument("--input", type=Path, required=True, help="FEA 1.0 请求 JSON")
     fea_run.add_argument("--out-dir", type=Path, required=True, help="版本化求解目录")
     fea_run.add_argument("--timeout", type=int, default=600, help="求解超时秒数，范围 1-86400")
+    fea_convergence = sub.add_parser("run-fea-convergence")
+    fea_convergence.add_argument("--input", type=Path, required=True, help="FEA 网格收敛 1.0 请求 JSON")
+    fea_convergence.add_argument("--out-dir", type=Path, required=True, help="版本化收敛序列目录")
+    fea_convergence.add_argument("--timeout-per-case", type=int, default=600, help="每档网格求解超时秒数，范围 1-86400")
     advanced = sub.add_parser("review-advanced-geometry")
     advanced.add_argument("--input", type=Path, required=True, help="复杂曲面/模具中性计划 JSON")
     advanced.add_argument("--output", type=Path, required=True, help="不覆盖旧文件的前置报告 JSON 输出")
@@ -267,6 +271,12 @@ def main(argv: list[str] | None = None) -> int:
         from fea_analysis import run_analysis
 
         result = run_analysis(args.input, args.out_dir, timeout_seconds=args.timeout)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 1 if result.get("status") in {"blocked", "failed"} else 0
+    if args.command == "run-fea-convergence":
+        from fea_convergence import run_convergence_study
+
+        result = run_convergence_study(args.input, args.out_dir, timeout_seconds_per_case=max(1, min(args.timeout_per_case, 86400)))
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 1 if result.get("status") in {"blocked", "failed"} else 0
     if args.command == "review-advanced-geometry":

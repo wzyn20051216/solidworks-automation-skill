@@ -114,7 +114,7 @@ session.export(model, r"C:\temp\cylinder.step")
 | 语义实体引用 | `scripts/sw_entity_reference.py` | 逐步替代 Face1/Edge1 和屏幕坐标 |
 | DFM 制造风险复核 | `scripts/dfm_review.py`、`scripts/dfm_profiles.py`、`scripts/cad_studio.py check-dfm` | 供应商 profile、B-Rep 证据、机加工、钣金、激光切割和 3D 打印的结构化规则检查 |
 | Routing 中性复核与前置 | `scripts/routing_review.py`、`scripts/cad_studio.py check-routing`、`scripts/cad_studio.py routing-preflight` | 端点、分段、长度、弯曲半径、碰撞/间隙、支撑、Routing BOM；原生写入必须等加载项/许可证证据 |
-| FEA 前置、输入与受限求解 | `scripts/fea_analysis.py`、`scripts/cad_studio.py fea-preflight/prepare-fea/run-fea` | CalculiX 2.23 已验证受限线性静力求解与结果解析；仍需网格收敛和工程复核 |
+| FEA 前置、输入与受限求解 | `scripts/fea_analysis.py`、`scripts/fea_convergence.py`、`scripts/cad_studio.py fea-preflight/prepare-fea/run-fea/run-fea-convergence` | CalculiX 2.23 已验证线性静力、受控 NLGEOM、塑性曲线、面接触和网格收敛序列；全部仍需工程复核 |
 | 复杂曲面与模具 | `scripts/advanced_geometry.py`、`scripts/advanced_geometry_ocp.py`、`scripts/cad_studio.py review-advanced-geometry/create-ocp-loft` | 受限封闭直纹 Loft 可写并重开 STEP/BREP；其余曲面、连续性和模具能力走门禁 |
 | 本地 MCP Server | `mcp-server/server.py` | `mcp-server/README.md`、`references/mcp-server.md` |
 | MCP 协议验证 | `scripts/validate_mcp.py` | `mcp-server/README.md` |
@@ -160,7 +160,7 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 12. 如果必须由大模型生成 VBA 宏，先使用 `sw_macro_guard.py` 做模型分流、代码校验、重试和本地模板兜底。
 13. 使用 `session.export()` 或 `sw_export.py` 保存/导出文件。
 14. 使用 `sw_review.py` 导出预览图并自审查；如果有 GUI/桌面截图能力，打开 SolidWorks 视图截图复核。
-15. 遇到钣金、焊件、复杂曲面、模具、Routing、Simulation/FEA、复杂 Motion 或配置族任务，先运行 `sw_capability_probe.py` 并读取 `references/complex-mechanical-routing.md`；Routing 使用 `routing-preflight/check-routing`，FEA 使用 `fea-preflight/prepare-fea/run-fea`，复杂曲面使用 `review-advanced-geometry/create-ocp-loft`。只有白名单直纹 Loft 和受限 CalculiX 线性静力可进入真实执行，其余仍按 `capabilities.yaml` 门禁。
+15. 遇到钣金、焊件、复杂曲面、模具、Routing、Simulation/FEA、复杂 Motion 或配置族任务，先运行 `sw_capability_probe.py` 并读取 `references/complex-mechanical-routing.md`；Routing 使用 `routing-preflight/check-routing`，FEA 使用 `fea-preflight/prepare-fea/run-fea/run-fea-convergence`，复杂曲面使用 `review-advanced-geometry/create-ocp-loft`。FEA 1.1 只允许白名单 NLGEOM、单调塑性曲线和显式单元面接触参数；求解通过仍为 `review_required`。
 16. 需要企业/项目机械知识时读取 `references/enterprise-agent-rag.md`；默认只用本地知识，云 RAG 必须显式启用、声明 `external_network` 并完成人工审批。
 17. 当一个需求同时跨越零件、孔槽/圆角、装配 Mate、Motion、工程图/BOM 和多格式交付中的两个以上工程域时，调用 `apps/desktop/cad_workbench/engineering_orchestrator.py` 生成阶段 DAG。必须按依赖串行执行关键 CAD 写操作，每阶段独立保存产物和验收证据；局部修改只重规划受影响阶段及其后继，禁止把整项工程塞进一条超长 Prompt 后一次性宣称完成。
 
