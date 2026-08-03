@@ -132,6 +132,8 @@ def test_nonlinear_contact_input_uses_only_whitelisted_keywords(tmp_path: Path) 
     assert "*SURFACE BEHAVIOR,PRESSURE-OVERCLOSURE=LINEAR\n21000" in content
     assert "*FRICTION\n0.2,10500" in content
     assert "*CONTACT PAIR,INTERACTION=CADSTUDIO_CONTACT_interface,TYPE=SURFACE TO SURFACE" in content
+    assert "*CONTACT FILE,FREQUENCY=999999,CONTACT ELEMENTS" in content
+    assert "CDIS,CSTR" in content
     assert content.index("*CONTACT PAIR") < content.index("*STEP,NLGEOM")
     assert report["requestEvidence"] == {
         "geometricNonlinearity": True,
@@ -241,6 +243,59 @@ def test_parse_calculix_results_reports_displacement_stress_and_convergence(tmp_
     assert report["summary"]["convergedIncrementCount"] == 1
     assert report["summary"]["maximumContactElementCount"] == 28
     assert report["summary"]["maximumEquivalentPlasticStrain"] == pytest.approx(1.25e-3)
+
+
+def test_parse_calculix_results_reports_contact_penetration_pressure_and_slip(tmp_path: Path) -> None:
+    """@brief CONTACT 最终块应拆出穿透、压力和切向滑移证据。"""
+    stem = "contact_job"
+    (tmp_path / f"{stem}.frd").write_text(
+        "    1UVERSION           Version 2.23\n"
+        " -4  DISP        4    1\n -1         1 0.0 0.0 -2.0E-04\n -3\n"
+        " -4  STRESS      6    1\n -1         1 -2.0 -2.0 -6.0 0.0 0.0 0.0\n -3\n"
+        " -4  CONTACT     6    1\n"
+        " -5  COPEN       1    2    1    0\n"
+        " -5  CSLIP1      1    2    2    0\n"
+        " -5  CSLIP2      1    2    3    0\n"
+        " -5  CPRESS      1    2    4    0\n"
+        " -5  CSHEAR1     1    2    5    0\n"
+        " -5  CSHEAR2     1    2    6    0\n"
+        " -1         1 -2.0E-03 3.0E-03 4.0E-03 12.5 1.0 2.0\n -3\n"
+        " 9999\n",
+        encoding="ascii",
+    )
+    (tmp_path / f"{stem}.sta").write_text("     1          1     1     1  1.0  1.0  1.0\n", encoding="ascii")
+    report = parse_calculix_results(tmp_path, stem)
+    assert report["status"] == "pass"
+    assert report["summary"]["contactNodeCount"] == 1
+    assert report["summary"]["maximumPenetrationMm"] == pytest.approx(0.002)
+    assert report["summary"]["maximumContactPressureMPa"] == pytest.approx(12.5)
+    assert report["summary"]["maximumContactSlipMm"] == pytest.approx(0.005)
+
+
+def test_parse_calculix_results_rejects_nonfinite_contact_field(tmp_path: Path) -> None:
+    """@brief 接触 COPEN/CPRESS 的非有限值不得进入有效结果。"""
+    stem = "nonfinite_contact"
+    (tmp_path / f"{stem}.frd").write_text(
+        "    1UVERSION           Version 2.23\n"
+        " -4  DISP        4    1\n -1         1 0.0 0.0 0.2\n -3\n"
+        " -4  STRESS      6    1\n -1         1 2.0 2.0 6.0 0.0 0.0 0.0\n -3\n"
+        " -4  CONTACT     2    1\n"
+        " -5  COPEN       1    2    1    0\n"
+        " -5  CPRESS      1    2    2    0\n"
+        " -1         1 NaN 12.5\n -3\n"
+        " 9999\n",
+        encoding="ascii",
+    )
+    (tmp_path / f"{stem}.sta").write_text(
+        "     1          1     1     1  1.0  1.0  1.0\n",
+        encoding="ascii",
+    )
+
+    report = parse_calculix_results(tmp_path, stem)
+
+    assert report["status"] == "failed"
+    assert report["error_code"] == "fea_result_incomplete_or_nonfinite"
+    assert report["summary"]["finiteValues"] is False
 
 
 def test_parse_calculix_results_uses_latest_complete_result_blocks(tmp_path: Path) -> None:

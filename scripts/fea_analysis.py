@@ -417,6 +417,8 @@ def parse_calculix_results(job_dir: str | Path, stem: str) -> dict[str, Any]:
     result_blocks: dict[str, list[dict[int, tuple[float, ...]]]] = {
         "displacement": [], "stress": [], "equivalent_plastic_strain": [],
     }
+    contact_blocks: list[dict[str, Any]] = []
+    contact_components: list[str] = []
     duplicate_node = False
     nonfinite_result_token = False
     with frd.open("r", encoding="ascii", errors="replace") as handle:
@@ -440,11 +442,25 @@ def parse_calculix_results(job_dir: str | Path, stem: str) -> dict[str, Any]:
                 current = "equivalent_plastic_strain"
                 current_rows = {}
                 continue
+            if line.startswith(" -4  CONTACT"):
+                current = "contact"
+                current_rows = {}
+                contact_components = []
+                continue
+            if current == "contact" and line.startswith(" -5"):
+                fields = line.split()
+                if len(fields) >= 2:
+                    contact_components.append(fields[1].upper())
+                continue
             if line.startswith(" -3"):
                 if current and current_rows:
-                    result_blocks[current].append(current_rows)
+                    if current == "contact":
+                        contact_blocks.append({"rows": current_rows, "components": list(contact_components)})
+                    else:
+                        result_blocks[current].append(current_rows)
                 current = None
                 current_rows = {}
+                contact_components = []
                 continue
             if current and line.startswith(" -1"):
                 if _NONFINITE_RESULT.search(line):
@@ -462,16 +478,13 @@ def parse_calculix_results(job_dir: str | Path, stem: str) -> dict[str, Any]:
                     current_rows[node_id] = components[:6]
                 elif current == "equivalent_plastic_strain" and components:
                     current_rows[node_id] = components[:1]
+                elif current == "contact" and components:
+                    current_rows[node_id] = components
     displacement_rows = result_blocks["displacement"][-1] if result_blocks["displacement"] else {}
     stress_rows = result_blocks["stress"][-1] if result_blocks["stress"] else {}
     plastic_rows = result_blocks["equivalent_plastic_strain"][-1] if result_blocks["equivalent_plastic_strain"] else {}
     displacements = list(displacement_rows.values())
     stresses = list(stress_rows.values())
-    finite = all(
-        math.isfinite(value)
-        for row in [*displacements, *stresses, *plastic_rows.values()]
-        for value in row
-    ) and not nonfinite_result_token
     max_displacement = max((math.sqrt(sum(value * value for value in row)) for row in displacements), default=None)
 
     def von_mises(row: tuple[float, float, float, float, float, float]) -> float:
@@ -480,6 +493,46 @@ def parse_calculix_results(job_dir: str | Path, stem: str) -> dict[str, Any]:
 
     max_von_mises = max((von_mises(row) for row in stresses), default=None)
     maximum_plastic_strain = max((row[0] for row in plastic_rows.values()), default=0.0)
+    contact_rows = contact_blocks[-1]["rows"] if contact_blocks else {}
+    contact_labels = contact_blocks[-1]["components"] if contact_blocks else []
+    finite = all(
+        math.isfinite(value)
+        for row in [*displacements, *stresses, *plastic_rows.values(), *contact_rows.values()]
+        for value in row
+    ) and not nonfinite_result_token
+
+    def _contact_component_index(*names: str) -> int | None:
+        """@brief 在 CalculiX CONTACT 分量中查找第一个匹配索引。"""
+        for name in names:
+            try:
+                return contact_labels.index(name)
+            except ValueError:
+                continue
+        return None
+
+    copen_index = _contact_component_index("COPEN")
+    cpress_index = _contact_component_index("CPRESS")
+    cslip_indices = [
+        index for index in (
+            _contact_component_index("CSLIP1"),
+            _contact_component_index("CSLIP2"),
+        ) if index is not None
+    ]
+    penetration_values = [
+        max(0.0, -float(row[copen_index]))
+        for row in contact_rows.values()
+        if copen_index is not None and copen_index < len(row) and math.isfinite(float(row[copen_index]))
+    ]
+    pressure_values = [
+        max(0.0, float(row[cpress_index]))
+        for row in contact_rows.values()
+        if cpress_index is not None and cpress_index < len(row) and math.isfinite(float(row[cpress_index]))
+    ]
+    slip_values = [
+        math.sqrt(sum(float(row[index]) ** 2 for index in cslip_indices))
+        for row in contact_rows.values()
+        if cslip_indices and all(index < len(row) and math.isfinite(float(row[index])) for index in cslip_indices)
+    ]
     sta_text = sta.read_text(encoding="ascii", errors="replace") if sta.is_file() else ""
     cvg_text = cvg.read_text(encoding="ascii", errors="replace") if cvg.is_file() else ""
     increment_lines = [line for line in sta_text.splitlines() if re.match(r"^\s+\d+\s+\d+\s+\d+\s+\d+", line)]
@@ -500,6 +553,7 @@ def parse_calculix_results(job_dir: str | Path, stem: str) -> dict[str, Any]:
         {"id": "fea-result-node-identity", "status": "pass" if node_sets_match and not duplicate_node else "fail", "nodeSetsMatch": node_sets_match, "duplicateNode": duplicate_node},
         {"id": "fea-result-termination", "status": "pass" if result_terminated and not failure_markers else "fail", "terminated": result_terminated, "failureMarkers": failure_markers},
         {"id": "fea-result-contact-elements", "status": "pass" if maximum_contact_elements > 0 else "warning", "maximumContactElementCount": maximum_contact_elements},
+        {"id": "fea-result-contact-fields", "status": "pass" if contact_rows and (copen_index is not None or cpress_index is not None) else "warning", "nodeCount": len(contact_rows), "components": contact_labels},
         {"id": "fea-result-plastic-activity", "status": "pass" if maximum_plastic_strain > 0 else "warning", "maximumEquivalentPlasticStrain": maximum_plastic_strain},
         {"id": "fea-result-convergence", "status": "pass" if converged else "fail", "increments": len(increment_lines)},
     ]
@@ -520,6 +574,11 @@ def parse_calculix_results(job_dir: str | Path, stem: str) -> dict[str, Any]:
             "nodeSetsMatch": node_sets_match,
             "failureMarkers": failure_markers,
             "maximumContactElementCount": maximum_contact_elements,
+            "contactNodeCount": len(contact_rows),
+            "contactComponents": contact_labels,
+            "maximumPenetrationMm": max(penetration_values, default=0.0),
+            "maximumContactPressureMPa": max(pressure_values, default=0.0),
+            "maximumContactSlipMm": max(slip_values, default=0.0),
             "maximumEquivalentPlasticStrain": maximum_plastic_strain,
         },
         "files": [str(path) for path in (frd, sta, cvg) if path.is_file()],
@@ -610,6 +669,9 @@ def build_calculix_input(value: str | Path | dict[str, Any], output_path: str | 
             unit = [float(value) / norm for value in direction]
             lines.extend(["*DLOAD", f"CADSTUDIO_ALL_ELEMENTS,GRAV,{float(item['magnitude']):.12g},{unit[0]:.12g},{unit[1]:.12g},{unit[2]:.12g}"])
     element_outputs = "S,E,PEEQ" if material.get("plasticCurve") else "S,E"
+    if request.get("contacts"):
+        # CalculiX 官方接触结果：COPEN 负值代表穿透，CPRESS 为法向接触压力。
+        lines.extend(["*CONTACT FILE,FREQUENCY=999999,CONTACT ELEMENTS", "CDIS,CSTR"])
     lines.extend(["*NODE FILE", "U", "*EL FILE", element_outputs, "*END STEP", ""])
     target.write_text("\n".join(lines), encoding="ascii")
     artifact = {"kind": "calculix_input", "path": str(target), "sha256": _sha256(target), "sizeBytes": target.stat().st_size, "producedThisRun": True}
@@ -657,7 +719,7 @@ def run_analysis(value: str | Path | dict[str, Any], output_dir: str | Path, *, 
         completed = subprocess.run([preflight["executable"], "-i", stem], cwd=job_dir, capture_output=True, text=True, timeout=max(1, min(int(timeout_seconds), 86_400)), shell=False, check=False)
     except subprocess.TimeoutExpired:
         return _blocked("solve", "fea_solver_timeout", "CalculiX 求解超时，未生成成功结论。", retryable=True, preflight=preflight)
-    evidence = [job_dir / f"{stem}.dat", job_dir / f"{stem}.frd", job_dir / f"{stem}.sta", job_dir / f"{stem}.cvg"]
+    evidence = [job_dir / f"{stem}.dat", job_dir / f"{stem}.frd", job_dir / f"{stem}.sta", job_dir / f"{stem}.cvg", job_dir / f"{stem}.cel"]
     artifacts = [deck["artifacts"][0]]
     artifacts.extend({"kind": path.suffix.lstrip("."), "path": str(path), "sha256": _sha256(path), "sizeBytes": path.stat().st_size, "producedThisRun": True} for path in evidence if path.is_file() and path.stat().st_size > 0)
     result_evidence = parse_calculix_results(job_dir, stem)
@@ -678,7 +740,7 @@ def run_analysis(value: str | Path | dict[str, Any], output_dir: str | Path, *, 
     if nonlinear:
         limitations.append("非线性结果只证明本轮白名单 CalculiX 输入完成求解；接触穿透、塑性路径和增量敏感性仍需专门复核。")
     if request.get("contacts"):
-        limitations.append("CONT. EL 只证明 CalculiX 生成了接触单元，不证明接触全程闭合或穿透量合格。")
+        limitations.append("接触开口/压力来自本轮最终输出；尚未自动证明所有载荷增量全过程的穿透上限、接触区域稳定性或工程允许值。")
     return {
         "schemaVersion": request["schemaVersion"], "status": "review_required", "stage": "review",
         "solver": "calculix", "analysisType": request["analysisType"], "artifacts": artifacts,

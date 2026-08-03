@@ -58,8 +58,11 @@ def _load_request(value: str | Path | dict[str, Any]) -> dict[str, Any]:
 def _physics_fingerprint(analysis: dict[str, Any]) -> str:
     """@brief 计算不含网格和任务 ID 的物理条件指纹。"""
     payload = {
-        key: analysis[key]
-        for key in ("analysisType", "solver", "units", "material", "constraints", "loads")
+        key: analysis.get(key)
+        for key in (
+            "analysisType", "solver", "units", "material", "constraints", "loads",
+            "nonlinearControls", "surfaces", "contacts",
+        )
     }
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -95,8 +98,8 @@ def validate_convergence_request(value: str | Path | dict[str, Any]) -> dict[str
             raise ValueError("characteristicSizeMm 必须按粗到细严格递减。")
         previous_size = size
         analysis = validate_analysis(case.get("analysis"))
-        if analysis["analysisType"] != "static_linear" or analysis["solver"] not in {"auto", "calculix"}:
-            raise ValueError("网格收敛当前只允许 CalculiX static_linear。")
+        if analysis["analysisType"] not in {"static_linear", "static_nonlinear"} or analysis["solver"] not in {"auto", "calculix"}:
+            raise ValueError("网格收敛当前只允许 CalculiX static_linear/static_nonlinear。")
         node_count = len(analysis["mesh"]["nodes"])
         element_count = len(analysis["mesh"]["elements"])
         if node_count <= previous_nodes or element_count <= previous_elements:
@@ -162,6 +165,10 @@ def run_convergence_study(
             "error_code": result.get("error_code"),
             "maximumDisplacementMm": summary.get("maximumDisplacementMm"),
             "maximumVonMisesStressMPa": summary.get("maximumVonMisesStressMPa"),
+            "maximumEquivalentPlasticStrain": summary.get("maximumEquivalentPlasticStrain"),
+            "maximumPenetrationMm": summary.get("maximumPenetrationMm"),
+            "maximumContactPressureMPa": summary.get("maximumContactPressureMPa"),
+            "maximumContactSlipMm": summary.get("maximumContactSlipMm"),
             "solverVersion": summary.get("solverVersion"),
         }
         case_results.append(record)
@@ -186,13 +193,46 @@ def run_convergence_study(
             "from": previous["id"], "to": current["id"],
             "displacementChangePercent": displacement_change,
             "stressChangePercent": stress_change,
+            "plasticStrainChangePercent": (
+                _relative_change_percent(
+                    float(previous["maximumEquivalentPlasticStrain"]),
+                    float(current["maximumEquivalentPlasticStrain"]),
+                )
+                if max(
+                    float(previous.get("maximumEquivalentPlasticStrain") or 0.0),
+                    float(current.get("maximumEquivalentPlasticStrain") or 0.0),
+                ) > 0 else None
+            ),
+            "penetrationChangePercent": (
+                _relative_change_percent(
+                    float(previous["maximumPenetrationMm"]),
+                    float(current["maximumPenetrationMm"]),
+                )
+                if max(
+                    float(previous.get("maximumPenetrationMm") or 0.0),
+                    float(current.get("maximumPenetrationMm") or 0.0),
+                ) > 0 else None
+            ),
+            "contactPressureChangePercent": (
+                _relative_change_percent(
+                    float(previous["maximumContactPressureMPa"]),
+                    float(current["maximumContactPressureMPa"]),
+                )
+                if max(
+                    float(previous.get("maximumContactPressureMPa") or 0.0),
+                    float(current.get("maximumContactPressureMPa") or 0.0),
+                ) > 0 else None
+            ),
         })
     tolerance = float(request["tolerancePercent"])
     last_change = changes[-1]
-    converged = (
-        last_change["displacementChangePercent"] <= tolerance
-        and last_change["stressChangePercent"] <= tolerance
+    required_metrics = [last_change["displacementChangePercent"], last_change["stressChangePercent"]]
+    required_metrics.extend(
+        last_change[key]
+        for key in ("plasticStrainChangePercent", "penetrationChangePercent", "contactPressureChangePercent")
+        if last_change[key] is not None
     )
+    converged = all(value <= tolerance for value in required_metrics)
     report = {
         "schemaVersion": "1.0", "status": "review_required", "stage": "review",
         "studyId": request["studyId"], "solver": "calculix", "cases": case_results,
@@ -201,7 +241,7 @@ def run_convergence_study(
         "retryable": not converged,
         "error_code": None if converged else "fea_mesh_convergence_not_reached",
         "limitations": [
-            "收敛只比较最后两档网格的最大位移和最大 Von Mises 应力；仍需检查应力奇异点、载荷合理性和局部结果。",
+            "收敛比较最后两档网格的位移/应力，并在存在时同时比较塑性应变、接触穿透和接触压力；仍需检查奇异点、载荷路径和局部结果。",
         ],
         "generatedAt": _now_iso(),
     }
@@ -209,4 +249,3 @@ def run_convergence_study(
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     report["reportPath"] = str(report_path)
     return report
-

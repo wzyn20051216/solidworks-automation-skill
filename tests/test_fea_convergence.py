@@ -63,6 +63,26 @@ def test_validate_convergence_requires_strict_mesh_refinement() -> None:
         validate_convergence_request(request)
 
 
+def test_validate_convergence_accepts_nonlinear_and_fingerprints_contact_controls() -> None:
+    """@brief 非线性收敛允许执行，但接触和增量设置必须在所有网格中完全一致。"""
+    request = _study()
+    for case in request["cases"]:
+        analysis = case["analysis"]
+        analysis.update({
+            "schemaVersion": "1.1",
+            "analysisType": "static_nonlinear",
+            "nonlinearControls": {
+                "initialIncrement": 0.1, "timePeriod": 1.0,
+                "minimumIncrement": 1e-6, "maximumIncrement": 0.2,
+                "maximumIncrements": 100,
+            },
+        })
+    assert validate_convergence_request(request)["cases"][0]["analysis"]["analysisType"] == "static_nonlinear"
+    request["cases"][1]["analysis"]["nonlinearControls"]["maximumIncrement"] = 0.25
+    with pytest.raises(ValueError, match="完全一致"):
+        validate_convergence_request(request)
+
+
 def test_validate_convergence_rejects_changed_physics() -> None:
     """@brief 不同网格之间不得悄悄改变材料、载荷或约束。"""
     request = _study()
@@ -130,4 +150,3 @@ def test_run_convergence_retains_nonconverged_review_gate(tmp_path: Path, monkey
     assert report["converged"] is False
     assert report["error_code"] == "fea_mesh_convergence_not_reached"
     assert report["retryable"] is True
-
