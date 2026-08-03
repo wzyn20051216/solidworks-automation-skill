@@ -200,7 +200,7 @@
       "backends": ["local-python", "headless-occt", "solidworks-com"],
       "verified_versions": [],
       "dependencies": ["python", "可选 OCP", "可选 SolidWorks"],
-      "limitations": ["headless-occt 已真实生成并重开受限封闭直纹/平滑 Loft、直线/单圆弧 Sweep、闭壳 Knit 和开放面 Thicken；操作均要求版本化 B-Rep 证据", "G1/G2 只对拓扑共享边五点采样，平滑变截面可能因包络鼓包被阻断；不证明 Class-A、模具质量或可制造性"],
+      "limitations": ["headless-occt 已真实生成并重开受限封闭直纹/平滑 Loft、直线/单圆弧 Sweep、闭壳 Knit 和开放面 Thicken；操作均要求版本化 B-Rep 证据", "G1/G2 只对拓扑共享边五点采样，平滑变截面可能因包络鼓包被阻断；Thicken 使用局部曲率九点采样和 50% 半径保守门禁，仍不证明全局无自交、Class-A、模具质量或可制造性"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {
@@ -220,7 +220,7 @@
       "backends": ["local-python", "calculix", "elmer", "solidworks-simulation-adapter"],
       "verified_versions": ["CalculiX 2.23"],
       "dependencies": ["python", "可选 CalculiX ccx", "可选 ElmerSolver", "可选 SolidWorks Simulation 许可证"],
-      "limitations": ["已真实运行 C3D4/C3D8 线性静力、NLGEOM 几何非线性、受限塑性曲线和双实体面接触样件；求解结果仍统一为 review_required", "网格收敛序列比较末两档位移/应力；本机五档悬臂梁最后两档变化为 1.85%/5.12%，通过 8% 阈值，未达标时仍返回 fea_mesh_convergence_not_reached", "尚未覆盖大型装配接触、接触穿透量自动验收、屈曲、模态、热耦合和工程认证；FEA 结果不等于安全认证"],
+      "limitations": ["已真实运行 C3D4/C3D8 线性静力、NLGEOM 几何非线性、受限塑性曲线和双实体面接触样件；可解析最终步 COPEN/CPRESS/CSLIP 并保留 .cel 接触迭代证据，求解结果仍统一为 review_required", "网格收敛序列支持线性/非线性静力，比较末两档位移、应力及存在时的塑性应变、接触穿透和接触压力；本机线性五档悬臂梁通过 8% 阈值，未达标时仍返回 fea_mesh_convergence_not_reached", "尚未覆盖大型装配接触、全过程穿透允许值自动认证、屈曲、模态、热耦合和工程认证；FEA 结果不等于安全认证"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {
