@@ -23,6 +23,7 @@ else:
 
 from .agent_contracts import (
     DEFAULT_PROFILE,
+    DANGEROUS_CAPABILITIES,
     agent_output_path,
     codex_output_path,
     compile_codex_prompt,
@@ -84,6 +85,10 @@ def _capability_block_reasons(job: dict[str, Any]) -> list[str]:
     reviewer_required = policy.get("requireReviewerPass") is True
     reasons: list[str] = []
     for capability_id in requested:
+        # 安全权限不是 CAD 能力。它们由 require_policy_approval() 单独处理，
+        # 不能因为未写入 capabilities.yaml 就把已授权的 CAD 任务直接标记为 blocked。
+        if str(capability_id) in DANGEROUS_CAPABILITIES:
+            continue
         item = index.get(str(capability_id))
         if not item:
             reasons.append(f"{capability_id} 不在能力清单中")

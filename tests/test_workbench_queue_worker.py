@@ -11,6 +11,7 @@ import pytest
 
 from apps.desktop.cad_workbench.agent_contracts import (
     DEFAULT_PROFILE,
+    DANGEROUS_CAPABILITIES,
     codex_output_path,
     load_profile,
     require_policy_approval,
@@ -26,6 +27,7 @@ from apps.desktop.cad_workbench.queue_worker import (
     approve_job,
     build_handlers,
     build_codex_prompt,
+    _capability_block_reasons,
     cancel_marker_path,
     event_path_for,
     lock_path_for,
@@ -1211,6 +1213,21 @@ def test_policy_gate_requires_approval_for_dangerous_capability(tmp_path: Path) 
     saved = read_job(job_path)
     assert saved["status"] == "approval_required"
     assert any("CAD 宏" in reason for reason in saved["approvalReasons"])
+
+
+def test_capability_gate_separates_security_permissions_from_cad_capabilities() -> None:
+    """@brief cad_macro/full_access 只触发审批，不应被误报为未知 CAD 能力。"""
+    job = _queued_job("job-capability-separation", "codex_task")
+    job.update({
+        "schemaVersion": "2.0",
+        "capabilities": ["part_and_features", "cad_macro", "full_access"],
+        "policy": {"sandbox": "danger-full-access", "approval": "manual-required"},
+    })
+
+    assert set(DANGEROUS_CAPABILITIES) == {
+        "git_push", "full_access", "cad_macro", "external_network", "cross_workspace", "delete_files",
+    }
+    assert _capability_block_reasons(job) == []
 
 
 def test_codex_full_access_requires_policy_and_cli_flag(tmp_path: Path) -> None:

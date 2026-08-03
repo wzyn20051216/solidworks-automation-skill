@@ -1689,13 +1689,15 @@ fn collect_doctor_report(program: &str, args: &[String], skill_root: &Path) -> V
     #[cfg(windows)]
     doctor.creation_flags(CREATE_NO_WINDOW);
     match command_output_with_timeout(&mut doctor, Duration::from_secs(20)) {
-        Ok(output) => serde_json::from_slice::<Value>(&output.stdout).unwrap_or_else(|error| json!({
-            "schemaVersion": "1.0",
-            "summary": { "status": "error" },
-            "checks": [],
-            "remediations": [],
-            "error": format!("环境诊断输出无法解析: {error}")
-        })),
+        Ok(output) => serde_json::from_slice::<Value>(&output.stdout).unwrap_or_else(|error| {
+            json!({
+                "schemaVersion": "1.0",
+                "summary": { "status": "error" },
+                "checks": [],
+                "remediations": [],
+                "error": format!("环境诊断输出无法解析: {error}")
+            })
+        }),
         Err(error) => json!({
             "schemaVersion": "1.0",
             "summary": { "status": "error" },
@@ -1827,7 +1829,10 @@ fn validate_external_download_url(value: &str) -> Result<(), String> {
         "https://www.solidworks.com/",
         "https://www.autodesk.com/",
     ];
-    if ALLOWED_PREFIXES.iter().any(|prefix| value.starts_with(prefix)) {
+    if ALLOWED_PREFIXES
+        .iter()
+        .any(|prefix| value.starts_with(prefix))
+    {
         Ok(())
     } else {
         Err("拒绝打开不在环境修复白名单中的地址。".to_string())
@@ -2924,8 +2929,8 @@ mod tests {
     use super::{
         asset_path, can_delete_job, database_provider_groups, derive_dangerous_capabilities,
         initialize_app_store, is_queue_metadata_path, prepare_job_for_retry,
-        required_review_checks, sync_entity_index, sync_task_index, validate_new_queue_job,
-        validate_external_download_url, validate_preview_extension, wallpaper_kind,
+        required_review_checks, sync_entity_index, sync_task_index, validate_external_download_url,
+        validate_new_queue_job, validate_preview_extension, wallpaper_kind,
     };
     use rusqlite::{params, Connection};
     use serde_json::json;
@@ -2964,10 +2969,17 @@ mod tests {
 
     #[test]
     fn external_download_url_only_allows_official_hosts() {
-        assert!(validate_external_download_url("https://www.python.org/downloads/windows/").is_ok());
-        assert!(validate_external_download_url("https://www.autodesk.com/products/autocad/overview").is_ok());
+        assert!(
+            validate_external_download_url("https://www.python.org/downloads/windows/").is_ok()
+        );
+        assert!(validate_external_download_url(
+            "https://www.autodesk.com/products/autocad/overview"
+        )
+        .is_ok());
         assert!(validate_external_download_url("http://www.python.org/downloads/").is_err());
-        assert!(validate_external_download_url("https://www.python.org.evil.example/download").is_err());
+        assert!(
+            validate_external_download_url("https://www.python.org.evil.example/download").is_err()
+        );
     }
 
     #[test]

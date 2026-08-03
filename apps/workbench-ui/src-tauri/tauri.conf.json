@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "CAD Studio",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "identifier": "com.wzyn.cadstudio",
   "build": {
     "frontendDist": "../dist",
