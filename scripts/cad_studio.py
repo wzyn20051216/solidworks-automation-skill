@@ -148,9 +148,16 @@ def main(argv: list[str] | None = None) -> int:
     fea_prepare.add_argument("--input", type=Path, required=True, help="FEA 1.0 请求 JSON")
     fea_prepare.add_argument("--out-dir", type=Path, required=True, help="CalculiX 输入文件输出目录")
     fea_prepare.add_argument("--solver", choices=("auto", "calculix", "elmer"), default="auto")
+    fea_run = sub.add_parser("run-fea")
+    fea_run.add_argument("--input", type=Path, required=True, help="FEA 1.0 请求 JSON")
+    fea_run.add_argument("--out-dir", type=Path, required=True, help="版本化求解目录")
+    fea_run.add_argument("--timeout", type=int, default=600, help="求解超时秒数，范围 1-86400")
     advanced = sub.add_parser("review-advanced-geometry")
     advanced.add_argument("--input", type=Path, required=True, help="复杂曲面/模具中性计划 JSON")
     advanced.add_argument("--output", type=Path, required=True, help="不覆盖旧文件的前置报告 JSON 输出")
+    loft = sub.add_parser("create-ocp-loft")
+    loft.add_argument("--input", type=Path, required=True, help="OCP Loft 1.0 参数 JSON")
+    loft.add_argument("--out-dir", type=Path, required=True, help="STEP/BREP/STL 版本化输出目录")
     args = parser.parse_args(argv)
 
     if args.command == "doctor":
@@ -256,10 +263,22 @@ def main(argv: list[str] | None = None) -> int:
             result = build_calculix_input(request, args.out_dir / f"{request['analysisId']}.inp")
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 1 if result.get("status") in {"blocked", "failed"} else 0
+    if args.command == "run-fea":
+        from fea_analysis import run_analysis
+
+        result = run_analysis(args.input, args.out_dir, timeout_seconds=args.timeout)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 1 if result.get("status") in {"blocked", "failed"} else 0
     if args.command == "review-advanced-geometry":
         from advanced_geometry import write_preflight_report
 
         result = write_preflight_report(args.input, args.output)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 1 if result.get("status") in {"blocked", "failed"} else 0
+    if args.command == "create-ocp-loft":
+        from advanced_geometry_ocp import execute_ocp_loft
+
+        result = execute_ocp_loft(args.input, args.out_dir)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 1 if result.get("status") in {"blocked", "failed"} else 0
     return 2

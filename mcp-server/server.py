@@ -363,6 +363,23 @@ class CadStudioFeaPrepareInput(BaseInput):
         return value
 
 
+class CadStudioFeaRunInput(BaseInput):
+    """Input for running an approved local FEA solver."""
+
+    input_path: str = Field(..., min_length=1, description="Absolute FEA 1.0 request JSON path.")
+    output_dir: str = Field(..., min_length=1, description="Output directory for versioned solver artifacts.")
+    timeout_seconds: int = Field(default=600, ge=1, le=86400, description="Solver timeout in seconds.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+    @field_validator("input_path")
+    @classmethod
+    def input_path_must_exist(cls, value: str) -> str:
+        path = Path(os.path.expandvars(value)).expanduser()
+        if path.suffix.lower() != ".json" or not path.is_file():
+            raise ValueError(f"FEA input must be an existing JSON file: {value}")
+        return value
+
+
 class CadStudioAdvancedGeometryInput(BaseInput):
     """Input for advanced surface/mold plan preflight."""
 
@@ -383,6 +400,22 @@ class CadStudioAdvancedGeometryInput(BaseInput):
     def output_path_must_be_json(cls, value: str) -> str:
         if Path(os.path.expandvars(value)).expanduser().suffix.lower() != ".json":
             raise ValueError(f"Output must be a JSON report path: {value}")
+        return value
+
+
+class CadStudioOcpLoftInput(BaseInput):
+    """Input for creating a restricted OCP parametric loft."""
+
+    input_path: str = Field(..., min_length=1, description="Absolute OCP Loft 1.0 JSON request path.")
+    output_dir: str = Field(..., min_length=1, description="Output directory for versioned STEP/BREP/STL artifacts.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+    @field_validator("input_path")
+    @classmethod
+    def input_path_must_exist(cls, value: str) -> str:
+        path = Path(os.path.expandvars(value)).expanduser()
+        if path.suffix.lower() != ".json" or not path.is_file():
+            raise ValueError(f"OCP Loft input must be an existing JSON file: {value}")
         return value
 
 class SolidWorksHealthCheckInput(BaseInput):
@@ -1011,6 +1044,29 @@ def cadstudio_prepare_fea(params: CadStudioFeaPrepareInput) -> str:
 
 
 @mcp.tool(
+    name="cadstudio_run_fea",
+    title="Run Approved Local FEA Solver",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+def cadstudio_run_fea(params: CadStudioFeaRunInput) -> str:
+    """Run a structured FEA 1.0 request through an approved local solver without arbitrary command execution."""
+
+    def op():
+        from scripts.fea_analysis import run_analysis
+
+        input_path = Path(os.path.expandvars(params.input_path)).expanduser().resolve()
+        output_dir = Path(os.path.expandvars(params.output_dir)).expanduser().resolve()
+        return run_analysis(input_path, output_dir, timeout_seconds=params.timeout_seconds)
+
+    return _run_locked(op, params.response_format, load_automation=False)
+
+
+@mcp.tool(
     name="cadstudio_review_advanced_geometry",
     title="Review Advanced Geometry Plan",
     annotations={
@@ -1029,6 +1085,29 @@ def cadstudio_review_advanced_geometry(params: CadStudioAdvancedGeometryInput) -
         input_path = Path(os.path.expandvars(params.input_path)).expanduser().resolve()
         output_path = Path(os.path.expandvars(params.output_path)).expanduser().resolve()
         return write_preflight_report(input_path, output_path)
+
+    return _run_locked(op, params.response_format, load_automation=False)
+
+
+@mcp.tool(
+    name="cadstudio_create_ocp_loft",
+    title="Create Restricted OCP Loft",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+def cadstudio_create_ocp_loft(params: CadStudioOcpLoftInput) -> str:
+    """Create and reopen a real parameterized OCP loft without arbitrary geometry code execution."""
+
+    def op():
+        from scripts.advanced_geometry_ocp import execute_ocp_loft
+
+        input_path = Path(os.path.expandvars(params.input_path)).expanduser().resolve()
+        output_dir = Path(os.path.expandvars(params.output_dir)).expanduser().resolve()
+        return execute_ocp_loft(input_path, output_dir)
 
     return _run_locked(op, params.response_format, load_automation=False)
 

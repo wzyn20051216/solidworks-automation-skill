@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0",
+  "modelId": "adapter_loft",
+  "units": "mm",
+  "operation": "loft",
+  "solid": true,
+  "ruled": true,
+  "toleranceMm": 0.01,
+  "sections": [
+    {"id": "base", "type": "circle", "z": 0, "center": [0, 0], "radius": 20},
+    {"id": "middle", "type": "ellipse", "z": 30, "center": [2, 0], "majorRadius": 16, "minorRadius": 12, "rotationDeg": 15},
+    {"id": "top", "type": "circle", "z": 60, "center": [0, 0], "radius": 10}
+  ],
+  "outputs": ["step", "brep", "stl"]
+}

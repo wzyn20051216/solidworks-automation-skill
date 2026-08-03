@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "1.0",
+  "analysisId": "tetra_static",
+  "analysisType": "static_linear",
+  "solver": "calculix",
+  "units": {
+    "length": "mm",
+    "force": "N",
+    "stress": "MPa",
+    "temperature": "C"
+  },
+  "material": {
+    "name": "Steel",
+    "elasticModulusMPa": 210000,
+    "poissonRatio": 0.3,
+    "densityKgM3": 7850
+  },
+  "mesh": {
+    "nodes": [
+      {"id": 1, "x": 0, "y": 0, "z": 0},
+      {"id": 2, "x": 10, "y": 0, "z": 0},
+      {"id": 3, "x": 0, "y": 10, "z": 0},
+      {"id": 4, "x": 0, "y": 0, "z": 10}
+    ],
+    "elements": [
+      {"id": 1, "type": "C3D4", "nodeIds": [1, 2, 3, 4]}
+    ],
+    "nodeSets": {
+      "FixedNodes": [1, 2, 3],
+      "LoadNode": [4]
+    },
+    "elementSets": {
+      "AllElements": [1]
+    }
+  },
+  "constraints": [
+    {"id": "fixed_base", "type": "fixed", "nodeSet": "FixedNodes"}
+  ],
+  "loads": [
+    {"id": "tip_force", "type": "force", "nodeSet": "LoadNode", "dof": 3, "value": -100}
+  ]
+}

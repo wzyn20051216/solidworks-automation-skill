@@ -23,6 +23,7 @@ _ELEMENT_NODES = {"C3D4": 4, "C3D8": 8}
 _SOLVER_ENV = {"calculix": "CADSTUDIO_CALCULIX_EXE", "elmer": "CADSTUDIO_ELMER_EXE"}
 _SOLVER_NAMES = {"calculix": ("ccx", "ccx.exe"), "elmer": ("ElmerSolver", "ElmerSolver.exe")}
 _MAX_INPUT_BYTES = 64 * 1024 * 1024
+_RESULT_NUMBER = re.compile(r"[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[Ee][-+]?\d+)?")
 
 
 def _now_iso() -> str:
@@ -77,6 +78,29 @@ def _finite_number(value: Any, field: str, *, positive: bool = False) -> float:
     if not math.isfinite(number) or (positive and number <= 0):
         raise ValueError(f"{field} 必须是{'大于零的' if positive else ''}有限数值。")
     return number
+
+
+def _windows_user_environment(name: str) -> str | None:
+    """@brief 读取当前用户环境变量注册表，避免长驻应用必须重启才能发现新安装。"""
+    if os.name != "nt":
+        return None
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as key:
+            return str(winreg.QueryValueEx(key, name)[0])
+    except OSError:
+        return None
+
+
+def _standard_solver_candidates(solver: str) -> list[Path]:
+    """@brief 返回 CAD Studio 在非系统盘使用的受控求解器候选路径。"""
+    if os.name != "nt" or solver != "calculix":
+        return []
+    return [
+        Path(drive) / "CADStudio" / "CalculiX-2.23" / "calculix_2.23_4win" / "ccx.exe"
+        for drive in ("D:\\", "E:\\")
+    ]
 
 
 def _identifier(value: Any, field: str) -> str:
@@ -245,19 +269,123 @@ def discover_solver(solver: str = "auto") -> dict[str, Any]:
     checked: list[dict[str, Any]] = []
     for name in order:
         env_name = _SOLVER_ENV[name]
-        env_value = os.environ.get(env_name)
-        candidate = Path(env_value).expanduser().resolve() if env_value else None
-        if candidate and candidate.is_file():
-            return {"status": "pass", "solver": name, "executable": str(candidate), "source": env_name, "checked": checked}
+        environment_candidates: list[tuple[str, str | None]] = [
+            (env_name, os.environ.get(env_name)),
+            (f"HKCU\\Environment\\{env_name}", _windows_user_environment(env_name)),
+        ]
+        for source, env_value in environment_candidates:
+            candidate = Path(os.path.expandvars(env_value)).expanduser().resolve() if env_value else None
+            checked.append({"solver": name, "source": source, "path": str(candidate) if candidate else None, "exists": bool(candidate and candidate.is_file())})
+            if candidate and candidate.is_file():
+                return {"status": "pass", "solver": name, "executable": str(candidate), "source": source, "checked": checked}
         path_value = next((shutil.which(item) for item in _SOLVER_NAMES[name] if shutil.which(item)), None)
-        checked.append({"solver": name, "environmentVariable": env_name, "environmentPath": str(candidate) if candidate else None, "pathFound": path_value})
         if path_value:
             return {"status": "pass", "solver": name, "executable": str(Path(path_value).resolve()), "source": "PATH", "checked": checked}
+        for candidate in _standard_solver_candidates(name):
+            checked.append({"solver": name, "source": "cadstudio-standard-path", "path": str(candidate), "exists": candidate.is_file()})
+            if candidate.is_file():
+                return {"status": "pass", "solver": name, "executable": str(candidate.resolve()), "source": "cadstudio-standard-path", "checked": checked}
     return {
         "status": "blocked", "solver": solver, "executable": None, "checked": checked,
         "error_code": "fea_solver_missing", "retryable": False,
         "missingDependencies": ["CalculiX ccx" if solver in {"auto", "calculix"} else "ElmerSolver"] + (["ElmerSolver"] if solver == "auto" else []),
         "message": "未发现开放 FEA 求解器。请安装 CalculiX 或 Elmer，并加入 PATH；也可设置 CADSTUDIO_CALCULIX_EXE / CADSTUDIO_ELMER_EXE。",
+    }
+
+
+def parse_calculix_results(job_dir: str | Path, stem: str) -> dict[str, Any]:
+    """@brief 解析受限 FRD/STA 结果，验证位移、应力、版本和线性步收敛。"""
+    root = Path(job_dir).expanduser().resolve()
+    frd = root / f"{stem}.frd"
+    sta = root / f"{stem}.sta"
+    cvg = root / f"{stem}.cvg"
+    if not frd.is_file() or frd.stat().st_size <= 0:
+        return {"status": "failed", "error_code": "fea_result_frd_missing", "checks": [], "summary": {}}
+    solver_version: str | None = None
+    last_nonempty = ""
+    current: str | None = None
+    current_rows: dict[int, tuple[float, ...]] = {}
+    result_blocks: dict[str, list[dict[int, tuple[float, ...]]]] = {"displacement": [], "stress": []}
+    duplicate_node = False
+    with frd.open("r", encoding="ascii", errors="replace") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if stripped:
+                last_nonempty = stripped
+            if solver_version is None:
+                match = re.search(r"1UVERSION\s+Version\s+([^\s]+)", line)
+                if match:
+                    solver_version = match.group(1)
+            if line.startswith(" -4  DISP"):
+                current = "displacement"
+                current_rows = {}
+                continue
+            if line.startswith(" -4  STRESS"):
+                current = "stress"
+                current_rows = {}
+                continue
+            if line.startswith(" -3"):
+                if current and current_rows:
+                    result_blocks[current].append(current_rows)
+                current = None
+                current_rows = {}
+                continue
+            if current and line.startswith(" -1"):
+                values = [float(item) for item in _RESULT_NUMBER.findall(line)]
+                if len(values) < 3:
+                    continue
+                node_id = int(values[1])
+                components = tuple(values[2:])
+                if node_id in current_rows:
+                    duplicate_node = True
+                if current == "displacement" and len(components) >= 3:
+                    current_rows[node_id] = components[:3]
+                elif current == "stress" and len(components) >= 6:
+                    current_rows[node_id] = components[:6]
+    displacement_rows = result_blocks["displacement"][-1] if result_blocks["displacement"] else {}
+    stress_rows = result_blocks["stress"][-1] if result_blocks["stress"] else {}
+    displacements = list(displacement_rows.values())
+    stresses = list(stress_rows.values())
+    finite = all(math.isfinite(value) for row in [*displacements, *stresses] for value in row)
+    max_displacement = max((math.sqrt(sum(value * value for value in row)) for row in displacements), default=None)
+
+    def von_mises(row: tuple[float, float, float, float, float, float]) -> float:
+        sxx, syy, szz, sxy, syz, szx = row
+        return math.sqrt(0.5 * ((sxx - syy) ** 2 + (syy - szz) ** 2 + (szz - sxx) ** 2) + 3.0 * (sxy**2 + syz**2 + szx**2))
+
+    max_von_mises = max((von_mises(row) for row in stresses), default=None)
+    sta_text = sta.read_text(encoding="ascii", errors="replace") if sta.is_file() else ""
+    cvg_text = cvg.read_text(encoding="ascii", errors="replace") if cvg.is_file() else ""
+    increment_lines = [line for line in sta_text.splitlines() if re.match(r"^\s+\d+\s+\d+\s+\d+\s+\d+", line)]
+    result_terminated = last_nonempty == "9999"
+    node_sets_match = bool(displacement_rows) and set(displacement_rows) == set(stress_rows)
+    failure_markers = re.findall(r"(?i)\b(?:ERROR|DIVERGED|DIVERGENCE|NOT\s+CONVERGED|FAILED)\b", sta_text + "\n" + cvg_text)
+    converged = bool(increment_lines) and result_terminated and node_sets_match and not duplicate_node and not failure_markers and finite
+    checks = [
+        {"id": "fea-result-version", "status": "pass" if solver_version else "warning", "message": f"CalculiX {solver_version}" if solver_version else "未读取到求解器版本"},
+        {"id": "fea-result-displacement", "status": "pass" if displacements and finite else "fail", "count": len(displacements)},
+        {"id": "fea-result-stress", "status": "pass" if stresses and finite else "fail", "count": len(stresses)},
+        {"id": "fea-result-node-identity", "status": "pass" if node_sets_match and not duplicate_node else "fail", "nodeSetsMatch": node_sets_match, "duplicateNode": duplicate_node},
+        {"id": "fea-result-termination", "status": "pass" if result_terminated and not failure_markers else "fail", "terminated": result_terminated, "failureMarkers": failure_markers},
+        {"id": "fea-result-convergence", "status": "pass" if converged else "fail", "increments": len(increment_lines)},
+    ]
+    return {
+        "status": "pass" if converged else "failed",
+        "error_code": None if converged else "fea_result_incomplete_or_nonfinite",
+        "checks": checks,
+        "summary": {
+            "solverVersion": solver_version,
+            "displacementNodeCount": len(displacements),
+            "stressNodeCount": len(stresses),
+            "maximumDisplacementMm": max_displacement,
+            "maximumVonMisesStressMPa": max_von_mises,
+            "convergedIncrementCount": len(increment_lines),
+            "finiteValues": finite,
+            "resultTerminated": result_terminated,
+            "nodeSetsMatch": node_sets_match,
+            "failureMarkers": failure_markers,
+        },
+        "files": [str(path) for path in (frd, sta, cvg) if path.is_file()],
     }
 
 
@@ -325,6 +453,8 @@ def run_analysis(value: str | Path | dict[str, Any], output_dir: str | Path, *, 
         request = validate_analysis(value)
     except (ValueError, json.JSONDecodeError) as exc:
         return _blocked("validate", "fea_invalid_request", str(exc))
+    if request["analysisType"] != "static_linear":
+        return _blocked("generate_input", "fea_calculix_analysis_unsupported", "CalculiX 执行当前仅开放 static_linear。")
     preflight = discover_solver(request["solver"])
     if preflight["status"] != "pass":
         return _blocked("preflight", "fea_solver_missing", preflight["message"], preflight=preflight)
@@ -342,12 +472,20 @@ def run_analysis(value: str | Path | dict[str, Any], output_dir: str | Path, *, 
         completed = subprocess.run([preflight["executable"], "-i", stem], cwd=job_dir, capture_output=True, text=True, timeout=max(1, min(int(timeout_seconds), 86_400)), shell=False, check=False)
     except subprocess.TimeoutExpired:
         return _blocked("solve", "fea_solver_timeout", "CalculiX 求解超时，未生成成功结论。", retryable=True, preflight=preflight)
-    evidence = [job_dir / f"{stem}.dat", job_dir / f"{stem}.frd"]
+    evidence = [job_dir / f"{stem}.dat", job_dir / f"{stem}.frd", job_dir / f"{stem}.sta", job_dir / f"{stem}.cvg"]
     artifacts = [deck["artifacts"][0]]
     artifacts.extend({"kind": path.suffix.lstrip("."), "path": str(path), "sha256": _sha256(path), "sizeBytes": path.stat().st_size, "producedThisRun": True} for path in evidence if path.is_file() and path.stat().st_size > 0)
-    if completed.returncode != 0 or len(artifacts) == 1:
-        return {"schemaVersion": "1.0", "status": "failed", "stage": "solve", "solver": "calculix", "artifacts": artifacts, "manual_review_required": True, "retryable": True, "error_code": "fea_solver_failed", "exitCode": completed.returncode, "stdoutTail": completed.stdout[-4000:], "stderrTail": completed.stderr[-4000:], "generatedAt": _now_iso()}
-    return {"schemaVersion": "1.0", "status": "review_required", "stage": "review", "solver": "calculix", "artifacts": artifacts, "manual_review_required": True, "retryable": False, "error_code": None, "limitations": ["结果尚未执行网格收敛、载荷合理性和工程安全复核，不能作为安全认证。"], "generatedAt": _now_iso()}
+    result_evidence = parse_calculix_results(job_dir, stem)
+    solver_evidence = {
+        "executable": preflight["executable"],
+        "executableSha256": _sha256(Path(preflight["executable"])),
+        "source": preflight.get("source"),
+        "exitCode": completed.returncode,
+    }
+    if completed.returncode != 0 or result_evidence["status"] != "pass":
+        error_code = "fea_solver_failed" if completed.returncode != 0 else result_evidence.get("error_code") or "fea_result_invalid"
+        return {"schemaVersion": "1.0", "status": "failed", "stage": "solve", "solver": "calculix", "artifacts": artifacts, "solverEvidence": solver_evidence, "resultEvidence": result_evidence, "manual_review_required": True, "retryable": True, "error_code": error_code, "exitCode": completed.returncode, "stdoutTail": completed.stdout[-4000:], "stderrTail": completed.stderr[-4000:], "generatedAt": _now_iso()}
+    return {"schemaVersion": "1.0", "status": "review_required", "stage": "review", "solver": "calculix", "artifacts": artifacts, "solverEvidence": solver_evidence, "resultEvidence": result_evidence, "manual_review_required": True, "retryable": False, "error_code": None, "limitations": ["单次结果已解析并验证有限值与求解增量，但尚未执行网格收敛、载荷合理性和工程安全复核，不能作为安全认证。"], "generatedAt": _now_iso()}
 
 
 def main(argv: list[str] | None = None) -> int:

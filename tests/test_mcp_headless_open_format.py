@@ -98,6 +98,32 @@ def test_mcp_prepare_fea_writes_without_loading_solidworks_automation(tmp_path: 
     assert server._automation_loaded is False
 
 
+def test_mcp_run_fea_uses_structured_runner_without_loading_solidworks(tmp_path: Path, monkeypatch):
+    """@brief FEA 执行工具只调用结构化求解器封装，不加载 SolidWorks 自动化。"""
+    source = tmp_path / "fea.json"
+    source.write_text(json.dumps(_fea_request()), encoding="utf-8")
+    expected = {"status": "review_required", "stage": "review", "artifacts": []}
+    monkeypatch.setattr("scripts.fea_analysis.run_analysis", lambda *_args, **_kwargs: expected)
+    params = server.CadStudioFeaRunInput(input_path=str(source), output_dir=str(tmp_path / "fea-run"), timeout_seconds=30)
+
+    payload = json.loads(server.cadstudio_run_fea(params))
+
+    assert payload == expected
+    assert server._automation_loaded is False
+
+
+def test_mcp_create_ocp_loft_uses_restricted_backend(tmp_path: Path, monkeypatch):
+    """@brief OCP Loft MCP 只调用结构化几何封装，不加载 SolidWorks。"""
+    source = tmp_path / "loft.json"
+    source.write_text("{}", encoding="utf-8")
+    expected = {"status": "review_required", "geometryProduced": True, "artifacts": []}
+    monkeypatch.setattr("scripts.advanced_geometry_ocp.execute_ocp_loft", lambda *_args: expected)
+    params = server.CadStudioOcpLoftInput(input_path=str(source), output_dir=str(tmp_path / "loft-out"))
+    payload = json.loads(server.cadstudio_create_ocp_loft(params))
+    assert payload == expected
+    assert server._automation_loaded is False
+
+
 def test_mcp_routing_review_reports_neutral_evidence(tmp_path: Path):
     """@brief Routing MCP 工具必须输出中性证据和报告文件。"""
     source = tmp_path / "route.json"

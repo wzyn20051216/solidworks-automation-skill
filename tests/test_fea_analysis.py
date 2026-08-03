@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.fea_analysis import build_calculix_input, discover_solver, run_analysis, validate_analysis
+from scripts.fea_analysis import build_calculix_input, discover_solver, parse_calculix_results, run_analysis, validate_analysis
 
 
 def _request() -> dict:
@@ -101,6 +101,8 @@ def test_missing_solver_is_blocked_without_fake_results(tmp_path: Path, monkeypa
     monkeypatch.delenv("CADSTUDIO_CALCULIX_EXE", raising=False)
     monkeypatch.delenv("CADSTUDIO_ELMER_EXE", raising=False)
     monkeypatch.setattr("scripts.fea_analysis.shutil.which", lambda _name: None)
+    monkeypatch.setattr("scripts.fea_analysis._windows_user_environment", lambda _name: None)
+    monkeypatch.setattr("scripts.fea_analysis._standard_solver_candidates", lambda _name: [])
     preflight = discover_solver("calculix")
     output = tmp_path / "results"
     result = run_analysis(_request(), output)
@@ -110,6 +112,96 @@ def test_missing_solver_is_blocked_without_fake_results(tmp_path: Path, monkeypa
     assert result["stage"] == "preflight"
     assert result["artifacts"] == []
     assert not output.exists()
+
+
+def test_discover_solver_reads_windows_user_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """@brief 当前进程未刷新时仍应读取 Windows 用户级求解器环境变量。"""
+    executable = tmp_path / "ccx.exe"
+    executable.write_bytes(b"ccx")
+    monkeypatch.delenv("CADSTUDIO_CALCULIX_EXE", raising=False)
+    monkeypatch.setattr("scripts.fea_analysis.shutil.which", lambda _name: None)
+    monkeypatch.setattr("scripts.fea_analysis._windows_user_environment", lambda _name: str(executable))
+    monkeypatch.setattr("scripts.fea_analysis._standard_solver_candidates", lambda _name: [])
+    report = discover_solver("calculix")
+    assert report["status"] == "pass"
+    assert report["executable"] == str(executable.resolve())
+    assert report["source"].startswith("HKCU")
+
+
+def test_parse_calculix_results_reports_displacement_stress_and_convergence(tmp_path: Path) -> None:
+    """@brief FRD/STA 解析必须返回有限位移、等效应力和收敛增量。"""
+    stem = "job"
+    (tmp_path / f"{stem}.frd").write_text(
+        "    1UVERSION           Version 2.23\n"
+        " -4  DISP        4    1\n"
+        " -1         1 0.0 0.0 -2.0E-04\n -3\n"
+        " -4  STRESS      6    1\n"
+        " -1         1 -2.0 -2.0 -6.0 0.0 0.0 0.0\n -3\n"
+        " 9999\n",
+        encoding="ascii",
+    )
+    (tmp_path / f"{stem}.sta").write_text("     1          1     1     1  1.0  1.0  1.0\n", encoding="ascii")
+    report = parse_calculix_results(tmp_path, stem)
+    assert report["status"] == "pass"
+    assert report["summary"]["solverVersion"] == "2.23"
+    assert report["summary"]["maximumDisplacementMm"] == pytest.approx(2.0e-4)
+    assert report["summary"]["maximumVonMisesStressMPa"] == pytest.approx(4.0)
+    assert report["summary"]["convergedIncrementCount"] == 1
+
+
+def test_parse_calculix_results_uses_latest_complete_result_blocks(tmp_path: Path) -> None:
+    """@brief 多增量 FRD 只汇总最后一个完整结果块，不混入旧位移和应力。"""
+    stem = "multi_step"
+    (tmp_path / f"{stem}.frd").write_text(
+        "    1UVERSION           Version 2.23\n"
+        " -4  DISP        4    1\n -1         1 0.0 0.0 9.0\n -3\n"
+        " -4  STRESS      6    1\n -1         1 90.0 0.0 0.0 0.0 0.0 0.0\n -3\n"
+        " -4  DISP        4    1\n -1         1 0.0 0.0 0.2\n -3\n"
+        " -4  STRESS      6    1\n -1         1 2.0 2.0 6.0 0.0 0.0 0.0\n -3\n"
+        " 9999\n",
+        encoding="ascii",
+    )
+    (tmp_path / f"{stem}.sta").write_text("     1          1     1     1  1.0  1.0  1.0\n", encoding="ascii")
+    report = parse_calculix_results(tmp_path, stem)
+    assert report["status"] == "pass"
+    assert report["summary"]["displacementNodeCount"] == 1
+    assert report["summary"]["maximumDisplacementMm"] == pytest.approx(0.2)
+    assert report["summary"]["maximumVonMisesStressMPa"] == pytest.approx(4.0)
+
+
+@pytest.mark.parametrize("defect", ["truncated", "mismatched_nodes", "duplicate_node", "failed_marker"])
+def test_parse_calculix_results_rejects_incomplete_or_inconsistent_evidence(tmp_path: Path, defect: str) -> None:
+    """@brief 截断、节点不一致、重复节点和失败关键词均不得误报收敛。"""
+    stem = "bad_job"
+    displacement_rows = " -1         1 0.0 0.0 -2.0E-04\n"
+    stress_rows = " -1         1 -2.0 -2.0 -6.0 0.0 0.0 0.0\n"
+    terminator = " 9999\n"
+    if defect == "mismatched_nodes":
+        stress_rows = " -1         2 -2.0 -2.0 -6.0 0.0 0.0 0.0\n"
+    elif defect == "duplicate_node":
+        displacement_rows += displacement_rows
+    elif defect == "truncated":
+        terminator = ""
+    (tmp_path / f"{stem}.frd").write_text(
+        "    1UVERSION           Version 2.23\n"
+        " -4  DISP        4    1\n" + displacement_rows + " -3\n"
+        " -4  STRESS      6    1\n" + stress_rows + " -3\n" + terminator,
+        encoding="ascii",
+    )
+    (tmp_path / f"{stem}.sta").write_text("     1          1     1     1  1.0  1.0  1.0\n" + ("ERROR: solver failed\n" if defect == "failed_marker" else ""), encoding="ascii")
+    report = parse_calculix_results(tmp_path, stem)
+    assert report["status"] == "failed"
+    assert report["error_code"] == "fea_result_incomplete_or_nonfinite"
+
+
+def test_run_non_static_analysis_blocks_before_creating_output(tmp_path: Path) -> None:
+    """@brief 尚未实现的分析类型不能留下任务目录。"""
+    request = _request()
+    request["analysisType"] = "modal"
+    result = run_analysis(request, tmp_path / "results")
+    assert result["status"] == "blocked"
+    assert result["error_code"] == "fea_calculix_analysis_unsupported"
+    assert not (tmp_path / "results").exists()
 
 
 def test_fea_json_schema_is_valid_and_accepts_golden_request() -> None:
