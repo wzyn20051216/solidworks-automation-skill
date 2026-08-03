@@ -463,7 +463,11 @@ def parse_calculix_results(job_dir: str | Path, stem: str) -> dict[str, Any]:
     plastic_rows = result_blocks["equivalent_plastic_strain"][-1] if result_blocks["equivalent_plastic_strain"] else {}
     displacements = list(displacement_rows.values())
     stresses = list(stress_rows.values())
-    finite = all(math.isfinite(value) for row in [*displacements, *stresses] for value in row)
+    finite = all(
+        math.isfinite(value)
+        for row in [*displacements, *stresses, *plastic_rows.values()]
+        for value in row
+    )
     max_displacement = max((math.sqrt(sum(value * value for value in row)) for row in displacements), default=None)
 
     def von_mises(row: tuple[float, float, float, float, float, float]) -> float:
