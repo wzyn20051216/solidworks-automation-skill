@@ -109,6 +109,22 @@ drawing.InsertModelAnnotations3(
 `DRAWING_LAYOUT_COLLISION_DETECTED` 表示确认碰撞。
 非空 BMP/PDF 只能证明预览产物可用，不能自动证明尺寸没有重叠；最终必须目视复核。
 
+更强的非 COM 方案是先用 SolidWorks 官方导出 PDF，再调用
+`sw_review.inspect_pdf_text_layout()` 读取 PDF 中真实矢量文字 span 的边界。该方法能
+发现可提取文字之间的实际重叠，比字符宽度估算更可靠，也不需要 OCR；但它仍不能
+证明文字与尺寸线、几何线或被轮廓化字体之间无碰撞。标题栏中“第 张 + 页码”等
+设计性叠放也可能产生真实边界相交，因此结果只标记重叠风险，不直接判定视觉缺陷。
+缺少 PyMuPDF 时安装：
+
+```powershell
+python -m pip install -r requirements-pdf.txt
+```
+
+依赖安装在自定义目录时设置 `CADSTUDIO_PYMUPDF_PATH` 指向该目录。
+
+因此工程图边界证据强度依次为：PDF 矢量文字边界 > COM 锚点/字体保守估算 > OCR，
+最终交付仍保留一次 PDF/BMP 目视复核。
+
 ### 手动添加尺寸
 
 ```python

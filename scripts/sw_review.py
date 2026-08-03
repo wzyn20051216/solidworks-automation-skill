@@ -9,6 +9,8 @@ import os
 import json
 import argparse
 import math
+import re
+import sys
 from pathlib import Path
 
 try:
@@ -33,6 +35,31 @@ STANDARD_VIEWS = {
     "trimetric": 8,
     "dimetric": 9,
 }
+
+
+_PDF_DIMENSION_TEXT = re.compile(
+    r"(?:^\s*\d+(?:[.,]\d+)?\s*$|[Ø⌀Rr]\s*\d|\bM\d|\d+(?:[.,]\d+)?\s*(?:mm|°|deg)\b|\d+(?:[.,]\d+)?\s*[±]\s*\d)",
+    re.IGNORECASE,
+)
+
+
+def _import_pdf_parser():
+    """@brief 导入 PyMuPDF，并支持 E 盘等显式可选依赖目录。"""
+    try:
+        import fitz
+        return fitz
+    except ImportError as first_error:
+        configured = os.environ.get("CADSTUDIO_PYMUPDF_PATH")
+        if configured:
+            candidate = str(Path(configured).expanduser().resolve())
+            if Path(candidate).is_dir() and candidate not in sys.path:
+                sys.path.insert(0, candidate)
+            try:
+                import fitz
+                return fitz
+            except ImportError:
+                pass
+        raise first_error
 
 
 def _drawing_boxes_overlap(first, second, padding_m=0.001) -> bool:
@@ -230,6 +257,114 @@ def _read_bmp_size(path):
         return abs(width), abs(height)
     except Exception:
         return None, None
+
+
+def inspect_pdf_text_layout(path, *, maximum_spans=20000, minimum_overlap_area_pt2=0.5):
+    """@brief 读取 SolidWorks PDF 矢量文字边界并筛查文字重叠。
+
+    该证据来自 SolidWorks 官方 PDF 导出的渲染文字，不是 COM 原生尺寸包围盒；扫描
+    PDF 或被轮廓化的字体可能没有可提取文字，此时必须继续使用 BMP/PNG 目视复核。
+    """
+    source = _expand_path(path)
+    base = {
+        "status": "blocked",
+        "stage": "pdf_text_layout",
+        "path": str(source),
+        "source": "solidworks_pdf_vector_text",
+        "native_com_bounding_box_available": False,
+        "pages": [],
+        "text_span_count": 0,
+        "numeric_text_span_count": 0,
+        "overlaps": [],
+        "manual_review_required": True,
+        "retryable": False,
+        "error_code": None,
+        "limitations": [
+            "PDF 文字框属于导出产物证据，不是 IAnnotation/IDisplayDimension 原生包围盒。",
+            "只能检查可提取矢量文字之间的重叠，不能证明文字与尺寸线、几何线或标题栏边框无碰撞。",
+        ],
+    }
+    if source.suffix.lower() != ".pdf" or not source.is_file() or not 0 < source.stat().st_size <= 256 * 1024 * 1024:
+        base.update({"error_code": "DRAWING_PDF_INVALID", "message": "PDF 不存在、为空或超过 256 MiB。"})
+        return base
+    try:
+        fitz = _import_pdf_parser()
+    except ImportError:
+        base.update({
+            "error_code": "DRAWING_PDF_TEXT_PARSER_MISSING",
+            "message": "缺少 PyMuPDF；安装 requirements-pdf.txt 后可读取 PDF 真实文字边界。",
+        })
+        return base
+
+    spans = []
+    try:
+        with fitz.open(source) as document:
+            for page_index, page in enumerate(document):
+                page_spans = []
+                payload = page.get_text("dict")
+                for block in payload.get("blocks", []):
+                    for line in block.get("lines", []):
+                        for span in line.get("spans", []):
+                            text = str(span.get("text") or "").strip()
+                            box = list(span.get("bbox") or [])
+                            if not text or len(box) != 4 or not all(math.isfinite(float(value)) for value in box):
+                                continue
+                            record = {
+                                "page": page_index + 1,
+                                "text": text,
+                                "bboxPt": [float(value) for value in box],
+                                "font": str(span.get("font") or ""),
+                                "fontSizePt": float(span.get("size") or 0.0),
+                                "dimensionCandidate": bool(_PDF_DIMENSION_TEXT.search(text)),
+                            }
+                            page_spans.append(record)
+                            spans.append(record)
+                            if len(spans) > maximum_spans:
+                                raise ValueError(f"PDF 文字 span 超过安全上限 {maximum_spans}。")
+                base["pages"].append({
+                    "page": page_index + 1,
+                    "widthPt": float(page.rect.width),
+                    "heightPt": float(page.rect.height),
+                    "textSpans": page_spans,
+                })
+    except Exception as exc:
+        base.update({"error_code": "DRAWING_PDF_TEXT_PARSE_FAILED", "message": str(exc), "retryable": True})
+        return base
+
+    overlaps = []
+    for page in base["pages"]:
+        ordered = sorted(page["textSpans"], key=lambda item: item["bboxPt"][0])
+        active = []
+        for current in ordered:
+            x0, y0, x1, y1 = current["bboxPt"]
+            active = [item for item in active if item["bboxPt"][2] > x0]
+            for other in active:
+                ox0, oy0, ox1, oy1 = other["bboxPt"]
+                width = min(x1, ox1) - max(x0, ox0)
+                height = min(y1, oy1) - max(y0, oy0)
+                area = width * height if width > 0 and height > 0 else 0.0
+                if area > minimum_overlap_area_pt2:
+                    overlaps.append({
+                        "page": page["page"],
+                        "firstText": other["text"],
+                        "secondText": current["text"],
+                        "intersectionAreaPt2": area,
+                        "confirmedGeometryOverlap": True,
+                        "confirmedVisualDefect": False,
+                        "evidenceSource": "pdf_vector_text_bbox",
+                    })
+            active.append(current)
+    base.update({
+        "status": "review_required",
+        "text_span_count": len(spans),
+        "numeric_text_span_count": sum(1 for item in spans if item["dimensionCandidate"]),
+        "overlaps": overlaps,
+        "error_code": "DRAWING_PDF_TEXT_OVERLAP_RISK" if overlaps else None,
+        "message": "PDF 中未提取到矢量文字。" if not spans else "PDF 矢量文字边界已读取。",
+    })
+    if not spans:
+        base["error_code"] = "DRAWING_PDF_VECTOR_TEXT_MISSING"
+    return base
 
 
 def inspect_bmp_preview(path, sample_limit=200000):
