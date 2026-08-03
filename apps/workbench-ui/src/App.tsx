@@ -36,6 +36,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { type CSSProperties, type ChangeEvent, type DragEvent, type PointerEvent as ReactPointerEvent, startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { ArtifactBrowser } from "./components/ArtifactBrowser";
 import { ConversationControls } from "./components/ConversationControls";
+import { EnvironmentRemediationPanel } from "./components/EnvironmentRemediationPanel";
 import { ManualReviewPanel } from "./components/ManualReviewPanel";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
 import { TaskSequence } from "./components/TaskSequence";
@@ -1285,6 +1286,27 @@ function App() {
         : `${provider.name} CLI 已安装，将在首个真实任务完成后记录验证状态`,
     );
     return health;
+  }
+
+  /** @brief 复制 doctor 提供的受控安装命令，并把结果反馈到当前界面。 */
+  async function copyRuntimeCommand(command: string) {
+    try {
+      await navigator.clipboard.writeText(command);
+      setRuntimeMessage("安装命令已复制，可在 PowerShell 中执行后重新检测环境。");
+    } catch (error) {
+      setRuntimeMessage(`复制失败，请手动选择命令文本：${String(error)}`);
+    }
+  }
+
+  /** @brief 在桌面端通过白名单命令打开官方地址，浏览器预览使用新标签页。 */
+  async function openRuntimeDownload(url: string) {
+    try {
+      if (isTauriRuntime()) await invoke("open_external_download", { url });
+      else window.open(url, "_blank", "noopener,noreferrer");
+      setRuntimeMessage("已打开官方下载页。安装完成后请重新检测环境。");
+    } catch (error) {
+      setRuntimeMessage(`无法打开下载页：${String(error)}`);
+    }
   }
 
   async function enqueueCodexTaskWithConfig(config: CodexConfig) {
@@ -2788,6 +2810,7 @@ function App() {
   function renderSettingsPanel() {
     return (
       <section className="tab-surface">
+        <EnvironmentRemediationPanel remediations={runtimeHealth?.remediations ?? []} onCopyCommand={copyRuntimeCommand} onOpenDownload={openRuntimeDownload} />
         <div className="settings-studio">
           <article className="setting-card api-card primary-setting">
             <div className="setting-title">
@@ -2936,6 +2959,7 @@ function App() {
           <div><span>SolidWorks</span><strong>{runtimeHealth?.solidworks?.ok ? "可用" : "未检测到或待检查"}</strong></div>
           <div><span>AutoCAD</span><strong>{runtimeHealth?.autocad?.ok ? "可用" : "未检测到"}</strong></div>
         </div>
+        <EnvironmentRemediationPanel remediations={runtimeHealth?.remediations ?? []} onCopyCommand={copyRuntimeCommand} onOpenDownload={openRuntimeDownload} />
         <div className="help-guide">
           <nav className="help-topic-list" aria-label="帮助主题">
             {helpTopics.map((item) => (

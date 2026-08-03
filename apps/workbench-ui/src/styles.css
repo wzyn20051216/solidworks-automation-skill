@@ -2021,6 +2021,137 @@ textarea {
   font-size: 12px;
 }
 
+.environment-remediation {
+  display: grid;
+  margin-bottom: 14px;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: rgba(255, 255, 252, calc(var(--workspace-opacity) + 0.18));
+}
+
+.help-workspace .environment-remediation {
+  margin-bottom: 0;
+}
+
+.environment-remediation-heading {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 15px;
+  border-bottom: 1px solid var(--hairline);
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 7%, transparent);
+}
+
+.environment-remediation-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.environment-remediation-heading span,
+.environment-remediation-row span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.environment-remediation-heading strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.environment-remediation-heading small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.environment-remediation-list {
+  display: grid;
+}
+
+.environment-remediation-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 18px;
+  align-items: center;
+  min-width: 0;
+  padding: 13px 15px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.environment-remediation-row:last-child {
+  border-bottom: 0;
+}
+
+.environment-remediation-row.required {
+  box-shadow: inset 3px 0 var(--danger);
+}
+
+.environment-remediation-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.environment-remediation-copy strong {
+  font-size: 12px;
+}
+
+.environment-remediation-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.environment-remediation-copy code {
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 3px;
+  padding: 5px 7px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  color: var(--ink);
+  background: rgba(28, 35, 43, 0.045);
+  font: 10px/1.45 "SF Mono", "Cascadia Mono", Consolas, monospace;
+}
+
+.environment-remediation-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.environment-remediation-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  color: var(--ink);
+  background: rgba(255, 255, 252, 0.74);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.environment-remediation-actions button:not(.download-action) {
+  width: 34px;
+  padding: 0;
+}
+
+.environment-remediation-actions button:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--hairline));
+}
+
 .help-note {
   display: flex;
   align-items: center;
@@ -3977,6 +4108,19 @@ textarea {
 }
 
 @media (max-width: 760px) {
+  .environment-remediation-heading,
+  .environment-remediation-row {
+    grid-template-columns: 1fr;
+  }
+
+  .environment-remediation-heading > svg {
+    display: none;
+  }
+
+  .environment-remediation-actions {
+    justify-content: flex-start;
+  }
+
   .agent-provider-grid {
     grid-template-columns: 1fr;
   }

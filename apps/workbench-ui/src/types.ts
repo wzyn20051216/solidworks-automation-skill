@@ -276,6 +276,14 @@ export type ManualReviewDraft = { note: string; checks: string[] };
 export type HelpTopicId = "start" | "projects" | "status" | "delivery" | "troubleshooting";
 export type SubmissionKind = "task" | "chat" | null;
 export type WorkerStatus = { running: boolean; pid?: number | null; recoveredJobs?: number; message: string; health?: { status?: string; heartbeatAt?: string; queue?: Record<string, number> } | null };
+export type RuntimeRemediation = {
+  id: string;
+  title: string;
+  reason?: string;
+  required?: boolean;
+  installCommand?: string;
+  downloadUrl?: string;
+};
 export type RuntimeHealth = {
   skillRoot: string;
   solidworksSkillPath: string;
@@ -284,6 +292,8 @@ export type RuntimeHealth = {
   python?: { ok?: boolean; entry?: string; message?: string };
   codex?: { version?: { ok?: boolean; message?: string }; login?: { ok?: boolean; message?: string }; entry?: string };
   agentProviders?: Array<{ id: AgentProviderId; name: string; installed?: boolean; ready?: boolean; verified?: boolean; status?: "not_installed" | "auth_failed" | "verified" | "verification_required"; version?: { ok?: boolean; message?: string }; auth?: { ok?: boolean | null; message?: string }; entry?: string }>;
+  doctor?: { schemaVersion?: string; summary?: { status?: "passed" | "warning" | "error"; errors?: number; warnings?: number }; checks?: Array<Record<string, unknown>>; error?: string };
+  remediations?: RuntimeRemediation[];
   solidworks?: { ok?: boolean; message?: string };
   autocad?: { ok?: boolean; path?: string };
   capabilityManifest?: { schema_version?: string; verified_versions?: Record<string, string[]>; capabilities?: Array<Record<string, unknown> & { id?: string; level?: string }> };

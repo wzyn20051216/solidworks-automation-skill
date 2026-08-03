@@ -1679,6 +1679,33 @@ fn detect_autocad() -> Option<PathBuf> {
     candidates.into_iter().find(|path| path.is_file())
 }
 
+/// @brief 调用 Skill 的统一环境诊断，非零退出码仍允许读取结构化修复建议。
+fn collect_doctor_report(program: &str, args: &[String], skill_root: &Path) -> Value {
+    let mut doctor = Command::new(program);
+    doctor
+        .args(args)
+        .current_dir(skill_root)
+        .arg(skill_root.join("scripts").join("cad_doctor.py"));
+    #[cfg(windows)]
+    doctor.creation_flags(CREATE_NO_WINDOW);
+    match command_output_with_timeout(&mut doctor, Duration::from_secs(20)) {
+        Ok(output) => serde_json::from_slice::<Value>(&output.stdout).unwrap_or_else(|error| json!({
+            "schemaVersion": "1.0",
+            "summary": { "status": "error" },
+            "checks": [],
+            "remediations": [],
+            "error": format!("环境诊断输出无法解析: {error}")
+        })),
+        Err(error) => json!({
+            "schemaVersion": "1.0",
+            "summary": { "status": "error" },
+            "checks": [],
+            "remediations": [],
+            "error": error
+        }),
+    }
+}
+
 fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
     let skill_root = detected_skill_root(&app, None)?;
     let capability_manifest = fs::read_to_string(skill_root.join("capabilities.yaml"))
@@ -1689,7 +1716,7 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
         .or_else(|_| std::env::var("HOME"))
         .map(PathBuf::from)
         .unwrap_or_default();
-    let (python, solidworks) = match python_command() {
+    let (python, solidworks, doctor) = match python_command() {
         Ok((program, args)) => {
             let mut preflight = Command::new(&program);
             preflight
@@ -1703,6 +1730,7 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
                 "ok": output.status.success(),
                 "message": String::from_utf8_lossy(if output.status.success() { &output.stdout } else { &output.stderr }).trim()
             })).unwrap_or_else(|error| json!({ "ok": false, "message": error.to_string() }));
+            let doctor = collect_doctor_report(&program, &args, &skill_root);
             (
                 json!({
                     "ok": true,
@@ -1710,11 +1738,25 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
                     "message": "Python 3 已就绪"
                 }),
                 solidworks,
+                doctor,
             )
         }
         Err(error) => (
             json!({ "ok": false, "entry": "", "message": error }),
             json!({ "ok": false, "message": "未检测 SolidWorks：本地 CAD worker 需要 Python 3。" }),
+            json!({
+                "schemaVersion": "1.0",
+                "summary": { "status": "error" },
+                "checks": [],
+                "remediations": [{
+                    "id": "python",
+                    "title": "安装 Python 3.10 或更高版本",
+                    "reason": "未检测到 python/py 命令，本地任务执行器暂不可用。",
+                    "required": true,
+                    "installCommand": "winget install -e --id Python.Python.3.12",
+                    "downloadUrl": "https://www.python.org/downloads/windows/"
+                }]
+            }),
         ),
     };
     let autocad_path = detect_autocad();
@@ -1735,6 +1777,10 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
         }
     };
     let agent_providers = collect_agent_provider_health(&app);
+    let remediations = doctor
+        .get("remediations")
+        .cloned()
+        .unwrap_or_else(|| json!([]));
 
     Ok(json!({
         "skillRoot": skill_root.to_string_lossy(),
@@ -1748,6 +1794,8 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
             "entry": codex_entry
         },
         "agentProviders": agent_providers,
+        "doctor": doctor,
+        "remediations": remediations,
         "capabilityManifest": capability_manifest,
         "solidworks": solidworks,
         "autocad": {
@@ -1763,6 +1811,47 @@ async fn runtime_health(app: AppHandle) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || collect_runtime_health(app))
         .await
         .map_err(|error| format!("CAD 环境检查线程异常: {error}"))?
+}
+
+/// @brief 仅允许打开环境修复清单中的官方 HTTPS 下载站点。
+fn validate_external_download_url(value: &str) -> Result<(), String> {
+    const ALLOWED_PREFIXES: &[&str] = &[
+        "https://www.python.org/",
+        "https://pypi.org/",
+        "https://pymupdf.readthedocs.io/",
+        "https://developers.openai.com/",
+        "https://docs.anthropic.com/",
+        "https://github.com/google-gemini/",
+        "https://opencode.ai/",
+        "https://www.calculix.de/",
+        "https://www.solidworks.com/",
+        "https://www.autodesk.com/",
+    ];
+    if ALLOWED_PREFIXES.iter().any(|prefix| value.starts_with(prefix)) {
+        Ok(())
+    } else {
+        Err("拒绝打开不在环境修复白名单中的地址。".to_string())
+    }
+}
+
+/// @brief 使用 Windows 默认浏览器打开经过白名单验证的官方环境下载页。
+#[tauri::command]
+fn open_external_download(url: String) -> Result<(), String> {
+    validate_external_download_url(&url)?;
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("rundll32.exe");
+        command.args(["url.dll,FileProtocolHandler", &url]);
+        command
+            .spawn()
+            .map_err(|error| format!("打开官方下载页失败: {error}"))?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = url;
+        Err("CAD Studio 桌面版当前仅支持 Windows。".to_string())
+    }
 }
 
 fn redact_secret(value: &str) -> String {
@@ -2804,7 +2893,8 @@ pub fn run() {
             app_store_migration_status,
             sync_cc_switch_config,
             agent_provider_runtime_health,
-            runtime_health
+            runtime_health,
+            open_external_download
         ])
         .setup(|app| {
             start_queue_watcher(app.handle().clone()).map_err(std::io::Error::other)?;
@@ -2835,7 +2925,7 @@ mod tests {
         asset_path, can_delete_job, database_provider_groups, derive_dangerous_capabilities,
         initialize_app_store, is_queue_metadata_path, prepare_job_for_retry,
         required_review_checks, sync_entity_index, sync_task_index, validate_new_queue_job,
-        validate_preview_extension, wallpaper_kind,
+        validate_external_download_url, validate_preview_extension, wallpaper_kind,
     };
     use rusqlite::{params, Connection};
     use serde_json::json;
@@ -2870,6 +2960,14 @@ mod tests {
             },
             "artifacts": []
         })
+    }
+
+    #[test]
+    fn external_download_url_only_allows_official_hosts() {
+        assert!(validate_external_download_url("https://www.python.org/downloads/windows/").is_ok());
+        assert!(validate_external_download_url("https://www.autodesk.com/products/autocad/overview").is_ok());
+        assert!(validate_external_download_url("http://www.python.org/downloads/").is_err());
+        assert!(validate_external_download_url("https://www.python.org.evil.example/download").is_err());
     }
 
     #[test]
