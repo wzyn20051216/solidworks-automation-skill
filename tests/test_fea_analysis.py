@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -200,6 +201,41 @@ def test_missing_solver_is_blocked_without_fake_results(tmp_path: Path, monkeypa
     assert result["stage"] == "preflight"
     assert result["artifacts"] == []
     assert not output.exists()
+
+
+def test_run_contact_requires_copen_and_cpress_fields(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """@brief 接触任务缺少 COPEN/CPRESS 时不得进入 review_required。"""
+    executable = tmp_path / "ccx.exe"
+    executable.write_bytes(b"test solver")
+    monkeypatch.setattr(
+        "scripts.fea_analysis.discover_solver",
+        lambda _solver: {
+            "status": "pass", "solver": "calculix", "executable": str(executable),
+            "source": "test",
+        },
+    )
+    monkeypatch.setattr(
+        "scripts.fea_analysis.subprocess.run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+    monkeypatch.setattr(
+        "scripts.fea_analysis.parse_calculix_results",
+        lambda *_args: {
+            "status": "pass", "error_code": None, "checks": [],
+            "summary": {
+                "maximumContactElementCount": 28,
+                "contactNodeCount": 16,
+                "contactComponents": ["CSLIP1", "CSLIP2"],
+            },
+            "files": [],
+        },
+    )
+
+    report = run_analysis(_nonlinear_request(), tmp_path / "results")
+
+    assert report["status"] == "failed"
+    assert report["error_code"] == "fea_contact_fields_missing"
+    assert report["retryable"] is True
 
 
 def test_discover_solver_reads_windows_user_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

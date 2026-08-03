@@ -730,10 +730,18 @@ def run_analysis(value: str | Path | dict[str, Any], output_dir: str | Path, *, 
         "exitCode": completed.returncode,
     }
     contact_elements_missing = bool(request.get("contacts")) and result_evidence.get("summary", {}).get("maximumContactElementCount", 0) <= 0
-    if completed.returncode != 0 or result_evidence["status"] != "pass" or contact_elements_missing:
+    contact_summary = result_evidence.get("summary", {})
+    contact_components = set(contact_summary.get("contactComponents") or [])
+    contact_fields_missing = bool(request.get("contacts")) and (
+        contact_summary.get("contactNodeCount", 0) <= 0
+        or not {"COPEN", "CPRESS"}.issubset(contact_components)
+    )
+    if completed.returncode != 0 or result_evidence["status"] != "pass" or contact_elements_missing or contact_fields_missing:
         error_code = "fea_solver_failed" if completed.returncode != 0 else result_evidence.get("error_code") or "fea_result_invalid"
         if contact_elements_missing:
             error_code = "fea_contact_elements_missing"
+        elif contact_fields_missing:
+            error_code = "fea_contact_fields_missing"
         return {"schemaVersion": request["schemaVersion"], "status": "failed", "stage": "solve", "solver": "calculix", "artifacts": artifacts, "solverEvidence": solver_evidence, "resultEvidence": result_evidence, "manual_review_required": True, "retryable": True, "error_code": error_code, "exitCode": completed.returncode, "stdoutTail": completed.stdout[-4000:], "stderrTail": completed.stderr[-4000:], "generatedAt": _now_iso()}
     nonlinear = request["analysisType"] == "static_nonlinear"
     limitations = ["单次结果已解析并验证有限值与求解增量，但仍需网格收敛、载荷合理性和工程安全复核，不能作为安全认证。"]
