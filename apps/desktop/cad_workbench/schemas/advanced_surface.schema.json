@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cadstudio.local/schemas/advanced-surface-1.0.json",
+  "title": "CAD Studio Advanced OCP Surface Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "modelId", "units", "operation", "toleranceMm", "outputs"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "modelId": { "$ref": "#/$defs/id" },
+    "units": { "const": "mm" },
+    "operation": { "enum": ["smooth_loft", "sweep", "knit", "thicken"] },
+    "toleranceMm": { "type": "number", "exclusiveMinimum": 0, "maximum": 0.1 },
+    "outputs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["step", "brep", "stl"] } },
+    "solid": { "const": true },
+    "continuityTarget": { "enum": ["C1", "C2"] },
+    "maxDegree": { "type": "integer", "minimum": 3, "maximum": 12 },
+    "sections": { "type": "array", "minItems": 2, "maxItems": 32, "items": { "type": "object" } },
+    "profile": {
+      "type": "object", "additionalProperties": false, "required": ["type", "radiusMm"],
+      "properties": { "type": { "const": "circle" }, "radiusMm": { "type": "number", "exclusiveMinimum": 0 } }
+    },
+    "path": { "type": "object" },
+    "inputs": { "type": "array", "minItems": 1, "maxItems": 32, "items": { "$ref": "#/$defs/artifact" } },
+    "makeSolid": { "const": true },
+    "input": { "$ref": "#/$defs/artifact" },
+    "thicknessMm": {
+      "type": "number",
+      "anyOf": [
+        { "exclusiveMinimum": 0, "maximum": 100 },
+        { "minimum": -100, "exclusiveMaximum": 0 }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "operation": { "const": "smooth_loft" } }, "required": ["operation"] },
+      "then": { "required": ["solid", "continuityTarget", "maxDegree", "sections"] }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "sweep" } }, "required": ["operation"] },
+      "then": { "required": ["profile", "path"] }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "knit" } }, "required": ["operation"] },
+      "then": { "required": ["inputs", "makeSolid"] }
+    },
+    {
+      "if": { "properties": { "operation": { "const": "thicken" } }, "required": ["operation"] },
+      "then": { "required": ["input", "thicknessMm"] }
+    }
+  ],
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$" },
+    "artifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "sha256", "producedThisRun"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+        "producedThisRun": { "const": true }
+      }
+    }
+  }
+}

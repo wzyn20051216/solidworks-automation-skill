@@ -70,6 +70,7 @@ CAD Studio 门禁工具：
 - `cadstudio_run_fea_convergence`
 - `cadstudio_review_advanced_geometry`
 - `cadstudio_create_ocp_loft`
+- `cadstudio_create_ocp_surface`
 
 SolidWorks 原生工具：
 
@@ -107,7 +108,7 @@ SolidWorks 原生工具：
 3. Motion Study：旋转马达、线性马达、计算/播放。
 4. 零件建模：受控草图原语和特征原语。
 5. 工程图：三视图、BOM、PDF 导出。
-6. 无头能力：DFM profile、Routing 中性复核、CalculiX 受限线性/非线性与网格序列、OCP 受限曲面和其余复杂几何计划复核。
+6. 无头能力：DFM profile、Routing 中性复核、CalculiX 受限线性/非线性与网格序列、OCP 直纹/平滑 Loft、Sweep/Knit/Thicken 和其余复杂几何计划复核。
 
 暂缓扩展：
 

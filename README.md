@@ -35,6 +35,7 @@ python scripts/cad_studio.py run-fea --input .\fea.json --out-dir .\output\fea -
 python scripts/cad_studio.py run-fea-convergence --input .\fea-convergence.json --out-dir .\output\fea-convergence --timeout-per-case 120
 python scripts/cad_studio.py review-advanced-geometry --input .\surface-plan.json --output .\output\surface_report.json
 python scripts/cad_studio.py create-ocp-loft --input .\loft.json --out-dir .\output\loft
+python scripts/cad_studio.py create-ocp-surface --input .\smooth-loft.json --out-dir .\output\surface
 ```
 
 <p align="center">
@@ -73,7 +74,7 @@ python scripts/cad_studio.py create-ocp-loft --input .\loft.json --out-dir .\out
 - 📝 **自定义属性** - 文件属性读写可用；配置/设计表按能力清单限制使用
 - 🏭 **DFM 制造复核（试点）** - 机加工、钣金、激光切割和 3D 打印的结构化风险检查，支持供应商 profile 与 B-Rep 证据绑定；规则通过仍需人工确认
 - 🧭 **Routing 中性复核（试点）** - 校验端点、分段、长度、弯曲半径、碰撞/间隙、支撑间距和 Routing BOM；未发现 Routing 加载项/许可证时原生写入保持 `blocked`
-- 🧰 **复杂曲面/模具（试点）** - OCP 可真实生成并重开受限封闭直纹 Loft 的 STEP/BREP/STL；平滑 Loft、sweep/knit/thicken、G1/G2 和模具能力仍走门禁，不替代 Class-A 或模具设计
+- 🧰 **复杂曲面/模具（试点）** - OCP 可真实生成并重开受限直纹/平滑 Loft、直线/圆弧 Sweep、闭壳 Knit 和开放面 Thicken；G1/G2 只代表共享边采样证据，不替代 Class-A 或模具设计
 - 👀 **结果自审查** - 导出多视角预览图、`review_report.json` 与 Markdown 摘要，帮助代理复核模型是否符合意图
 - 🔎 **API 查证优先** - 未封装接口先查官方 API Help / 本地 SDK，再实现、运行、自审查并沉淀
 
@@ -548,7 +549,7 @@ model.Extension.SelectByID2(
 - 🔨 **Sheet Metal (reference only)** - No unattended feature or flat-pattern delivery is claimed
 - ⚡ **Weldments (reference only)** - No unattended structural-member or cut-list delivery is claimed
 - 📊 **FEA Simulation (pilot)** - CalculiX 2.23 runs restricted linear static, NLGEOM, plastic-curve, surface-contact, and mesh-sequence jobs; engineering review remains mandatory
-- 🧰 **Surface Modeling (pilot)** - Restricted ruled lofts produce and reopen real STEP/BREP artifacts; smooth lofts, G1/G2, Class-A, and mold-quality surfaces remain gated
+- 🧰 **Surface Modeling (pilot)** - Restricted ruled/smooth loft, line/arc sweep, closed-shell knit, and open-face thicken produce and reopen real BREP artifacts; G1/G2 remains sampled evidence only
 - 📝 **Custom Properties** - Read/write file properties, configuration management
 - 👀 **CAD Agent Self-Review** - Export multi-view previews, JSON reports, Markdown summaries, and `pass/warn/fail` evaluations
 - 🔎 **Verified API Workflow** - Look up official API Help or local SDK docs before using unwrapped SolidWorks APIs

@@ -162,6 +162,9 @@ def main(argv: list[str] | None = None) -> int:
     loft = sub.add_parser("create-ocp-loft")
     loft.add_argument("--input", type=Path, required=True, help="OCP Loft 1.0 参数 JSON")
     loft.add_argument("--out-dir", type=Path, required=True, help="STEP/BREP/STL 版本化输出目录")
+    surface = sub.add_parser("create-ocp-surface")
+    surface.add_argument("--input", type=Path, required=True, help="OCP 高级曲面 1.0 参数 JSON")
+    surface.add_argument("--out-dir", type=Path, required=True, help="STEP/BREP/STL 版本化输出目录")
     args = parser.parse_args(argv)
 
     if args.command == "doctor":
@@ -289,6 +292,12 @@ def main(argv: list[str] | None = None) -> int:
         from advanced_geometry_ocp import execute_ocp_loft
 
         result = execute_ocp_loft(args.input, args.out_dir)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 1 if result.get("status") in {"blocked", "failed"} else 0
+    if args.command == "create-ocp-surface":
+        from advanced_surface_ocp import execute_advanced_surface
+
+        result = execute_advanced_surface(args.input, args.out_dir)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 1 if result.get("status") in {"blocked", "failed"} else 0
     return 2

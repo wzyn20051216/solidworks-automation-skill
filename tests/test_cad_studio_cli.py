@@ -213,3 +213,28 @@ def test_cli_create_ocp_loft_writes_real_brep(tmp_path: Path):
     assert payload["status"] == "review_required"
     assert payload["geometryProduced"] is True
     assert all(Path(item["path"]).is_file() for item in payload["artifacts"])
+
+
+def test_cli_create_ocp_surface_writes_real_smooth_loft(tmp_path: Path):
+    """@brief create-ocp-surface 必须生成并重开真实平滑 Loft BREP。"""
+    pytest.importorskip("OCP")
+    source = tmp_path / "smooth.json"
+    source.write_text(json.dumps({
+        "schemaVersion": "1.0", "modelId": "cli_smooth", "units": "mm",
+        "operation": "smooth_loft", "toleranceMm": 0.01, "outputs": ["brep"],
+        "solid": True, "continuityTarget": "C2", "maxDegree": 8,
+        "sections": [
+            {"id": "base", "type": "circle", "z": 0, "radius": 10},
+            {"id": "middle", "type": "circle", "z": 20, "radius": 10},
+            {"id": "top", "type": "circle", "z": 40, "radius": 10},
+        ],
+    }), encoding="utf-8")
+    completed = subprocess.run(
+        [sys.executable, "scripts/cad_studio.py", "create-ocp-surface", "--input", str(source), "--out-dir", str(tmp_path / "surface-out")],
+        capture_output=True, text=True, check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["status"] == "review_required"
+    assert payload["continuityEvidence"]["allSampledEdgesG2"] is True
+    assert Path(payload["artifacts"][0]["path"]).is_file()

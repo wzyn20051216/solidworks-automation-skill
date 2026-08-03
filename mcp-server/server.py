@@ -435,6 +435,23 @@ class CadStudioOcpLoftInput(BaseInput):
             raise ValueError(f"OCP Loft input must be an existing JSON file: {value}")
         return value
 
+
+class CadStudioOcpSurfaceInput(BaseInput):
+    """Input for restricted OCP smooth loft, sweep, knit, or thicken."""
+
+    input_path: str = Field(..., min_length=1, description="Absolute OCP advanced surface 1.0 JSON request path.")
+    output_dir: str = Field(..., min_length=1, description="Output directory for versioned STEP/BREP/STL artifacts.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+    @field_validator("input_path")
+    @classmethod
+    def input_path_must_exist(cls, value: str) -> str:
+        path = Path(os.path.expandvars(value)).expanduser()
+        if path.suffix.lower() != ".json" or not path.is_file():
+            raise ValueError(f"OCP surface input must be an existing JSON file: {value}")
+        return value
+
+
 class SolidWorksHealthCheckInput(BaseInput):
     """Input for checking the local SolidWorks automation environment."""
 
@@ -1152,6 +1169,29 @@ def cadstudio_create_ocp_loft(params: CadStudioOcpLoftInput) -> str:
         input_path = Path(os.path.expandvars(params.input_path)).expanduser().resolve()
         output_dir = Path(os.path.expandvars(params.output_dir)).expanduser().resolve()
         return execute_ocp_loft(input_path, output_dir)
+
+    return _run_locked(op, params.response_format, load_automation=False)
+
+
+@mcp.tool(
+    name="cadstudio_create_ocp_surface",
+    title="Create Restricted OCP Advanced Surface",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+def cadstudio_create_ocp_surface(params: CadStudioOcpSurfaceInput) -> str:
+    """Create smooth loft, sweep, knit, or thicken geometry through a strict structured whitelist."""
+
+    def op():
+        from scripts.advanced_surface_ocp import execute_advanced_surface
+
+        input_path = Path(os.path.expandvars(params.input_path)).expanduser().resolve()
+        output_dir = Path(os.path.expandvars(params.output_dir)).expanduser().resolve()
+        return execute_advanced_surface(input_path, output_dir)
 
     return _run_locked(op, params.response_format, load_automation=False)
 

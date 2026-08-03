@@ -140,6 +140,18 @@ def test_mcp_create_ocp_loft_uses_restricted_backend(tmp_path: Path, monkeypatch
     assert server._automation_loaded is False
 
 
+def test_mcp_create_ocp_surface_uses_restricted_backend(tmp_path: Path, monkeypatch):
+    """@brief 高级曲面 MCP 工具只调用结构化 OCP 后端。"""
+    source = tmp_path / "surface.json"
+    source.write_text("{}", encoding="utf-8")
+    expected = {"status": "review_required", "geometryProduced": True, "artifacts": []}
+    monkeypatch.setattr("scripts.advanced_surface_ocp.execute_advanced_surface", lambda *_args: expected)
+    params = server.CadStudioOcpSurfaceInput(input_path=str(source), output_dir=str(tmp_path / "surface-out"))
+    payload = json.loads(server.cadstudio_create_ocp_surface(params))
+    assert payload == expected
+    assert server._automation_loaded is False
+
+
 def test_mcp_routing_review_reports_neutral_evidence(tmp_path: Path):
     """@brief Routing MCP 工具必须输出中性证据和报告文件。"""
     source = tmp_path / "route.json"
