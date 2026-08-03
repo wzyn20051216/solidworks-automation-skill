@@ -33,8 +33,14 @@ def find_bundled_skill_drift(root: Path, bundled_skill: Path, expected_paths=Non
         relative_name = relative_path.as_posix()
         if not source_path.is_file():
             drift.append(f"missing-source:{relative_name}")
-        elif not cmp(source_path, bundled_path, shallow=False):
-            drift.append(relative_name)
+        else:
+            try:
+                if not cmp(source_path, bundled_path, shallow=False):
+                    drift.append(relative_name)
+            except FileNotFoundError:
+                # Tauri build.rs 会原子性不足地重建 resources/skill；并行检查时
+                # 将瞬时消失稳定记录为缺失，而不是暴露底层文件系统异常。
+                drift.append(f"missing-bundle:{relative_name}")
     for relative_path in sorted(expected_paths or [], key=lambda value: Path(value).as_posix()):
         relative = Path(relative_path)
         if not (bundled_skill / relative).is_file():

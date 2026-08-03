@@ -37,3 +37,19 @@ def test_find_bundled_skill_drift_detects_expected_file_missing_from_bundle(tmp_
     assert find_bundled_skill_drift(root, bundle, ["requirements-pdf.txt"]) == [
         "missing-bundle:requirements-pdf.txt",
     ]
+
+
+def test_find_bundled_skill_drift_handles_file_disappearing_during_compare(tmp_path, monkeypatch):
+    """@brief 打包目录重建竞态应稳定返回缺失，而不是抛 FileNotFoundError。"""
+    root = tmp_path / "root"
+    bundle = tmp_path / "bundle"
+    root.mkdir()
+    bundle.mkdir()
+    (root / "README.md").write_text("root", encoding="utf-8")
+    (bundle / "README.md").write_text("bundle", encoding="utf-8")
+
+    def disappearing_compare(*_args, **_kwargs):
+        raise FileNotFoundError("staging rebuilt")
+
+    monkeypatch.setattr("scripts.release_check.cmp", disappearing_compare)
+    assert find_bundled_skill_drift(root, bundle) == ["missing-bundle:README.md"]
