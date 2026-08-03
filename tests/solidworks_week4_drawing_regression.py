@@ -113,9 +113,6 @@ def run_regression(output_root: Path, *, version: int | None = None, run_id: str
         )
         if structure["status"] != "pass" or structure["view_count"] < 1:
             raise RuntimeError(f"工程图视图复核失败: {structure}")
-        layout_review = review_drawing_layout(structure)
-        if layout_review.get("status") == "blocked":
-            raise RuntimeError(f"工程图布局结构复核阻塞: {layout_review}")
         if not dimensions_inserted or structure.get("dimension_count", 0) < 1:
             raise RuntimeError(
                 "工程图未读取到本轮插入的真实尺寸实体: "
@@ -131,6 +128,16 @@ def run_regression(output_root: Path, *, version: int | None = None, run_id: str
         previews = [inspect_bmp_preview(path) for path in preview_paths]
         if not all(item["exists"] and not item["likely_blank"] for item in previews):
             raise RuntimeError(f"工程图预览为空或缺失: {previews}")
+        layout_review = review_drawing_layout(structure, preview_evidence=previews)
+        if layout_review.get("status") == "blocked":
+            raise RuntimeError(f"工程图布局结构复核阻塞: {layout_review}")
+        estimated_count = int(layout_review.get("evidence_summary", {}).get("estimated_dimension_box_count") or 0)
+        if estimated_count and layout_review.get("error_code") not in {
+            "DRAWING_LAYOUT_ESTIMATED_EVIDENCE_REQUIRES_VISUAL_REVIEW",
+            "DRAWING_LAYOUT_ESTIMATED_COLLISION_RISK",
+            "DRAWING_LAYOUT_COLLISION_DETECTED",
+        }:
+            raise RuntimeError(f"工程图估算边界未保持人工复核门禁: {layout_review}")
         result = {
             "status": "ok",
             "run_id": run_id,

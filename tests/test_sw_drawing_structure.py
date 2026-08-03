@@ -6,6 +6,7 @@ import pytest
 from scripts.sw_drawing import (
     add_a3_sheet,
     create_adaptive_standard_views,
+    estimate_dimension_text_box,
     inspect_drawing_structure,
     insert_dimensions,
     plan_standard_view_layout,
@@ -334,3 +335,155 @@ def test_review_drawing_layout_never_passes_incomplete_boxes():
 
     assert result["status"] == "review_required"
     assert result["error_code"] == "DRAWING_LAYOUT_EVIDENCE_INCOMPLETE"
+
+
+def test_estimate_dimension_text_box_records_provenance_and_padding():
+    """@brief 估算边界必须记录来源、置信度、格式参数和保守 padding。"""
+    class TextFormat:
+        CharHeight = 0.004
+        WidthFactor = 0.8
+        CharSpacingFactor = 1.1
+
+    class Annotation:
+        def GetPosition(self):
+            return (0.120, 0.080, 0.0)
+
+        def GetTextFormat(self, index):
+            assert index == 0
+            return TextFormat()
+
+    class Dimension:
+        def GetAnnotation(self):
+            return Annotation()
+
+        def GetText(self, index):
+            return "120.00" if index == 0 else ""
+
+    evidence = estimate_dimension_text_box(Dimension())
+
+    assert evidence["source"] == "estimated"
+    assert evidence["confidence"] == "medium"
+    assert evidence["native_bounding_box_available"] is False
+    assert evidence["position_m"] == [0.120, 0.080]
+    assert evidence["padding_m"] >= 0.001
+    assert evidence["box"]["left"] < 0.120 < evidence["box"]["right"]
+    assert evidence["text_format"]["char_height_m"] == 0.004
+    assert evidence["orientation_assumption"] == "unknown_angle_conservative_square_envelope"
+
+
+def test_estimate_dimension_text_box_uses_placeholder_when_rendered_value_is_hidden():
+    """@brief GetText 不返回主尺寸值时必须使用保守占位，不能估成零宽。"""
+    class Annotation:
+        def GetPosition(self):
+            return (0.100, 0.100, 0.0)
+
+    class Dimension:
+        def GetAnnotation(self):
+            return Annotation()
+
+        def GetText(self, _index):
+            return ""
+
+    evidence = estimate_dimension_text_box(Dimension())
+
+    assert evidence["confidence"] == "low"
+    assert evidence["text_evidence"]["rendered_value_available"] is False
+    assert evidence["text_evidence"]["source"] == "conservative_value_placeholder"
+    assert evidence["estimated_unrotated_size_m"]["width"] > 0.01
+    assert evidence["box"] is not None
+
+
+def test_inspect_drawing_structure_uses_estimated_dimension_box_without_claiming_native():
+    """@brief 缺原生 GetBox 时结构报告应保留 estimated 来源而不是冒充 native。"""
+    class TextFormat:
+        CharHeight = 0.0035
+        WidthFactor = 1.0
+        CharSpacingFactor = 1.0
+
+    class Dimension:
+        def GetText(self, index):
+            return "80" if index == 0 else ""
+
+        def GetAnnotation(self):
+            return self
+
+        def GetPosition(self):
+            return (0.08, 0.12, 0.0)
+
+        def GetTextFormat(self, index):
+            assert index == 0
+            return TextFormat()
+
+    class View(FakeView):
+        def GetDisplayDimensions(self):
+            return [Dimension()]
+
+    class Sheet(FakeSheet):
+        def GetViews(self):
+            return [View()]
+
+    class Drawing(FakeDrawing):
+        def GetSheet(self, _name):
+            return Sheet()
+
+        def GetCurrentSheet(self):
+            return Sheet()
+
+    result = inspect_drawing_structure(Drawing())
+    dimension = result["dimensions"][0]
+
+    assert dimension["box"] is not None
+    assert dimension["box_source"] == "estimated"
+    assert dimension["box_confidence"] == "medium"
+    assert result["native_dimension_box_count"] == 0
+    assert result["estimated_dimension_box_count"] == 1
+    assert next(item for item in result["checks"] if item["id"] == "drawing-dimension-boxes")["status"] == "warning"
+
+
+def test_review_estimated_dimension_boxes_requires_visual_review_even_without_collision():
+    """@brief 估算边界无碰撞也不得升级为 pass。"""
+    result = review_drawing_layout({
+        "views": [
+            {"name": "Front", "box": {"left": 0.01, "bottom": 0.08, "right": 0.09, "top": 0.15}},
+            {"name": "Top", "box": {"left": 0.01, "bottom": 0.18, "right": 0.09, "top": 0.24}},
+            {"name": "Right", "box": {"left": 0.13, "bottom": 0.08, "right": 0.20, "top": 0.15}},
+        ],
+        "dimensions": [{
+            "name": "D1",
+            "view": "Front",
+            "box": {"left": 0.22, "bottom": 0.18, "right": 0.25, "top": 0.20},
+            "box_source": "estimated",
+            "box_confidence": "medium",
+        }],
+        "title_block": {"box": {"left": 0.23, "bottom": 0.01, "right": 0.40, "top": 0.06}},
+    }, preview_evidence=[{"exists": True, "likely_blank": False}])
+
+    assert result["status"] == "review_required"
+    assert result["error_code"] == "DRAWING_LAYOUT_ESTIMATED_EVIDENCE_REQUIRES_VISUAL_REVIEW"
+    assert result["evidence_summary"]["estimated_dimension_box_count"] == 1
+    assert result["evidence_summary"]["pixel_preview_available"] is True
+    assert result["evidence_summary"]["estimated_evidence_is_native"] is False
+
+
+def test_review_estimated_overlap_is_risk_not_confirmed_collision():
+    """@brief 估算边界相交必须标记为保守风险，而不是确定碰撞。"""
+    result = review_drawing_layout({
+        "views": [
+            {"name": "Front", "box": {"left": 0.01, "bottom": 0.08, "right": 0.09, "top": 0.15}},
+            {"name": "Top", "box": {"left": 0.01, "bottom": 0.18, "right": 0.09, "top": 0.24}},
+            {"name": "Right", "box": {"left": 0.13, "bottom": 0.08, "right": 0.20, "top": 0.15}},
+        ],
+        "dimensions": [
+            {"name": "D1", "view": "Front", "box": {"left": 0.22, "bottom": 0.18, "right": 0.25, "top": 0.20}, "box_source": "estimated", "box_confidence": "medium"},
+            {"name": "D2", "view": "Front", "box": {"left": 0.24, "bottom": 0.19, "right": 0.27, "top": 0.21}, "box_source": "estimated", "box_confidence": "low"},
+        ],
+        "title_block": {"box": {"left": 0.23, "bottom": 0.01, "right": 0.40, "top": 0.06}},
+    })
+
+    finding = next(item for item in result["findings"] if item["code"] == "DRAWING_DIMENSION_TEXT_OVERLAP")
+    assert finding["evidence_source"] == "estimated"
+    assert finding["confidence"] == "low"
+    assert finding["severity"] == "warning"
+    assert finding["confirmed_collision"] is False
+    assert result["error_code"] == "DRAWING_LAYOUT_ESTIMATED_COLLISION_RISK"
+    assert next(item for item in result["checks"] if item["id"] == "drawing-layout-collisions")["status"] == "warning"

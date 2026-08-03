@@ -50,7 +50,7 @@ def _drawing_boxes_overlap(first, second, padding_m=0.001) -> bool:
     )
 
 
-def review_drawing_layout(structure, *, padding_m=0.001) -> dict:
+def review_drawing_layout(structure, *, padding_m=0.001, preview_evidence=None) -> dict:
     """@brief 复核视图、尺寸文字与标题栏的结构化碰撞证据。
 
     该规则只能依据 SolidWorks 返回的包围盒筛出风险，不能替代 PDF/PNG 目视复核。
@@ -61,13 +61,16 @@ def review_drawing_layout(structure, *, padding_m=0.001) -> dict:
     title_box = title_block.get("box")
     findings = []
 
-    def add_finding(code, severity, first_kind, first_name, second_kind, second_name):
+    def add_finding(code, severity, first_kind, first_name, second_kind, second_name, *, evidence_source="native", confidence="high"):
         """@brief 追加稳定字段的工程图碰撞记录。"""
         findings.append({
             "code": code,
             "severity": severity,
             "first": {"kind": first_kind, "name": str(first_name or "")},
             "second": {"kind": second_kind, "name": str(second_name or "")},
+            "evidence_source": evidence_source,
+            "confidence": confidence,
+            "confirmed_collision": evidence_source == "native",
         })
 
     for index, view in enumerate(views):
@@ -78,35 +81,100 @@ def review_drawing_layout(structure, *, padding_m=0.001) -> dict:
             add_finding("DRAWING_VIEW_TITLE_BLOCK_INTRUSION", "fail", "view", view.get("name"), "title_block", "title_block")
 
     for index, dimension in enumerate(dimensions):
+        dimension_source = dimension.get("box_source") or "native"
+        dimension_confidence = dimension.get("box_confidence") or "high"
+        dimension_severity = "warning" if dimension_source == "estimated" else "fail"
         for other in dimensions[index + 1:]:
             if _drawing_boxes_overlap(dimension.get("box"), other.get("box"), padding_m):
-                add_finding("DRAWING_DIMENSION_TEXT_OVERLAP", "fail", "dimension", dimension.get("name"), "dimension", other.get("name"))
+                other_source = other.get("box_source") or "native"
+                source = "estimated" if "estimated" in {dimension_source, other_source} else "native"
+                confidence = min(
+                    (dimension_confidence, other.get("box_confidence") or "high"),
+                    key={"unavailable": 0, "low": 1, "medium": 2, "high": 3}.get,
+                )
+                add_finding(
+                    "DRAWING_DIMENSION_TEXT_OVERLAP",
+                    "warning" if source == "estimated" else "fail",
+                    "dimension", dimension.get("name"), "dimension", other.get("name"),
+                    evidence_source=source,
+                    confidence=confidence,
+                )
         if _drawing_boxes_overlap(dimension.get("box"), title_box, padding_m):
-            add_finding("DRAWING_DIMENSION_TITLE_BLOCK_INTRUSION", "fail", "dimension", dimension.get("name"), "title_block", "title_block")
+            add_finding(
+                "DRAWING_DIMENSION_TITLE_BLOCK_INTRUSION", dimension_severity,
+                "dimension", dimension.get("name"), "title_block", "title_block",
+                evidence_source=dimension_source,
+                confidence=dimension_confidence,
+            )
         for view in views:
             if dimension.get("view") == view.get("name"):
                 continue
             if _drawing_boxes_overlap(dimension.get("box"), view.get("box"), padding_m):
-                add_finding("DRAWING_DIMENSION_OTHER_VIEW_INTRUSION", "warning", "dimension", dimension.get("name"), "view", view.get("name"))
+                add_finding(
+                    "DRAWING_DIMENSION_OTHER_VIEW_INTRUSION", "warning",
+                    "dimension", dimension.get("name"), "view", view.get("name"),
+                    evidence_source=dimension_source,
+                    confidence=dimension_confidence,
+                )
 
     view_boxes_complete = bool(views) and all(item.get("box") for item in views)
     dimension_boxes_complete = bool(dimensions) and all(item.get("box") for item in dimensions)
+    estimated_dimensions = [item for item in dimensions if item.get("box_source") == "estimated"]
+    native_dimensions = [item for item in dimensions if (item.get("box_source") or "native") == "native"]
+    confirmed_findings = [item for item in findings if item.get("confirmed_collision")]
+    estimated_risk_findings = [item for item in findings if not item.get("confirmed_collision")]
+    previews = list(preview_evidence or [])
+    pixel_preview_available = bool(previews) and all(
+        item.get("exists") and not item.get("likely_blank")
+        for item in previews
+    )
     checks = [
         {"id": "drawing-view-count", "status": "pass" if len(views) >= 3 else "fail", "message": f"读取到 {len(views)} 个工程图视图"},
         {"id": "drawing-view-boxes", "status": "pass" if view_boxes_complete else "warning", "message": "视图边界完整" if view_boxes_complete else "视图边界证据不完整"},
-        {"id": "drawing-dimension-boxes", "status": "pass" if dimension_boxes_complete else "warning", "message": "尺寸文字边界完整" if dimension_boxes_complete else "尺寸文字边界证据不完整"},
+        {
+            "id": "drawing-dimension-boxes",
+            "status": "pass" if dimension_boxes_complete and not estimated_dimensions else "warning",
+            "message": (
+                "尺寸文字原生边界完整"
+                if dimension_boxes_complete and not estimated_dimensions
+                else f"原生边界 {len(native_dimensions)}/{len(dimensions)}，保守估算 {len(estimated_dimensions)}/{len(dimensions)}"
+            ),
+        },
+        {
+            "id": "drawing-dimension-estimate-provenance",
+            "status": "warning" if estimated_dimensions else "pass",
+            "message": "估算边界仅用于风险筛查，不作为 SolidWorks 原生包围盒" if estimated_dimensions else "没有使用估算尺寸边界",
+        },
         {"id": "drawing-title-block-box", "status": "pass" if title_box else "warning", "message": "标题栏区域可用于碰撞检查" if title_box else "缺少标题栏区域证据"},
-        {"id": "drawing-layout-collisions", "status": "fail" if findings else "pass", "message": f"发现 {len(findings)} 项布局碰撞" if findings else "未发现结构化布局碰撞"},
+        {
+            "id": "drawing-layout-collisions",
+            "status": "fail" if confirmed_findings else "warning" if estimated_risk_findings else "pass",
+            "message": (
+                f"确认碰撞 {len(confirmed_findings)} 项，估算风险 {len(estimated_risk_findings)} 项"
+                if findings else "未发现结构化布局碰撞风险"
+            ),
+        },
+        {
+            "id": "drawing-pixel-preview",
+            "status": "pass" if pixel_preview_available else "warning",
+            "message": "BMP 预览存在且非空，可辅助目视确认" if pixel_preview_available else "未提供可用 BMP 像素证据；无法辅助确认估算边界",
+        },
     ]
     if len(views) < 3:
         status = "blocked"
         error_code = "DRAWING_STANDARD_VIEWS_MISSING"
-    elif findings:
+    elif confirmed_findings:
         status = "review_required"
         error_code = "DRAWING_LAYOUT_COLLISION_DETECTED"
+    elif estimated_risk_findings:
+        status = "review_required"
+        error_code = "DRAWING_LAYOUT_ESTIMATED_COLLISION_RISK"
     elif not view_boxes_complete or not dimension_boxes_complete or not title_box:
         status = "review_required"
         error_code = "DRAWING_LAYOUT_EVIDENCE_INCOMPLETE"
+    elif estimated_dimensions:
+        status = "review_required"
+        error_code = "DRAWING_LAYOUT_ESTIMATED_EVIDENCE_REQUIRES_VISUAL_REVIEW"
     else:
         status = "pass"
         error_code = None
@@ -115,6 +183,15 @@ def review_drawing_layout(structure, *, padding_m=0.001) -> dict:
         "stage": "review",
         "checks": checks,
         "findings": findings,
+        "evidence_summary": {
+            "dimension_count": len(dimensions),
+            "native_dimension_box_count": len(native_dimensions),
+            "estimated_dimension_box_count": len(estimated_dimensions),
+            "confirmed_collision_count": len(confirmed_findings),
+            "estimated_collision_risk_count": len(estimated_risk_findings),
+            "pixel_preview_available": pixel_preview_available,
+            "estimated_evidence_is_native": False,
+        },
         "manual_review_required": True,
         "retryable": status != "pass",
         "error_code": error_code,

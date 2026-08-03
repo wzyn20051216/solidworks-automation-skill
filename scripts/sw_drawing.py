@@ -79,6 +79,137 @@ def _annotation_box(owner):
     return _normalise_box(_safe_member(annotation, "GetBox"))
 
 
+def _finite_positive(value, default):
+    """@brief 将 COM 数值转成有限正数，否则使用保守默认值。"""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return float(default), False
+    if not math.isfinite(number) or number <= 0:
+        return float(default), False
+    return number, True
+
+
+def _dimension_text_evidence(display_dimension) -> dict:
+    """@brief 收集尺寸文字片段；不伪造 SolidWorks 最终格式化文本。"""
+    parts = []
+    for index, label in ((0, "all"), (1, "prefix"), (2, "suffix"), (3, "callout_above"), (4, "callout_below")):
+        value = str(_safe_member(display_dimension, "GetText", index, default="") or "")
+        if value:
+            parts.append({"index": index, "kind": label, "text": value})
+    all_text = next((item["text"] for item in parts if item["kind"] == "all"), "")
+    if all_text:
+        lines = all_text.splitlines() or [all_text]
+        source = "display_dimension_get_text_all"
+        rendered_value_available = True
+    else:
+        explicit = [item["text"] for item in parts if item["kind"] != "all"]
+        # GetText() 在 SW2026 常只返回用户前后缀，不返回格式化后的主尺寸值。
+        # 用 8 个等宽字符作为主值占位，避免把空字符串估成零宽度。
+        lines = ["".join(explicit) + "0000.000"]
+        source = "explicit_parts_plus_conservative_value_placeholder" if explicit else "conservative_value_placeholder"
+        rendered_value_available = False
+    return {
+        "parts": parts,
+        "estimation_lines": lines,
+        "source": source,
+        "rendered_value_available": rendered_value_available,
+    }
+
+
+def estimate_dimension_text_box(display_dimension, *, padding_m=None) -> dict:
+    """@brief 用 IAnnotation 锚点和 ITextFormat 保守估算尺寸文字边界。
+
+    SW2026 没有尺寸文字的原生 bounding-box API。本函数输出任意旋转文字都能
+    被覆盖的轴对齐外接方框，并明确标记 ``source=estimated``；不能作为原生几何证据。
+    """
+    annotation = _safe_member(display_dimension, "GetAnnotation")
+    position = _as_sequence(_safe_member(annotation, "GetPosition", default=[]))
+    try:
+        x, y = float(position[0]), float(position[1])
+        position_available = math.isfinite(x) and math.isfinite(y)
+    except (IndexError, TypeError, ValueError):
+        x = y = 0.0
+        position_available = False
+
+    text_format = _safe_member(annotation, "GetTextFormat", 0)
+    format_source = "IAnnotation.GetTextFormat(0)"
+    if text_format is None:
+        text_format = _safe_member(display_dimension, "GetTextFormat")
+        format_source = "IDisplayDimension.GetTextFormat()"
+    char_height, char_height_available = _finite_positive(
+        _safe_member(text_format, "CharHeight"),
+        0.0035,
+    )
+    width_factor, width_factor_available = _finite_positive(
+        _safe_member(text_format, "WidthFactor"),
+        1.0,
+    )
+    spacing_factor, spacing_factor_available = _finite_positive(
+        _safe_member(text_format, "CharSpacingFactor"),
+        1.0,
+    )
+    text = _dimension_text_evidence(display_dimension)
+    lines = text["estimation_lines"] or ["0000.000"]
+
+    def line_units(line):
+        """@brief 估算单行字宽；中文和全角字符按一个字高计。"""
+        units = 0.0
+        for character in line or " ":
+            units += 1.0 if ord(character) > 0xFF else 0.62
+        return max(units, 0.62)
+
+    max_units = max(line_units(line) for line in lines)
+    line_count = max(1, len(lines))
+    estimated_width = max_units * char_height * width_factor * spacing_factor
+    estimated_height = line_count * char_height * 1.25
+    padding = max(0.001, char_height * 0.4) if padding_m is None else max(0.0, float(padding_m))
+    # 尺寸文字角度未由 API 暴露；使用矩形对角线作为任意旋转下的方形包络。
+    half_extent = math.hypot(estimated_width, estimated_height) / 2.0 + padding
+    box = None
+    if position_available:
+        box = {
+            "left": x - half_extent,
+            "bottom": y - half_extent,
+            "right": x + half_extent,
+            "top": y + half_extent,
+        }
+
+    available_fields = sum((position_available, char_height_available, width_factor_available, spacing_factor_available))
+    if position_available and available_fields == 4 and text["rendered_value_available"]:
+        confidence = "medium"
+    elif position_available:
+        confidence = "low"
+    else:
+        confidence = "unavailable"
+    return {
+        "box": box,
+        "source": "estimated",
+        "confidence": confidence,
+        "method": "annotation_position_text_format_arbitrary_rotation_envelope",
+        "native_bounding_box_available": False,
+        "position_m": [x, y] if position_available else None,
+        "text_evidence": text,
+        "text_format": {
+            "source": format_source if text_format is not None else "conservative_defaults",
+            "char_height_m": char_height,
+            "width_factor": width_factor,
+            "char_spacing_factor": spacing_factor,
+            "char_height_available": char_height_available,
+            "width_factor_available": width_factor_available,
+            "char_spacing_factor_available": spacing_factor_available,
+        },
+        "estimated_unrotated_size_m": {"width": estimated_width, "height": estimated_height},
+        "padding_m": padding,
+        "orientation_assumption": "unknown_angle_conservative_square_envelope",
+        "limitations": [
+            "SolidWorks 2026 IAnnotation 不提供尺寸文字原生包围盒",
+            "主尺寸格式化值可能不由 GetText 返回，缺失时使用保守占位宽度",
+            "估算只能用于碰撞风险筛查，最终交付仍需 PDF/BMP 目视复核",
+        ],
+    }
+
+
 def select_drawing_template(candidates, *, paper_size="A3", require_gbt=True) -> dict:
     """@brief 从本机候选中选择图幅匹配且具有 GB/T 标识的图框模板。
 
@@ -731,13 +862,27 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
                     view_dimensions.append(current)
                     current = _safe_member(view, "GetNextDisplayDimension", current)
             for dimension in view_dimensions:
+                native_box = _annotation_box(dimension)
+                estimated_box_evidence = estimate_dimension_text_box(dimension) if native_box is None else None
                 dimensions.append({
                     "sheet": str(sheet_name),
                     "view": _safe_member(view, "Name", default=""),
-                    "name": _safe_member(dimension, "Name", default=""),
+                    "name": (
+                        _safe_member(dimension, "Name", default="")
+                        or _safe_member(dimension, "GetNameForSelection", default="")
+                        or _safe_member(_safe_member(dimension, "GetDimension"), "FullName", default="")
+                    ),
                     "type": _safe_member(dimension, "Type", default=None),
                     "text": _safe_member(dimension, "GetText", 0, default=""),
-                    "box": _annotation_box(dimension),
+                    "box": native_box or estimated_box_evidence.get("box"),
+                    "box_source": "native" if native_box else estimated_box_evidence.get("source"),
+                    "box_confidence": "high" if native_box else estimated_box_evidence.get("confidence"),
+                    "box_evidence": {
+                        "box": native_box,
+                        "source": "native",
+                        "confidence": "high",
+                        "method": "annotation_get_box",
+                    } if native_box else estimated_box_evidence,
                 })
             for note in _as_sequence(_safe_member(view, "GetNotes", default=[])):
                 notes.append({"sheet": str(sheet_name), "text": _safe_member(note, "Text", default=""), "box": _annotation_box(note)})
@@ -764,6 +909,9 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
     )
     outline_count = sum(item.get("box") is not None for item in views)
     dimension_box_count = sum(item.get("box") is not None for item in dimensions)
+    native_dimension_box_count = sum(item.get("box_source") == "native" for item in dimensions)
+    estimated_dimension_box_count = sum(item.get("box_source") == "estimated" and item.get("box") is not None for item in dimensions)
+    low_confidence_dimension_box_count = sum(item.get("box_confidence") in {"low", "unavailable"} for item in dimensions)
     result = {
         "status": "pass" if views else "blocked",
         "stage": "review",
@@ -786,6 +934,9 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
         "table_count": len(tables),
         "view_outline_count": outline_count,
         "dimension_box_count": dimension_box_count,
+        "native_dimension_box_count": native_dimension_box_count,
+        "estimated_dimension_box_count": estimated_dimension_box_count,
+        "low_confidence_dimension_box_count": low_confidence_dimension_box_count,
         "manual_review_required": True,
         "retryable": not bool(views),
         "error_code": None if views else "DRAWING_VIEWS_MISSING",
@@ -796,7 +947,15 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
             {"id": "drawing-gbt-template", "status": "pass" if gbt_candidate else "warning", "message": "模板名称是 GB/T 候选，内容仍需目视复核" if gbt_candidate else "未发现 GB/T 图框候选证据"},
             {"id": "drawing-dimensions", "status": "pass" if dimensions else "warning", "message": "已读取真实尺寸实体" if dimensions else "未读取到尺寸实体"},
             {"id": "drawing-view-outlines", "status": "pass" if views and outline_count == len(views) else "warning", "message": "已读取全部视图边界" if views and outline_count == len(views) else "部分视图缺少边界，无法完整检查碰撞"},
-            {"id": "drawing-dimension-boxes", "status": "pass" if dimensions and dimension_box_count == len(dimensions) else "warning", "message": "已读取全部尺寸文字边界" if dimensions and dimension_box_count == len(dimensions) else "部分尺寸缺少文字边界，无法完整检查重叠"},
+            {
+                "id": "drawing-dimension-boxes",
+                "status": "pass" if dimensions and native_dimension_box_count == len(dimensions) else "warning",
+                "message": (
+                    "已读取全部尺寸文字原生边界"
+                    if dimensions and native_dimension_box_count == len(dimensions)
+                    else f"原生边界 {native_dimension_box_count}/{len(dimensions)}，保守估算 {estimated_dimension_box_count}/{len(dimensions)}；估算不等于原生证据"
+                ),
+            },
         ],
     }
     return result

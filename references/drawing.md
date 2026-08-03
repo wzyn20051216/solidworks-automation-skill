@@ -69,6 +69,46 @@ drawing.InsertModelAnnotations3(
 > 完整工程图交付仍属于 `drawings_and_bom=pilot`，因为尺寸布局、孔槽定位链、
 > 图框、标题栏和 BOM 需要人工目视复核。
 
+### SW2026 尺寸文字边界证据
+
+本机 `SolidWorks.Interop.sldworks.dll` 反射确认：
+
+- `IAnnotation.GetPosition()` 返回注解锚点。
+- `IAnnotation.GetTextFormat(index)` / `GetTextFormatCount()` 返回文字格式。
+- `ITextFormat.CharHeight`、`WidthFactor`、`CharSpacingFactor` 可读取字体尺度。
+- `IDisplayDimension.GetText(swDimensionTextParts_e)` 可读取用户文字片段。
+- `IAnnotation` 没有尺寸文字原生 bounding-box API；不要调用或宣称存在 `GetBox()`。
+
+`scripts/sw_drawing.py::estimate_dimension_text_box()` 因此只生成保守估算边界：
+
+1. 以 `IAnnotation.GetPosition()` 为中心。
+2. 按字符数、`CharHeight`、`WidthFactor` 和 `CharSpacingFactor` 估算未旋转文字宽高。
+3. 由于 API 未给出尺寸文字角度，使用该矩形对角线构造任意旋转均可覆盖的方形包络。
+4. padding 取 `max(1 mm, 0.4 * CharHeight)`；字段缺失时使用保守默认值并降低置信度。
+5. `GetText(0)` 在 SW2026 可能不返回格式化后的主尺寸数值；缺失时按 8 个等宽字符保守占位。
+
+报告必须保留以下字段，禁止把估算值冒充原生证据：
+
+```json
+{
+  "box_source": "estimated",
+  "box_confidence": "low | medium | unavailable",
+  "box_evidence": {
+    "native_bounding_box_available": false,
+    "method": "annotation_position_text_format_arbitrary_rotation_envelope",
+    "padding_m": 0.001,
+    "orientation_assumption": "unknown_angle_conservative_square_envelope"
+  }
+}
+```
+
+即使全部估算边界未发现碰撞，`review_drawing_layout()` 仍返回
+`review_required / DRAWING_LAYOUT_ESTIMATED_EVIDENCE_REQUIRES_VISUAL_REVIEW`。
+估算边界发生相交时返回 `DRAWING_LAYOUT_ESTIMATED_COLLISION_RISK`，finding 必须为
+`evidence_source=estimated`、`confirmed_collision=false`；只有原生边界证据才可使用
+`DRAWING_LAYOUT_COLLISION_DETECTED` 表示确认碰撞。
+非空 BMP/PDF 只能证明预览产物可用，不能自动证明尺寸没有重叠；最终必须目视复核。
+
 ### 手动添加尺寸
 
 ```python
