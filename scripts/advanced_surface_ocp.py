@@ -342,6 +342,55 @@ def _topology_counts(shape) -> dict[str, int]:
     return {"faces": count(TopAbs_FACE), "shells": count(TopAbs_SHELL), "solids": count(TopAbs_SOLID)}
 
 
+def collect_curvature_radius_evidence(shape) -> dict[str, Any]:
+    """@brief 在各面内部九点采样主曲率，估算局部最小曲率半径。"""
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.BRepLProp import BRepLProp_SLProps
+    from OCP.TopAbs import TopAbs_FACE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    fractions = (0.15, 0.5, 0.85)
+    records: list[dict[str, Any]] = []
+    radii: list[float] = []
+    explorer = TopExp_Explorer(shape, TopAbs_FACE)
+    face_index = 0
+    while explorer.More():
+        face_index += 1
+        face = TopoDS.Face(explorer.Current())
+        surface = BRepAdaptor_Surface(face)
+        bounds = (
+            float(surface.FirstUParameter()), float(surface.LastUParameter()),
+            float(surface.FirstVParameter()), float(surface.LastVParameter()),
+        )
+        samples = []
+        if all(math.isfinite(value) for value in bounds):
+            u0, u1, v0, v1 = bounds
+            for uf in fractions:
+                for vf in fractions:
+                    u, v = u0 + (u1 - u0) * uf, v0 + (v1 - v0) * vf
+                    properties = BRepLProp_SLProps(surface, u, v, 2, 1e-7)
+                    if not properties.IsCurvatureDefined():
+                        continue
+                    curvatures = [abs(float(properties.MaxCurvature())), abs(float(properties.MinCurvature()))]
+                    finite_curvatures = [value for value in curvatures if math.isfinite(value) and value > 1e-12]
+                    radius = 1.0 / max(finite_curvatures) if finite_curvatures else None
+                    if radius is not None:
+                        radii.append(radius)
+                    samples.append({"uFraction": uf, "vFraction": vf, "minimumRadiusMm": radius})
+        records.append({"faceIndex": face_index, "bounds": list(bounds), "samples": samples})
+        explorer.Next()
+    return {
+        "method": "BRepLProp_SLProps_3x3_interior_sampling",
+        "sampleFractions": list(fractions),
+        "faceCount": face_index,
+        "curvedSampleCount": len(radii),
+        "minimumSampledCurvatureRadiusMm": min(radii, default=None),
+        "faces": records,
+        "limitations": ["离散采样不能证明面内所有位置的全局最小曲率半径，也不能单独证明偏置无自交。"],
+    }
+
+
 def _knit(request: dict[str, Any]):
     """@brief 缝合可信 STEP/BREP，并仅在闭壳时转为实体。"""
     from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid, BRepBuilderAPI_Sewing
@@ -390,6 +439,15 @@ def _thicken(request: dict[str, Any]):
         raise ValueError("thicken 首版只接受开放 face/shell；实体抽壳请走后续 hollow 操作。")
     if topology["faces"] < 1:
         raise ValueError("thicken 输入至少需要一个有效面。")
+    curvature = collect_curvature_radius_evidence(source)
+    minimum_radius = curvature["minimumSampledCurvatureRadiusMm"]
+    maximum_safe_thickness = minimum_radius * 0.5 if minimum_radius is not None else None
+    if maximum_safe_thickness is not None and abs(float(request["thicknessMm"])) > maximum_safe_thickness:
+        raise ValueError(
+            "thicken 厚度超过采样最小曲率半径的 50% 保守门禁: "
+            f"厚度={abs(float(request['thicknessMm'])):.6g} mm, "
+            f"采样半径={minimum_radius:.6g} mm。"
+        )
     builder = BRepOffsetAPI_MakeThickSolid()
     builder.MakeThickSolidBySimple(source, float(request["thicknessMm"]))
     if not builder.IsDone() or builder.Shape().IsNull():
@@ -407,6 +465,8 @@ def _thicken(request: dict[str, Any]):
     return shape, {
         "sourceTopology": topology,
         "thicknessMm": float(request["thicknessMm"]),
+        "curvatureRadiusEvidence": curvature,
+        "maximumConservativeThicknessMm": maximum_safe_thickness,
         "orientationReversedForPositiveVolume": orientation_reversed,
     }
 

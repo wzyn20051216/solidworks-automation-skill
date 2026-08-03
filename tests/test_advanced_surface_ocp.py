@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from scripts.advanced_surface_ocp import (
+    collect_curvature_radius_evidence,
     collect_surface_continuity_evidence,
     execute_advanced_surface,
     validate_surface_request,
@@ -204,6 +205,7 @@ def test_knit_six_box_faces_creates_closed_solid(tmp_path: Path) -> None:
     from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
     from OCP.TopAbs import TopAbs_FACE
     from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
     from OCP.TopoDS import TopoDS_Compound
 
     compound, builder = TopoDS_Compound(), BRep_Builder()
@@ -231,3 +233,34 @@ def test_thicken_planar_face_creates_valid_solid(tmp_path: Path) -> None:
     assert report["geometryEvidence"]["sourceTopology"]["solids"] == 0
     assert report["geometryEvidence"]["original"]["topology"]["solids"] == 1
     assert report["geometryEvidence"]["reopened"]["brep"]["valid"] is True
+    assert report["geometryEvidence"]["curvatureRadiusEvidence"]["curvedSampleCount"] == 0
+
+
+def test_thicken_rejects_thickness_above_sampled_curvature_gate(tmp_path: Path) -> None:
+    """@brief 曲面加厚超过采样最小曲率半径一半时必须在偏置前阻断。"""
+    pytest.importorskip("OCP")
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder
+    from OCP.GeomAbs import GeomAbs_Cylinder
+    from OCP.TopAbs import TopAbs_FACE
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+
+    cylinder = BRepPrimAPI_MakeCylinder(10, 20).Shape()
+    explorer = TopExp_Explorer(cylinder, TopAbs_FACE)
+    lateral_face = None
+    while explorer.More():
+        candidate = TopoDS.Face(explorer.Current())
+        if BRepAdaptor_Surface(candidate).GetType() == GeomAbs_Cylinder:
+            lateral_face = candidate
+            break
+        explorer.Next()
+    assert lateral_face is not None
+    curvature = collect_curvature_radius_evidence(lateral_face)
+    assert curvature["minimumSampledCurvatureRadiusMm"] == pytest.approx(10.0)
+    artifact = _write_brep(lateral_face, tmp_path / "cylinder_face.brep")
+    request = {**_common("thicken", "thick_cylinder"), "input": artifact, "thicknessMm": 6}
+    report = execute_advanced_surface(request, tmp_path / "out")
+    assert report["status"] == "blocked"
+    assert report["error_code"] == "ocp_surface_operation_blocked"
+    assert "50%" in report["message"]
