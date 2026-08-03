@@ -26,6 +26,18 @@ PAPER_SIZES = {
 
 STANDARD_DRAWING_SCALES = (10.0, 5.0, 2.0, 1.0, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01)
 
+# SolidWorks.Interop.swconst.swAlignDimensionType_e（SW2026 Interop 反射确认）。
+ALIGN_DIMENSION_TYPES = {
+    "auto_arrange": 0,
+    "space_evenly": 1,
+    "colinear": 2,
+    "stagger": 3,
+    "top_align_text": 4,
+    "bottom_align_text": 5,
+    "left_align_text": 6,
+    "right_align_text": 7,
+}
+
 
 def _safe_member(obj, name, *args, default=None):
     """@brief 读取工程图 COM 成员，失败时返回默认值。"""
@@ -77,6 +89,111 @@ def _annotation_box(owner):
     """@brief 读取尺寸、注释或表格注解的二维包围盒。"""
     annotation = _safe_member(owner, "GetAnnotation") or owner
     return _normalise_box(_safe_member(annotation, "GetBox"))
+
+
+def _view_display_dimensions(view):
+    """@brief 兼容数组接口与链式接口，返回视图中的真实 DisplayDimension。"""
+    dimensions = _as_sequence(_safe_member(view, "GetDisplayDimensions", default=[]))
+    if dimensions:
+        return dimensions
+    current = _safe_member(view, "GetFirstDisplayDimension5") or _safe_member(view, "GetFirstDisplayDimension")
+    while current is not None:
+        dimensions.append(current)
+        current = _safe_member(view, "GetNextDisplayDimension", current)
+    return dimensions
+
+
+def auto_arrange_drawing_dimensions(drawing_model, *, spacing_m=0.01, mode="auto_arrange") -> dict:
+    """@brief 使用 SolidWorks 官方 AlignDimensions 对每个视图的尺寸自动排列。
+
+    该接口只负责 SolidWorks 自身的尺寸布局，不提供尺寸文字包围盒，也不能证明最终
+    图面无重叠。调用后仍必须导出 PDF/BMP 做视觉复核。
+    """
+    spacing, spacing_valid = _finite_positive(spacing_m, 0.01)
+    if not spacing_valid or spacing > 0.1:
+        raise ValueError("spacing_m 必须是 (0, 0.1] 米范围内的有限数值。")
+    if mode not in ALIGN_DIMENSION_TYPES:
+        raise ValueError(f"未知尺寸排列模式: {mode}")
+    extension = _safe_member(drawing_model, "Extension")
+    if extension is None or not hasattr(extension, "AlignDimensions"):
+        return {
+            "status": "blocked",
+            "stage": "arrange",
+            "method": "IModelDocExtension.AlignDimensions",
+            "mode": mode,
+            "spacing_m": spacing,
+            "views": [],
+            "selected_dimension_count": 0,
+            "manual_review_required": True,
+            "retryable": False,
+            "error_code": "DRAWING_ALIGN_DIMENSIONS_API_UNAVAILABLE",
+        }
+
+    results = []
+    total_selected = 0
+    sheets = _as_sequence(_safe_member(drawing_model, "GetSheetNames", default=[]))
+    for sheet_name in sheets or [""]:
+        sheet = _safe_member(drawing_model, "GetSheet", sheet_name) or _safe_member(drawing_model, "GetCurrentSheet")
+        for view in _as_sequence(_safe_member(sheet, "GetViews", default=[])):
+            dimensions = _view_display_dimensions(view)
+            _safe_member(drawing_model, "ClearSelection2", True)
+            selected = 0
+            for dimension in dimensions:
+                annotation = _safe_member(dimension, "GetAnnotation")
+                if annotation is None:
+                    continue
+                selected_ok = _safe_member(annotation, "Select2", selected > 0, 0, default=False)
+                if not selected_ok:
+                    selected_ok = _safe_member(annotation, "Select", selected > 0, default=False)
+                if selected_ok:
+                    selected += 1
+            attempted = selected >= 2
+            aligned = False
+            error = None
+            if attempted:
+                try:
+                    aligned = bool(get_com_member(extension, "AlignDimensions", ALIGN_DIMENSION_TYPES[mode], spacing))
+                except Exception as exc:
+                    error = str(exc)
+            results.append({
+                "sheet": str(sheet_name),
+                "view": str(_safe_member(view, "Name", default="") or ""),
+                "dimension_count": len(dimensions),
+                "selected_count": selected,
+                "attempted": attempted,
+                "aligned": aligned,
+                "error": error,
+            })
+            total_selected += selected
+    _safe_member(drawing_model, "ClearSelection2", True)
+    _safe_member(drawing_model, "ForceRebuild3", False)
+    _safe_member(drawing_model, "GraphicsRedraw2")
+    attempted_results = [item for item in results if item["attempted"]]
+    failed_results = [item for item in attempted_results if not item["aligned"]]
+    if not attempted_results:
+        status = "review_required"
+        error_code = "DRAWING_ALIGN_DIMENSIONS_NOT_ENOUGH_PER_VIEW"
+    elif failed_results:
+        status = "review_required"
+        error_code = "DRAWING_ALIGN_DIMENSIONS_PARTIAL"
+    else:
+        status = "pass"
+        error_code = None
+    return {
+        "status": status,
+        "stage": "arrange",
+        "method": "IModelDocExtension.AlignDimensions",
+        "mode": mode,
+        "enum_value": ALIGN_DIMENSION_TYPES[mode],
+        "spacing_m": spacing,
+        "views": results,
+        "selected_dimension_count": total_selected,
+        "aligned_view_count": sum(1 for item in results if item["aligned"]),
+        "manual_review_required": True,
+        "retryable": bool(failed_results),
+        "error_code": error_code,
+        "limitations": ["官方排列接口不返回文字包围盒；排列后仍需 PDF/BMP 目视复核。"],
+    }
 
 
 def _finite_positive(value, default):
@@ -855,12 +972,7 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
                 "box": _normalise_box(_safe_member(view, "GetOutline")),
             }
             views.append(view_record)
-            view_dimensions = _as_sequence(_safe_member(view, "GetDisplayDimensions", default=[]))
-            if not view_dimensions:
-                current = _safe_member(view, "GetFirstDisplayDimension5") or _safe_member(view, "GetFirstDisplayDimension")
-                while current is not None:
-                    view_dimensions.append(current)
-                    current = _safe_member(view, "GetNextDisplayDimension", current)
+            view_dimensions = _view_display_dimensions(view)
             for dimension in view_dimensions:
                 native_box = _annotation_box(dimension)
                 estimated_box_evidence = estimate_dimension_text_box(dimension) if native_box is None else None

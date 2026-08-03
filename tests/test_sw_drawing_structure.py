@@ -5,6 +5,7 @@ import pytest
 
 from scripts.sw_drawing import (
     add_a3_sheet,
+    auto_arrange_drawing_dimensions,
     create_adaptive_standard_views,
     estimate_dimension_text_box,
     inspect_drawing_structure,
@@ -65,6 +66,67 @@ class FakeDrawing:
 
     def GetCurrentSheet(self):
         return FakeSheet()
+
+
+def test_auto_arrange_dimensions_calls_official_api_per_view():
+    """@brief 每个视图至少两个尺寸时应调用官方 AutoArrange 枚举。"""
+    class Annotation:
+        def __init__(self):
+            self.selected = False
+
+        def Select2(self, append, mark):
+            assert mark == 0
+            self.selected = True
+            return True
+
+    class Dimension:
+        def __init__(self):
+            self.annotation = Annotation()
+
+        def GetAnnotation(self):
+            return self.annotation
+
+    class View(FakeView):
+        def GetDisplayDimensions(self):
+            return [Dimension(), Dimension()]
+
+    class Sheet(FakeSheet):
+        def GetViews(self):
+            return [View()]
+
+    class Extension:
+        def __init__(self):
+            self.calls = []
+
+        def AlignDimensions(self, mode, spacing):
+            self.calls.append((mode, spacing))
+            return True
+
+    class Drawing(FakeDrawing):
+        def __init__(self):
+            self.Extension = Extension()
+
+        def GetSheet(self, _name):
+            return Sheet()
+
+        def ClearSelection2(self, _all):
+            return True
+
+        def ForceRebuild3(self, _top_only):
+            return True
+
+        def GraphicsRedraw2(self):
+            return True
+
+    drawing = Drawing()
+    result = auto_arrange_drawing_dimensions(drawing, spacing_m=0.008)
+
+    assert result["status"] == "pass"
+    assert result["method"] == "IModelDocExtension.AlignDimensions"
+    assert result["enum_value"] == 0
+    assert result["selected_dimension_count"] == 2
+    assert drawing.Extension.calls == [(0, 0.008)]
+    assert result["manual_review_required"] is True
 
 
 def test_inspect_drawing_structure_reports_views_dimensions_and_template():

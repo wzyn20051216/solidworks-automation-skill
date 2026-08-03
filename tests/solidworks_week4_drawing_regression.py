@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from sw_connect import get_com_member, get_sw_version  # noqa: E402
 from sw_drawing import (  # noqa: E402
+    auto_arrange_drawing_dimensions,
     create_adaptive_standard_views,
     export_sheet_to_pdf,
     inspect_drawing_structure,
@@ -106,6 +107,9 @@ def run_regression(output_root: Path, *, version: int | None = None, run_id: str
             drawing.GraphicsRedraw2()
         except Exception:
             pass
+        official_arrangement = auto_arrange_drawing_dimensions(drawing, spacing_m=0.01)
+        if official_arrangement.get("status") == "blocked":
+            raise RuntimeError(f"SolidWorks 官方尺寸排列接口不可用: {official_arrangement}")
         structure = inspect_drawing_structure(
             drawing,
             paper_size_hint="A3",
@@ -151,6 +155,7 @@ def run_regression(output_root: Path, *, version: int | None = None, run_id: str
             "drawingEvidence": structure,
             "drawingLayoutReview": layout_review,
             "dimensions_inserted": dimensions_inserted,
+            "officialDimensionArrangement": official_arrangement,
             "modelDimensions": model_dimensions,
             "reviewFindings": structure.get("checks", []),
             "artifactRelations": [{"from": str(part_path), "to": str(drawing_path)}, {"from": str(drawing_path), "to": str(pdf_path)}],
