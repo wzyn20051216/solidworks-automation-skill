@@ -161,7 +161,7 @@ const SETTINGS_KEY = "cad-studio.settings.v1";
 const QUEUE_KEY = "cad-studio.queue.v1";
 const CHAT_KEY = "cad-studio.agent-chat.v1";
 const CONVERSATIONS_KEY = "cad-studio.agent-conversations.v1";
-const APP_VERSION = "0.3.1";
+const APP_VERSION = "0.3.2";
 const LEGACY_CONVERSATION_ID = "conversation-legacy";
 const manualReviewOptions = [
   ["native-open", "已用目标 CAD 软件原生打开并确认无报错"],

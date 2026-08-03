@@ -1,6 +1,6 @@
 [package]
 name = "cad-studio"
-version = "0.3.1"
+version = "0.3.2"
 description = "面向机械工程的本地多 Agent CAD 自动化工作台"
 authors = ["wzyn20051216"]
 license = "MIT"
