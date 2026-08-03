@@ -53,6 +53,7 @@ REQUIRED_FILES = [
     "scripts/fea_analysis.py",
     "scripts/advanced_geometry.py",
     "requirements-occt.txt",
+    "requirements-pdf.txt",
     "scripts/sw_entity_reference.py",
     "scripts/validate_mcp.py",
     "mcp-server/server.py",

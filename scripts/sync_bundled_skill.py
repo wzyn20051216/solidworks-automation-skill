@@ -18,6 +18,7 @@ TOP_LEVEL_FILES = (
     "requirements.txt",
     "requirements-mesh.txt",
     "requirements-occt.txt",
+    "requirements-pdf.txt",
 )
 RUNTIME_ROOTS = (
     "agents",

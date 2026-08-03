@@ -6,6 +6,11 @@ import re
 from filecmp import cmp
 from pathlib import Path
 
+try:
+    from .sync_bundled_skill import collect_runtime_files
+except ImportError:
+    from sync_bundled_skill import collect_runtime_files
+
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLED_SKILL = ROOT / "apps/workbench-ui/src-tauri/resources/skill"
 
@@ -17,7 +22,7 @@ def _version(path: Path, pattern: str) -> str:
     return match.group(1)
 
 
-def find_bundled_skill_drift(root: Path, bundled_skill: Path) -> list[str]:
+def find_bundled_skill_drift(root: Path, bundled_skill: Path, expected_paths=None) -> list[str]:
     """@brief 返回桌面内嵌 Skill 中缺少源文件或内容不一致的相对路径。"""
     if not bundled_skill.is_dir():
         return ["<bundled-skill-missing>"]
@@ -30,6 +35,10 @@ def find_bundled_skill_drift(root: Path, bundled_skill: Path) -> list[str]:
             drift.append(f"missing-source:{relative_name}")
         elif not cmp(source_path, bundled_path, shallow=False):
             drift.append(relative_name)
+    for relative_path in sorted(expected_paths or [], key=lambda value: Path(value).as_posix()):
+        relative = Path(relative_path)
+        if not (bundled_skill / relative).is_file():
+            drift.append(f"missing-bundle:{relative.as_posix()}")
     return drift
 
 
@@ -56,7 +65,8 @@ def run_release_check() -> dict[str, object]:
     missing = [item for item in required if not (ROOT / item).is_file()]
     if missing:
         raise AssertionError("发布文件缺失: " + ", ".join(missing))
-    bundled_drift = find_bundled_skill_drift(ROOT, BUNDLED_SKILL)
+    expected_runtime_files = collect_runtime_files(ROOT)
+    bundled_drift = find_bundled_skill_drift(ROOT, BUNDLED_SKILL, expected_runtime_files)
     if bundled_drift:
         preview = ", ".join(bundled_drift[:10])
         suffix = " ..." if len(bundled_drift) > 10 else ""

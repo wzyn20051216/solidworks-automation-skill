@@ -52,10 +52,15 @@ fn prepare_release_resources() {
     fs::create_dir_all(&staging).expect("create staged release resources");
 
     for file in [
+        "README.md",
         "SKILL.md",
         "SUBSKILLS.md",
+        "capabilities.yaml",
+        "golden-workflows.yaml",
         "requirements.txt",
         "requirements-mesh.txt",
+        "requirements-occt.txt",
+        "requirements-pdf.txt",
     ] {
         fs::copy(root.join(file), staging.join(file)).expect("copy root release resource");
         println!("cargo:rerun-if-changed={}", root.join(file).display());
