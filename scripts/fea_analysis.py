@@ -413,7 +413,9 @@ def parse_calculix_results(job_dir: str | Path, stem: str) -> dict[str, Any]:
     last_nonempty = ""
     current: str | None = None
     current_rows: dict[int, tuple[float, ...]] = {}
-    result_blocks: dict[str, list[dict[int, tuple[float, ...]]]] = {"displacement": [], "stress": []}
+    result_blocks: dict[str, list[dict[int, tuple[float, ...]]]] = {
+        "displacement": [], "stress": [], "equivalent_plastic_strain": [],
+    }
     duplicate_node = False
     with frd.open("r", encoding="ascii", errors="replace") as handle:
         for line in handle:
@@ -430,6 +432,10 @@ def parse_calculix_results(job_dir: str | Path, stem: str) -> dict[str, Any]:
                 continue
             if line.startswith(" -4  STRESS"):
                 current = "stress"
+                current_rows = {}
+                continue
+            if line.startswith(" -4  PE"):
+                current = "equivalent_plastic_strain"
                 current_rows = {}
                 continue
             if line.startswith(" -3"):
@@ -450,8 +456,11 @@ def parse_calculix_results(job_dir: str | Path, stem: str) -> dict[str, Any]:
                     current_rows[node_id] = components[:3]
                 elif current == "stress" and len(components) >= 6:
                     current_rows[node_id] = components[:6]
+                elif current == "equivalent_plastic_strain" and components:
+                    current_rows[node_id] = components[:1]
     displacement_rows = result_blocks["displacement"][-1] if result_blocks["displacement"] else {}
     stress_rows = result_blocks["stress"][-1] if result_blocks["stress"] else {}
+    plastic_rows = result_blocks["equivalent_plastic_strain"][-1] if result_blocks["equivalent_plastic_strain"] else {}
     displacements = list(displacement_rows.values())
     stresses = list(stress_rows.values())
     finite = all(math.isfinite(value) for row in [*displacements, *stresses] for value in row)
@@ -462,6 +471,7 @@ def parse_calculix_results(job_dir: str | Path, stem: str) -> dict[str, Any]:
         return math.sqrt(0.5 * ((sxx - syy) ** 2 + (syy - szz) ** 2 + (szz - sxx) ** 2) + 3.0 * (sxy**2 + syz**2 + szx**2))
 
     max_von_mises = max((von_mises(row) for row in stresses), default=None)
+    maximum_plastic_strain = max((row[0] for row in plastic_rows.values()), default=0.0)
     sta_text = sta.read_text(encoding="ascii", errors="replace") if sta.is_file() else ""
     cvg_text = cvg.read_text(encoding="ascii", errors="replace") if cvg.is_file() else ""
     increment_lines = [line for line in sta_text.splitlines() if re.match(r"^\s+\d+\s+\d+\s+\d+\s+\d+", line)]
@@ -482,6 +492,7 @@ def parse_calculix_results(job_dir: str | Path, stem: str) -> dict[str, Any]:
         {"id": "fea-result-node-identity", "status": "pass" if node_sets_match and not duplicate_node else "fail", "nodeSetsMatch": node_sets_match, "duplicateNode": duplicate_node},
         {"id": "fea-result-termination", "status": "pass" if result_terminated and not failure_markers else "fail", "terminated": result_terminated, "failureMarkers": failure_markers},
         {"id": "fea-result-contact-elements", "status": "pass" if maximum_contact_elements > 0 else "warning", "maximumContactElementCount": maximum_contact_elements},
+        {"id": "fea-result-plastic-activity", "status": "pass" if maximum_plastic_strain > 0 else "warning", "maximumEquivalentPlasticStrain": maximum_plastic_strain},
         {"id": "fea-result-convergence", "status": "pass" if converged else "fail", "increments": len(increment_lines)},
     ]
     return {
@@ -500,6 +511,7 @@ def parse_calculix_results(job_dir: str | Path, stem: str) -> dict[str, Any]:
             "nodeSetsMatch": node_sets_match,
             "failureMarkers": failure_markers,
             "maximumContactElementCount": maximum_contact_elements,
+            "maximumEquivalentPlasticStrain": maximum_plastic_strain,
         },
         "files": [str(path) for path in (frd, sta, cvg) if path.is_file()],
     }
@@ -588,7 +600,8 @@ def build_calculix_input(value: str | Path | dict[str, Any], output_path: str | 
             norm = math.sqrt(sum(float(value) ** 2 for value in direction))
             unit = [float(value) / norm for value in direction]
             lines.extend(["*DLOAD", f"CADSTUDIO_ALL_ELEMENTS,GRAV,{float(item['magnitude']):.12g},{unit[0]:.12g},{unit[1]:.12g},{unit[2]:.12g}"])
-    lines.extend(["*NODE FILE", "U", "*EL FILE", "S,E", "*END STEP", ""])
+    element_outputs = "S,E,PEEQ" if material.get("plasticCurve") else "S,E"
+    lines.extend(["*NODE FILE", "U", "*EL FILE", element_outputs, "*END STEP", ""])
     target.write_text("\n".join(lines), encoding="ascii")
     artifact = {"kind": "calculix_input", "path": str(target), "sha256": _sha256(target), "sizeBytes": target.stat().st_size, "producedThisRun": True}
     return {

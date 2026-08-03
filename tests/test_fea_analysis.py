@@ -127,6 +127,7 @@ def test_nonlinear_contact_input_uses_only_whitelisted_keywords(tmp_path: Path) 
     content = Path(report["artifacts"][0]["path"]).read_text(encoding="ascii")
     assert "*STEP,NLGEOM,INC=200" in content
     assert "*PLASTIC\n250,0\n300,0.05" in content
+    assert "*EL FILE\nS,E,PEEQ" in content
     assert "*SURFACE,NAME=MasterFace,TYPE=ELEMENT\nMasterElements,S1" in content
     assert "*SURFACE BEHAVIOR,PRESSURE-OVERCLOSURE=LINEAR\n21000" in content
     assert "*FRICTION\n0.2,10500" in content
@@ -222,6 +223,8 @@ def test_parse_calculix_results_reports_displacement_stress_and_convergence(tmp_
         " -1         1 0.0 0.0 -2.0E-04\n -3\n"
         " -4  STRESS      6    1\n"
         " -1         1 -2.0 -2.0 -6.0 0.0 0.0 0.0\n -3\n"
+        " -4  PE          1    1\n"
+        " -1         1 1.25E-03\n -3\n"
         " 9999\n",
         encoding="ascii",
     )
@@ -237,6 +240,7 @@ def test_parse_calculix_results_reports_displacement_stress_and_convergence(tmp_
     assert report["summary"]["maximumVonMisesStressMPa"] == pytest.approx(4.0)
     assert report["summary"]["convergedIncrementCount"] == 1
     assert report["summary"]["maximumContactElementCount"] == 28
+    assert report["summary"]["maximumEquivalentPlasticStrain"] == pytest.approx(1.25e-3)
 
 
 def test_parse_calculix_results_uses_latest_complete_result_blocks(tmp_path: Path) -> None:

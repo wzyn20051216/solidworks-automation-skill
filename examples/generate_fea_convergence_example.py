@@ -1,4 +1,4 @@
-"""@brief 生成三档真实 C3D8 悬臂梁网格收敛请求。"""
+"""@brief 生成五档真实 C3D8 悬臂梁网格收敛请求。"""
 from __future__ import annotations
 
 import argparse
@@ -64,11 +64,13 @@ def build_hex_cantilever(nx: int, ny: int, nz: int, *, analysis_id: str) -> dict
 
 
 def build_study() -> dict:
-    """@brief 返回粗/中/细三档网格收敛请求。"""
+    """@brief 返回粗到最细五档网格收敛请求。"""
     levels = [
         ("coarse", 15.0, 4, 1, 1),
         ("medium", 7.5, 8, 2, 2),
         ("fine", 5.0, 12, 3, 3),
+        ("finer", 3.75, 16, 4, 4),
+        ("finest", 3.0, 20, 5, 5),
     ]
     return {
         "schemaVersion": "1.0",
@@ -101,4 +103,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
