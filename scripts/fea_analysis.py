@@ -111,6 +111,11 @@ def _identifier(value: Any, field: str) -> str:
     return token
 
 
+def _calculix_id_lines(values: list[int], *, width: int = 16) -> list[str]:
+    """@brief 按 CalculiX 每行最多 16 个集合成员的限制拆分 ID。"""
+    return [",".join(str(item) for item in values[index:index + width]) for index in range(0, len(values), width)]
+
+
 def validate_analysis(value: str | Path | dict[str, Any]) -> dict[str, Any]:
     """@brief 严格校验 FEA Schema、拓扑引用、材料、载荷和约束。"""
     request = _load_request(value)
@@ -407,10 +412,13 @@ def build_calculix_input(value: str | Path | dict[str, Any], output_path: str | 
             lines.append(f"*ELEMENT,TYPE={kind},ELSET=CADSTUDIO_{kind}")
             lines.extend(f"{item['id']}," + ",".join(str(node_id) for node_id in item["nodeIds"]) for item in selected)
     for name, members in request["mesh"]["nodeSets"].items():
-        lines.extend([f"*NSET,NSET={name}", ",".join(str(item) for item in members)])
+        lines.append(f"*NSET,NSET={name}")
+        lines.extend(_calculix_id_lines(members))
     for name, members in request["mesh"]["elementSets"].items():
-        lines.extend([f"*ELSET,ELSET={name}", ",".join(str(item) for item in members)])
-    lines.extend(["*ELSET,ELSET=CADSTUDIO_ALL_ELEMENTS", ",".join(str(item["id"]) for item in request["mesh"]["elements"])])
+        lines.append(f"*ELSET,ELSET={name}")
+        lines.extend(_calculix_id_lines(members))
+    lines.append("*ELSET,ELSET=CADSTUDIO_ALL_ELEMENTS")
+    lines.extend(_calculix_id_lines([item["id"] for item in request["mesh"]["elements"]]))
     material = request["material"]
     lines.extend(["*MATERIAL,NAME=CADSTUDIO_MATERIAL", "*ELASTIC", f"{float(material['elasticModulusMPa']):.12g},{float(material['poissonRatio']):.12g}"])
     lines.extend(["*DENSITY", f"{float(material['densityKgM3']) * 1e-12:.12g}"])

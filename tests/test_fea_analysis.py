@@ -71,6 +71,21 @@ def test_calculix_input_is_whitelisted_and_never_overwrites(tmp_path: Path) -> N
     assert first["artifacts"][0]["sha256"]
 
 
+def test_calculix_sets_wrap_after_sixteen_ids(tmp_path: Path) -> None:
+    """@brief NSET/ELSET 每行不得超过 CalculiX 的 16 项限制。"""
+    request = _request()
+    request["mesh"]["nodes"].extend(
+        {"id": node_id, "x": node_id, "y": 0, "z": 0}
+        for node_id in range(5, 21)
+    )
+    request["mesh"]["nodeSets"]["ManyNodes"] = list(range(1, 21))
+    result = build_calculix_input(request, tmp_path / "wrapped.inp")
+    content = Path(result["artifacts"][0]["path"]).read_text(encoding="ascii").splitlines()
+    start = content.index("*NSET,NSET=ManyNodes")
+    member_lines = content[start + 1:start + 3]
+    assert [len(line.split(",")) for line in member_lines] == [16, 4]
+
+
 def test_pressure_requires_explicit_element_face_and_gravity_uses_defined_all_set(tmp_path: Path) -> None:
     """@brief 实体压力必须指定面，重力必须引用生成器定义的全集。"""
     pressure = _request()
