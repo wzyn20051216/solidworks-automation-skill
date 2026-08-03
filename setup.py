@@ -53,7 +53,7 @@ setup(
     package_dir={"solidworks_automation": "scripts"},
     cmdclass={"install": PostInstallCommand},
     install_requires=["pywin32>=305", "comtypes>=1.2.0"],
-    python_requires=">=3.8",
+    python_requires=">=3.10",
     classifiers=[
         "Programming Language :: Python :: 3",
         "Operating System :: Microsoft :: Windows",

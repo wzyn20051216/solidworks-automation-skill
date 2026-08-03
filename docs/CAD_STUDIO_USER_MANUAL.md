@@ -44,7 +44,7 @@ CAD Studio 不附带模型额度，也不保存 API Key。模型账号、套餐�
 
 ### 2.3 真实 CAD 自动化
 
-- Python 3.8 或更高版本，推荐 64 位 Python 3.11/3.12。
+- Python 3.10 或更高版本，推荐 64 位 Python 3.11/3.12。
 - Python 依赖：`pywin32`、`comtypes`。
 - 当前真机基线为 SolidWorks 2024、SolidWorks 2026 SP01.1 和 AutoCAD 2024；SolidWorks 2026 仅对 `capabilities.yaml` 中明确列出 2026 的能力视为已验证，SolidWorks 2025 和其余能力仍是兼容性目标。
 - Python、SolidWorks 和 AutoCAD 应与操作系统保持 64 位一致。
@@ -54,6 +54,14 @@ CAD Studio 不附带模型额度，也不保存 API Key。模型账号、套餐�
 ```powershell
 python -m pip install "pywin32>=305" "comtypes>=1.2.0"
 ```
+
+首次安装或环境变化后运行：
+
+```powershell
+python scripts\cad_studio.py doctor
+```
+
+输出中的 `remediations` 会给出缺失组件的官方地址和安装命令；桌面端“设置”和“帮助”页也会显示相同建议。可选后端缺失只阻断相应格式，不会阻断其他可用后端。
 
 ### 2.4 无 CAD 软件开放格式后端
 

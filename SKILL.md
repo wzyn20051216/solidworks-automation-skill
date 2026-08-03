@@ -11,7 +11,7 @@ metadata: { "openclaw": { "homepage": "https://github.com/wzyn20051216/solidwork
 ### 环境要求
 
 - Windows 系统；原生 SolidWorks 格式需要 SolidWorks，开放格式无头写入不要求安装 CAD 软件
-- Python 3.8+ + `pywin32` / `comtypes`
+- Python 3.10+；原生 Windows CAD 自动化另需 `pywin32` / `comtypes`
 - MCP/工具化调用需要 `mcp` / `pydantic`
 - 处理 GLB/GLTF/OBJ/STL 网格参考模型时，可能还需要 `trimesh` / `pygltflib` / `numpy` / `Pillow`
 - 如果通过 OpenClaw 使用，确保技能目录位于 `~/.openclaw/skills/solidworks-automation/` 或 `~/.agents/skills/solidworks-automation/`

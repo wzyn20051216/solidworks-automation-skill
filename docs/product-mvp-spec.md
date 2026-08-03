@@ -94,7 +94,7 @@ CAD 控制: SolidWorks COM + AutoCAD COM
 - Windows。
 - SolidWorks 已安装并至少启动过一次。
 - AutoCAD 已安装并至少启动过一次，若只做 SolidWorks Drawing 可暂不强制。
-- Python 3.8+。
+- Python 3.10+。
 - `pywin32` / `comtypes`。
 
 ## 5. 信息架构

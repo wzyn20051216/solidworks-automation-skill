@@ -1,18 +1,34 @@
 # SolidWorks Automation Skill
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![SolidWorks](https://img.shields.io/badge/SolidWorks-2024--2026-red.svg)](https://www.solidworks.com/)
 
 CAD Studio 桌面端与 Skill/CLI/MCP 是平级入口：既可通过 Python COM 控制本机 SolidWorks/AutoCAD，也可在没有 CAD 软件时使用无头后端写入开放格式。实际可执行范围以根目录 `capabilities.yaml` 为唯一真源；未验证能力不会被包装成已完成的无人值守交付。
 
 > 可靠性边界：当前真机基线为 SolidWorks 2024、SolidWorks 2026 SP01.1 和 AutoCAD 2024。SolidWorks 2026 仅对能力清单中列出 2026 的能力视为已验证；SolidWorks 2025 及其余未回归能力仍是兼容性目标。配置/设计表、钣金和焊件仍为参考或兼容目标；Simulation/FEA、Routing、复杂曲面和模具已进入受控 `pilot` 门禁，但不能冒充原生完整交付。
 
-### 运行前诊断
+## 下载与首次启动
+
+两个入口互相独立，按使用习惯任选其一：
+
+| 入口 | 适合用户 | 下载/安装 |
+|---|---|---|
+| Skill / CLI / MCP | 已在使用 Codex、Claude Code、Gemini CLI、OpenCode 或 OpenClaw | `npx github:wzyn20051216/solidworks-automation-skill`，也可手动克隆本仓库 |
+| CAD Studio 桌面版 | 希望用图形界面管理项目、对话、任务、预览和交付 | 从 [GitHub Releases](https://github.com/wzyn20051216/solidworks-automation-skill/releases) 下载 Windows 安装包或便携 ZIP |
+
+安装 Skill 后，进入 Skill 目录并执行一次诊断：
 
 ```powershell
 python scripts/cad_doctor.py
 python scripts/cad_studio.py doctor
+```
+
+诊断结果中的 `remediations` 会列出缺失项、影响范围、官方地址和可复制的安装命令。缺少 SolidWorks/AutoCAD 时只阻断对应原生格式，STEP/IGES/BREP/STL/OBJ/GLB/DXF/SVG/PDF/PNG 等开放格式仍可继续。桌面端会在“设置”和“帮助”中显示相同建议。
+
+需要提交问题时，再生成脱敏诊断包：
+
+```powershell
 python scripts/cad_studio.py export-diagnostics --output .\cad-studio-diagnostics.zip
 ```
 
@@ -82,14 +98,30 @@ python scripts/cad_studio.py create-ocp-surface --input .\smooth-loft.json --out
 
 - **操作系统**: Windows 10/11
 - **SolidWorks/AutoCAD**: 原生格式操作需要合法安装；当前真机版本为 SolidWorks 2024/2026 和 AutoCAD 2024，具体能力以 `capabilities.yaml` 的版本字段为准
-- **Python**: 3.8 或更高版本
-- **核心依赖库**: `pywin32`、`comtypes`
+- **Python**: 3.10 或更高版本
+- **Windows 原生 CAD 依赖库**: `pywin32`、`comtypes`
 - **无头写入**: 不要求安装 SolidWorks/AutoCAD；DXF 需要 `ezdxf`
 - **OCCT 几何后端**: 安装 `requirements-occt.txt` 后启用 STEP/IGES/BREP/GLB 和布尔孔切除
 - **开放 FEA**: CalculiX 可作为外部 GPL 求解器放在 D/E 盘；程序不会把其二进制打包进 MIT 发布物
 - **网格转换可选依赖**: `trimesh`、`pygltflib`、`numpy`、`Pillow`
 
 > 运行前可执行 `python scripts/sw_preflight.py`。如果缺少 `comtypes` / `win32com`，脚本会先询问是否授权 AI 自动配置本地环境；如果未检测到 SolidWorks，会直接停止并提示先手动安装 SolidWorks。
+
+#### 缺少环境时去哪下载
+
+| 环境 | 什么时候需要 | 官方地址或安装命令 |
+|---|---|---|
+| Python 3.10+ | 所有本地 Skill/CLI 工作流 | [Python for Windows](https://www.python.org/downloads/windows/) 或 `winget install -e --id Python.Python.3.12` |
+| pywin32 / comtypes | SolidWorks、AutoCAD COM 原生自动化 | `python -m pip install "pywin32>=305" "comtypes>=1.2.0"` |
+| ezdxf | DXF 无头读写、图层和实体检查 | `python -m pip install "ezdxf>=1.3,<2"` |
+| OCP / OCCT | STEP、IGES、BREP、GLB 无头几何写入 | `python -m pip install -r requirements-occt.txt` |
+| PyMuPDF | PDF 预览与矢量文字复核 | `python -m pip install -r requirements-pdf.txt` |
+| CalculiX | 开放 FEA 求解 | [CalculiX 官方站](https://www.calculix.de/)；解压到 D/E 盘后设置 `CADSTUDIO_CALCULIX_EXE` 指向 `ccx.exe` |
+| Agent CLI | AI 对话与任务执行，安装任意一个即可 | [Codex](https://developers.openai.com/codex/cli/) / [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) / [Gemini CLI](https://github.com/google-gemini/gemini-cli) / [OpenCode](https://opencode.ai/) |
+| SolidWorks | `SLDPRT/SLDASM/SLDDRW` 原生格式 | [SolidWorks 官方站](https://www.solidworks.com/)；需要合法安装与可用许可 |
+| AutoCAD | 原生 DWG 后端 | [AutoCAD 官方站](https://www.autodesk.com/products/autocad/overview)；需要合法安装与可用许可 |
+
+安装依赖后重新运行 `python scripts/cad_studio.py doctor`。不要为了补齐可选环境一次性安装全部依赖；只安装当前任务需要的后端即可。
 
 ### 🚀 快速开始
 
@@ -132,26 +164,32 @@ claude skill add https://github.com/wzyn20051216/solidworks-automation-skill
 
 #### 方式四：手动克隆
 
-##### 1. 安装依赖
-
-```bash
-pip install "pywin32>=305" "comtypes>=1.2.0"
-```
-
-如果需要处理 GLB/GLTF/OBJ/STL 等公开网格参考模型，并进行包围盒检查、尺度缩放或格式转换，额外安装：
-
-```bash
-pip install -r requirements-mesh.txt
-```
-
-##### 2. 克隆仓库
+##### 1. 克隆仓库
 
 ```bash
 git clone https://github.com/wzyn20051216/solidworks-automation-skill.git
 cd solidworks-automation-skill
 ```
 
-##### 3. 运行示例
+##### 2. 安装当前任务需要的依赖
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+如果需要处理 GLB/GLTF/OBJ/STL 等公开网格参考模型，并进行包围盒检查、尺度缩放或格式转换，额外安装：
+
+```bash
+python -m pip install -r requirements-mesh.txt
+```
+
+##### 3. 诊断环境
+
+```bash
+python scripts/cad_studio.py doctor
+```
+
+##### 4. 运行示例
 
 确保 SolidWorks 已经运行,然后执行:
 
@@ -558,7 +596,7 @@ model.Extension.SelectByID2(
 
 - **OS**: Windows 10/11
 - **SolidWorks**: 2024 and 2026 are tested only for the workflows listed in `capabilities.yaml`; 2025 remains a compatibility target, and 2020-2023 are compatibility support only
-- **Python**: 3.8+
+- **Python**: 3.10+
 - **Dependencies**: `pywin32`, `comtypes`
 
 ### 🚀 Quick Start
@@ -576,7 +614,7 @@ This installs the skill into detected Claude/Codex/OpenClaw skill directories.
 ```bash
 git clone https://github.com/wzyn20051216/solidworks-automation-skill.git
 cd solidworks-automation-skill
-pip install "pywin32>=305" "comtypes>=1.2.0"
+python -m pip install "pywin32>=305" "comtypes>=1.2.0"
 python scripts/sw_preflight.py
 ```
 

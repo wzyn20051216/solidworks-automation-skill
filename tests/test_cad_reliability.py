@@ -17,6 +17,8 @@ from cad_workbench.queue_worker import process_job, read_job  # noqa: E402
 from sw_connect import _prog_id_for_version, close_owned_solidworks  # noqa: E402
 import cad_installation  # noqa: E402
 from cad_installation import discover_installation, resolve_shortcut_target  # noqa: E402
+import cad_doctor  # noqa: E402
+import fea_analysis  # noqa: E402
 
 
 def test_capability_manifest_marks_unverified_workflows():
@@ -81,6 +83,58 @@ def test_doctor_returns_machine_readable_summary():
     assert result["schemaVersion"] == "1.0"
     assert result["summary"]["status"] in {"passed", "warning", "error"}
     assert all({"id", "status", "code", "message"} <= set(item) for item in result["checks"])
+    assert isinstance(result["remediations"], list)
+
+
+def test_doctor_missing_environment_includes_download_remediations(monkeypatch):
+    """@brief 缺失环境必须给出官方入口或安装命令，并保留开放格式降级说明。"""
+    monkeypatch.setattr(cad_doctor.importlib.util, "find_spec", lambda _name: None)
+    monkeypatch.setattr(cad_doctor.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(cad_doctor, "_is_writable", lambda _path: True)
+    monkeypatch.setattr(
+        cad_doctor,
+        "_solidworks_installation",
+        lambda: {
+            "registered": False,
+            "executables": [],
+            "executable": None,
+            "source": None,
+            "version": None,
+            "servicePack": None,
+            "displayName": None,
+            "shortcut": None,
+            "available": [],
+        },
+    )
+    monkeypatch.setattr(
+        cad_doctor,
+        "discover_all",
+        lambda: {"autocad": {"installed": False, "executable": None}},
+    )
+    monkeypatch.setattr(fea_analysis, "discover_solver", lambda _solver: {"status": "blocked"})
+
+    result = run_doctor()
+    remediations = {item["id"]: item for item in result["remediations"]}
+
+    assert len(remediations) == len(result["remediations"])
+    assert remediations["python.pywin32"]["installCommand"].startswith("python -m pip install")
+    assert remediations["python.ocp"]["downloadUrl"].startswith("https://")
+    assert "CADSTUDIO_CALCULIX_EXE" in remediations["solver.calculix"]["title"]
+    assert remediations["solver.calculix"]["downloadUrl"] == "https://www.calculix.de/"
+    assert remediations["cad.solidworks"]["downloadUrl"] == "https://www.solidworks.com/"
+    assert remediations["cad.autocad"]["downloadUrl"].startswith("https://www.autodesk.com/")
+    assert "开放格式仍可使用" in next(item["message"] for item in result["checks"] if item["id"] == "cad.solidworks")
+    assert "DXF/SVG/PDF/PNG" in next(item["message"] for item in result["checks"] if item["id"] == "cad.autocad")
+
+
+def test_doctor_does_not_prompt_for_other_agents_when_one_is_available(monkeypatch):
+    """@brief Agent Provider 是替代关系，已安装一个时不应提示下载其余三个。"""
+    checks = [
+        cad_doctor._check("agent.codex", True, "codex 已发现"),
+        cad_doctor._check("agent.claude", False, "claude 未发现", severity="warning", action="安装 claude CLI", download_url="https://example.invalid"),
+    ]
+
+    assert cad_doctor._collect_remediations(checks) == []
 
 
 def test_versioned_progid_is_used_for_attach_and_launch():
