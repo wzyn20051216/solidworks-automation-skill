@@ -6,6 +6,7 @@ SolidWorks Motion Study 自动化工具。
 """
 import glob
 import os
+from pathlib import Path
 
 try:
     from .sw_preflight import import_com_dependencies
