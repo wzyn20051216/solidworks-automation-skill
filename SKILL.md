@@ -106,11 +106,15 @@ session.export(model, r"C:\temp\cylinder.step")
 | 装配体操作、齿轮/铰链/可拖动运动配合 | `scripts/sw_assembly.py` | `references/assembly.md` |
 | Motion Study 运动算例、旋转马达与结果审计 | `scripts/sw_motion.py` | `references/motion-study.md`、`references/complex-mechanical-routing.md` |
 | 工程图出图 | `scripts/sw_drawing.py` | `references/drawing.md` |
+| 尺寸公差标注（对称 ±/上下限 + GB/T 1804-m） | `scripts/sw_drawing.py` | `references/tolerances.md` |
+| 坐标扫描式工程图尺寸标注（无模型尺寸件） | `scripts/sw_drawing.py` | `references/drawing.md`、`references/tolerances.md` |
 | 文件导出 | `scripts/sw_export.py` | `references/export.md` |
 | 参数修改与自定义属性 | `scripts/sw_document_data.py` | `references/advanced.md` |
 | 装配 BOM CSV 与 Pack and Go | `scripts/sw_delivery.py` | `references/export.md` |
 | OBJ/STL 高还原网格参考导入 | `scripts/sw_import_mesh_reference.py` | `references/mesh-reference-import.md` |
 | 结果自审查 | `scripts/sw_review.py` | `references/review.md` |
+| 质量属性（质量/体积/表面积/重心） | `scripts/sw_mass_properties.py` | `references/mass-properties.md` |
+| 测量与装配检查原语（整体尺寸/包围盒/组件计数） | `scripts/sw_inspect.py` | `references/measurement.md` |
 | 语义实体引用 | `scripts/sw_entity_reference.py` | 逐步替代 Face1/Edge1 和屏幕坐标 |
 | DFM 制造风险复核 | `scripts/dfm_review.py`、`scripts/dfm_profiles.py`、`scripts/cad_studio.py check-dfm` | 供应商 profile、B-Rep 证据、机加工、钣金、激光切割和 3D 打印的结构化规则检查 |
 | Routing 中性复核与前置 | `scripts/routing_review.py`、`scripts/cad_studio.py check-routing`、`scripts/cad_studio.py routing-preflight` | 端点、分段、长度、弯曲半径、碰撞/间隙、支撑、Routing BOM；原生写入必须等加载项/许可证证据 |
@@ -173,6 +177,8 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 3. 长引线只能做局部说明，不能替代尺寸链；不得跨视图、压孔、压中心线、压尺寸文字或侵入标题栏。
 4. 密集孔槽必须优先用孔表、槽表或孔槽明细表，表内写清部位、规格、数量和定位；表格不能成为逃避定位尺寸的借口。
 5. 交付前必须目视复核预览图，发现漏标、重叠、压线或标题栏侵入时先返工再汇报。
+6. 需要按坐标点选标注尺寸（无模型驱动尺寸的导入件/占位件）时，视图比例必须 ≥1:2（低于 1:2 SolidWorks 不暴露可点选边/面，扫描会静默失败），大件放不下可选比例时升用 A2；比例须用 `ScaleDecimal` 强制，不能依赖图纸比例默认值（`UseSheetScale` 默认 True 会忽略设定）。
+7. 制造用的工程图尺寸必须带公差：未特别指明时按 GB/T 1804-m 通用公差（按名义尺寸分档）标注对称 ± 公差；关键配合面（孔轴配合、定位配合）必须单独标注配合公差并人工复核。
 
 ### 高还原外观/公开网格参考模型
 

@@ -272,6 +272,62 @@
       "dependencies": ["python", "可选 SolidWorks Routing 类型库和加载项许可证"],
       "limitations": ["当前支持中性 Routing 端点、分段、长度、弯曲半径、碰撞/间隙、支撑间距和 BOM 复核；不生成 SOLIDWORKS Routing 原生特征", "本机 SW2026 可发现 SWRoutingLib.tlb 和核心接口，但未检测到 Routing AddIn 注册或许可证证据时原生写入必须 blocked"],
       "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "dimension_tolerances",
+      "label": "尺寸公差标注（对称/上下限 + GB/T 1804-m）",
+      "level": "pilot",
+      "backends": ["solidworks-com"],
+      "verified_versions": ["2024"],
+      "dependencies": ["SolidWorks", "pywin32"],
+      "limitations": [
+        "通过 IDimension.SetToleranceType + SetToleranceValues 设置对称（±）或上下限公差；GB/T 1804-m 通用公差按名义尺寸分档（≤6±0.1 / ≤30±0.2 / ≤120±0.3 / ≤400±0.5 / >400±0.8）",
+        "公差值单位为米；带宽按已知名义尺寸查表，不读尺寸回读值（GetValue2/SystemValue 单位不一致会错档）；必须用 SetToleranceType 方法启用显示，ITolerance.Type 属性赋值只写数据不渲染",
+        "SW2024 已在 5 个自制件工程图上连续回归（每张 W/H/D 三向 ±GB/T 1804-m）；仅覆盖尺寸公差，GD&T 几何公差框仍为 reference_only，关键配合公差须人工标注复核"
+      ],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "drawing_edge_scan_dimensioning",
+      "label": "坐标扫描式工程图尺寸标注",
+      "level": "pilot",
+      "backends": ["solidworks-com"],
+      "verified_versions": ["2024"],
+      "dependencies": ["SolidWorks", "pywin32"],
+      "limitations": [
+        "对无模型驱动尺寸的零件（导入件/占位件/只含拉伸参数件）按坐标点选扫描边线标注：视图轮廓粗扫→二分定位边界→微扫落在可选边→SelectByID2 两点→AddDimension2（重试）",
+        "要求视图比例≥1:2（低于阈值 SolidWorks 不暴露可点选边/面，扫描静默失败）；须用 ScaleDecimal 强制真实比例（UseSheetScale 默认 True 会忽略设定）；新建视图须先存盘才暴露全部边线；SelectByID2 作用于活动文档",
+        "SW2024 已在 5 个自制件工程图上连续回归；复杂剖面/局部放大图未覆盖；尺寸位置、重叠和尺寸链完整性仍需目视复核"
+      ],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "mass_properties",
+      "label": "质量属性（质量/体积/表面积/重心）",
+      "level": "pilot",
+      "backends": ["solidworks-com"],
+      "verified_versions": ["2024"],
+      "dependencies": ["SolidWorks", "pywin32"],
+      "limitations": [
+        "通过 IModelDocExtension.GetMassProperties2 读取质量/体积/表面积/重心（SI；mm³=×1e9、mm²=×1e6）；质量依赖材料密度，未设材料时质量无意义，须先指定材料或人工确认",
+        "经 sw.ActiveDoc.Extension 调用（OpenDoc6 返回的未类型化派发上部分文档级方法不可解析）；密度未配或几何异常时返回 review_required，不伪造数值",
+        "SW2024 已在 3 个外购件上回归体积/表面积；密度赋值（InsertMaterial）尚未封装，关联 appearance 能力为 TODO"
+      ],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "measurement_and_inspection",
+      "label": "测量与装配检查原语",
+      "level": "pilot",
+      "backends": ["solidworks-com"],
+      "verified_versions": ["2024"],
+      "dependencies": ["SolidWorks", "pywin32"],
+      "limitations": [
+        "零件整体尺寸用临时工程图 GetOutline@1:1（前视图给 W×H、俯视图给 W×D；类型化视图恒可用，对未类型化文档 GetBox 不可解析时仍可靠）；包围盒 GetBox(0)/GetBodyBox；装配组件计数 GetComponents+GetPathName（不用 Name2 属性）；特征/尺寸枚举 GetFirstFeature 链",
+        "整体尺寸为视图轮廓含余量近似；包围盒可能非原点对称须读 min/max；占位几何的外购件 BOM 规格须按功能意图+装配堆叠确认，不得直接采用模型测量值",
+        "SW2024 已在电机项目回归（3 外购件整体尺寸、装配组件计数 螺栓×8/钻头×1/钻夹头×1）"
+      ],
+      "allowed_modes": ["interactive", "reviewed"]
     }
   ]
 }
