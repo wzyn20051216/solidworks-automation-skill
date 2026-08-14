@@ -604,6 +604,100 @@ ok = apply_component_transform_x(component, 0.1, 0.0, 0.0, deg(30))
 4. 仍不稳定时，让用户确认后重启 `SLDWORKS.exe`。
 5. 脚本内记录失败组件和失败 API，不要只打印“完成”。
 
+### 视图比例低于 1:2 时边/面不可点选
+
+场景：坐标扫描式尺寸标注（`SelectByID2` 坐标点选）在大件视图上静默失败，拿不到边/面；
+`SelectionManager.GetSelectedObjectType6` 恒返回 `12`（视图对象）。
+
+原因：视图比例低于 1:2 时，SolidWorks 不向点选暴露边（1）或面（2），只返回视图对象（12）。
+视图仍正常渲染，故极易误判为“选区代码写错”。本机 SW2024 `probe_scale` 实证：0.50 可选、
+0.45 不可选。
+
+稳定写法：先用 `sw_drawing.pickability_ok(view)` 门禁自检；`status=blocked` 时调
+`sw_drawing.force_view_scale(view, scale, drawing_model=drawing)` 提升比例到 ≥0.5；大件
+（≥~300mm）A3 放不下可选比例时换 A2。
+
+验证方式：读回 `view.ScaleRatio` 确认 num/den ≥ 0.5；扫描后断言 `GetSelectedObjectType6`
+出现 1 或 2。
+
+### CreateDrawViewFromModelView3 的 Scale 参数被忽略
+
+场景：`CreateDrawViewFromModelView3(part, view, x, y, scale)` 传入大比例（如 5.0），视图
+却按图纸比例（常 1:5）渲染，叠加上一条导致不可点选。
+
+原因：视图 `UseSheetScale` 默认 `True`，创建时传入的 `scale` 被忽略，视图沿用图纸比例。
+
+稳定写法：创建后立即 `view.UseSheetScale = False; view.UseParentScale = False;
+view.ScaleDecimal = S; drawing.EditRebuild3()`，或直接调
+`sw_drawing.force_view_scale(view, S, drawing_model=drawing)`。
+
+验证方式：读 `view.ScaleRatio` 与目标一致（封装已回读验证 `verified=True`）。
+
+### 新建视图仅暴露部分剪影边（须先存盘）
+
+场景：对刚 `CreateDrawViewFromModelView3` 出的视图扫描，部分边可选、部分边（如右侧边）
+不可选，`find_edge` 在该侧返回 None，尺寸标注缺失。
+
+原因：新建视图的剪影边线尚未全部提交到点选管线；存盘提交视图几何后，全部边线可选。
+
+稳定写法：创建并强制比例后、扫描标注前，先 `drawing.SaveAs3(path, 0, 0)` 存盘；多文档时再
+`sw.ActivateDoc3(drawing.GetTitle(), False, 0, byref)` 确保扫描作用于目标工程图。
+
+验证方式：存盘前后各扫一次同一条边，对比 `find_edge` 是否从 None 变为坐标。
+
+### 尺寸公差属性赋值不渲染（须用 SetToleranceType 方法）
+
+场景：`displayDim.GetDimension().Tolerance().Type = 4` 后图面看不到 ± 公差。
+
+原因：`ITolerance.Type=` 属性赋值只写内部数据，不触发显示渲染；只有
+`IDimension.SetToleranceType(4)` 方法真正切换显示模式。
+
+稳定写法：用 `sw_drawing.set_dimension_tolerance(dd, nominal_mm)` / `apply_gb1804m(dd, nominal_mm)`；
+内部走 `SetToleranceType` + `SetToleranceValues`（公差值单位**米**）。
+
+验证方式：导出 PDF/BMP 目视确认 ± 显示；带宽按**已知名义尺寸**查 GB/T 1804-m，不读尺寸
+回读值（`GetValue2/SystemValue` 单位不一致会错档）。详见 `references/tolerances.md`。
+
+### OpenDoc6 未类型化派发上 GetBox 不可解析
+
+场景：`sw.OpenDoc6(...)` 返回的模型上调 `GetBox(0)` 报“找不到成员”或返回异常值。
+
+原因：`OpenDoc6` 在动态派发下返回未类型化的 IDispatch，部分文档级方法（GetBox、
+GetFirstFeature 等）在其上不可靠解析。
+
+稳定写法：测量用类型化路径——`sw_inspect.overall_dimensions(sw, path)`（临时工程图
+`GetOutline@1:1`，类型化视图恒可用，与可选择性无关）；包围盒用 `sw_inspect.bounding_box`
+（GetBox 不可解析时自动回退 `GetBodies2+GetBodyBox` 并集）。质量属性经 `model.Extension`
+（属性）调用，详见 `references/mass-properties.md`。
+
+验证方式：临时图法读到的 W/H/D 与已知名义尺寸误差在视图轮廓余量（~6mm）内。
+
+### 组件计数用 Name2 属性被 _FlagAsMethod 破坏
+
+场景：装配组件计数时对 `IComponent2.Name2` 调 `_FlagAsMethod("Name2")`，计数变成访问器
+函数对象数量而非真实组件数。
+
+原因：`Name2` 是属性；`_FlagAsMethod` 把它标记为方法后，读取返回的是访问器函数对象而非
+名称字符串，破坏 tally。`GetPathName()` 才是真方法。
+
+稳定写法：用 `sw_inspect.count_components(asm, flat=True)`；内部走 `GetComponents(flat)`
++ 每 `IComponent2.GetPathName()`（真方法）取 basename 去后缀计数，不碰 Name2。
+
+验证方式：扁平计数应与采购 BOM 数量一致（电机项目实证：螺栓M8×8 / 钻头M5×1 / 钻夹头×1）。
+
+### gencache 损坏导致枚举整数加载失败
+
+场景：想用 `SolidWorks.Interop.swconst` 读取 `swTolType_e`、`swUserPreferenceIntegerValue_e`
+等枚举的整数值，但 `gencache` 报错或生成的代理损坏。
+
+原因：pywin32 的 gencache 在版本/语言切换、权限或并发下会生成不一致或损坏的强类型代理。
+
+稳定写法：技能约定**硬编码整数 + 注释标明枚举来源**，不加载 `swconst.tlb`（如公差类型
+`SW_TOL_SYMMETRIC=4`、显示偏好 79/263/49）。跨版本/语言前按 `references/api-lookup.md`
+流程查证整数。COM 调用统一走 `get_com_member`，避免 `_FlagAsMethod` 的属性/方法误判。
+
+验证方式：硬编码值在本机 SW2024 实证（5 张公差图渲染、显示偏好生效）；换环境前复核。
+
 ## 未封装 API 调用
 
 当需要使用本 skill 尚未封装的 SolidWorks API 时：

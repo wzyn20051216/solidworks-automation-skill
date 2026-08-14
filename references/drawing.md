@@ -39,6 +39,27 @@ view.ScaleRatio = (1.0, 2.0)  # 1:2 比例
 view.ScaleRatio = (2.0, 1.0)  # 2:1 比例
 ```
 
+### 视图比例与可选择性（≥1:2 阈值）
+
+视图**比例低于 1:2 时，SolidWorks 不暴露可点选的边/面**：视图照常渲染，但 `SelectByID2`
+坐标点选恒返回 `type=12`（视图对象），拿不到边（1）或面（2），坐标扫描式标注因此静默
+失败。本机 SW2024 `probe_scale` 实证：比例 0.50 可点选、0.45 不可点选。
+
+- `CreateDrawViewFromModelView3(part, view, x, y, scale)` 的 `scale` 参数在
+  `UseSheetScale` 默认 `True` 时**被忽略**，大件会静默落到图纸比例（常 <1:2）。必须显式
+  关闭并写 `ScaleDecimal` 强制真实比例：
+
+```python
+view.UseSheetScale = False
+view.ScaleDecimal = 1.0          # 或目标比例
+drawing.EditRebuild3()           # 重建使比例生效
+```
+
+- 大件（≥~300mm）在 A3 上放不下可选比例时，改用 A2 图幅再提升比例。
+- 封装：`sw_drawing.force_view_scale(view, scale, drawing_model=drawing)` 一步完成强制
+  + 重建 + 回读 `ScaleRatio` 验证；`sw_drawing.pickability_ok(view)` 读比例做门禁自检
+  （返回 `status=blocked` + `threshold` / `reason`）。
+
 ## 尺寸标注
 
 ### 自动标注（模型项目）
@@ -125,15 +146,75 @@ python -m pip install -r requirements-pdf.txt
 因此工程图边界证据强度依次为：PDF 矢量文字边界 > COM 锚点/字体保守估算 > OCR，
 最终交付仍保留一次 PDF/BMP 目视复核。
 
-### 手动添加尺寸
+### 坐标扫描式尺寸标注
+
+对**没有模型驱动尺寸**的零件（导入件 / 占位件 / 只含拉伸参数件），模型项目自动标注
+拿不到尺寸，需按坐标点选扫描边线手动标注：
+
+1. 取视图轮廓 `view.GetOutline()` → `[xmin, ymin, xmax, ymax]`（米）。
+2. 粗扫（24 步）定位 空→实体 过渡，二分（16 次）精确边界，再 ±0.9mm/0.1mm 微扫落在
+   `seltype==1`（边）的坐标上（`sw_drawing.find_edge`）。
+3. `SelectByID2("", "", x, y, 0, append, …)` 坐标点选两条边 → `AddDimension2`（重试 ≤4 次；
+   刚创建视图几何未稳态时点选会瞬时失败）。
+4. 竖向（H/D）扫描用 `sw_drawing.find_solid_x` 取一个落在实体面（`seltype==2`）上的 X 做
+   固定轴，避开中央空隙（如夹爪）和竖边。
 
 ```python
-# 先选择两个实体
-drawing.Extension.SelectByID2("Edge1@View1", "EDGE", 0, 0, 0, False, 0, None, 0)
-drawing.Extension.SelectByID2("Edge2@View1", "EDGE", 0, 0, 0, True, 0, None, 0)
-# 添加尺寸
-drawing.AddDimension2(x, y, 0)  # 尺寸标注放置位置
+from sw_drawing import scan_view_dimensions, force_view_scale, pickability_ok
+
+# 前置：工程图已激活、视图已存盘、比例≥1:2（新建视图仅暴露部分剪影边，存盘后全部边线可选）
+for vw in (front_view, top_view):
+    force_view_scale(vw, scale, drawing_model=drawing)
+    assert pickability_ok(vw)["status"] == "pass"
+
+report = scan_view_dimensions(
+    drawing, front_view, top_view,
+    nominal_width_mm=W, nominal_height_mm=H, nominal_depth_mm=D,
+    apply_tolerance=True,        # 自动套 GB/T 1804-m
+)
+# report["dimensions"] = [{"axis":"W","display_dimension_set":True,"tolerance_report":{...}}, …]
 ```
+
+选择类型经 `SelectionManager.GetSelectedObjectType6(idx, -1)`（回退 Type5/4/3）读取，
+**跳过 `type=12` 的视图对象**（点选恒在 idx1 抓到）：`1`=边、`2`=面、`12`=视图对象。
+`SelectByID2` 作用于**活动文档**——多文档时须先 `ActivateDoc3` 目标工程图。
+
+> 仅覆盖整体 W/H/D 三向；复杂剖面、局部放大图、尺寸链完整性未覆盖，须目视复核。
+
+### 尺寸公差标注
+
+为 `DisplayDimension` 设置对称 ± / 上下限公差（完整 API 与枚举见 `references/tolerances.md`）：
+
+```python
+from sw_drawing import apply_gb1804m, set_dimension_tolerance
+
+# 便捷：按 GB/T 1804-m 套对称 ±（按已知名义尺寸查表分档）
+apply_gb1804m(display_dimension, nominal_mm=45.0)          # ±0.2
+
+# 显式上下限（tol_type=5 双向）
+set_dimension_tolerance(display_dimension, 45.0, tol_type=5, plus_mm=0.2, minus_mm=0.1)
+```
+
+三个必踩坑：①必须用 `IDimension.SetToleranceType` **方法**启用 ± 显示（`ITolerance.Type=`
+属性赋值只写数据不渲染）；②带宽按**已知名义尺寸**查表，不读尺寸回读值
+（`GetValue2/SystemValue` 单位不一致会错档）；③`SetToleranceValues` 取**米**
+（±0.2mm → 0.0002）。
+
+## 工程图显示偏好
+
+第一角投影、毫米单位、小数位等是**文档级**偏好，须在**创建视图/尺寸之前**设置
+（显示样式在创建时锁定；事后改不回溯已建对象）。设在工程图文档上，而非应用级——
+应用级 `SetUserPreferenceIntegerValue` 返回 `False` 不生效。
+
+```python
+drawing.SetUserPreferenceIntegerValue(79, 1)    # 第一角投影（GB/ISO）
+drawing.SetUserPreferenceIntegerValue(263, 5)   # 单位制 = MMGS（毫米）
+drawing.SetUserPreferenceIntegerValue(49, 0)    # 线性尺寸小数位 = 0
+```
+
+> 上述整数为本机 SW2024 实证值（枚举名见 `swconst.swUserPreferenceIntegerValue_e`）。
+> 跨版本/语言使用前请按 `references/api-lookup.md` 流程查证枚举整数；技能约定硬编码
+> 整数 + 注释枚举来源，不加载 `swconst.tlb`。
 
 ## 注释与标注
 
