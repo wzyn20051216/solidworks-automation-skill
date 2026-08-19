@@ -526,7 +526,7 @@ model.Extension.SelectByID2(
 
 ### ⭐ Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=wzyn20051216/solidworks-automation-skill&type=Date)](https://www.star-history.com/#wzyn20051216/solidworks-automation-skill&Date)
+[![Star History Chart](https://star-history.dera.page/svg?repos=wzyn20051216/solidworks-automation-skill&type=Date)](https://star-history.dera.page/#wzyn20051216/solidworks-automation-skill&Date)
 
 ### ❓ 常见问题
 
