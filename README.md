@@ -14,10 +14,18 @@ CAD Studio 桌面端与 Skill/CLI/MCP 是平级入口：既可通过 Python COM 
 
 | 入口 | 适合用户 | 下载/安装 |
 |---|---|---|
-| Skill / CLI / MCP | 已在使用 Codex、Claude Code、Gemini CLI、OpenCode 或 OpenClaw | `npx github:wzyn20051216/solidworks-automation-skill`，也可手动克隆本仓库 |
+| Skill / CLI / MCP | 已在使用 Codex、Claude Code、Cursor、Windsurf 或其他 MCP 客户端 | 推荐通过 [Smithery](https://smithery.ai/servers/wzyn20051216/solidworks-automation-skill) 安装：`smithery mcp add wzyn20051216/solidworks-automation-skill --client codex --config '{}'` |
 | CAD Studio 桌面版 | 希望用图形界面管理项目、对话、任务、预览和交付 | 从 [GitHub Releases](https://github.com/wzyn20051216/solidworks-automation-skill/releases) 下载 Windows 安装包或便携 ZIP |
 
-安装 Skill 后，进入 Skill 目录并执行一次诊断：
+如果本机还没有 Smithery CLI，先安装一次：
+
+```powershell
+npm install -g @smithery/cli
+```
+
+已能运行 `smithery --version` 的用户可跳过这一步。其他客户端可把命令中的 `--client codex` 替换为 `--client claude`、`--client cursor`、`--client windsurf` 等 Smithery 支持的目标。
+
+Smithery 安装后，可在 MCP 客户端调用 `solidworks_health_check` 检查本机环境。使用 `npx` 或手动克隆的用户，也可以进入 Skill 目录执行诊断：
 
 ```powershell
 python scripts/cad_doctor.py
@@ -125,17 +133,28 @@ python scripts/cad_studio.py create-ocp-surface --input .\smooth-loft.json --out
 
 ### 🚀 快速开始
 
-#### 方式一：npx 一键安装（推荐）
+#### 方式一：Smithery 安装 MCP（推荐）
+
+```powershell
+npm install -g @smithery/cli
+smithery mcp add wzyn20051216/solidworks-automation-skill --client codex --config '{}'
+```
+
+如果已经安装 Smithery CLI，第一行可以跳过。`wzyn20051216/solidworks-automation-skill` 是 Smithery 上的本地 `stdio` MCP 包；不要用 `server.smithery.ai/...` URL 安装这个包。
+
+Codex 以外的客户端可把 `--client codex` 改为 Smithery 支持的目标，例如 `claude`、`cursor`、`vscode`、`windsurf` 或 `opencode`。
+
+安装后如果客户端已经打开，建议重启对应客户端；部分客户端首次加载本地 MCP 时可能还需要在界面中确认信任。
+
+#### 方式二：npx 备用安装
 
 ```bash
 npx github:wzyn20051216/solidworks-automation-skill
 ```
 
-自动下载并安装到 Claude/Codex/OpenClaw 等已检测到的 skills 目录，并自动尝试把 SolidWorks MCP 注册到 Codex、Claude Code、Claude Desktop、Cursor、Windsurf 等本地 AI 客户端。
+该方式会自动下载并安装到 Claude/Codex/OpenClaw 等已检测到的 skills 目录，并尝试把 SolidWorks MCP 注册到本地 AI 客户端。
 
-安装后如果客户端已经打开，建议重启对应客户端；部分客户端首次加载本地 MCP 时可能还需要在界面中确认信任。
-
-#### 方式二：OpenClaw / 龙虾 使用
+#### 方式三：OpenClaw / 龙虾 使用
 
 OpenClaw 兼容本 skill 的 `SKILL.md + scripts/ + references/` 目录结构。推荐把技能放在以下任一目录：
 
@@ -156,13 +175,13 @@ OpenClaw 侧的接入约定、执行模板与排障说明见：
 references/openclaw.md
 ```
 
-#### 方式三：Claude CLI 安装
+#### 方式四：Claude CLI 安装
 
 ```bash
 claude skill add https://github.com/wzyn20051216/solidworks-automation-skill
 ```
 
-#### 方式四：手动克隆
+#### 方式五：手动克隆
 
 ##### 1. 克隆仓库
 
@@ -303,7 +322,16 @@ npm run desktop:bundle
 
 ### 🔌 MCP Server
 
-本仓库包含一个本地 `stdio` MCP Server，可让 Codex / Claude Code / Claude Desktop / Cursor / Windsurf 等 MCP 客户端通过工具调用 SolidWorks：
+本仓库包含一个本地 `stdio` MCP Server，可让 Codex / Claude Code / Claude Desktop / Cursor / Windsurf 等 MCP 客户端通过工具调用 SolidWorks。推荐直接使用 Smithery 分发包：
+
+```powershell
+npm install -g @smithery/cli
+smithery mcp add wzyn20051216/solidworks-automation-skill --client codex --config '{}'
+```
+
+如果已经安装 Smithery CLI，可跳过 `npm install -g @smithery/cli`。这个包是本地 `stdio` MCP，安装时使用 qualified name `wzyn20051216/solidworks-automation-skill`。
+
+开发调试时也可以直接启动本仓库内的 server：
 
 ```powershell
 pip install -r mcp-server\requirements.txt
@@ -326,7 +354,7 @@ claude mcp list
 - Cursor：写入 `~/.cursor/mcp.json`
 - Windsurf：写入 `~/.codeium/windsurf/mcp_config.json`
 
-> 通过 `npx github:wzyn20051216/solidworks-automation-skill` 安装时会自动运行注册器。若使用某些客户端的纯 skill 导入功能，客户端可能不会执行安装脚本，此时让 AI 运行上面的注册命令即可。
+> 通过 Smithery 或 `npx github:wzyn20051216/solidworks-automation-skill` 安装时会自动写入对应客户端配置。若使用某些客户端的纯 skill 导入功能，客户端可能不会执行安装脚本，此时让 AI 运行上面的注册命令即可。
 
 客户端手动配置示例：
 
@@ -601,15 +629,24 @@ model.Extension.SelectByID2(
 
 ### 🚀 Quick Start
 
-#### Option 1: Install with npx
+#### Option 1: Install with Smithery
+
+```powershell
+npm install -g @smithery/cli
+smithery mcp add wzyn20051216/solidworks-automation-skill --client codex --config '{}'
+```
+
+Skip the first line if `smithery --version` already works. Replace `--client codex` with another Smithery-supported client such as `claude`, `cursor`, `vscode`, `windsurf`, or `opencode`.
+
+#### Option 2: Install with npx
 
 ```bash
 npx github:wzyn20051216/solidworks-automation-skill
 ```
 
-This installs the skill into detected Claude/Codex/OpenClaw skill directories.
+This installs the skill into detected Claude/Codex/OpenClaw skill directories and attempts local MCP registration.
 
-#### Option 2: Clone Manually
+#### Option 3: Clone Manually
 
 ```bash
 git clone https://github.com/wzyn20051216/solidworks-automation-skill.git

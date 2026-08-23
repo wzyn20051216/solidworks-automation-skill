@@ -2,8 +2,11 @@ name: Windows CAD Regression
 
 on:
   workflow_dispatch:
-  push:
-    tags: ["v*"]
+    inputs:
+      reason:
+        description: "Why this real CAD regression is being run"
+        required: false
+        default: "manual validation"
 
 jobs:
   cad-regression:
