@@ -1,0 +1,26 @@
+[project]
+name = "solidworks-automation-skill"
+version = "1.2.0"
+description = "Local MCP server for controlled SolidWorks and CAD Studio automation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "wzyn20051216" }
+]
+dependencies = [
+  "mcp>=1.27,<2",
+  "pydantic>=2.0",
+  "ezdxf>=1.3,<2",
+  "matplotlib>=3.8,<4",
+  "pywin32>=305; sys_platform == 'win32'",
+  "comtypes>=1.2.0; sys_platform == 'win32'"
+]
+
+[project.urls]
+Homepage = "https://github.com/wzyn20051216/solidworks-automation-skill"
+Repository = "https://github.com/wzyn20051216/solidworks-automation-skill"
+Issues = "https://github.com/wzyn20051216/solidworks-automation-skill/issues"
+
+[tool.uv]
+package = false

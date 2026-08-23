@@ -8,8 +8,8 @@ a single-user desktop automation surface.
 """
 from __future__ import annotations
 
-import json
 import importlib
+import json
 import os
 import platform
 import sys
@@ -21,6 +21,14 @@ from typing import Any, Dict, Literal, Optional
 
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+_MCP_STDOUT = sys.stdout
+for _stream in (_MCP_STDOUT, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+if __name__ == "__main__":
+    sys.stdout = sys.stderr
 
 
 SERVER_DIR = Path(__file__).resolve().parent
@@ -2028,6 +2036,8 @@ def solidworks_validate_motion_study(params: SolidWorksMotionValidationInput = S
 
 def main() -> None:
     """Run the SolidWorks MCP server over stdio."""
+    if sys.stdout is not _MCP_STDOUT:
+        sys.stdout = _MCP_STDOUT
     mcp.run(transport="stdio")
 
 
