@@ -28,6 +28,10 @@ subskills:
     status: stable
     path: subskills/solidworks-threaded-holes
     summary: M3-M12 螺纹孔、攻丝底孔、孔口倒角、螺纹属性和 STEP 输出。
+  - name: solidworks-engineering-drawing
+    status: pilot
+    path: subskills/solidworks-engineering-drawing
+    summary: GB/T 第一角零件图/装配图、尺寸链、孔表、BOM、PDF/BMP 证据和制造交付审视。
   - name: autocad-automation
     status: stable
     path: subskills/autocad-automation

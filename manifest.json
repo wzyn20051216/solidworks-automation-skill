@@ -3,7 +3,7 @@
   "manifest_version": "0.4",
   "name": "solidworks-automation-skill",
   "display_name": "SolidWorks Automation Skill",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Local Windows MCP server for controlled SolidWorks, CAD Studio, DFM, routing, FEA, and open-format CAD automation.",
   "long_description": "SolidWorks Automation Skill exposes a local stdio MCP server for Windows desktop CAD workflows. It provides guarded SolidWorks COM tools for parts, assemblies, drawings, exports, reviews, mates, holes, Motion Study checks, and batch delivery, plus headless CAD Studio tools for open-format generation, DFM checks, routing review, FEA preparation, and geometry preflight. Native SolidWorks tools require a local licensed SolidWorks installation; headless open-format tools can run without SolidWorks where their Python dependencies are available.",
   "author": {
@@ -162,6 +162,18 @@
     {
       "name": "solidworks_review_active",
       "description": "Export multi-view previews and a JSON review report for the active document."
+    },
+    {
+      "name": "solidworks_generate_drawing",
+      "description": "Generate a controlled GB/T or ISO SolidWorks engineering drawing from a versioned DrawingSpec v1 JSON file."
+    },
+    {
+      "name": "solidworks_review_drawing",
+      "description": "Review a SolidWorks engineering drawing against DrawingSpec layout, dimensions, hole requirements, PDF text, and preview evidence."
+    },
+    {
+      "name": "solidworks_inspect_drawing",
+      "description": "Inspect SolidWorks drawing sheets, views, dimensions, notes, tables, and preview evidence without changing the drawing."
     },
     {
       "name": "solidworks_create_hole_feature",

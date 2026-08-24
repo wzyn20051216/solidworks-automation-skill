@@ -11,6 +11,7 @@
 | `solidworks-vibecad` | experimental | 自然语言需求 -> 参数化设计计划、制造规则检查、执行摘要、审查门禁 | `subskills/solidworks-vibecad/SKILL.md` |
 | `solidworks-fillet-chamfer-cnc` | stable | CNC 安装座、连接块、支架、多圆角/倒角、孔槽和减重口袋 | `subskills/solidworks-fillet-chamfer-cnc/SKILL.md` |
 | `solidworks-threaded-holes` | stable | M3-M12 螺纹孔、攻丝底孔、孔口倒角、螺纹属性和 STEP 输出 | `subskills/solidworks-threaded-holes/SKILL.md` |
+| `solidworks-engineering-drawing` | pilot | GB/T 第一角零件图/装配图、尺寸链、孔表、BOM、PDF/BMP 证据和制造交付审视 | `subskills/solidworks-engineering-drawing/SKILL.md` |
 | `autocad-automation` | stable | AutoCAD DWG/DXF 二维绘图、线稿矢量化、图层/文字/标注处理、导出和图纸自检 | `subskills/autocad-automation/SKILL.md` |
 
 ## 推荐路由
@@ -20,6 +21,7 @@
   -> solidworks-vibecad
   -> 结构化 design_plan.json
   -> 按零件类型路由到专项子技能
+  -> 工程图需求连接 solidworks-engineering-drawing
   -> 父技能 scripts/sw_*.py 执行 SolidWorks COM
   -> sw_review.run_review() 审查
 ```
@@ -86,6 +88,23 @@ subskills/solidworks-threaded-holes/SKILL.md
 ```text
 subskills/autocad-automation/SKILL.md
 ```
+
+### solidworks-engineering-drawing
+
+用户说：
+
+- “生成零件图/装配图/工程图”
+- “按 GB/T、第一角投影出图”
+- “补齐尺寸链、孔表、BOM、标题栏”
+- “审查工程图是否能交付制造”
+
+使用：
+
+```text
+subskills/solidworks-engineering-drawing/SKILL.md
+```
+
+该子技能可以被根技能、VibeCAD、孔槽/CNC 子技能或工程编排器按需连接；其他子技能不需要反向依赖它。
 
 注意：普通“照图画 CAD”的最终版只保留原图矢量化线条，不保留手工猜测的外围轮廓、五官椭圆、Logo 三角线、水波线、替代文字或图内审查说明。
 

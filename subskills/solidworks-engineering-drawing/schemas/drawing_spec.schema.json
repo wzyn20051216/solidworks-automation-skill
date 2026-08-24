@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SolidWorks Engineering DrawingSpec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "sourceModel", "documentType", "standard", "projection", "paperSize", "views", "outputs"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "sourceModel": { "type": "string", "minLength": 1 },
+    "documentType": { "enum": ["part", "assembly", "sheet_metal"] },
+    "standard": { "enum": ["GB_T", "ISO"] },
+    "projection": { "enum": ["first_angle", "third_angle"] },
+    "paperSize": { "enum": ["A4", "A3", "A2", "A1", "A0"] },
+    "modelSizeMm": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number", "exclusiveMinimum": 0 } },
+    "templateCandidates": { "type": "array", "items": { "type": "string" } },
+    "views": {
+      "type": "object",
+      "required": ["front"],
+      "additionalProperties": false,
+      "properties": {
+        "front": { "type": "object" },
+        "top": { "type": "object" },
+        "bottom": { "type": "object" },
+        "left": { "type": "object" },
+        "right": { "type": "object" },
+        "isometric": { "type": "object" },
+        "sections": { "type": "array", "items": { "type": "object" } },
+        "details": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "scale": { "type": ["number", "string"] },
+    "requiredDimensions": { "type": "array", "items": { "$ref": "#/$defs/dimension" } },
+    "holeRequirements": { "type": "array", "items": { "$ref": "#/$defs/hole" } },
+    "titleBlock": { "type": "object" },
+    "notes": { "type": "array", "items": { "type": "string" } },
+    "bom": { "type": "object" },
+    "sheetMetal": { "type": "object" },
+    "modelEvidence": { "type": "string" },
+    "outputs": {
+      "type": "object",
+      "required": ["slddrw", "pdf", "report"],
+      "additionalProperties": false,
+      "properties": {
+        "slddrw": { "type": "boolean" },
+        "pdf": { "type": "boolean" },
+        "bmp": { "type": "boolean" },
+        "png": { "type": "boolean" },
+        "report": { "type": "boolean" }
+      }
+    }
+  },
+  "$defs": {
+    "dimension": {
+      "type": "object",
+      "required": ["id", "kind", "view"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["overall", "linear", "angular", "radius", "diameter", "tolerance", "datum", "gdt"] },
+        "view": { "type": "string", "minLength": 1 },
+        "valueMm": { "type": "number" },
+        "text": { "type": "string" },
+        "tolerance": { "type": "string" },
+        "datum": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "hole": {
+      "type": "object",
+      "required": ["id", "specification", "count", "locationsMm"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "specification": { "type": "string", "minLength": 1 },
+        "count": { "type": "integer", "minimum": 1 },
+        "locationsMm": { "type": "array", "minItems": 1, "items": { "type": "array", "minItems": 2, "maxItems": 3, "items": { "type": "number" } } },
+        "view": { "type": "string" },
+        "datum": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -102,7 +102,11 @@ def test_plan_never_claims_unexecuted_or_pilot_work_is_complete() -> None:
     assert drawing.routes[0].level == CapabilityLevel.PILOT
     assert drawing.routes[0].execution_mode == "assisted_human_gate"
     assert drawing.human_gate is True
-    assert not drawing.mcp_tools
+    assert set(drawing.mcp_tools) >= {
+        "solidworks_generate_drawing",
+        "solidworks_review_drawing",
+        "solidworks_inspect_drawing",
+    }
     assert any("不能无人值守" in risk for risk in drawing.risks)
 
 

@@ -249,9 +249,9 @@ CAPABILITIES: Mapping[str, _CapabilityDefinition] = {
     ),
     "drawings_and_bom": _CapabilityDefinition(
         CapabilityLevel.PILOT,
-        (MAIN_SKILL,),
-        (),
-        "工程图处于 Pilot，BOM 和 GB/T 图框、尺寸链必须人工复核，禁止无人值守宣称完成。",
+        (MAIN_SKILL, "solidworks-engineering-drawing"),
+        ("solidworks_generate_drawing", "solidworks_review_drawing", "solidworks_inspect_drawing"),
+        "工程图处于 Pilot，GB/T 第一角图框、BOM、尺寸链和钣金展开证据必须人工复核，禁止无人值守宣称完成。",
     ),
     "export_delivery": _CapabilityDefinition(
         CapabilityLevel.VERIFIED,

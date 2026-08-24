@@ -88,6 +88,7 @@ python scripts/cad_studio.py create-ocp-surface --input .\smooth-loft.json --out
 - 🧾 **AutoCAD / DWG 子技能** - DXF 无头预览与结构审查可用；AutoCAD 原生 DWG 绘图仍受本机 ActiveX 代理稳定性门禁，详见能力清单
 - 🔩 **装配体操作** - 添加组件、配合关系、干涉检查、爆炸视图
 - 📐 **工程图出图** - 三视图、剖视图、尺寸标注、BOM 表
+- 🧾 **工程图专业子技能** - `solidworks-engineering-drawing` 独立负责 GB/T 第一角工程图、尺寸链、孔表、BOM、PDF/BMP 证据和制造交付审视，可由根技能或任意相关子技能按需连接
 - 💾 **文件导出** - STEP、STL、IGES、PDF、DXF/DWG、Parasolid；SW2026 SP01.1 基础装配已通过原生 Pack and Go 连续回归，复杂引用缺失时仍按门禁生成带哈希清单的 `pilot` 暂存包
 - 🧩 **网格参考导入** - 将公开 GLB/OBJ/STL 外观参考模型缩放、转换并导入为 SolidWorks 参考零件
 - 🎨 **外观材质** - 文档、特征、组件级颜色设置，支持装配体分色建模
@@ -270,6 +271,7 @@ solidworks-automation-skill/
 │   ├── solidworks-vibecad/              # 自然语言 -> 参数化设计计划
 │   ├── solidworks-fillet-chamfer-cnc/   # CNC 多圆角/倒角机加工件
 │   ├── solidworks-threaded-holes/       # 螺纹孔、攻丝底孔和孔口倒角
+│   ├── solidworks-engineering-drawing/  # GB/T 工程图生成与制造交付审视
 │   └── autocad-automation/              # AutoCAD DWG/DXF 二维绘图和线稿矢量化
 ├── docs/                # 产品化、市场调研和技能地图
 │   ├── market-research-2026.md          # 市场调研与产品定位
@@ -315,6 +317,7 @@ npm run desktop:bundle
 | [`solidworks-vibecad`](subskills/solidworks-vibecad/README.md) | experimental | 自然语言需求 -> 参数化设计计划、制造规则检查、执行摘要、审查门禁 |
 | [`solidworks-fillet-chamfer-cnc`](subskills/solidworks-fillet-chamfer-cnc/README.md) | stable | CNC 安装座、连接块、支架、多圆角/倒角、孔槽和减重口袋 |
 | [`solidworks-threaded-holes`](subskills/solidworks-threaded-holes/README.md) | stable | M3-M12 螺纹孔、攻丝底孔、孔口倒角、螺纹属性和 STEP 输出 |
+| [`solidworks-engineering-drawing`](subskills/solidworks-engineering-drawing/README.md) | pilot | GB/T 第一角零件/装配工程图、尺寸链、孔表、BOM、PDF/BMP 证据和制造交付审视 |
 | [`autocad-automation`](subskills/autocad-automation/README.md) | verified / pilot / blocked | DXF 无头预览与结构审查；AutoCAD 2024 .NET 白名单后端须经最近连续三次证据复验后为 verified；COM 原生写入仍受门禁 |
 
 更多路由说明见 [`SUBSKILLS.md`](SUBSKILLS.md)。
@@ -370,7 +373,7 @@ claude mcp list
 }
 ```
 
-第一阶段已暴露 `solidworks_connect`、`solidworks_open_document`、`solidworks_save_document`、`solidworks_export_active`、`solidworks_review_active`、`solidworks_add_rotary_motor` 等工具。CAD Studio 侧还暴露 `cadstudio_write_open_format`、`cadstudio_check_dfm`、`cadstudio_check_routing`、`cadstudio_fea_preflight`、`cadstudio_prepare_fea` 和 `cadstudio_review_advanced_geometry`。更多说明见 [mcp-server/README.md](mcp-server/README.md)。
+第一阶段已暴露 `solidworks_connect`、`solidworks_open_document`、`solidworks_save_document`、`solidworks_export_active`、`solidworks_review_active`、`solidworks_add_rotary_motor` 等工具。工程图子技能还暴露 `solidworks_generate_drawing`、`solidworks_review_drawing`、`solidworks_inspect_drawing`。CAD Studio 侧还暴露 `cadstudio_write_open_format`、`cadstudio_check_dfm`、`cadstudio_check_routing`、`cadstudio_fea_preflight`、`cadstudio_prepare_fea` 和 `cadstudio_review_advanced_geometry`。更多说明见 [mcp-server/README.md](mcp-server/README.md)。
 
 当前 MCP 还包含 `solidworks_health_check`、`solidworks_create_basic_part`、`solidworks_add_component`、`solidworks_add_coincident_mate`、`solidworks_add_distance_mate`、`solidworks_add_concentric_mate`、`solidworks_set_component_fixed`、`solidworks_set_appearance` 等基础工具。复杂圆角/倒角仍建议作为后续专项优化，不作为基准 demo 的成功标准。
 

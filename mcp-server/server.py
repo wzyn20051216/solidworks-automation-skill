@@ -62,6 +62,9 @@ def _load_automation_modules() -> None:
     holes = importlib.import_module("scripts.sw_hole_features")
     document_data = importlib.import_module("scripts.sw_document_data")
     delivery = importlib.import_module("scripts.sw_delivery")
+    drawing = importlib.import_module("scripts.sw_drawing")
+    drawing_review = importlib.import_module("scripts.sw_drawing_review")
+    drawing_spec = importlib.import_module("scripts.drawing_spec")
 
     exports = {
         "connect_solidworks": connect.connect_solidworks,
@@ -91,6 +94,14 @@ def _load_automation_modules() -> None:
         "run_review": review.run_review,
         "collect_geometry_measurements": review.collect_geometry_measurements,
         "validate_hole_positions": review.validate_hole_positions,
+        "drawing_generate_from_spec": drawing.generate_drawing_from_spec,
+        "drawing_export_sheet_to_pdf": drawing.export_sheet_to_pdf,
+        "drawing_save_review_previews": review.save_review_previews,
+        "drawing_inspect_bmp_preview": review.inspect_bmp_preview,
+        "drawing_inspect_structure": drawing.inspect_drawing_structure,
+        "drawing_review_artifacts": drawing_review.review_drawing_artifacts,
+        "drawing_load_spec": drawing_spec.load_drawing_spec,
+        "drawing_validate_spec": drawing_spec.validate_drawing_spec,
         "SW_MATE_COINCIDENT": assembly.SW_MATE_COINCIDENT,
         "SW_MATE_DISTANCE": assembly.SW_MATE_DISTANCE,
         "assembly_add_component": assembly.add_component,
@@ -631,6 +642,86 @@ class SolidWorksReviewInput(BaseInput):
     output_dir: str = Field(..., min_length=1, description="Directory for BMP previews and JSON report.")
     basename: str = Field(default="mcp_review", min_length=1, max_length=80, description="Output filename prefix.")
     response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+
+class SolidWorksGenerateDrawingInput(BaseInput):
+    """Input for the structured SolidWorks engineering drawing workflow."""
+
+    spec_path: str = Field(..., min_length=1, description="Existing DrawingSpec v1 JSON path.")
+    output_dir: str = Field(..., min_length=1, description="Directory for SLDDRW, PDF, previews, and reports.")
+    drawing_filename: str = Field(default="drawing.slddrw", min_length=1, max_length=120)
+    overwrite: bool = Field(default=False, description="Allow replacing this run's requested drawing output.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+    @field_validator("spec_path")
+    @classmethod
+    def drawing_spec_must_exist(cls, value: str) -> str:
+        path = Path(os.path.expandvars(value)).expanduser()
+        if path.suffix.lower() != ".json" or not path.is_file():
+            raise ValueError(f"DrawingSpec must be an existing JSON file: {value}")
+        return value
+
+    @field_validator("drawing_filename")
+    @classmethod
+    def drawing_filename_must_be_slddrw(cls, value: str) -> str:
+        if Path(value).name != value or Path(value).suffix.lower() != ".slddrw":
+            raise ValueError("drawing_filename must be a filename ending in .slddrw")
+        return value
+
+
+class SolidWorksReviewDrawingInput(BaseInput):
+    """Input for the full engineering drawing review gate."""
+
+    drawing_path: str = Field(..., min_length=1, description="Existing .SLDDRW drawing path.")
+    spec_path: str = Field(..., min_length=1, description="Existing DrawingSpec v1 JSON path.")
+    output_dir: str = Field(..., min_length=1, description="Directory for review reports and previews.")
+    pdf_path: Optional[str] = Field(default=None, description="Optional exported PDF for vector text evidence.")
+    basename: str = Field(default="drawing_review", min_length=1, max_length=80)
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+    @field_validator("drawing_path")
+    @classmethod
+    def drawing_path_must_exist(cls, value: str) -> str:
+        path = Path(os.path.expandvars(value)).expanduser()
+        if path.suffix.lower() != ".slddrw" or not path.is_file():
+            raise ValueError(f"Drawing must be an existing .SLDDRW file: {value}")
+        return value
+
+    @field_validator("spec_path")
+    @classmethod
+    def review_spec_must_exist(cls, value: str) -> str:
+        path = Path(os.path.expandvars(value)).expanduser()
+        if path.suffix.lower() != ".json" or not path.is_file():
+            raise ValueError(f"DrawingSpec must be an existing JSON file: {value}")
+        return value
+
+    @field_validator("pdf_path")
+    @classmethod
+    def review_pdf_must_exist(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        path = Path(os.path.expandvars(value)).expanduser()
+        if path.suffix.lower() != ".pdf" or not path.is_file():
+            raise ValueError(f"PDF must be an existing file: {value}")
+        return value
+
+
+class SolidWorksInspectDrawingInput(BaseInput):
+    """Input for read-only structural drawing inspection."""
+
+    drawing_path: str = Field(..., min_length=1, description="Existing .SLDDRW drawing path.")
+    output_dir: str = Field(..., min_length=1, description="Directory for structural report and previews.")
+    basename: str = Field(default="drawing_inspect", min_length=1, max_length=80)
+    paper_size_hint: Optional[str] = Field(default=None, pattern="^(A4|A3|A2|A1|A0)$")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+    @field_validator("drawing_path")
+    @classmethod
+    def inspect_drawing_path_must_exist(cls, value: str) -> str:
+        path = Path(os.path.expandvars(value)).expanduser()
+        if path.suffix.lower() != ".slddrw" or not path.is_file():
+            raise ValueError(f"Drawing must be an existing .SLDDRW file: {value}")
+        return value
 
 
 class SolidWorksHoleFeatureInput(BaseInput):
@@ -1826,6 +1917,162 @@ def solidworks_review_active(params: SolidWorksReviewInput) -> str:
             "checks": report.get("checks"),
             "document": _model_summary(model),
         }
+
+    return _run_locked(op, params.response_format)
+
+
+def _drawing_report_path(output_dir: Path, basename: str) -> Path:
+    """@brief 返回工程图子技能报告路径。"""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return output_dir / f"{basename}.json"
+
+
+@mcp.tool(
+    name="solidworks_generate_drawing",
+    title="Generate SolidWorks Engineering Drawing",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+def solidworks_generate_drawing(params: SolidWorksGenerateDrawingInput) -> str:
+    """按 DrawingSpec v1 创建工程图、PDF、预览和机器审视报告。"""
+
+    def op():
+        output_dir = Path(os.path.expandvars(params.output_dir)).expanduser().resolve()
+        drawing_path = output_dir / params.drawing_filename
+        pdf_path = drawing_path.with_suffix(".pdf")
+        report_path = output_dir / f"{drawing_path.stem}_review_report.json"
+        if not params.overwrite and any(path.exists() for path in (drawing_path, pdf_path, report_path)):
+            raise ValueError("输出文件已存在；请更换 output_dir、设置 overwrite=true，或保留旧交付物并另起运行目录")
+
+        spec_validation = drawing_validate_spec(params.spec_path)
+        if spec_validation.get("status") == "blocked":
+            return spec_validation
+        spec = spec_validation["spec"]
+        source_path = Path(os.path.expandvars(str(spec["sourceModel"]))).expanduser().resolve()
+        if not source_path.is_file():
+            raise FileNotFoundError(f"DrawingSpec.sourceModel 不存在: {source_path}")
+        sw, _active = connect_solidworks(wait_seconds=1, visible=True)
+        source_model = open_document(sw, str(source_path), read_only=False, silent=True, raise_on_error=True)
+        drawing_model = new_document(sw, "drawing")
+        generation = drawing_generate_from_spec(
+            drawing_model,
+            spec,
+            str(source_path),
+            template_candidates=spec.get("templateCandidates"),
+        )
+        if generation.get("status") in {"blocked", "failed"}:
+            return generation
+        if not save_document(drawing_model, str(drawing_path)):
+            raise RuntimeError(f"工程图保存失败: {drawing_path}")
+        pdf_ok = drawing_export_sheet_to_pdf(drawing_model, str(pdf_path), sw_app=sw)
+        previews = drawing_save_review_previews(
+            drawing_model,
+            output_dir / "previews",
+            basename=drawing_path.stem,
+            views=("front", "top", "right"),
+        )
+        preview_evidence = [drawing_inspect_bmp_preview(path) for path in previews]
+        geometry_evidence = collect_geometry_measurements(source_model) if spec.get("holeRequirements") else None
+        review = drawing_review_artifacts(
+            spec,
+            structure=generation.get("structure"),
+            pdf_path=pdf_path if pdf_ok and pdf_path.is_file() else None,
+            preview_evidence=preview_evidence,
+            model_evidence=geometry_evidence,
+        )
+        payload = {
+            "status": review.get("status", "review_required"),
+            "capability": "solidworks-engineering-drawing",
+            "sourceModel": str(source_path),
+            "outputs": {
+                "slddrw": {"path": str(drawing_path), "exists": drawing_path.is_file(), "size_bytes": drawing_path.stat().st_size if drawing_path.is_file() else 0},
+                "pdf": {"path": str(pdf_path), "exists": pdf_path.is_file(), "size_bytes": pdf_path.stat().st_size if pdf_path.is_file() else 0},
+                "previews": preview_evidence,
+            },
+            "generation": generation,
+            "review": review,
+            "manual_review_required": True,
+        }
+        report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload["reportPath"] = str(report_path)
+        return payload
+
+    return _run_locked(op, params.response_format)
+
+
+@mcp.tool(
+    name="solidworks_review_drawing",
+    title="Review SolidWorks Engineering Drawing",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+def solidworks_review_drawing(params: SolidWorksReviewDrawingInput) -> str:
+    """打开工程图并执行 DrawingSpec、布局、尺寸、孔槽和 PDF 证据审视。"""
+
+    def op():
+        output_dir = Path(os.path.expandvars(params.output_dir)).expanduser().resolve()
+        report_path = _drawing_report_path(output_dir, params.basename)
+        sw, _active = connect_solidworks(wait_seconds=1, visible=True)
+        drawing_model = open_document(sw, params.drawing_path, read_only=True, silent=True, raise_on_error=True)
+        structure = drawing_inspect_structure(drawing_model)
+        previews = drawing_save_review_previews(
+            drawing_model,
+            output_dir / "previews",
+            basename=params.basename,
+            views=("front", "top", "right"),
+        )
+        preview_evidence = [drawing_inspect_bmp_preview(path) for path in previews]
+        review = drawing_review_artifacts(
+            params.spec_path,
+            structure=structure,
+            pdf_path=params.pdf_path,
+            preview_evidence=preview_evidence,
+        )
+        payload = {"status": review.get("status"), "drawingPath": str(Path(params.drawing_path).resolve()), "structure": structure, "previews": preview_evidence, "review": review, "manual_review_required": True}
+        report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload["reportPath"] = str(report_path)
+        return payload
+
+    return _run_locked(op, params.response_format)
+
+
+@mcp.tool(
+    name="solidworks_inspect_drawing",
+    title="Inspect SolidWorks Drawing Structure",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+def solidworks_inspect_drawing(params: SolidWorksInspectDrawingInput) -> str:
+    """只读读取工程图页、视图、尺寸、注释和表格结构，并生成预览证据。"""
+
+    def op():
+        output_dir = Path(os.path.expandvars(params.output_dir)).expanduser().resolve()
+        report_path = _drawing_report_path(output_dir, params.basename)
+        sw, _active = connect_solidworks(wait_seconds=1, visible=True)
+        drawing_model = open_document(sw, params.drawing_path, read_only=True, silent=True, raise_on_error=True)
+        structure = drawing_inspect_structure(drawing_model, paper_size_hint=params.paper_size_hint)
+        previews = drawing_save_review_previews(
+            drawing_model,
+            output_dir / "previews",
+            basename=params.basename,
+            views=("front", "top", "right"),
+        )
+        payload = {"status": structure.get("status"), "drawingPath": str(Path(params.drawing_path).resolve()), "structure": structure, "previews": [drawing_inspect_bmp_preview(path) for path in previews], "manual_review_required": True}
+        report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        payload["reportPath"] = str(report_path)
+        return payload
 
     return _run_locked(op, params.response_format)
 

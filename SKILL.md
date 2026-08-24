@@ -155,7 +155,7 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 7. 圆角/倒角很多的 CNC 件、安装座、连接块、支架，先读取 `subskills/solidworks-fillet-chamfer-cnc/SKILL.md`，按“基础体 -> 外轮廓圆角/倒角 -> 孔槽切除 -> 孔口倒角 -> 审查”的稳定顺序执行。
 8. 螺丝孔、螺纹孔、攻牙孔、M3/M4/M5/M6/M8 盲孔或通孔任务，先读取 `subskills/solidworks-threaded-holes/SKILL.md`；默认按“攻丝底孔 -> 尝试 Thread/CosmeticThread -> 可见 3D 螺旋线兜底 -> 孔口倒角 -> 属性和审查”的稳定路线执行。
 9. 普通盲孔、通孔、圆柱沉孔、锥形沉头孔、半圆端槽或孔阵列任务，读取 `references/complex-hole-features.md` 并优先调用 `scripts/sw_hole_features.py`；创建参数证据必须再与 `collect_geometry_measurements()`、`validate_hole_positions()` 和剖视图交叉复核。
-10. CAD、机械图纸、工程图、3D 打印外壳、开孔图、DWG、DXF、二维图纸、线稿转 CAD、批量改 DWG 或 AutoCAD 原生预览任务，先读取 `subskills/autocad-automation/SKILL.md`。机械/3D 打印开孔交付必须按可制造图纸处理：所有孔、槽、接口、水口、螺丝孔和螺丝柱同时给出规格、数量和定位尺寸；图面拥挤时用孔表/槽表，不得用长引线替代关键尺寸。普通“照图画 CAD”只保留原图矢量化线条，最终审查必须确认没有手工猜测的外围轮廓、五官辅助线、Logo 几何、水波线、替代文字或图内审查说明。
+10. SolidWorks 零件图、装配图、GB/T 工程图、尺寸链、孔表、BOM、标题栏或工程图审视任务，先读取 `subskills/solidworks-engineering-drawing/SKILL.md`；该子技能消费根技能的模型、孔槽和属性证据。AutoCAD 的 DWG/DXF、二维图纸、线稿转 CAD、批量改图或 AutoCAD 原生预览任务，读取 `subskills/autocad-automation/SKILL.md`。机械/3D 打印开孔交付必须按可制造图纸处理：所有孔、槽、接口、水口、螺丝孔和螺丝柱同时给出规格、数量和定位尺寸；图面拥挤时用孔表/槽表，不得用长引线替代关键尺寸。
 11. 当用户要求真实产品“原版外观”“1:1 复刻”“不像概念版”，先读取 `references/mesh-reference-import.md`：公开网格/蓝图参考优先，不要在低保真手搓底稿上反复精修；需要导入 OBJ/STL 时优先用 `scripts/sw_import_mesh_reference.py`。
 12. 如果必须由大模型生成 VBA 宏，先使用 `sw_macro_guard.py` 做模型分流、代码校验、重试和本地模板兜底。
 13. 使用 `session.export()` 或 `sw_export.py` 保存/导出文件。
