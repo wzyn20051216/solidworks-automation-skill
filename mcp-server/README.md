@@ -26,6 +26,21 @@ python mcp-server\server.py
 
 该命令通常由 MCP 客户端作为子进程启动，不需要手动长期运行。
 
+## Smithery 发布
+
+根目录 `manifest.json` 遵循 MCPB 规范，并使用 `tools_generated: true`。先用 `mcpb pack` 生成标准包，再运行以下命令生成包含 FastMCP 实际 `inputSchema` 的 Smithery 发布包：
+
+```powershell
+mcpb pack . .\dist\solidworks-automation-skill-1.3.0.mcpb
+python .\scripts\build_smithery_mcpb.py `
+  .\dist\solidworks-automation-skill-1.3.0.mcpb `
+  .\dist\solidworks-automation-skill-1.3.0-smithery.mcpb
+smithery mcp publish .\dist\solidworks-automation-skill-1.3.0-smithery.mcpb `
+  -n wzyn20051216/solidworks-automation-skill
+```
+
+Smithery 当前发布接口要求工具卡包含 `inputSchema`，而 MCPB 0.4 的静态 `tools` 项不允许该字段，因此发布包由脚本从 MCP Server 注册表自动生成，避免手工维护两套 schema。
+
 ## 多客户端自动注册
 
 本仓库提供多客户端注册器，会自动尝试把 `solidworks` MCP Server 注册到：
