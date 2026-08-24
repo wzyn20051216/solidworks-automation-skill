@@ -462,6 +462,7 @@ def plan_standard_view_layout(
         "status": "pass",
         "paper_size": paper_size,
         "projection": projection,
+        "gap_m": gap_m,
         "sheet": {"width_m": sheet_width, "height_m": sheet_height},
         "working_area": {"left": working_left, "bottom": working_bottom, "right": working_right, "top": working_top},
         "title_block_box": title_box,
@@ -543,6 +544,83 @@ def _view_position(view):
         return None
 
 
+def _set_view_center(view, center) -> list[float]:
+    """@brief 移动视图并回读中心点，供真实包围盒二次排布复用。"""
+    target = [float(center[0]), float(center[1])]
+    position = VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, target)
+    method = getattr(view, "SetViewPosition", None)
+    if method is not None:
+        moved = bool(get_com_member(view, "SetViewPosition", position, False))
+        if not moved:
+            raise RuntimeError(f"SetViewPosition 返回失败: {target}")
+    else:
+        view.Position = tuple(target)
+    actual = _view_position(view)
+    if actual is None or abs(actual[0] - target[0]) > 1e-5 or abs(actual[1] - target[1]) > 1e-5:
+        raise RuntimeError(f"视图位置回读不一致: requested={target}, actual={actual}")
+    return [float(actual[0]), float(actual[1])]
+
+
+def _refine_standard_view_spacing(view_objects, view_records, projection, gap_m=0.018) -> dict:
+    """@brief 根据 SolidWorks 实际视图边界消除三视图之间的确认重叠。"""
+    required = {"front", "top", "right"}
+    if set(view_objects) < required:
+        return {"status": "review_required", "method": "native_outline", "adjustments": [], "error_code": "DRAWING_VIEW_OUTLINES_INCOMPLETE"}
+    boxes = {key: _normalise_box(_safe_member(view, "GetOutline")) for key, view in view_objects.items()}
+    if any(box is None for box in boxes.values()):
+        return {"status": "review_required", "method": "native_outline", "adjustments": [], "error_code": "DRAWING_VIEW_OUTLINES_INCOMPLETE"}
+    try:
+        gap = max(0.001, float(gap_m))
+    except (TypeError, ValueError):
+        gap = 0.018
+    records = {item["name"]: item for item in view_records}
+    names = {"front": "*Front", "top": "*Top", "right": "*Right"}
+    adjustments = []
+
+    def move_if_needed(axis, orientation, target_value):
+        current_box = boxes[orientation]
+        current_center = _view_position(view_objects[orientation])
+        if current_center is None:
+            return
+        delta = float(target_value) - current_center[axis]
+        if abs(delta) <= 1e-7:
+            return
+        new_center = list(current_center)
+        new_center[axis] = float(target_value)
+        actual_center = _set_view_center(view_objects[orientation], new_center)
+        moved_box = _normalise_box(_safe_member(view_objects[orientation], "GetOutline"))
+        boxes[orientation] = moved_box or current_box
+        record = records.get(names[orientation])
+        if record is not None:
+            record["center"] = list(actual_center)
+            record["actual_center"] = list(actual_center)
+            record["layout_refined_from_native_outline"] = True
+        adjustments.append({"view": names[orientation], "axis": "x" if axis == 0 else "y", "delta_m": delta, "center": list(actual_center)})
+
+    front = boxes["front"]
+    right = boxes["right"]
+    top = boxes["top"]
+    right_width = right["right"] - right["left"]
+    top_height = top["top"] - top["bottom"]
+    if projection == "first_angle":
+        right_target_x = front["left"] - gap - right_width / 2.0
+        top_target_y = front["bottom"] - gap - top_height / 2.0
+    else:
+        right_target_x = front["right"] + gap + right_width / 2.0
+        top_target_y = front["top"] + gap + top_height / 2.0
+    move_if_needed(0, "right", right_target_x)
+    move_if_needed(1, "top", top_target_y)
+    return {
+        "status": "pass",
+        "method": "native_outline",
+        "projection": projection,
+        "gap_m": gap,
+        "adjustments": adjustments,
+        "error_code": None,
+        "manual_review_required": True,
+    }
+
+
 def _collect_drawing_views(drawing_model):
     """@brief 同时尝试 Sheet.GetViews 与 GetFirstView 链读取真实模型视图。"""
     sheet = _safe_member(drawing_model, "GetCurrentSheet")
@@ -598,6 +676,7 @@ def _map_native_standard_views(views):
 def create_adaptive_standard_views(drawing_model, part_path, layout) -> dict:
     """@brief 按预先计算的布局创建前、俯、右三个真实工程图视图。"""
     created = []
+    view_objects = {}
     numerator, denominator = layout.get("scale_ratio") or _scale_ratio(layout["scale"])
     for item in layout.get("views", []):
         center = item["center"]
@@ -605,8 +684,21 @@ def create_adaptive_standard_views(drawing_model, part_path, layout) -> dict:
         if view is None:
             if not created:
                 projection = str(layout.get("projection", "third_angle")).lower()
-                method_name = "CreateFirstAngleViews2" if projection == "first_angle" else "Create3rdAngleViews2"
-                native_created = bool(_safe_member(drawing_model, method_name, str(part_path), default=False))
+                # 部分 SolidWorks 版本（包括当前 SW2026 COM 代理）没有
+                # CreateFirstAngleViews2。先用可用的原生三视图 API 建立视图，
+                # 再按 DrawingSpec 的第一角/第三角布局重新定位并回读位置。
+                method_candidates = (
+                    ("CreateFirstAngleViews2", "Create3rdAngleViews2")
+                    if projection == "first_angle"
+                    else ("Create3rdAngleViews2",)
+                )
+                native_created = False
+                method_name = None
+                for candidate in method_candidates:
+                    if bool(_safe_member(drawing_model, candidate, str(part_path), default=False)):
+                        native_created = True
+                        method_name = candidate
+                        break
                 if native_created:
                     _safe_member(drawing_model, "ForceRebuild3", False)
                     _safe_member(drawing_model, "GraphicsRedraw2")
@@ -617,6 +709,7 @@ def create_adaptive_standard_views(drawing_model, part_path, layout) -> dict:
                         layout_by_name = {entry["name"]: entry for entry in layout.get("views", [])}
                         try:
                             for orientation in ("front", "top", "right"):
+                                view_objects[orientation] = by_orientation[orientation]
                                 created.append(
                                     _apply_view_layout(
                                         by_orientation[orientation],
@@ -636,12 +729,27 @@ def create_adaptive_standard_views(drawing_model, part_path, layout) -> dict:
                                 "error_code": "DRAWING_VIEW_POSITION_FAILED",
                                 "error": str(exc),
                             }
+                        refinement = _refine_standard_view_spacing(
+                            view_objects,
+                            created,
+                            projection,
+                            layout.get("gap_m", 0.018),
+                        )
+                        backend = (
+                            "native_3rd_angle"
+                            if projection == "third_angle"
+                            else "native_first_angle"
+                            if method_name == "CreateFirstAngleViews2"
+                            else "native_first_angle_via_3rd_angle"
+                        )
                         return {
                             "status": "pass",
                             "stage": "create",
-                            "backend": "native_3rd_angle",
+                            "backend": backend,
+                            "creation_method": method_name,
                             "mapping_method": mapping_method,
                             "native_view_diagnostics": diagnostics,
+                            "layout_refinement": refinement,
                             "views": created,
                             "view_count": len(created),
                             "retryable": False,
@@ -667,6 +775,9 @@ def create_adaptive_standard_views(drawing_model, part_path, layout) -> dict:
                 "error_code": "DRAWING_VIEW_CREATE_FAILED",
             }
         try:
+            orientation = _normalise_orientation(item["name"])
+            if orientation:
+                view_objects[orientation] = view
             created.append(_apply_view_layout(view, item, numerator, denominator))
         except Exception as exc:
             return {
@@ -678,11 +789,18 @@ def create_adaptive_standard_views(drawing_model, part_path, layout) -> dict:
                 "error_code": "DRAWING_VIEW_POSITION_FAILED",
                 "error": str(exc),
             }
+    refinement = _refine_standard_view_spacing(
+        view_objects,
+        created,
+        str(layout.get("projection", "third_angle")).lower(),
+        layout.get("gap_m", 0.018),
+    )
     return {
         "status": "pass",
         "stage": "create",
         "backend": "individual_model_views",
         "views": created,
+        "layout_refinement": refinement,
         "view_count": len(created),
         "retryable": False,
         "error_code": None,

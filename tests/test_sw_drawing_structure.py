@@ -324,6 +324,120 @@ def test_create_adaptive_views_falls_back_to_native_third_angle_and_maps_orienta
         assert view.ScaleRatio == tuple(layout["scale_ratio"])
 
 
+def test_create_adaptive_first_angle_views_repositions_native_third_angle_fallback():
+    """@brief SW 缺少第一角 API 时仍按第一角 DrawingSpec 回读并重排三视图。"""
+
+    class View:
+        def __init__(self, orientation):
+            self.orientation = orientation
+            self.Name = f"Drawing View {orientation}"
+            self.ScaleRatio = None
+            self.Position = None
+            self.UseParentScale = True
+
+        def GetOrientationName(self):
+            return self.orientation
+
+    class Sheet:
+        def __init__(self, drawing):
+            self.drawing = drawing
+
+        def GetViews(self):
+            return self.drawing.views
+
+    class Drawing:
+        def __init__(self):
+            self.views = []
+
+        def CreateDrawViewFromModelView3(self, *_args):
+            return None
+
+        def Create3rdAngleViews2(self, _path):
+            self.views = [View("*Front"), View("*Top"), View("*Right")]
+            return True
+
+        def GetCurrentSheet(self):
+            return Sheet(self)
+
+        def ForceRebuild3(self, _top_only):
+            return True
+
+    drawing = Drawing()
+    layout = plan_standard_view_layout((0.1, 0.05, 0.03), projection="first_angle")
+    result = create_adaptive_standard_views(drawing, "part.sldprt", layout)
+
+    by_orientation = {view.orientation: view for view in drawing.views}
+    assert result["status"] == "pass"
+    assert result["backend"] == "native_first_angle_via_3rd_angle"
+    assert by_orientation["*Top"].Position[1] < by_orientation["*Front"].Position[1]
+    assert by_orientation["*Right"].Position[0] < by_orientation["*Front"].Position[0]
+    assert result["view_count"] == 3
+    expected_centers = {item["name"]: tuple(item["center"]) for item in layout["views"]}
+    for view in drawing.views:
+        assert view.Position == expected_centers[view.GetOrientationName()]
+        assert view.ScaleRatio == tuple(layout["scale_ratio"])
+
+
+def test_create_adaptive_views_refines_spacing_from_native_outlines():
+    """@brief 实际投影包围盒大于模型估算时，必须二次排布并消除视图重叠。"""
+
+    class View:
+        def __init__(self, orientation, width, height):
+            self.orientation = orientation
+            self.Name = f"Drawing View {orientation}"
+            self.width = width
+            self.height = height
+            self.Position = (0.0, 0.0)
+            self.ScaleRatio = None
+            self.UseParentScale = True
+
+        def GetOrientationName(self):
+            return self.orientation
+
+        def GetOutline(self):
+            x, y = self.Position
+            return (x - self.width / 2, y - self.height / 2, x + self.width / 2, y + self.height / 2)
+
+    class Sheet:
+        def __init__(self, drawing):
+            self.drawing = drawing
+
+        def GetViews(self):
+            return self.drawing.views
+
+    class Drawing:
+        def __init__(self):
+            self.views = []
+
+        def CreateDrawViewFromModelView3(self, *_args):
+            return None
+
+        def Create3rdAngleViews2(self, _path):
+            self.views = [
+                View("*Front", 0.100, 0.050),
+                View("*Top", 0.100, 0.120),
+                View("*Right", 0.120, 0.050),
+            ]
+            return True
+
+        def GetCurrentSheet(self):
+            return Sheet(self)
+
+        def ForceRebuild3(self, _top_only):
+            return True
+
+    drawing = Drawing()
+    layout = plan_standard_view_layout((0.1, 0.05, 0.03), projection="first_angle")
+    result = create_adaptive_standard_views(drawing, "part.sldprt", layout)
+
+    by_orientation = {view.orientation: view for view in drawing.views}
+    front = by_orientation["*Front"].GetOutline()
+    right = by_orientation["*Right"].GetOutline()
+    assert result["status"] == "pass"
+    assert result["layout_refinement"]["adjustments"]
+    assert right[2] + layout["gap_m"] <= front[0] + 1e-9
+
+
 def test_add_a3_sheet_blocks_without_gbt_template(tmp_path):
     """@brief 严格国标模式缺模板时不得调用 NewSheet4。"""
     class Drawing:
