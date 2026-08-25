@@ -43,6 +43,12 @@ _PDF_DIMENSION_TEXT = re.compile(
 )
 
 
+def _pdf_text_overlap_candidate(text: str) -> bool:
+    """@brief 排除图框分区字母和单字符页码造成的 PDF 包围盒伪重叠。"""
+    compact = re.sub(r"\s+", "", str(text or "")).strip()
+    return not (len(compact) == 1 and compact.isalnum())
+
+
 def _import_pdf_parser():
     """@brief 导入 PyMuPDF，并支持 E 盘等显式可选依赖目录。"""
     try:
@@ -84,6 +90,7 @@ def review_drawing_layout(structure, *, padding_m=0.001, preview_evidence=None) 
     """
     views = list(structure.get("views") or [])
     dimensions = list(structure.get("dimensions") or [])
+    notes = list(structure.get("notes") or [])
     title_block = structure.get("title_block") or {}
     title_box = title_block.get("box")
     findings = []
@@ -144,11 +151,66 @@ def review_drawing_layout(structure, *, padding_m=0.001, preview_evidence=None) 
                     confidence=dimension_confidence,
                 )
 
+    def same_sheet(first, second):
+        """@brief 只在同一图纸页内检查注释与其它对象的碰撞。"""
+        first_sheet = str(first.get("sheet") or "")
+        second_sheet = str(second.get("sheet") or "")
+        return not first_sheet or not second_sheet or first_sheet == second_sheet
+
+    def evidence_for(item):
+        source = item.get("box_source") or "native"
+        confidence = item.get("box_confidence") or "high"
+        return source, confidence, "warning" if source != "native" else "fail"
+
+    for index, note in enumerate(notes):
+        note_source, note_confidence, note_severity = evidence_for(note)
+        if _drawing_boxes_overlap(note.get("box"), title_box, padding_m):
+            add_finding(
+                "DRAWING_NOTE_TITLE_BLOCK_INTRUSION", note_severity,
+                "note", note.get("text"), "title_block", "title_block",
+                evidence_source=note_source, confidence=note_confidence,
+            )
+        for view in views:
+            if same_sheet(note, view) and _drawing_boxes_overlap(note.get("box"), view.get("box"), padding_m):
+                add_finding(
+                    "DRAWING_NOTE_VIEW_INTRUSION", note_severity,
+                    "note", note.get("text"), "view", view.get("name"),
+                    evidence_source=note_source, confidence=note_confidence,
+                )
+        for dimension in dimensions:
+            if same_sheet(note, dimension) and _drawing_boxes_overlap(note.get("box"), dimension.get("box"), padding_m):
+                dimension_source = dimension.get("box_source") or "native"
+                source = "estimated" if "estimated" in {note_source, dimension_source} else note_source if note_source != "native" else dimension_source
+                confidence = min(
+                    (note_confidence, dimension.get("box_confidence") or "high"),
+                    key={"unavailable": 0, "low": 1, "medium": 2, "high": 3}.get,
+                )
+                add_finding(
+                    "DRAWING_NOTE_DIMENSION_OVERLAP",
+                    "warning" if source != "native" else "fail",
+                    "note", note.get("text"), "dimension", dimension.get("name"),
+                    evidence_source=source, confidence=confidence,
+                )
+        for other in notes[index + 1:]:
+            if same_sheet(note, other) and _drawing_boxes_overlap(note.get("box"), other.get("box"), padding_m):
+                source = note_source if note_source != "native" else other.get("box_source") or "native"
+                confidence = min(
+                    (note_confidence, other.get("box_confidence") or "high"),
+                    key={"unavailable": 0, "low": 1, "medium": 2, "high": 3}.get,
+                )
+                add_finding(
+                    "DRAWING_NOTE_TEXT_OVERLAP", "warning" if source != "native" else "fail",
+                    "note", note.get("text"), "note", other.get("text"),
+                    evidence_source=source, confidence=confidence,
+                )
+
     view_boxes_complete = bool(views) and all(item.get("box") for item in views)
-    dimension_boxes_complete = bool(dimensions) and all(item.get("box") for item in dimensions)
+    dimension_boxes_complete = not dimensions or all(item.get("box") for item in dimensions)
+    note_boxes_complete = not notes or all(item.get("box") for item in notes)
     estimated_dimensions = [item for item in dimensions if item.get("box_source") == "estimated"]
     native_dimensions = [item for item in dimensions if (item.get("box_source") or "native") == "native"]
     rendered_dimensions = [item for item in dimensions if item.get("box_source") == "pdf_vector_text"]
+    rendered_notes = [item for item in notes if item.get("box_source") == "pdf_vector_text"]
     confirmed_findings = [item for item in findings if item.get("confirmed_collision")]
     estimated_risk_findings = [item for item in findings if not item.get("confirmed_collision")]
     previews = list(preview_evidence or [])
@@ -163,7 +225,9 @@ def review_drawing_layout(structure, *, padding_m=0.001, preview_evidence=None) 
             "id": "drawing-dimension-boxes",
             "status": "pass" if dimension_boxes_complete and not estimated_dimensions else "warning",
             "message": (
-                "尺寸文字边界完整（SolidWorks 原生或最终 PDF 矢量文字）"
+                "没有读取到尺寸实体"
+                if not dimensions
+                else "尺寸文字边界完整（SolidWorks 原生或最终 PDF 矢量文字）"
                 if dimension_boxes_complete and not estimated_dimensions
                 else f"SolidWorks 原生边界 {len(native_dimensions)}/{len(dimensions)}，PDF 最终文字边界 {len(rendered_dimensions)}/{len(dimensions)}，保守估算 {len(estimated_dimensions)}/{len(dimensions)}"
             ),
@@ -174,6 +238,11 @@ def review_drawing_layout(structure, *, padding_m=0.001, preview_evidence=None) 
             "message": "估算边界仅用于风险筛查，不作为 SolidWorks 原生包围盒" if estimated_dimensions else "没有使用估算尺寸边界",
         },
         {"id": "drawing-title-block-box", "status": "pass" if title_box else "warning", "message": "标题栏区域可用于碰撞检查" if title_box else "缺少标题栏区域证据"},
+        {
+            "id": "drawing-note-boxes",
+            "status": "pass" if note_boxes_complete else "warning",
+            "message": f"注释边界完整（PDF 回填 {len(rendered_notes)} 项）" if note_boxes_complete else "部分注释缺少边界，无法完整检查注释碰撞",
+        },
         {
             "id": "drawing-layout-collisions",
             "status": "fail" if confirmed_findings else "warning" if estimated_risk_findings else "pass",
@@ -197,7 +266,7 @@ def review_drawing_layout(structure, *, padding_m=0.001, preview_evidence=None) 
     elif estimated_risk_findings:
         status = "review_required"
         error_code = "DRAWING_LAYOUT_ESTIMATED_COLLISION_RISK"
-    elif not view_boxes_complete or not dimension_boxes_complete or not title_box:
+    elif not view_boxes_complete or not dimension_boxes_complete or not title_box or not note_boxes_complete:
         status = "review_required"
         error_code = "DRAWING_LAYOUT_EVIDENCE_INCOMPLETE"
     elif estimated_dimensions:
@@ -341,6 +410,8 @@ def inspect_pdf_text_layout(path, *, maximum_spans=20000, minimum_overlap_area_p
             x0, y0, x1, y1 = current["bboxPt"]
             active = [item for item in active if item["bboxPt"][2] > x0]
             for other in active:
+                if not _pdf_text_overlap_candidate(other["text"]) or not _pdf_text_overlap_candidate(current["text"]):
+                    continue
                 ox0, oy0, ox1, oy1 = other["bboxPt"]
                 width = min(x1, ox1) - max(x0, ox0)
                 height = min(y1, oy1) - max(y0, oy0)

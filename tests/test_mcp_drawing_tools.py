@@ -14,12 +14,18 @@ if str(MCP_SERVER) not in sys.path:
 
 import server  # noqa: E402
 from scripts.drawing_spec import validate_drawing_spec  # noqa: E402
+from scripts.validate_mcp import REQUIRED_TOOLS  # noqa: E402
 
 
 def test_drawing_mcp_tools_are_registered():
     tools = server.mcp._tool_manager._tools
 
     assert {"solidworks_generate_drawing", "solidworks_review_drawing", "solidworks_inspect_drawing"} <= set(tools)
+
+
+def test_release_mcp_gate_requires_drawing_tools():
+    """@brief 发布验证清单必须覆盖三个工程图 MCP 工具。"""
+    assert {"solidworks_generate_drawing", "solidworks_review_drawing", "solidworks_inspect_drawing"} <= REQUIRED_TOOLS
 
 
 def test_generate_drawing_input_rejects_non_drawing_spec(tmp_path: Path):

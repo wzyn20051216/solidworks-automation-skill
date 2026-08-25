@@ -12,6 +12,7 @@
     "projection": { "enum": ["first_angle", "third_angle"] },
     "paperSize": { "enum": ["A4", "A3", "A2", "A1", "A0"] },
     "modelSizeMm": { "type": "array", "minItems": 3, "maxItems": 3, "items": { "type": "number", "exclusiveMinimum": 0 } },
+    "insertModelDimensions": { "type": "boolean" },
     "templateCandidates": { "type": "array", "items": { "type": "string" } },
     "views": {
       "type": "object",

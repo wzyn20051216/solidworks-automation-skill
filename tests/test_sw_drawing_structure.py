@@ -663,3 +663,37 @@ def test_review_estimated_overlap_is_risk_not_confirmed_collision():
     assert finding["confirmed_collision"] is False
     assert result["error_code"] == "DRAWING_LAYOUT_ESTIMATED_COLLISION_RISK"
     assert next(item for item in result["checks"] if item["id"] == "drawing-layout-collisions")["status"] == "warning"
+
+
+def test_review_drawing_layout_checks_note_collisions_and_missing_boxes():
+    """@brief 注释侵入视图或缺少边界时不能被当作无碰撞。"""
+    result = review_drawing_layout({
+        "views": [
+            {"name": "Front", "sheet": "Sheet1", "box": {"left": 0.10, "bottom": 0.10, "right": 0.20, "top": 0.20}},
+            {"name": "Top", "sheet": "Sheet1", "box": {"left": 0.10, "bottom": 0.23, "right": 0.20, "top": 0.29}},
+            {"name": "Right", "sheet": "Sheet1", "box": {"left": 0.03, "bottom": 0.10, "right": 0.08, "top": 0.20}},
+        ],
+        "dimensions": [],
+        "notes": [{
+            "sheet": "Sheet1",
+            "text": "Material: ABS",
+            "box": {"left": 0.12, "bottom": 0.12, "right": 0.18, "top": 0.14},
+        }],
+        "title_block": {"box": {"left": 0.23, "bottom": 0.01, "right": 0.40, "top": 0.06}},
+    })
+
+    assert result["status"] == "review_required"
+    assert any(item["code"] == "DRAWING_NOTE_VIEW_INTRUSION" for item in result["findings"])
+
+    missing_box = review_drawing_layout({
+        "views": [
+            {"name": "Front", "box": {"left": 0.10, "bottom": 0.10, "right": 0.20, "top": 0.20}},
+            {"name": "Top", "box": {"left": 0.10, "bottom": 0.23, "right": 0.20, "top": 0.29}},
+            {"name": "Right", "box": {"left": 0.03, "bottom": 0.10, "right": 0.08, "top": 0.20}},
+        ],
+        "dimensions": [],
+        "notes": [{"text": "Material: ABS", "position_m": [0.02, 0.02, 0.0]}],
+        "title_block": {"box": {"left": 0.23, "bottom": 0.01, "right": 0.40, "top": 0.06}},
+    })
+    assert missing_box["status"] == "review_required"
+    assert missing_box["error_code"] == "DRAWING_LAYOUT_EVIDENCE_INCOMPLETE"

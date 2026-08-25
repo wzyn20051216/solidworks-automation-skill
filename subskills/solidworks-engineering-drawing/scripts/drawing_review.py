@@ -63,6 +63,7 @@ def _note_report(
         "missing_structure": [],
         "missing_position": [],
         "missing_pdf": [],
+        "pdf_matches": [],
         "pdf": None,
         "status": "pass",
         "error_code": None,
@@ -84,12 +85,33 @@ def _note_report(
     if pdf.get("status") == "blocked":
         base.update({"status": "blocked", "missing_pdf": required, "error_code": pdf.get("error_code") or "DRAWING_NOTE_PDF_EVIDENCE_MISSING"})
         return base
-    rendered_text = "\n".join(
-        str(span.get("text") or "")
-        for page in pdf.get("pages") or []
-        for span in page.get("textSpans") or []
-    )
-    base["missing_pdf"] = [text for text in required if text not in rendered_text]
+    sheet_order = {str(name): index + 1 for index, name in enumerate((structure or {}).get("sheets") or [])}
+    used_spans: set[tuple[int, int]] = set()
+    for text in required:
+        note_records = [item for item in notes if str(item.get("text") or "") == text]
+        sheet = str(note_records[0].get("sheet") or "") if note_records else ""
+        expected_page = sheet_order.get(sheet, 1)
+        candidates = []
+        for page in pdf.get("pages") or []:
+            if int(page.get("page", 0)) != expected_page:
+                continue
+            for span_index, span in enumerate(page.get("textSpans") or []):
+                if (expected_page, span_index) in used_spans:
+                    continue
+                if str(span.get("text") or "").strip() == text:
+                    candidates.append((expected_page, span_index, span))
+        if candidates:
+            page_number, span_index, span = candidates[0]
+            used_spans.add((page_number, span_index))
+            base["pdf_matches"].append({
+                "text": text,
+                "page": page_number,
+                "bbox_pt": list(span["bboxPt"]),
+                "span_text": span.get("text", ""),
+                "evidence_source": "pdf_vector_text_bbox",
+            })
+        else:
+            base["missing_pdf"].append(text)
     if base["missing_structure"] or base["missing_position"] or base["missing_pdf"]:
         base.update({"status": "blocked", "error_code": "DRAWING_NOTE_EVIDENCE_INCOMPLETE"})
     return base
@@ -235,6 +257,42 @@ def _with_rendered_dimension_boxes(structure: Mapping[str, Any], rendering: Mapp
     return result
 
 
+def _with_rendered_note_boxes(structure: Mapping[str, Any], note_report: Mapping[str, Any]) -> dict[str, Any]:
+    """@brief 用最终 PDF 的注释文字框补齐 SolidWorks 未返回的注释范围。"""
+    result = copy.deepcopy(dict(structure))
+    notes = list(result.get("notes") or [])
+    sheet_size = result.get("sheet_size") or {}
+    try:
+        width_m = float(sheet_size["width_m"])
+        height_m = float(sheet_size["height_m"])
+    except (KeyError, TypeError, ValueError):
+        return result
+    pdf_payload = note_report.get("pdf") or {}
+    pages = {int(page.get("page")): page for page in (pdf_payload.get("pages") or [])}
+    matches = list(note_report.get("pdf_matches") or [])
+    for note in notes:
+        if note.get("box"):
+            continue
+        text = str(note.get("text") or "")
+        match = next((item for item in matches if item.get("text") == text), None)
+        if not match or int(match.get("page", 0)) not in pages:
+            continue
+        page = pages[int(match["page"])]
+        page_width = float(page["widthPt"])
+        page_height = float(page["heightPt"])
+        left, top, right, bottom = (float(value) for value in match["bbox_pt"])
+        note["box"] = {
+            "left": left / page_width * width_m,
+            "bottom": (page_height - bottom) / page_height * height_m,
+            "right": right / page_width * width_m,
+            "top": (page_height - top) / page_height * height_m,
+        }
+        note["box_source"] = "pdf_vector_text"
+        note["box_confidence"] = "high"
+    result["notes"] = notes
+    return result
+
+
 def review_drawing_artifacts(
     spec_source: str | Path | Mapping[str, Any],
     *,
@@ -265,11 +323,11 @@ def review_drawing_artifacts(
             "manual_review_required": True,
         }
     )
-    reviewed_structure = (
-        _with_rendered_dimension_boxes(structure, pdf_dimension_rendering)
-        if pdf_dimension_rendering and pdf_dimension_rendering.get("status") == "pass"
-        else structure
-    )
+    note_report = _note_report(spec, structure, pdf_path)
+    reviewed_structure = structure
+    if pdf_dimension_rendering and pdf_dimension_rendering.get("status") == "pass":
+        reviewed_structure = _with_rendered_dimension_boxes(reviewed_structure, pdf_dimension_rendering)
+    reviewed_structure = _with_rendered_note_boxes(reviewed_structure, note_report)
     layout = review_drawing_layout(reviewed_structure, preview_evidence=preview_evidence) if reviewed_structure else {
         "status": "blocked", "error_code": "DRAWING_STRUCTURE_EVIDENCE_MISSING", "findings": [], "checks": []
     }
@@ -277,9 +335,22 @@ def review_drawing_artifacts(
     findings.extend(layout.get("findings") or [])
     dimension_report = _required_dimension_report(spec, reviewed_structure)
     hole_report = _hole_report(spec, model_evidence)
-    note_report = _note_report(spec, reviewed_structure, pdf_path)
     checks.append(_check("drawing-required-dimensions", dimension_report["status"], f"必需尺寸 {dimension_report['required_count']} 项，缺失 {len(dimension_report['missing'])} 项", missing=dimension_report["missing"]))
     checks.append(_check("drawing-hole-requirements", hole_report["status"], f"孔槽要求 {hole_report['required_count']} 项，缺失 {len(hole_report['missing'])} 项", missing=hole_report["missing"]))
+    model_dimensions_requested = bool(spec.get("insertModelDimensions", True))
+    model_dimension_status = "pass"
+    if model_dimensions_requested and not structure.get("dimensions") and not spec.get("requiredDimensions"):
+        model_dimension_status = "fail"
+        findings.append({
+            "code": "DRAWING_MODEL_DIMENSIONS_MISSING",
+            "severity": "fail",
+            "message": "规格要求插入模型尺寸，但结构证据中没有读取到任何尺寸实体；请补充尺寸或显式设置 insertModelDimensions=false。",
+        })
+    checks.append(_check(
+        "drawing-model-dimensions",
+        model_dimension_status,
+        "已读取模型尺寸实体" if model_dimension_status == "pass" else "规格要求模型尺寸，但工程图没有尺寸实体",
+    ))
     checks.append(_check(
         "drawing-notes",
         note_report["status"],
@@ -320,7 +391,7 @@ def review_drawing_artifacts(
         pdf_report = inspect_pdf_text_layout(pdf_path)
         checks.append(_check("drawing-pdf-text-layout", "warning" if pdf_report.get("overlaps") or pdf_report.get("status") == "blocked" else "pass", pdf_report.get("message", "PDF文字边界已检查")))
         if pdf_report.get("overlaps"):
-            findings.append({"code": "DRAWING_PDF_TEXT_OVERLAP_RISK", "severity": "warning", "overlaps": pdf_report["overlaps"]})
+            findings.append({"code": "DRAWING_PDF_TEXT_OVERLAP_RISK", "severity": "fail", "overlaps": pdf_report["overlaps"]})
     rendering_status = "pass" if pdf_dimension_rendering.get("status") == "pass" else "warning"
     checks.append(_check(
         "drawing-pdf-rendered-dimension-boxes",
@@ -335,7 +406,7 @@ def review_drawing_artifacts(
     rendering_status = pdf_dimension_rendering.get("status")
     status = (
         "blocked"
-        if layout.get("status") == "blocked" or rendering_status == "blocked" or note_report["status"] == "blocked"
+        if layout.get("status") == "blocked" or rendering_status == "blocked" or note_report["status"] == "blocked" or (pdf_report and pdf_report.get("overlaps"))
         else "review_required"
         if fail_findings or layout.get("status") != "pass" or rendering_status != "pass" or validation["status"] == "pilot"
         else "pass"

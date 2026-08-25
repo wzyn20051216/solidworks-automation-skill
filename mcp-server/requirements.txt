@@ -2,3 +2,4 @@ mcp>=1.27,<2
 pydantic>=2.0
 pywin32>=305
 comtypes>=1.2.0
+jsonschema>=4.20,<5

@@ -31,6 +31,13 @@ def test_gbt_drawing_spec_defaults_are_explicit_and_valid():
     assert result["capability"] == "solidworks-engineering-drawing"
 
 
+def test_existing_model_dimension_switch_is_supported_by_schema():
+    """@brief 兼容工程图工作流已公开使用的 insertModelDimensions 字段。"""
+    result = validate_drawing_spec(_spec(insertModelDimensions=True))
+
+    assert result["status"] == "pass"
+
+
 def test_gbt_third_angle_is_blocked():
     result = validate_drawing_spec(_spec(projection="third_angle"))
 
@@ -62,6 +69,14 @@ def test_assembly_bom_requires_a_real_template(tmp_path: Path):
 
     assert result["status"] == "blocked"
     assert any(item["code"] == "DRAWING_BOM_TEMPLATE_MISSING" for item in result["issues"])
+
+
+def test_drawing_spec_rejects_schema_shape_errors_and_unknown_fields():
+    """@brief JSON Schema 错误不能被业务层的部分手写检查漏放。"""
+    result = validate_drawing_spec(_spec(unexpected=True, modelSizeMm=[120, "bad", 12]))
+
+    assert result["status"] == "blocked"
+    assert sum(item["code"] == "DRAWING_SPEC_SCHEMA_INVALID" for item in result["issues"]) >= 2
 
 
 def test_first_angle_layout_places_top_below_and_right_left():
@@ -126,6 +141,23 @@ def test_review_requires_dimension_and_layout_evidence():
 
     assert result["status"] == "blocked"
     assert any(item["code"] == "DRAWING_REQUIRED_DIMENSIONS_MISSING" for item in result["findings"])
+
+
+def test_review_names_missing_model_dimensions_when_auto_insert_is_requested():
+    """@brief 自动插入尺寸失败时报告明确原因，不把它归因于包围盒限制。"""
+    structure = {
+        "views": [
+            {"name": "Front", "box": {"left": 0.20, "bottom": 0.10, "right": 0.32, "top": 0.18}},
+            {"name": "Top", "box": {"left": 0.20, "bottom": 0.08, "right": 0.32, "top": 0.095}},
+            {"name": "Right", "box": {"left": 0.08, "bottom": 0.10, "right": 0.18, "top": 0.18}},
+        ],
+        "dimensions": [],
+        "title_block": {"box": {"left": 0.23, "bottom": 0.01, "right": 0.40, "top": 0.06}},
+    }
+    result = review_drawing_artifacts(_spec(insertModelDimensions=True), structure=structure)
+
+    assert result["status"] == "blocked"
+    assert any(item["code"] == "DRAWING_MODEL_DIMENSIONS_MISSING" for item in result["findings"])
 
 
 def test_final_pdf_dimension_boxes_replace_com_estimates_for_delivery_pass(tmp_path: Path):

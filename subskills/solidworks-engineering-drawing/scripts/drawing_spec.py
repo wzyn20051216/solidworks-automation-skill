@@ -5,11 +5,17 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
+try:
+    from jsonschema import Draft202012Validator
+except ImportError:  # pragma: no cover - 由安装依赖提供，保留清晰的运行时门禁
+    Draft202012Validator = None
+
 
 SCHEMA_VERSION = "1.0"
 PAPER_SIZES = {"A4", "A3", "A2", "A1", "A0"}
 PROJECTIONS = {"first_angle", "third_angle"}
 DOCUMENT_TYPES = {"part", "assembly", "sheet_metal"}
+SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schemas" / "drawing_spec.schema.json"
 
 
 def load_drawing_spec(source: str | Path | Mapping[str, Any]) -> dict[str, Any]:
@@ -32,6 +38,22 @@ def _issue(code: str, message: str, severity: str = "error", path: str = "") -> 
     return {"code": code, "message": message, "severity": severity, "path": path}
 
 
+def _schema_issues(spec: Mapping[str, Any]) -> list[dict[str, str]]:
+    """@brief 使用正式 JSON Schema 做基础类型、字段和坐标校验。"""
+    if Draft202012Validator is None:
+        return [_issue("DRAWING_SPEC_SCHEMA_VALIDATOR_MISSING", "缺少 jsonschema 依赖，不能安全校验 DrawingSpec。")]
+    try:
+        schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+        validator = Draft202012Validator(schema)
+        issues = []
+        for error in sorted(validator.iter_errors(spec), key=lambda item: tuple(str(part) for part in item.absolute_path)):
+            path = ".".join(str(part) for part in error.absolute_path)
+            issues.append(_issue("DRAWING_SPEC_SCHEMA_INVALID", error.message, path=path))
+        return issues
+    except (OSError, json.JSONDecodeError) as exc:
+        return [_issue("DRAWING_SPEC_SCHEMA_INVALID", f"无法读取 DrawingSpec Schema: {exc}")]
+
+
 def validate_drawing_spec(source: str | Path | Mapping[str, Any]) -> dict[str, Any]:
     """@brief 校验工程图规格并返回可追溯的阻断/通过报告。"""
     try:
@@ -39,7 +61,7 @@ def validate_drawing_spec(source: str | Path | Mapping[str, Any]) -> dict[str, A
     except ValueError as exc:
         return {"status": "blocked", "schema_version": SCHEMA_VERSION, "issues": [_issue("DRAWING_SPEC_INVALID", str(exc))]}
 
-    issues: list[dict[str, str]] = []
+    issues: list[dict[str, str]] = _schema_issues(spec)
     required = ("schemaVersion", "sourceModel", "documentType", "standard", "projection", "paperSize", "views", "outputs")
     for field in required:
         if field not in spec:
