@@ -148,6 +148,7 @@ def review_drawing_layout(structure, *, padding_m=0.001, preview_evidence=None) 
     dimension_boxes_complete = bool(dimensions) and all(item.get("box") for item in dimensions)
     estimated_dimensions = [item for item in dimensions if item.get("box_source") == "estimated"]
     native_dimensions = [item for item in dimensions if (item.get("box_source") or "native") == "native"]
+    rendered_dimensions = [item for item in dimensions if item.get("box_source") == "pdf_vector_text"]
     confirmed_findings = [item for item in findings if item.get("confirmed_collision")]
     estimated_risk_findings = [item for item in findings if not item.get("confirmed_collision")]
     previews = list(preview_evidence or [])
@@ -162,9 +163,9 @@ def review_drawing_layout(structure, *, padding_m=0.001, preview_evidence=None) 
             "id": "drawing-dimension-boxes",
             "status": "pass" if dimension_boxes_complete and not estimated_dimensions else "warning",
             "message": (
-                "尺寸文字原生边界完整"
+                "尺寸文字边界完整（SolidWorks 原生或最终 PDF 矢量文字）"
                 if dimension_boxes_complete and not estimated_dimensions
-                else f"原生边界 {len(native_dimensions)}/{len(dimensions)}，保守估算 {len(estimated_dimensions)}/{len(dimensions)}"
+                else f"SolidWorks 原生边界 {len(native_dimensions)}/{len(dimensions)}，PDF 最终文字边界 {len(rendered_dimensions)}/{len(dimensions)}，保守估算 {len(estimated_dimensions)}/{len(dimensions)}"
             ),
         },
         {
@@ -213,13 +214,14 @@ def review_drawing_layout(structure, *, padding_m=0.001, preview_evidence=None) 
         "evidence_summary": {
             "dimension_count": len(dimensions),
             "native_dimension_box_count": len(native_dimensions),
+            "rendered_dimension_box_count": len(rendered_dimensions),
             "estimated_dimension_box_count": len(estimated_dimensions),
             "confirmed_collision_count": len(confirmed_findings),
             "estimated_collision_risk_count": len(estimated_risk_findings),
             "pixel_preview_available": pixel_preview_available,
             "estimated_evidence_is_native": False,
         },
-        "manual_review_required": True,
+        "manual_review_required": status != "pass",
         "retryable": status != "pass",
         "error_code": error_code,
     }

@@ -34,6 +34,5 @@ from scripts.sw_drawing import plan_standard_view_layout
 
 ## 状态
 
-当前为 `pilot`。机器检查通过不等于 GB/T 图纸最终交付通过，必须人工检查图框、标题栏、
-尺寸链、孔表、BOM、线型和文字重叠。
-
+当前为 `pilot`。交付时强制将 COM 尺寸位置与 SolidWorks 导出 PDF 的实际矢量文字框一一关联；
+关联完整且没有碰撞时可返回 `pass`。缺 PDF、缺 PyMuPDF、匹配不完整或发现重叠时不会放行。

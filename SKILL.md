@@ -13,6 +13,7 @@ metadata: { "openclaw": { "homepage": "https://github.com/wzyn20051216/solidwork
 - Windows 系统；原生 SolidWorks 格式需要 SolidWorks，开放格式无头写入不要求安装 CAD 软件
 - Python 3.10+；原生 Windows CAD 自动化另需 `pywin32` / `comtypes`
 - MCP/工具化调用需要 `mcp` / `pydantic`
+- 工程图最终交付审查需要 `PyMuPDF`；它从 SolidWorks 导出 PDF 回读实际尺寸文字边界，已包含在 `requirements.txt`
 - 处理 GLB/GLTF/OBJ/STL 网格参考模型时，可能还需要 `trimesh` / `pygltflib` / `numpy` / `Pillow`
 - 如果通过 OpenClaw 使用，确保技能目录位于 `~/.openclaw/skills/solidworks-automation/` 或 `~/.agents/skills/solidworks-automation/`
 
@@ -50,7 +51,7 @@ python SKILL_DIR/scripts/cad_studio.py doctor
 
 ### Python 依赖提醒
 
-按任务最小化安装依赖，不要在普通零件建模时强制安装网格转换库：
+按任务最小化安装依赖，不要在普通零件建模时强制安装网格转换库；工程图交付需要标准 `requirements.txt` 中的 PyMuPDF：
 
 ```powershell
 # 核心 SolidWorks COM 自动化依赖

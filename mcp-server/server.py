@@ -1995,7 +1995,7 @@ def solidworks_generate_drawing(params: SolidWorksGenerateDrawingInput) -> str:
             },
             "generation": generation,
             "review": review,
-            "manual_review_required": True,
+            "manual_review_required": bool(review.get("manual_review_required", True)),
         }
         report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         payload["reportPath"] = str(report_path)
@@ -2036,7 +2036,7 @@ def solidworks_review_drawing(params: SolidWorksReviewDrawingInput) -> str:
             pdf_path=params.pdf_path,
             preview_evidence=preview_evidence,
         )
-        payload = {"status": review.get("status"), "drawingPath": str(Path(params.drawing_path).resolve()), "structure": structure, "previews": preview_evidence, "review": review, "manual_review_required": True}
+        payload = {"status": review.get("status"), "drawingPath": str(Path(params.drawing_path).resolve()), "structure": structure, "previews": preview_evidence, "review": review, "manual_review_required": bool(review.get("manual_review_required", True))}
         report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         payload["reportPath"] = str(report_path)
         return payload

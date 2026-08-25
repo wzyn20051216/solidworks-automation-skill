@@ -113,6 +113,7 @@ python scripts/cad_studio.py create-ocp-surface --input .\smooth-loft.json --out
 - **无头写入**: 不要求安装 SolidWorks/AutoCAD；DXF 需要 `ezdxf`
 - **OCCT 几何后端**: 安装 `requirements-occt.txt` 后启用 STEP/IGES/BREP/GLB 和布尔孔切除
 - **开放 FEA**: CalculiX 可作为外部 GPL 求解器放在 D/E 盘；程序不会把其二进制打包进 MIT 发布物
+- **工程图最终审查依赖**: `PyMuPDF`，用于读取 SolidWorks 导出 PDF 的实际尺寸文字边界；已包含在 `requirements.txt`
 - **网格转换可选依赖**: `trimesh`、`pygltflib`、`numpy`、`Pillow`
 
 > 运行前可执行 `python scripts/sw_preflight.py`。如果缺少 `comtypes` / `win32com`，脚本会先询问是否授权 AI 自动配置本地环境；如果未检测到 SolidWorks，会直接停止并提示先手动安装 SolidWorks。
@@ -125,13 +126,13 @@ python scripts/cad_studio.py create-ocp-surface --input .\smooth-loft.json --out
 | pywin32 / comtypes | SolidWorks、AutoCAD COM 原生自动化 | `python -m pip install "pywin32>=305" "comtypes>=1.2.0"` |
 | ezdxf | DXF 无头读写、图层和实体检查 | `python -m pip install "ezdxf>=1.3,<2"` |
 | OCP / OCCT | STEP、IGES、BREP、GLB 无头几何写入 | `python -m pip install -r requirements-occt.txt` |
-| PyMuPDF | PDF 预览与矢量文字复核 | `python -m pip install -r requirements-pdf.txt` |
+| PyMuPDF | 工程图最终 PDF 尺寸文字边界审查，工程图交付必需 | 已随 `python -m pip install -r requirements.txt` 安装 |
 | CalculiX | 开放 FEA 求解 | [CalculiX 官方站](https://www.calculix.de/)；解压到 D/E 盘后设置 `CADSTUDIO_CALCULIX_EXE` 指向 `ccx.exe` |
 | Agent CLI | AI 对话与任务执行，安装任意一个即可 | [Codex](https://developers.openai.com/codex/cli/) / [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) / [Gemini CLI](https://github.com/google-gemini/gemini-cli) / [OpenCode](https://opencode.ai/) |
 | SolidWorks | `SLDPRT/SLDASM/SLDDRW` 原生格式 | [SolidWorks 官方站](https://www.solidworks.com/)；需要合法安装与可用许可 |
 | AutoCAD | 原生 DWG 后端 | [AutoCAD 官方站](https://www.autodesk.com/products/autocad/overview)；需要合法安装与可用许可 |
 
-安装依赖后重新运行 `python scripts/cad_studio.py doctor`。不要为了补齐可选环境一次性安装全部依赖；只安装当前任务需要的后端即可。
+安装依赖后重新运行 `python scripts/cad_studio.py doctor`。不要为了补齐可选环境一次性安装全部依赖；工程图交付除外，它要求 `requirements.txt` 中的 PyMuPDF。
 
 ### 🚀 快速开始
 

@@ -21,7 +21,7 @@ metadata: { "openclaw": { "os": ["win32"], "requires": { "anyBins": ["python", "
 - `standard=GB_T` 默认使用 `projection=first_angle`。
 - GB/T + 第三角投影会被 `DrawingSpec` 前置检查阻断。
 - 所有孔、槽和接口必须有规格、数量和定位信息。
-- 估算尺寸包围盒、PDF 文字框和非空 BMP 只能作为风险证据，不能替代人工目视终审。
+- 工程图交付必须导出 PDF，并将每个 COM 尺寸位置与最终 PDF 的矢量文字框一一关联；PDF 缺失、解析器缺失、关联不完整或文字碰撞都会阻断或要求复核。
 - 本子技能不实现强化学习，也不暴露任意 Python/VBA 执行入口。
 
 ## 工作流
@@ -35,7 +35,7 @@ metadata: { "openclaw": { "os": ["win32"], "requires": { "anyBins": ["python", "
 
 ## 能力边界
 
-- 零件和装配工程图为 pilot：生成和机器检查可用，但 GB/T 内容、尺寸链和可制造性仍需人工终审。
+- 零件和装配工程图为 pilot：跨版本真机回归仍在持续；但在 PDF 尺寸文字框、视图边界、尺寸链、孔表和 BOM 证据全部通过时，工具会返回 `pass`，不会因 COM 缺少原生文字框而无条件降级。
 - 钣金工程图只有在本机存在可靠展开图证据时继续；缺证据返回 `blocked`，不宣称无人值守完成。
 - 完整 GD&T 语义求解不在本版本范围内，只检查要求是否存在并可追溯。
 
@@ -43,4 +43,3 @@ metadata: { "openclaw": { "os": ["win32"], "requires": { "anyBins": ["python", "
 
 优先复用：`scripts/sw_connect.py`、`scripts/sw_session.py`、`scripts/sw_export.py`、
 `scripts/sw_review.py`、`scripts/sw_document_data.py` 和 `scripts/sw_capability_probe.py`。
-
