@@ -947,15 +947,145 @@ def insert_dimensions(drawing_model, view=None):
     return False
 
 
-def add_note(drawing_model, x, y, text):
-    """
-    添加注释
+def _note_text(note):
+    """@brief 读取 INote 的实际文字，兼容动态 COM 未公开成员名称的情况。"""
+    text = _safe_member(note, "GetText")
+    if isinstance(text, str):
+        return text
+    ole_object = getattr(note, "_oleobj_", None)
+    if ole_object is None:
+        return ""
+    try:
+        # SW2026 sldworks.tlb: INote.GetText 的 DISPID 为 2，返回 BSTR。
+        return str(ole_object.InvokeTypes(2, 0, 1, (8, 0), ()) or "")
+    except Exception:
+        return ""
 
-    参数:
-        x, y: 注释位置（米）
-        text: 注释文本
+
+def _note_annotation(note):
+    """@brief 获取 INote 对应的 IAnnotation；动态 COM 不公开该成员时按类型库调用。"""
+    annotation = _safe_member(note, "GetAnnotation")
+    if annotation is not None:
+        return annotation
+    ole_object = getattr(note, "_oleobj_", None)
+    if ole_object is None:
+        return None
+    try:
+        # SW2026 sldworks.tlb: INote.GetAnnotation 的 DISPID 为 85。
+        from win32com.client.dynamic import Dispatch
+
+        return Dispatch(ole_object.InvokeTypes(85, 0, 1, (9, 0), ()))
+    except Exception:
+        return None
+
+
+def _set_annotation_position(annotation, x, y, z=0.0):
+    """@brief 设置 IAnnotation 的图纸坐标，返回 SolidWorks 的布尔结果。"""
+    try:
+        result = get_com_member(annotation, "SetPosition2", x, y, z)
+        if isinstance(result, bool):
+            return result
+    except Exception:
+        pass
+    ole_object = getattr(annotation, "_oleobj_", None)
+    if ole_object is None:
+        return False
+    try:
+        # SW2026 sldworks.tlb: IAnnotation.SetPosition2 的 DISPID 为 91。
+        return bool(ole_object.InvokeTypes(91, 0, 1, (11, 0), ((5, 1), (5, 1), (5, 1)), x, y, z))
+    except Exception:
+        return False
+
+
+def _annotation_position(annotation):
+    """@brief 回读 IAnnotation 图纸坐标，坐标不可用时返回 None。"""
+    position = _safe_member(annotation, "GetPosition")
+    values = _as_sequence(position)
+    try:
+        x, y = float(values[0]), float(values[1])
+    except (IndexError, TypeError, ValueError):
+        return None
+    if not math.isfinite(x) or not math.isfinite(y):
+        return None
+    return [x, y, float(values[2]) if len(values) > 2 else 0.0]
+
+
+def _note_box(note, annotation):
+    """@brief 优先读取 INote 的图纸空间范围；没有时退回通用注释边界。"""
+    extent = _safe_member(note, "GetExtent")
+    if extent is None:
+        ole_object = getattr(note, "_oleobj_", None)
+        if ole_object is not None:
+            try:
+                # SW2026 sldworks.tlb: INote.GetExtent 的 DISPID 为 22。
+                extent = ole_object.InvokeTypes(22, 0, 1, (12, 0), ())
+            except Exception:
+                extent = None
+    return _normalise_box(extent) or _annotation_box(annotation)
+
+
+def _note_evidence(note):
+    """@brief 收集注释的文字、位置和边界，作为工程图结构证据。"""
+    annotation = _note_annotation(note)
+    return {
+        "text": _note_text(note),
+        "position_m": _annotation_position(annotation),
+        "box": _note_box(note, annotation),
+    }
+
+
+def add_note(drawing_model, x, y, text):
+    """@brief 创建并验证工程图文字注释。
+
+    @param drawing_model SolidWorks IModelDoc2 工程图对象。
+    @param x 注释锚点 X 坐标（米）。
+    @param y 注释锚点 Y 坐标（米）。
+    @param text 需要写入图纸的非空文字。
+    @return 包含 COM 回读文字、坐标和边界的可审计结果。
     """
-    return drawing_model.InsertNote(text)
+    expected_text = str(text)
+    if not expected_text.strip() or not all(math.isfinite(float(value)) for value in (x, y)):
+        return {
+            "text": expected_text,
+            "created": False,
+            "status": "failed",
+            "error_code": "DRAWING_NOTE_INPUT_INVALID",
+        }
+    note = _safe_member(drawing_model, "InsertNote", expected_text)
+    if note is None:
+        return {
+            "text": expected_text,
+            "created": False,
+            "status": "failed",
+            "error_code": "DRAWING_NOTE_INSERT_FAILED",
+        }
+    annotation = _note_annotation(note)
+    positioned = _set_annotation_position(annotation, float(x), float(y)) if annotation is not None else False
+    if positioned:
+        # 刷新文字与坐标；边界仍必须在视图重枚举后的结构审查阶段读取。
+        _safe_member(drawing_model, "ForceRebuild3", False)
+    evidence = _note_evidence(note)
+    position = evidence.get("position_m") or []
+    text_matches = evidence.get("text") == expected_text
+    position_matches = (
+        len(position) >= 2
+        and math.isclose(position[0], float(x), abs_tol=1e-6)
+        and math.isclose(position[1], float(y), abs_tol=1e-6)
+    )
+    verified = bool(positioned and text_matches and position_matches)
+    return {
+        "text": expected_text,
+        "created": True,
+        "position_requested_m": [float(x), float(y), 0.0],
+        "positioned": positioned,
+        "text_evidence": evidence.get("text"),
+        "position_evidence_m": position,
+        "box": None,
+        "box_source": "deferred_to_structure_inspection",
+        "verified": verified,
+        "status": "pass" if verified else "failed",
+        "error_code": None if verified else "DRAWING_NOTE_COM_EVIDENCE_MISSING",
+    }
 
 
 def insert_bom_table(drawing_model, template_path, x, y, bom_type=1, config_name=""):
@@ -1166,7 +1296,7 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
                     } if native_box else estimated_box_evidence,
                 })
             for note in _as_sequence(_safe_member(view, "GetNotes", default=[])):
-                notes.append({"sheet": str(sheet_name), "text": _safe_member(note, "Text", default=""), "box": _annotation_box(note)})
+                notes.append({"sheet": str(sheet_name), **_note_evidence(note)})
             for table in _as_sequence(_safe_member(view, "GetTableAnnotations", default=[])):
                 tables.append({"sheet": str(sheet_name), "type": _safe_member(table, "Type", default=None), "box": _annotation_box(table)})
     current_sheet = _safe_member(drawing_model, "GetCurrentSheet")
@@ -1385,8 +1515,19 @@ def generate_drawing_from_spec(drawing_model, spec, source_model_path, template_
             return {"status": "failed", "stage": "bom", "bom": bom_result, "sheetSetup": sheet_setup, "layout": layout, "views": views, "manual_review_required": True}
     notes = []
     for index, note_text in enumerate(spec.get("notes") or []):
-        note = add_note(drawing_model, 0.02, 0.02 + index * 0.006, str(note_text))
-        notes.append({"text": str(note_text), "created": note is not None})
+        note_result = add_note(drawing_model, 0.02, 0.02 + index * 0.006, str(note_text))
+        notes.append(note_result)
+        if note_result.get("status") != "pass":
+            return {
+                "status": "failed",
+                "stage": "notes",
+                "error_code": note_result.get("error_code") or "DRAWING_NOTE_COM_EVIDENCE_MISSING",
+                "notes": notes,
+                "sheetSetup": sheet_setup,
+                "layout": layout,
+                "views": views,
+                "manual_review_required": True,
+            }
     structure = inspect_drawing_structure(
         drawing_model,
         paper_size_hint=paper_size,

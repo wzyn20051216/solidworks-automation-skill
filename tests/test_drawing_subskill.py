@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from scripts.drawing_spec import validate_drawing_spec
-from scripts.sw_drawing import plan_standard_view_layout
+from scripts.sw_drawing import add_note, plan_standard_view_layout
 from scripts.sw_drawing_review import review_drawing_artifacts
 
 
@@ -73,6 +73,45 @@ def test_first_angle_layout_places_top_below_and_right_left():
     assert by_name["*Right"]["center"][0] < by_name["*Front"]["center"][0]
 
 
+def test_note_creation_reads_back_text_and_sheet_position():
+    """@brief 不能仅以 InsertNote 未抛异常认定注释真实落图。"""
+    class Annotation:
+        def __init__(self):
+            self.position = None
+
+        def SetPosition2(self, x, y, z):
+            self.position = (x, y, z)
+            return True
+
+        def GetPosition(self):
+            return self.position
+
+    class Note:
+        def __init__(self, text):
+            self.text = text
+            self.annotation = Annotation()
+
+        def GetText(self):
+            return self.text
+
+        def GetAnnotation(self):
+            return self.annotation
+
+        def GetExtent(self):
+            return (0.02, 0.018, 0.0, 0.05, 0.023, 0.0)
+
+    class Drawing:
+        def InsertNote(self, text):
+            return Note(text)
+
+    result = add_note(Drawing(), 0.02, 0.02, "Material: ABS")
+
+    assert result["status"] == "pass"
+    assert result["verified"] is True
+    assert result["text_evidence"] == "Material: ABS"
+    assert result["position_evidence_m"] == [0.02, 0.02, 0.0]
+
+
 def test_review_requires_dimension_and_layout_evidence():
     structure = {
         "views": [
@@ -98,6 +137,7 @@ def test_final_pdf_dimension_boxes_replace_com_estimates_for_delivery_pass(tmp_p
     page = document.new_page(width=1190.55, height=841.89)
     # A3 横向坐标换算：m -> pt；PDF Y 轴和 SolidWorks 图纸 Y 轴方向相反。
     page.insert_text((456.3, 598.2), "120", fontsize=12)
+    page.insert_text((100, 700), "Material: ABS", fontsize=12)
     document.save(pdf_path)
     document.close()
     structure = {
@@ -117,10 +157,11 @@ def test_final_pdf_dimension_boxes_replace_com_estimates_for_delivery_pass(tmp_p
             "box_confidence": "low",
             "box_evidence": {"position_m": [0.161, 0.086]},
         }],
+        "notes": [{"sheet": "Sheet1", "text": "Material: ABS", "position_m": [0.02, 0.02, 0.0]}],
         "title_block": {"box": {"left": 0.23, "bottom": 0.01, "right": 0.40, "top": 0.06}},
     }
     result = review_drawing_artifacts(
-        _spec(requiredDimensions=[{"id": "D1", "kind": "overall", "view": "Front"}]),
+        _spec(requiredDimensions=[{"id": "D1", "kind": "overall", "view": "Front"}], notes=["Material: ABS"]),
         structure=structure,
         pdf_path=pdf_path,
         preview_evidence=[{"exists": True, "likely_blank": False}],
@@ -129,7 +170,33 @@ def test_final_pdf_dimension_boxes_replace_com_estimates_for_delivery_pass(tmp_p
     assert result["status"] == "pass"
     assert result["manual_review_required"] is False
     assert result["pdf_dimension_rendering"]["status"] == "pass"
+    assert result["note_evidence"]["status"] == "pass"
     assert result["layout"]["evidence_summary"]["rendered_dimension_box_count"] == 1
+
+
+def test_note_absent_from_final_pdf_blocks_delivery(tmp_path: Path):
+    """@brief COM 中存在但 PDF 缺失的注释不能作为交付证据。"""
+    import fitz
+
+    pdf_path = tmp_path / "drawing.pdf"
+    document = fitz.open()
+    document.new_page(width=1190.55, height=841.89)
+    document.save(pdf_path)
+    document.close()
+    structure = {
+        "sheets": ["Sheet1"],
+        "sheet_size": {"width_m": 0.42, "height_m": 0.297},
+        "views": [],
+        "dimensions": [],
+        "notes": [{"sheet": "Sheet1", "text": "Material: ABS", "position_m": [0.02, 0.02, 0.0]}],
+        "title_block": {"candidate": True},
+    }
+
+    result = review_drawing_artifacts(_spec(notes=["Material: ABS"]), structure=structure, pdf_path=pdf_path)
+
+    assert result["status"] == "blocked"
+    assert result["note_evidence"]["missing_pdf"] == ["Material: ABS"]
+    assert result["note_evidence"]["error_code"] == "DRAWING_NOTE_EVIDENCE_INCOMPLETE"
 
 
 def test_unmatched_final_pdf_dimension_keeps_review_gate(tmp_path: Path):

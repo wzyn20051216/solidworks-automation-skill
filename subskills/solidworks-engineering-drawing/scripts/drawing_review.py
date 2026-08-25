@@ -51,6 +51,50 @@ def _hole_report(spec: Mapping[str, Any], model_evidence: Mapping[str, Any] | No
     return {"required_count": len(requirements), "missing": missing, "status": "pass" if not missing else "fail", "evidence_source": "model_measurements" if groups else "missing"}
 
 
+def _note_report(
+    spec: Mapping[str, Any],
+    structure: Mapping[str, Any] | None,
+    pdf_path: str | Path | None,
+) -> dict[str, Any]:
+    """@brief 验证规格注释已在 COM 结构及最终 PDF 中真实出现。"""
+    required = [str(item) for item in spec.get("notes") or [] if str(item).strip()]
+    base = {
+        "required_count": len(required),
+        "missing_structure": [],
+        "missing_position": [],
+        "missing_pdf": [],
+        "pdf": None,
+        "status": "pass",
+        "error_code": None,
+    }
+    if not required:
+        return base
+    notes = list((structure or {}).get("notes") or [])
+    for text in required:
+        matching = [item for item in notes if str(item.get("text") or "") == text]
+        if not matching:
+            base["missing_structure"].append(text)
+        elif not any(item.get("position_m") and len(item["position_m"]) >= 2 for item in matching):
+            base["missing_position"].append(text)
+    if pdf_path is None:
+        base.update({"status": "blocked", "missing_pdf": required, "error_code": "DRAWING_FINAL_PDF_REQUIRED_FOR_NOTES"})
+        return base
+    pdf = inspect_pdf_text_layout(pdf_path)
+    base["pdf"] = pdf
+    if pdf.get("status") == "blocked":
+        base.update({"status": "blocked", "missing_pdf": required, "error_code": pdf.get("error_code") or "DRAWING_NOTE_PDF_EVIDENCE_MISSING"})
+        return base
+    rendered_text = "\n".join(
+        str(span.get("text") or "")
+        for page in pdf.get("pages") or []
+        for span in page.get("textSpans") or []
+    )
+    base["missing_pdf"] = [text for text in required if text not in rendered_text]
+    if base["missing_structure"] or base["missing_position"] or base["missing_pdf"]:
+        base.update({"status": "blocked", "error_code": "DRAWING_NOTE_EVIDENCE_INCOMPLETE"})
+    return base
+
+
 def _boxes_overlap(first: Mapping[str, float], second: Mapping[str, float]) -> bool:
     """@brief 判断 PDF 点坐标文字框是否有可见面积重叠。"""
     return (
@@ -233,12 +277,29 @@ def review_drawing_artifacts(
     findings.extend(layout.get("findings") or [])
     dimension_report = _required_dimension_report(spec, reviewed_structure)
     hole_report = _hole_report(spec, model_evidence)
+    note_report = _note_report(spec, reviewed_structure, pdf_path)
     checks.append(_check("drawing-required-dimensions", dimension_report["status"], f"必需尺寸 {dimension_report['required_count']} 项，缺失 {len(dimension_report['missing'])} 项", missing=dimension_report["missing"]))
     checks.append(_check("drawing-hole-requirements", hole_report["status"], f"孔槽要求 {hole_report['required_count']} 项，缺失 {len(hole_report['missing'])} 项", missing=hole_report["missing"]))
+    checks.append(_check(
+        "drawing-notes",
+        note_report["status"],
+        f"必需注释 {note_report['required_count']} 项，COM 缺失 {len(note_report['missing_structure'])} 项，PDF 缺失 {len(note_report['missing_pdf'])} 项",
+        missing_structure=note_report["missing_structure"],
+        missing_position=note_report["missing_position"],
+        missing_pdf=note_report["missing_pdf"],
+    ))
     if dimension_report["missing"]:
         findings.append({"code": "DRAWING_REQUIRED_DIMENSIONS_MISSING", "severity": "fail", "missing": dimension_report["missing"]})
     if hole_report["missing"]:
         findings.append({"code": "DRAWING_HOLE_REQUIREMENTS_MISSING", "severity": "fail", "missing": hole_report["missing"]})
+    if note_report["status"] != "pass":
+        findings.append({
+            "code": note_report["error_code"] or "DRAWING_NOTE_EVIDENCE_INCOMPLETE",
+            "severity": "fail",
+            "missing_structure": note_report["missing_structure"],
+            "missing_position": note_report["missing_position"],
+            "missing_pdf": note_report["missing_pdf"],
+        })
 
     bom_required = bool((spec.get("bom") or {}).get("required")) or spec.get("documentType") == "assembly"
     table_count = int(structure.get("table_count", len(structure.get("tables") or [])))
@@ -274,7 +335,7 @@ def review_drawing_artifacts(
     rendering_status = pdf_dimension_rendering.get("status")
     status = (
         "blocked"
-        if layout.get("status") == "blocked" or rendering_status == "blocked"
+        if layout.get("status") == "blocked" or rendering_status == "blocked" or note_report["status"] == "blocked"
         else "review_required"
         if fail_findings or layout.get("status") != "pass" or rendering_status != "pass" or validation["status"] == "pilot"
         else "pass"
@@ -290,6 +351,7 @@ def review_drawing_artifacts(
         "layout": layout,
         "dimension_evidence": dimension_report,
         "hole_evidence": hole_report,
+        "note_evidence": note_report,
         "pdf_evidence": pdf_report,
         "pdf_dimension_rendering": pdf_dimension_rendering,
         "manual_review_required": status != "pass",
