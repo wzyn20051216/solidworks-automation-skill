@@ -141,6 +141,47 @@ def test_inspect_drawing_structure_reports_views_dimensions_and_template():
     assert result["dimension_box_count"] == 1
 
 
+def test_inspect_drawing_structure_reads_real_bom_type_cells_and_configuration():
+    """@brief BOM 证据必须包含官方表类型、数据行和引用配置。"""
+    class BomFeature:
+        Configuration = "Default"
+
+    class BomTable:
+        Type = 2
+        RowCount = 2
+        ColumnCount = 3
+        Title = "材料明细表"
+
+        def __init__(self):
+            self.BomFeature = BomFeature()
+
+        def DisplayedText2(self, row, column, include_hidden):
+            assert include_hidden is False
+            return (("序号", "零件号", "数量"), ("1", "PLATE-01", "2"))[row][column]
+
+        def GetAnnotation(self):
+            return None
+
+    class View(FakeView):
+        def GetTableAnnotations(self):
+            return [BomTable()]
+
+    class Sheet(FakeSheet):
+        def GetViews(self):
+            return [View()]
+
+    class Drawing(FakeDrawing):
+        def GetSheet(self, _name):
+            return Sheet()
+
+    result = inspect_drawing_structure(Drawing())
+
+    assert result["tables"][0]["kind"] == "bom"
+    assert result["tables"][0]["row_count"] == 2
+    assert result["tables"][0]["configuration"] == "Default"
+    assert result["tables"][0]["cells"][1] == ["1", "PLATE-01", "2"]
+
+
 def test_inspect_drawing_structure_blocks_empty_drawing():
     class Empty:
         def GetSheetNames(self):

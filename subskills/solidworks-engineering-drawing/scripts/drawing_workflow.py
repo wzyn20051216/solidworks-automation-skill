@@ -1248,6 +1248,66 @@ def _paper_size_from_template(template_path):
     return None
 
 
+TABLE_ANNOTATION_KINDS = {
+    0: "general",
+    1: "hole_chart",
+    2: "bom",
+    3: "revision",
+    4: "weldment_cut_list",
+    5: "title_block",
+    6: "general_tolerance",
+}
+
+
+def _table_cell_text(table, row, column):
+    """@brief 按新版优先、旧版回退的顺序读取表格显示文字。"""
+    for member, args in (
+        ("DisplayedText2", (row, column, False)),
+        ("DisplayedText", (row, column)),
+        ("Text2", (row, column, False)),
+        ("Text", (row, column)),
+    ):
+        value = _safe_member(table, member, *args, default=None)
+        if value is not None:
+            return str(value)
+    return ""
+
+
+def _table_evidence(table, sheet_name):
+    """@brief 回读表格类型、数据行、单元格及 BOM 配置证据。"""
+    table_type = _safe_member(table, "Type", default=None)
+    try:
+        normalized_type = int(table_type)
+    except (TypeError, ValueError):
+        normalized_type = table_type
+    try:
+        row_count = int(_safe_member(table, "RowCount", default=0) or 0)
+        column_count = int(_safe_member(table, "ColumnCount", default=0) or 0)
+    except (TypeError, ValueError):
+        row_count, column_count = 0, 0
+    cells = []
+    if 0 < row_count <= 500 and 0 < column_count <= 100 and row_count * column_count <= 5000:
+        cells = [
+            [_table_cell_text(table, row, column) for column in range(column_count)]
+            for row in range(row_count)
+        ]
+    configuration = ""
+    if normalized_type == 2:
+        bom_feature = _safe_member(table, "BomFeature", default=None)
+        configuration = str(_safe_member(bom_feature, "Configuration", default="") or "")
+    return {
+        "sheet": str(sheet_name),
+        "type": normalized_type,
+        "kind": TABLE_ANNOTATION_KINDS.get(normalized_type, "unknown"),
+        "title": str(_safe_member(table, "Title", default="") or ""),
+        "row_count": row_count,
+        "column_count": column_count,
+        "configuration": configuration,
+        "cells": cells,
+        "box": _annotation_box(table),
+    }
+
+
 def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_block_box=None) -> dict:
     """@brief 读取工程图结构并返回可审计报告，不修改文档。"""
     sheets = _as_sequence(_safe_member(drawing_model, "GetSheetNames", default=[]))
@@ -1267,6 +1327,7 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
                 "sheet": str(sheet_name),
                 "name": _safe_member(view, "Name", default=""),
                 "type": _safe_member(view, "Type", default=None),
+                "orientation": _safe_member(view, "GetOrientationName", default=""),
                 "scale": _safe_member(view, "ScaleRatio", default=None),
                 "box": _normalise_box(_safe_member(view, "GetOutline")),
             }
@@ -1296,9 +1357,14 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
                     } if native_box else estimated_box_evidence,
                 })
             for note in _as_sequence(_safe_member(view, "GetNotes", default=[])):
-                notes.append({"sheet": str(sheet_name), **_note_evidence(note)})
+                notes.append({
+                    "sheet": str(sheet_name),
+                    "owner_view": view_record["name"],
+                    "owner_view_type": view_record["type"],
+                    **_note_evidence(note),
+                })
             for table in _as_sequence(_safe_member(view, "GetTableAnnotations", default=[])):
-                tables.append({"sheet": str(sheet_name), "type": _safe_member(table, "Type", default=None), "box": _annotation_box(table)})
+                tables.append(_table_evidence(table, sheet_name))
     current_sheet = _safe_member(drawing_model, "GetCurrentSheet")
     template = _safe_member(current_sheet, "GetTemplateName", default="")
     paper_size = str(paper_size_hint or _paper_size_from_template(template) or "").upper() or None
@@ -1337,7 +1403,8 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
         "title_block": {
             "candidate": bool(template),
             "gbt_candidate": gbt_candidate,
-            "content_verified": False,
+            "content_verified": any(item.get("kind") == "title_block" and item.get("row_count", 0) > 0 for item in tables),
+            "fields": {},
             "box": _normalise_box(title_block_box) if title_block_box is not None else inferred_title_box,
         },
         "view_count": len(views),

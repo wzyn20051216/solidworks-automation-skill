@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import copy
-import json
 import math
+import re
 import sys
 from pathlib import Path
 from typing import Any, Mapping
@@ -22,33 +22,302 @@ def _check(code: str, status: str, message: str, **extra: Any) -> dict[str, Any]
     return {"id": code, "status": status, "message": message, **extra}
 
 
+def _normalise_token(value: Any) -> str:
+    """@brief 规范化用于精确比对的短文本，但不做子串匹配。"""
+    return re.sub(r"\s+", "", str(value or "")).casefold()
+
+
+def _dimension_identity(dimension: Mapping[str, Any]) -> str:
+    """@brief 提取尺寸的稳定标识；D1 与 D10 必须保持不同。"""
+    explicit = dimension.get("id") or dimension.get("dimension_id")
+    if explicit:
+        return str(explicit).strip()
+    return str(dimension.get("name") or "").split("@", 1)[0].strip()
+
+
+def _dimension_view(dimension: Mapping[str, Any]) -> str:
+    """@brief 优先使用结构化视图名，兼容 SolidWorks 的 ID@View 名称。"""
+    explicit = str(dimension.get("view") or "").strip()
+    if explicit:
+        return explicit.lstrip("*")
+    name = str(dimension.get("name") or "")
+    return name.split("@", 1)[1].strip().lstrip("*") if "@" in name else ""
+
+
+def _dimension_text(dimension: Mapping[str, Any]) -> str:
+    """@brief 最终 PDF 回读文字优先于 COM 的空字符串。"""
+    return str(dimension.get("rendered_text") or dimension.get("text") or "").strip()
+
+
+def _extract_numbers(value: Any) -> list[float]:
+    """@brief 从标注文字中提取有限数值，用于毫米值精确核验。"""
+    result = []
+    for token in re.findall(r"[-+]?\d+(?:\.\d+)?", str(value or "")):
+        try:
+            number = float(token)
+        except ValueError:
+            continue
+        if math.isfinite(number):
+            result.append(number)
+    return result
+
+
+def _dimension_mismatches(requirement: Mapping[str, Any], dimension: Mapping[str, Any]) -> list[str]:
+    """@brief 返回单项尺寸证据与规格之间的全部语义差异。"""
+    mismatches = []
+    expected_view = _normalise_token(str(requirement.get("view") or "").lstrip("*"))
+    actual_view = _normalise_token(_dimension_view(dimension))
+    if expected_view and actual_view != expected_view:
+        mismatches.append("view")
+
+    expected_kind = _normalise_token(requirement.get("kind"))
+    actual_kind = _normalise_token(dimension.get("kind") or dimension.get("semantic_kind"))
+    if expected_kind and actual_kind != expected_kind:
+        mismatches.append("kind")
+
+    actual_text = _dimension_text(dimension)
+    if "text" in requirement and _normalise_token(actual_text) != _normalise_token(requirement.get("text")):
+        mismatches.append("text")
+    if "valueMm" in requirement:
+        expected_value = float(requirement["valueMm"])
+        actual_values = []
+        if dimension.get("value_mm") is not None:
+            try:
+                actual_values.append(float(dimension["value_mm"]))
+            except (TypeError, ValueError):
+                pass
+        rendered_values = _extract_numbers(actual_text)
+        if rendered_values:
+            actual_values.append(rendered_values[0])
+        if not any(abs(value - expected_value) <= 0.01 for value in actual_values):
+            mismatches.append("valueMm")
+    for field in ("tolerance", "datum"):
+        if field not in requirement:
+            continue
+        actual_value = dimension.get(field)
+        if actual_value is None:
+            actual_value = actual_text
+        if _normalise_token(requirement[field]) not in _normalise_token(actual_value):
+            mismatches.append(field)
+    return mismatches
+
+
 def _required_dimension_report(spec: Mapping[str, Any], structure: Mapping[str, Any] | None) -> dict[str, Any]:
+    """@brief 按 ID、视图、种类和值逐项核验必需尺寸，禁止模糊子串放行。"""
     requirements = list(spec.get("requiredDimensions") or [])
     dimensions = list((structure or {}).get("dimensions") or [])
-    text = " ".join(str(item.get("text") or "") for item in dimensions)
-    missing = []
+    checks = []
+    used: set[int] = set()
     for item in requirements:
-        identifier = str(item.get("id") or "")
-        expected = str(item.get("text") or item.get("valueMm") or identifier)
-        if not any(identifier in str(dim.get("name") or "") or expected in str(dim.get("text") or "") for dim in dimensions) and expected not in text:
-            missing.append(identifier or expected)
-    return {"required_count": len(requirements), "missing": missing, "status": "pass" if not missing else "fail"}
+        identifier = str(item.get("id") or "").strip()
+        candidates = [
+            (index, dimension)
+            for index, dimension in enumerate(dimensions)
+            if index not in used and _normalise_token(_dimension_identity(dimension)) == _normalise_token(identifier)
+        ]
+        best = None
+        for index, dimension in candidates:
+            mismatches = _dimension_mismatches(item, dimension)
+            candidate = (len(mismatches), index, dimension, mismatches)
+            if best is None or candidate[0] < best[0]:
+                best = candidate
+        passed = bool(best and not best[3])
+        if passed:
+            used.add(best[1])
+        checks.append({
+            "id": identifier,
+            "passed": passed,
+            "matched_dimension": _dimension_identity(best[2]) if best else None,
+            "mismatches": list(best[3]) if best else ["id"],
+            "expected": dict(item),
+        })
+    missing = [item["id"] for item in checks if not item["passed"]]
+    return {
+        "required_count": len(requirements),
+        "matched_count": len(requirements) - len(missing),
+        "missing": missing,
+        "checks": checks,
+        "status": "pass" if not missing else "fail",
+        "match_policy": "exact structured id/view/kind/value/text/tolerance/datum",
+    }
+
+
+def _hole_specification(specification: Any) -> dict[str, Any]:
+    """@brief 把孔规格解析为螺纹或孔径约束，并保留通孔语义。"""
+    text = str(specification or "").strip()
+    compact = _normalise_token(text).replace("×", "x")
+    thread = re.search(r"m(\d+(?:\.\d+)?)(?:x(\d+(?:\.\d+)?))?", compact)
+    diameter = re.search(r"(?:[ø⌀]|dia(?:meter)?|直径|孔径)(\d+(?:\.\d+)?)", compact)
+    return {
+        "raw": text,
+        "thread": f"m{thread.group(1)}" + (f"x{thread.group(2)}" if thread and thread.group(2) else "") if thread else None,
+        "diameter_mm": float(diameter.group(1)) if diameter else None,
+        "through_required": any(token in compact for token in ("通孔", "贯通", "thru", "through")),
+    }
+
+
+def _distance_mm(expected: list[Any], actual: list[Any]) -> float:
+    """@brief 比较规格声明的二维或三维孔位坐标。"""
+    if len(expected) not in {2, 3} or len(actual) < len(expected):
+        return float("inf")
+    try:
+        return math.sqrt(sum((float(expected[index]) - float(actual[index])) ** 2 for index in range(len(expected))))
+    except (TypeError, ValueError):
+        return float("inf")
+
+
+def _group_semantic_text(group: Mapping[str, Any]) -> str:
+    """@brief 只读取专用语义字段，避免整个 JSON 的无关数字造成命中。"""
+    fields = ("specification", "thread", "thread_specification", "callout", "hole_type")
+    return " ".join(str(group.get(field) or "") for field in fields)
+
+
+def _hole_group_matches(parsed: Mapping[str, Any], group: Mapping[str, Any]) -> tuple[bool, list[str]]:
+    """@brief 核验单个孔组的规格证据，不允许 M8 被直径 8 或其他 M 规格替代。"""
+    mismatches = []
+    semantic = _normalise_token(_group_semantic_text(group)).replace("×", "x")
+    if parsed.get("thread"):
+        tokens = re.findall(r"m\d+(?:\.\d+)?(?:x\d+(?:\.\d+)?)?", semantic)
+        if parsed["thread"] not in tokens:
+            mismatches.append("thread")
+    elif parsed.get("diameter_mm") is not None:
+        diameters = []
+        for value in group.get("diameters_mm") or []:
+            try:
+                diameters.append(float(value))
+            except (TypeError, ValueError):
+                continue
+        if not any(abs(value - float(parsed["diameter_mm"])) <= 0.05 for value in diameters):
+            mismatches.append("diameter")
+    elif _normalise_token(parsed.get("raw")) != semantic:
+        mismatches.append("specification")
+    if parsed.get("through_required"):
+        through = group.get("through")
+        state = _normalise_token(group.get("through_state") or group.get("end_condition"))
+        if through is not True and state not in {"through", "thru", "throughall", "通孔", "贯通"}:
+            mismatches.append("through_state")
+    return not mismatches, mismatches
 
 
 def _hole_report(spec: Mapping[str, Any], model_evidence: Mapping[str, Any] | None) -> dict[str, Any]:
+    """@brief 用规格、数量和逐孔位置一一匹配 B-Rep/特征证据。"""
     requirements = list(spec.get("holeRequirements") or [])
     if not requirements:
-        return {"required_count": 0, "missing": [], "status": "pass"}
+        return {"required_count": 0, "missing": [], "checks": [], "status": "pass"}
     evidence = model_evidence or {}
     groups = list(evidence.get("hole_groups") or evidence.get("holeGroups") or [])
-    missing = []
+    checks = []
+    used: set[int] = set()
     for item in requirements:
-        specification = str(item.get("specification"))
-        count = int(item.get("count", 0))
-        matching = [group for group in groups if specification.lower() in json.dumps(group, ensure_ascii=False).lower()]
-        if not matching and len(groups) < count:
-            missing.append(item.get("id", specification))
-    return {"required_count": len(requirements), "missing": missing, "status": "pass" if not missing else "fail", "evidence_source": "model_measurements" if groups else "missing"}
+        parsed = _hole_specification(item.get("specification"))
+        location_checks = []
+        for location in item.get("locationsMm") or []:
+            best = None
+            for index, group in enumerate(groups):
+                if index in used:
+                    continue
+                specification_matches, mismatches = _hole_group_matches(parsed, group)
+                position_error = _distance_mm(list(location), list(group.get("position_mm") or []))
+                candidate = (0 if specification_matches else 1, position_error, index, group, mismatches)
+                if best is None or candidate[:2] < best[:2]:
+                    best = candidate
+            passed = bool(best and best[0] == 0 and best[1] <= 0.1)
+            if passed:
+                used.add(best[2])
+            location_checks.append({
+                "expected_position_mm": list(location),
+                "passed": passed,
+                "position_error_mm": round(best[1], 6) if best and math.isfinite(best[1]) else None,
+                "mismatches": list(best[4]) if best else ["missing_group"],
+                "matched_group_index": best[2] if passed else None,
+            })
+        count_matches = int(item.get("count", 0)) == len(location_checks) and all(check["passed"] for check in location_checks)
+        checks.append({
+            "id": str(item.get("id") or item.get("specification") or ""),
+            "passed": count_matches,
+            "specification": item.get("specification"),
+            "expected_count": int(item.get("count", 0)),
+            "matched_count": sum(1 for check in location_checks if check["passed"]),
+            "locations": location_checks,
+        })
+    missing = [item["id"] for item in checks if not item["passed"]]
+    return {
+        "required_count": len(requirements),
+        "missing": missing,
+        "checks": checks,
+        "status": "pass" if not missing else "fail",
+        "evidence_source": "model_measurements" if groups else "missing",
+        "position_tolerance_mm": 0.1,
+        "diameter_tolerance_mm": 0.05,
+    }
+
+
+def _bom_report(spec: Mapping[str, Any], structure: Mapping[str, Any]) -> dict[str, Any]:
+    """@brief 只接受真实 BOM 类型、非空数据行及请求的配置。"""
+    bom_spec = dict(spec.get("bom") or {})
+    required = bool(bom_spec.get("required")) or spec.get("documentType") == "assembly"
+    if not required:
+        return {"required": False, "status": "pass", "tables": []}
+    tables = [
+        table for table in structure.get("tables") or []
+        if table.get("kind") == "bom" or table.get("type") == 2
+    ]
+    if not tables:
+        return {"required": True, "status": "fail", "tables": [], "reason": "missing"}
+    usable = []
+    for table in tables:
+        row_count = table.get("row_count")
+        if not isinstance(row_count, int) or row_count <= 1:
+            continue
+        cells = list(table.get("cells") or [])
+        if len(cells) < 2 or not any(str(cell).strip() for row in cells[1:] for cell in row):
+            continue
+        requested_configuration = str(bom_spec.get("configuration") or "").strip()
+        if requested_configuration and str(table.get("configuration") or "").strip() != requested_configuration:
+            continue
+        expected_rows = list(bom_spec.get("expectedRows") or bom_spec.get("rows") or [])
+        flattened_rows = ["|".join(_normalise_token(cell) for cell in row) for row in cells[1:]]
+        if expected_rows and not all(
+            any(_normalise_token(expected) in row for row in flattened_rows)
+            for expected in expected_rows
+        ):
+            continue
+        usable.append(table)
+    return {
+        "required": True,
+        "status": "pass" if usable else "review_required",
+        "tables": tables,
+        "usable_table_count": len(usable),
+        "reason": None if usable else "content_or_configuration_unverified",
+    }
+
+
+def _title_block_report(spec: Mapping[str, Any], structure: Mapping[str, Any]) -> dict[str, Any]:
+    """@brief 标题栏候选只证明模板存在，字段内容必须回读后才能通过。"""
+    title_spec = dict(spec.get("titleBlock") or {})
+    if not title_spec.get("required"):
+        return {"required": False, "status": "pass", "mismatches": []}
+    title_block = dict(structure.get("title_block") or {})
+    if not title_block.get("candidate"):
+        return {"required": True, "status": "fail", "mismatches": ["candidate"]}
+    expected_fields = {key: value for key, value in title_spec.items() if key != "required"}
+    actual_fields = dict(title_block.get("fields") or {})
+    mismatches = []
+    for key, expected in expected_fields.items():
+        if key == "format":
+            if _normalise_token(expected) == "gb_t" and not title_block.get("gbt_candidate"):
+                mismatches.append(key)
+            continue
+        if _normalise_token(actual_fields.get(key)) != _normalise_token(expected):
+            mismatches.append(key)
+    verified = bool(title_block.get("content_verified"))
+    return {
+        "required": True,
+        "status": "pass" if verified and not mismatches else "fail" if mismatches else "review_required",
+        "mismatches": mismatches,
+        "content_verified": verified,
+        "fields": actual_fields,
+    }
 
 
 def _note_report(
@@ -244,6 +513,7 @@ def _with_rendered_dimension_boxes(structure: Mapping[str, Any], rendering: Mapp
         index = int(match["dimension_index"])
         if 0 <= index < len(dimensions):
             dimensions[index]["box"] = dict(match["box_m"])
+            dimensions[index]["rendered_text"] = str(match.get("text") or "")
             dimensions[index]["box_source"] = "pdf_vector_text"
             dimensions[index]["box_confidence"] = "high"
             dimensions[index]["box_evidence"] = {
@@ -372,19 +642,35 @@ def review_drawing_artifacts(
             "missing_pdf": note_report["missing_pdf"],
         })
 
-    bom_required = bool((spec.get("bom") or {}).get("required")) or spec.get("documentType") == "assembly"
-    table_count = int(structure.get("table_count", len(structure.get("tables") or [])))
-    bom_status = "pass" if not bom_required or table_count > 0 else "fail"
-    checks.append(_check("drawing-bom", bom_status, f"BOM要求={bom_required}，读取表格={table_count}"))
-    if bom_status == "fail":
-        findings.append({"code": "DRAWING_BOM_TABLE_MISSING", "severity": "fail", "message": "装配工程图未读取到 BOM 表结构"})
+    bom_report = _bom_report(spec, structure)
+    checks.append(_check(
+        "drawing-bom",
+        bom_report["status"],
+        f"BOM要求={bom_report['required']}，BOM表={len(bom_report.get('tables') or [])}，可验证={bom_report.get('usable_table_count', 0)}",
+        reason=bom_report.get("reason"),
+    ))
+    if bom_report["status"] != "pass":
+        findings.append({
+            "code": "DRAWING_BOM_TABLE_MISSING" if bom_report["status"] == "fail" else "DRAWING_BOM_CONTENT_UNVERIFIED",
+            "severity": "fail" if bom_report["status"] == "fail" else "warning",
+            "message": "装配工程图未读取到 BOM 表结构" if bom_report["status"] == "fail" else "BOM 类型存在，但数据行或配置尚未完成结构化回读",
+        })
 
-    title_block_required = bool((spec.get("titleBlock") or {}).get("required"))
-    title_block = structure.get("title_block") or {}
-    title_block_status = "pass" if not title_block_required or title_block.get("candidate") else "fail"
-    checks.append(_check("drawing-title-block", title_block_status, "标题栏候选已读取" if title_block_status == "pass" else "规格要求标题栏，但结构证据中没有读取到图框标题栏"))
-    if title_block_status == "fail":
-        findings.append({"code": "DRAWING_TITLE_BLOCK_MISSING", "severity": "fail", "message": "标题栏结构证据缺失"})
+    title_block_report = _title_block_report(spec, structure)
+    checks.append(_check(
+        "drawing-title-block",
+        title_block_report["status"],
+        "标题栏字段已结构化核验" if title_block_report["status"] == "pass" else "标题栏结构或字段证据不完整",
+        mismatches=title_block_report.get("mismatches") or [],
+        content_verified=title_block_report.get("content_verified"),
+    ))
+    if title_block_report["status"] != "pass":
+        findings.append({
+            "code": "DRAWING_TITLE_BLOCK_MISSING" if title_block_report["status"] == "fail" and "candidate" in title_block_report.get("mismatches", []) else "DRAWING_TITLE_BLOCK_CONTENT_UNVERIFIED",
+            "severity": "fail" if title_block_report["status"] == "fail" else "warning",
+            "message": "标题栏结构证据缺失" if "candidate" in title_block_report.get("mismatches", []) else "标题栏候选存在，但字段内容未完成结构化核验",
+            "mismatches": title_block_report.get("mismatches") or [],
+        })
 
     pdf_report = None
     if pdf_path:
@@ -404,11 +690,15 @@ def review_drawing_artifacts(
 
     fail_findings = [item for item in findings if item.get("severity") == "fail" or item.get("status") == "fail"]
     rendering_status = pdf_dimension_rendering.get("status")
+    semantic_review_required = any(
+        report.get("status") == "review_required"
+        for report in (bom_report, title_block_report)
+    )
     status = (
         "blocked"
         if layout.get("status") == "blocked" or rendering_status == "blocked" or note_report["status"] == "blocked" or (pdf_report and pdf_report.get("overlaps"))
         else "review_required"
-        if fail_findings or layout.get("status") != "pass" or rendering_status != "pass" or validation["status"] == "pilot"
+        if fail_findings or semantic_review_required or layout.get("status") != "pass" or rendering_status != "pass" or validation["status"] == "pilot"
         else "pass"
     )
     return {
@@ -422,10 +712,12 @@ def review_drawing_artifacts(
         "layout": layout,
         "dimension_evidence": dimension_report,
         "hole_evidence": hole_report,
+        "bom_evidence": bom_report,
+        "title_block_evidence": title_block_report,
         "note_evidence": note_report,
         "pdf_evidence": pdf_report,
         "pdf_dimension_rendering": pdf_dimension_rendering,
         "manual_review_required": status != "pass",
-        "error_code": "DRAWING_REVIEW_FINDINGS" if fail_findings else pdf_dimension_rendering.get("error_code") if rendering_status != "pass" else layout.get("error_code"),
+        "error_code": "DRAWING_REVIEW_FINDINGS" if fail_findings else "DRAWING_SEMANTIC_EVIDENCE_INCOMPLETE" if semantic_review_required else pdf_dimension_rendering.get("error_code") if rendering_status != "pass" else layout.get("error_code"),
         "capability_level": "pilot",
     }

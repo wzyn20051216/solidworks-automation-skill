@@ -183,6 +183,7 @@ def test_final_pdf_dimension_boxes_replace_com_estimates_for_delivery_pass(tmp_p
         "dimensions": [{
             "sheet": "Sheet1",
             "name": "D1@Front",
+            "kind": "overall",
             "text": "",
             "box": {"left": 0.150, "bottom": 0.075, "right": 0.171, "top": 0.096},
             "box_source": "estimated",
@@ -204,6 +205,102 @@ def test_final_pdf_dimension_boxes_replace_com_estimates_for_delivery_pass(tmp_p
     assert result["pdf_dimension_rendering"]["status"] == "pass"
     assert result["note_evidence"]["status"] == "pass"
     assert result["layout"]["evidence_summary"]["rendered_dimension_box_count"] == 1
+
+
+def test_required_dimension_id_does_not_use_substring_matching():
+    """@brief D1 不能被 D10 或 110 的文字误判为已满足。"""
+    structure = {
+        "views": [{"name": "Front", "box": {"left": 0.1, "bottom": 0.1, "right": 0.2, "top": 0.2}}],
+        "dimensions": [{"name": "D10@Front", "view": "Front", "kind": "overall", "text": "110"}],
+    }
+
+    result = review_drawing_artifacts(
+        _spec(requiredDimensions=[{"id": "D1", "kind": "overall", "view": "Front", "valueMm": 10}]),
+        structure=structure,
+    )
+
+    assert result["dimension_evidence"]["status"] == "fail"
+    assert result["dimension_evidence"]["checks"][0]["mismatches"] == ["id"]
+
+
+def test_required_dimension_checks_view_kind_and_value():
+    """@brief ID 相同但视图、种类或数值错误时仍必须失败。"""
+    structure = {
+        "views": [{"name": "Top", "box": {"left": 0.1, "bottom": 0.1, "right": 0.2, "top": 0.2}}],
+        "dimensions": [{"name": "D1@Top", "view": "Top", "kind": "diameter", "text": "20"}],
+    }
+
+    result = review_drawing_artifacts(
+        _spec(requiredDimensions=[{"id": "D1", "kind": "overall", "view": "Front", "valueMm": 10}]),
+        structure=structure,
+    )
+
+    assert result["dimension_evidence"]["status"] == "fail"
+    assert set(result["dimension_evidence"]["checks"][0]["mismatches"]) == {"view", "kind", "valueMm"}
+
+
+def test_m8_hole_requirement_is_not_satisfied_by_other_hole_groups():
+    """@brief M8 螺纹要求不能由 M3/M4 文字或足够多的无关孔组放行。"""
+    requirement = {
+        "id": "H-M8",
+        "specification": "M8",
+        "count": 2,
+        "locationsMm": [[10, 10, 0], [30, 10, 0]],
+    }
+    model_evidence = {
+        "hole_groups": [
+            {"position_mm": [10, 10, 0], "diameters_mm": [2.5], "thread": "M3"},
+            {"position_mm": [30, 10, 0], "diameters_mm": [3.3], "thread": "M4"},
+        ]
+    }
+
+    result = review_drawing_artifacts(_spec(holeRequirements=[requirement]), structure={}, model_evidence=model_evidence)
+
+    assert result["hole_evidence"]["status"] == "fail"
+    assert result["hole_evidence"]["checks"][0]["matched_count"] == 0
+
+
+def test_diameter_holes_require_exact_count_positions_and_diameter():
+    """@brief 光孔按孔径和逐孔位置一一匹配，不能重复使用同一孔组。"""
+    requirement = {
+        "id": "H-D8",
+        "specification": "Ø8",
+        "count": 2,
+        "locationsMm": [[10, 10, 0], [30, 10, 0]],
+    }
+    model_evidence = {
+        "hole_groups": [
+            {"position_mm": [10.04, 10, 0], "diameters_mm": [8.0]},
+            {"position_mm": [30, 10, 0], "diameters_mm": [8.04]},
+        ]
+    }
+
+    result = review_drawing_artifacts(_spec(holeRequirements=[requirement]), structure={}, model_evidence=model_evidence)
+
+    assert result["hole_evidence"]["status"] == "pass"
+    assert result["hole_evidence"]["checks"][0]["matched_count"] == 2
+
+
+def test_general_table_cannot_satisfy_required_bom():
+    """@brief 任意普通表格不能冒充有数据行的 BOM。"""
+    result = review_drawing_artifacts(
+        _spec(documentType="assembly", bom={"required": True, "templatePath": __file__}),
+        structure={"tables": [{"type": 0, "kind": "general", "row_count": 4}]},
+    )
+
+    assert result["bom_evidence"]["status"] == "fail"
+    assert result["bom_evidence"]["tables"] == []
+
+
+def test_title_block_candidate_without_content_is_not_a_pass():
+    """@brief 仅识别到图框模板不能证明标题栏字段已填写。"""
+    result = review_drawing_artifacts(
+        _spec(titleBlock={"required": True, "format": "GB_T"}),
+        structure={"title_block": {"candidate": True, "gbt_candidate": True, "content_verified": False}},
+    )
+
+    assert result["title_block_evidence"]["status"] == "review_required"
+    assert result["title_block_evidence"]["content_verified"] is False
 
 
 def test_note_absent_from_final_pdf_blocks_delivery(tmp_path: Path):
