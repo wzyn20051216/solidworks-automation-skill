@@ -62,7 +62,7 @@ def validate_drawing_spec(source: str | Path | Mapping[str, Any]) -> dict[str, A
         return {"status": "blocked", "schema_version": SCHEMA_VERSION, "issues": [_issue("DRAWING_SPEC_INVALID", str(exc))]}
 
     issues: list[dict[str, str]] = _schema_issues(spec)
-    required = ("schemaVersion", "sourceModel", "documentType", "standard", "projection", "paperSize", "views", "outputs")
+    required = ("schemaVersion", "sourceModel", "documentType", "standard", "projection", "paperSize", "modelSizeMm", "views", "outputs")
     for field in required:
         if field not in spec:
             issues.append(_issue("DRAWING_SPEC_REQUIRED_FIELD_MISSING", f"缺少必填字段: {field}", path=field))

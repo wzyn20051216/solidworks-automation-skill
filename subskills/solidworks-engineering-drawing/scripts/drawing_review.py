@@ -320,6 +320,77 @@ def _title_block_report(spec: Mapping[str, Any], structure: Mapping[str, Any]) -
     }
 
 
+def _canonical_view_name(value: Any) -> str:
+    """@brief 统一 SolidWorks 标准视图英文名和常见中文名。"""
+    compact = re.sub(r"[^a-z0-9\u4e00-\u9fff]", "", str(value or "").casefold())
+    aliases = {
+        "front": "front", "frontview": "front", "主视": "front", "前视": "front",
+        "top": "top", "topview": "top", "俯视": "top", "上视": "top",
+        "right": "right", "rightview": "right", "右视": "right",
+        "left": "left", "leftview": "left", "左视": "left",
+        "bottom": "bottom", "bottomview": "bottom", "仰视": "bottom",
+        "isometric": "isometric", "isometricview": "isometric", "轴测": "isometric", "等轴测": "isometric",
+    }
+    return aliases.get(compact, compact)
+
+
+def _view_requirement_label(requirement: Mapping[str, Any], fallback: str) -> str:
+    """@brief 从剖视或局部视图规格中提取稳定标签。"""
+    return str(requirement.get("id") or requirement.get("name") or requirement.get("label") or fallback).strip()
+
+
+def _view_report(spec: Mapping[str, Any], structure: Mapping[str, Any]) -> dict[str, Any]:
+    """@brief 核验标准、轴测、剖视和局部视图均有对应结构证据。"""
+    requested = dict(spec.get("views") or {})
+    actual = list(structure.get("views") or [])
+    checks = []
+    used: set[int] = set()
+
+    for name in ("front", "top", "right", "left", "bottom", "isometric"):
+        if name not in requested:
+            continue
+        match = next((
+            index for index, view in enumerate(actual)
+            if index not in used and name in {
+                _canonical_view_name(view.get("semantic_view")),
+                _canonical_view_name(view.get("orientation")),
+                _canonical_view_name(view.get("name")),
+            }
+        ), None)
+        if match is not None:
+            used.add(match)
+        checks.append({"id": name, "kind": "standard" if name != "isometric" else "isometric", "passed": match is not None, "matched_view_index": match})
+
+    for collection_name, expected_type, kind in (("sections", 2, "section"), ("details", 3, "detail")):
+        for requirement_index, requirement in enumerate(requested.get(collection_name) or []):
+            label = _view_requirement_label(requirement, f"{kind}-{requirement_index + 1}")
+            expected = _normalise_token(label)
+            candidates = []
+            for index, view in enumerate(actual):
+                if index in used:
+                    continue
+                view_type = view.get("type")
+                semantic_kind = _normalise_token(view.get("kind") or view.get("semantic_kind"))
+                if view_type != expected_type and semantic_kind != kind:
+                    continue
+                actual_label = _normalise_token(view.get("spec_id") or view.get("label") or view.get("name"))
+                if not expected or expected == actual_label or expected in actual_label:
+                    candidates.append(index)
+            match = candidates[0] if candidates else None
+            if match is not None:
+                used.add(match)
+            checks.append({"id": label, "kind": kind, "passed": match is not None, "matched_view_index": match})
+
+    missing = [item["id"] for item in checks if not item["passed"]]
+    return {
+        "required_count": len(checks),
+        "matched_count": len(checks) - len(missing),
+        "missing": missing,
+        "checks": checks,
+        "status": "pass" if not missing else "fail",
+    }
+
+
 def _note_report(
     spec: Mapping[str, Any],
     structure: Mapping[str, Any] | None,
@@ -603,8 +674,10 @@ def review_drawing_artifacts(
     }
     checks.extend(layout.get("checks") or [])
     findings.extend(layout.get("findings") or [])
+    view_report = _view_report(spec, reviewed_structure)
     dimension_report = _required_dimension_report(spec, reviewed_structure)
     hole_report = _hole_report(spec, model_evidence)
+    checks.append(_check("drawing-required-views", view_report["status"], f"必需视图 {view_report['required_count']} 项，缺失 {len(view_report['missing'])} 项", missing=view_report["missing"]))
     checks.append(_check("drawing-required-dimensions", dimension_report["status"], f"必需尺寸 {dimension_report['required_count']} 项，缺失 {len(dimension_report['missing'])} 项", missing=dimension_report["missing"]))
     checks.append(_check("drawing-hole-requirements", hole_report["status"], f"孔槽要求 {hole_report['required_count']} 项，缺失 {len(hole_report['missing'])} 项", missing=hole_report["missing"]))
     model_dimensions_requested = bool(spec.get("insertModelDimensions", True))
@@ -631,6 +704,8 @@ def review_drawing_artifacts(
     ))
     if dimension_report["missing"]:
         findings.append({"code": "DRAWING_REQUIRED_DIMENSIONS_MISSING", "severity": "fail", "missing": dimension_report["missing"]})
+    if view_report["missing"]:
+        findings.append({"code": "DRAWING_REQUIRED_VIEWS_MISSING", "severity": "fail", "missing": view_report["missing"]})
     if hole_report["missing"]:
         findings.append({"code": "DRAWING_HOLE_REQUIREMENTS_MISSING", "severity": "fail", "missing": hole_report["missing"]})
     if note_report["status"] != "pass":
@@ -710,6 +785,7 @@ def review_drawing_artifacts(
         "checks": checks,
         "findings": findings,
         "layout": layout,
+        "view_evidence": view_report,
         "dimension_evidence": dimension_report,
         "hole_evidence": hole_report,
         "bom_evidence": bom_report,

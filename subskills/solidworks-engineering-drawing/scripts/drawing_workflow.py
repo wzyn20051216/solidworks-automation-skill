@@ -379,12 +379,13 @@ def plan_standard_view_layout(
     *,
     paper_size="A3",
     projection="third_angle",
+    requested_scale=None,
     margin_m=0.012,
     gap_m=0.018,
     title_block_width_m=0.180,
     title_block_height_m=0.055,
 ) -> dict:
-    """@brief 为第三角三视图计算不会侵入标题栏的自适应布局。"""
+    """@brief 为三视图计算不会侵入标题栏的自适应或指定比例布局。"""
     paper_size = str(paper_size).upper()
     projection = str(projection).lower()
     if projection not in {"first_angle", "third_angle"}:
@@ -421,7 +422,44 @@ def plan_standard_view_layout(
             "retryable": True,
             "error_code": "DRAWING_LAYOUT_WORKING_AREA_INVALID",
         }
-    scale = next((item for item in STANDARD_DRAWING_SCALES if item <= raw_scale + 1e-12), raw_scale)
+    if requested_scale is None:
+        scale = next((item for item in STANDARD_DRAWING_SCALES if item <= raw_scale + 1e-12), raw_scale)
+    else:
+        try:
+            if isinstance(requested_scale, str):
+                numerator_text, denominator_text = requested_scale.split(":", 1)
+                scale = float(numerator_text.strip()) / float(denominator_text.strip())
+            else:
+                scale = float(requested_scale)
+        except (TypeError, ValueError, ZeroDivisionError):
+            return {
+                "status": "blocked",
+                "paper_size": paper_size,
+                "views": [],
+                "manual_review_required": True,
+                "retryable": False,
+                "error_code": "DRAWING_SCALE_INVALID",
+            }
+        if scale <= 0 or not math.isfinite(scale):
+            return {
+                "status": "blocked",
+                "paper_size": paper_size,
+                "views": [],
+                "manual_review_required": True,
+                "retryable": False,
+                "error_code": "DRAWING_SCALE_INVALID",
+            }
+        if scale > raw_scale + 1e-12:
+            return {
+                "status": "blocked",
+                "paper_size": paper_size,
+                "requested_scale": requested_scale,
+                "maximum_fit_scale": raw_scale,
+                "views": [],
+                "manual_review_required": True,
+                "retryable": True,
+                "error_code": "DRAWING_SCALE_DOES_NOT_FIT",
+            }
 
     front_w, front_h = width * scale, height * scale
     top_w, top_h = width * scale, depth * scale
@@ -1537,8 +1575,74 @@ def setup_current_sheet(drawing_model, template_candidates, *, paper_size="A3", 
     }
 
 
+def validate_generic_drawing_generation(spec) -> dict:
+    """@brief 在修改文档前声明通用生成器无法可靠执行的 DrawingSpec 字段。"""
+    issues = []
+    views = dict(spec.get("views") or {})
+    standard_views = {name for name in ("front", "top", "right") if name in views}
+    if standard_views != {"front", "top", "right"}:
+        issues.append({
+            "code": "DRAWING_STANDARD_VIEW_SET_UNSUPPORTED",
+            "path": "views",
+            "message": "通用生成器当前只支持同时生成 front/top/right 三视图。",
+        })
+    unsupported_views = [name for name in ("bottom", "left", "isometric") if name in views]
+    unsupported_views.extend(name for name in ("sections", "details") if views.get(name))
+    if unsupported_views:
+        issues.append({
+            "code": "DRAWING_REQUESTED_VIEWS_UNSUPPORTED",
+            "path": "views",
+            "views": unsupported_views,
+            "message": "通用生成器尚不能创建请求的辅助、轴测、剖视或局部视图。",
+        })
+    configured_views = [name for name in ("front", "top", "right") if views.get(name)]
+    if configured_views:
+        issues.append({
+            "code": "DRAWING_VIEW_OPTIONS_UNSUPPORTED",
+            "path": "views",
+            "views": configured_views,
+            "message": "通用生成器尚不能执行标准视图对象内的名称、方向或位置选项。",
+        })
+    if spec.get("requiredDimensions"):
+        issues.append({
+            "code": "DRAWING_REQUIRED_DIMENSIONS_UNSUPPORTED",
+            "path": "requiredDimensions",
+            "message": "通用生成器只能导入模型尺寸，不能可靠创建并绑定指定 ID、视图和语义的尺寸。",
+        })
+    if spec.get("holeRequirements"):
+        issues.append({
+            "code": "DRAWING_HOLE_REQUIREMENTS_UNSUPPORTED",
+            "path": "holeRequirements",
+            "message": "通用生成器尚不能创建孔标注或孔表；请使用专项脚本并回读证据。",
+        })
+    title_fields = sorted(set((spec.get("titleBlock") or {})) - {"required", "format"})
+    if title_fields:
+        issues.append({
+            "code": "DRAWING_TITLE_BLOCK_FIELDS_UNSUPPORTED",
+            "path": "titleBlock",
+            "fields": title_fields,
+            "message": "通用生成器尚不能绑定标题栏业务字段。",
+        })
+    if spec.get("sheetMetal"):
+        issues.append({
+            "code": "DRAWING_SHEET_METAL_OPTIONS_UNSUPPORTED",
+            "path": "sheetMetal",
+            "message": "通用生成器尚不能执行展开图、折弯表或钣金专用选项。",
+        })
+    return {
+        "status": "blocked" if issues else "pass",
+        "stage": "capability_preflight",
+        "issues": issues,
+        "error_code": "DRAWING_SPEC_CAPABILITY_UNSUPPORTED" if issues else None,
+        "manual_review_required": bool(issues),
+    }
+
+
 def generate_drawing_from_spec(drawing_model, spec, source_model_path, template_candidates=None) -> dict:
     """@brief 按已校验 DrawingSpec 创建标准工程图结构和制造标注入口。"""
+    capability = validate_generic_drawing_generation(spec)
+    if capability["status"] != "pass":
+        return capability
     paper_size = str(spec.get("paperSize", "A3")).upper()
     projection = str(spec.get("projection", "first_angle")).lower()
     model_size_mm = spec.get("modelSizeMm")
@@ -1561,7 +1665,12 @@ def generate_drawing_from_spec(drawing_model, spec, source_model_path, template_
     if sheet_setup.get("status") != "pass":
         return {"status": sheet_setup.get("status", "blocked"), "stage": "sheet", "sheetSetup": sheet_setup, "error_code": sheet_setup.get("error_code"), "manual_review_required": True}
     model_size_m = tuple(float(value) / 1000.0 for value in model_size_mm)
-    layout = plan_standard_view_layout(model_size_m, paper_size=paper_size, projection=projection)
+    layout = plan_standard_view_layout(
+        model_size_m,
+        paper_size=paper_size,
+        projection=projection,
+        requested_scale=spec.get("scale"),
+    )
     if layout.get("status") != "pass":
         return {"status": "blocked", "stage": "layout", "sheetSetup": sheet_setup, "layout": layout, "error_code": layout.get("error_code"), "manual_review_required": True}
     views = create_adaptive_standard_views(drawing_model, str(source_model_path), layout)
@@ -1570,8 +1679,9 @@ def generate_drawing_from_spec(drawing_model, spec, source_model_path, template_
     dimension_result = insert_dimensions(drawing_model) if spec.get("requiredDimensions") or spec.get("insertModelDimensions", True) else False
     arrangement = auto_arrange_drawing_dimensions(drawing_model) if dimension_result else {"status": "review_required", "error_code": "DRAWING_DIMENSIONS_NOT_REQUESTED"}
     bom_spec = spec.get("bom") or {}
-    bom_result = {"requested": bool(bom_spec), "created": False, "status": "not_requested"}
-    if bom_spec:
+    bom_requested = bool(bom_spec.get("required")) or spec.get("documentType") == "assembly"
+    bom_result = {"requested": bom_requested, "created": False, "status": "not_requested"}
+    if bom_requested:
         template_path = str(bom_spec.get("templatePath") or "")
         if not template_path or not Path(template_path).expanduser().is_file():
             return {"status": "blocked", "stage": "bom", "error_code": "DRAWING_BOM_TEMPLATE_MISSING", "message": "BOM 已要求但模板不存在，不能伪造表格交付。", "sheetSetup": sheet_setup, "layout": layout, "views": views, "manual_review_required": True}

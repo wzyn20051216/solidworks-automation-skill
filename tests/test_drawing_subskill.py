@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from scripts.drawing_spec import validate_drawing_spec
-from scripts.sw_drawing import add_note, plan_standard_view_layout
+from scripts.sw_drawing import add_note, generate_drawing_from_spec, plan_standard_view_layout
 from scripts.sw_drawing_review import review_drawing_artifacts
 
 
@@ -79,6 +79,17 @@ def test_drawing_spec_rejects_schema_shape_errors_and_unknown_fields():
     assert sum(item["code"] == "DRAWING_SPEC_SCHEMA_INVALID" for item in result["issues"]) >= 2
 
 
+def test_model_size_is_a_schema_required_field():
+    """@brief 布局所需外形尺寸必须在正式 Schema 层阻断，而非运行到 COM 后才失败。"""
+    payload = _spec()
+    payload.pop("modelSizeMm")
+
+    result = validate_drawing_spec(payload)
+
+    assert result["status"] == "blocked"
+    assert any(item["code"] == "DRAWING_SPEC_SCHEMA_INVALID" for item in result["issues"])
+
+
 def test_first_angle_layout_places_top_below_and_right_left():
     layout = plan_standard_view_layout((0.12, 0.08, 0.012), paper_size="A3", projection="first_angle")
     by_name = {item["name"]: item for item in layout["views"]}
@@ -86,6 +97,68 @@ def test_first_angle_layout_places_top_below_and_right_left():
     assert layout["projection"] == "first_angle"
     assert by_name["*Top"]["center"][1] < by_name["*Front"]["center"][1]
     assert by_name["*Right"]["center"][0] < by_name["*Front"]["center"][0]
+
+
+def test_requested_scale_is_applied_only_when_it_fits_sheet():
+    """@brief 显式比例必须真实落入布局，超出工作区时提前阻断。"""
+    accepted = plan_standard_view_layout((0.12, 0.08, 0.012), paper_size="A3", requested_scale="1:1")
+    rejected = plan_standard_view_layout((0.12, 0.08, 0.012), paper_size="A3", requested_scale="10:1")
+
+    assert accepted["status"] == "pass"
+    assert accepted["scale"] == 1.0
+    assert accepted["scale_ratio"] == [1, 1]
+    assert rejected["status"] == "blocked"
+    assert rejected["error_code"] == "DRAWING_SCALE_DOES_NOT_FIT"
+
+
+def test_generic_generator_blocks_unsupported_spec_before_com_mutation():
+    """@brief 剖视、局部视图和指定尺寸不能被通用生成器静默忽略。"""
+    class MustNotBeTouched:
+        def __getattr__(self, name):
+            raise AssertionError(f"能力预检后不应访问 COM: {name}")
+
+    payload = _spec(
+        views={"front": {}, "top": {}, "right": {}, "sections": [{"id": "A-A"}], "details": [{"id": "F"}]},
+        requiredDimensions=[{"id": "D1", "kind": "overall", "view": "Front"}],
+        holeRequirements=[{"id": "H1", "specification": "Ø8", "count": 1, "locationsMm": [[10, 10, 0]]}],
+        titleBlock={"required": True, "format": "GB_T", "drawingNumber": "DWG-001"},
+    )
+
+    result = generate_drawing_from_spec(MustNotBeTouched(), payload, payload["sourceModel"])
+
+    assert result["status"] == "blocked"
+    assert result["stage"] == "capability_preflight"
+    assert {item["code"] for item in result["issues"]} >= {
+        "DRAWING_REQUESTED_VIEWS_UNSUPPORTED",
+        "DRAWING_REQUIRED_DIMENSIONS_UNSUPPORTED",
+        "DRAWING_HOLE_REQUIREMENTS_UNSUPPORTED",
+        "DRAWING_TITLE_BLOCK_FIELDS_UNSUPPORTED",
+    }
+
+
+def test_reviewer_flags_requested_detail_view_that_is_not_in_structure():
+    """@brief 自定义工作流生成了剖视图但漏掉局部视图时，审查器必须明确指出。"""
+    payload = _spec(views={
+        "front": {},
+        "top": {},
+        "right": {},
+        "sections": [{"id": "A-A"}],
+        "details": [{"id": "DETAIL-F"}],
+    })
+    structure = {
+        "views": [
+            {"name": "Front", "orientation": "*Front", "box": {"left": 0.20, "bottom": 0.10, "right": 0.30, "top": 0.18}},
+            {"name": "Top", "orientation": "*Top", "box": {"left": 0.20, "bottom": 0.07, "right": 0.30, "top": 0.09}},
+            {"name": "Right", "orientation": "*Right", "box": {"left": 0.10, "bottom": 0.10, "right": 0.18, "top": 0.18}},
+            {"name": "剖面视图 A-A", "type": 2, "box": {"left": 0.31, "bottom": 0.10, "right": 0.38, "top": 0.18}},
+        ]
+    }
+
+    result = review_drawing_artifacts(payload, structure=structure)
+
+    assert result["view_evidence"]["status"] == "fail"
+    assert result["view_evidence"]["missing"] == ["DETAIL-F"]
+    assert any(item["code"] == "DRAWING_REQUIRED_VIEWS_MISSING" for item in result["findings"])
 
 
 def test_note_creation_reads_back_text_and_sheet_position():
