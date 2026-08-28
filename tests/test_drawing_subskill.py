@@ -122,6 +122,7 @@ def test_generic_generator_blocks_unsupported_spec_before_com_mutation():
         requiredDimensions=[{"id": "D1", "kind": "overall", "view": "Front"}],
         holeRequirements=[{"id": "H1", "specification": "Ø8", "count": 1, "locationsMm": [[10, 10, 0]]}],
         titleBlock={"required": True, "format": "GB_T", "drawingNumber": "DWG-001"},
+        professionalAnnotations={"centerMarks": [{"id": "CM1", "view": "Front", "count": 2}]},
     )
 
     result = generate_drawing_from_spec(MustNotBeTouched(), payload, payload["sourceModel"])
@@ -133,6 +134,7 @@ def test_generic_generator_blocks_unsupported_spec_before_com_mutation():
         "DRAWING_REQUIRED_DIMENSIONS_UNSUPPORTED",
         "DRAWING_HOLE_REQUIREMENTS_UNSUPPORTED",
         "DRAWING_TITLE_BLOCK_FIELDS_UNSUPPORTED",
+        "DRAWING_PROFESSIONAL_ANNOTATIONS_UNSUPPORTED",
     }
 
 
@@ -159,6 +161,52 @@ def test_reviewer_flags_requested_detail_view_that_is_not_in_structure():
     assert result["view_evidence"]["status"] == "fail"
     assert result["view_evidence"]["missing"] == ["DETAIL-F"]
     assert any(item["code"] == "DRAWING_REQUIRED_VIEWS_MISSING" for item in result["findings"])
+
+
+def test_professional_annotation_schema_and_reviewer_use_structured_evidence():
+    """@brief 中心标记、孔标注、基准、GD&T 和粗糙度按类型与视图逐项核验。"""
+    annotations = {
+        "centerMarks": [{"id": "CM1", "view": "Front", "count": 2}],
+        "holeCallouts": [{"id": "HC1", "view": "Front", "text": "Ø8 THRU", "count": 1}],
+        "datums": [{"id": "DAT-A", "view": "Front", "text": "A"}],
+        "geometricTolerances": [{"id": "GDT1", "view": "Front", "text": "0.1 A"}],
+        "surfaceFinishSymbols": [{"id": "SF1", "view": "Front", "text": "Ra 3.2"}],
+    }
+    structure = {
+        "professional_annotations": {
+            "center_marks": [
+                {"semantic_view": "front"},
+                {"semantic_view": "front"},
+            ],
+            "hole_callouts": [{"semantic_view": "front", "text_parts": ["Ø8 THRU"]}],
+            "datum_tags": [{"semantic_view": "front", "label": "A"}],
+            "geometric_tolerances": [{"semantic_view": "front", "frames": [{"values": ["0.1", "A"], "symbols": []}]}],
+            "surface_finish_symbols": [{"semantic_view": "front", "text_parts": ["Ra 3.2"]}],
+        }
+    }
+
+    result = review_drawing_artifacts(_spec(professionalAnnotations=annotations), structure=structure)
+
+    assert validate_drawing_spec(_spec(professionalAnnotations=annotations))["status"] == "pass"
+    assert result["professional_annotation_evidence"]["status"] == "pass"
+    assert result["professional_annotation_evidence"]["matched_count"] == 5
+
+
+def test_professional_annotation_mutation_does_not_false_pass():
+    """@brief 基准或孔标注文字变更后不能继续沿用同类型对象放行。"""
+    annotations = {
+        "holeCallouts": [{"id": "HC-M8", "view": "Front", "text": "M8"}],
+        "datums": [{"id": "DAT-A", "view": "Front", "text": "A"}],
+    }
+    structure = {"professional_annotations": {
+        "hole_callouts": [{"semantic_view": "front", "text_parts": ["M6"]}],
+        "datum_tags": [{"semantic_view": "front", "label": "AB"}],
+    }}
+
+    result = review_drawing_artifacts(_spec(professionalAnnotations=annotations), structure=structure)
+
+    assert result["professional_annotation_evidence"]["status"] == "fail"
+    assert result["professional_annotation_evidence"]["missing"] == ["HC-M8", "DAT-A"]
 
 
 def test_note_creation_reads_back_text_and_sheet_position():

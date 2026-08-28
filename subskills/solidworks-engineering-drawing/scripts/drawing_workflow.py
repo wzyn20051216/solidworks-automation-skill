@@ -1346,6 +1346,88 @@ def _table_evidence(table, sheet_name):
     }
 
 
+def _annotation_text_parts(annotation_owner):
+    """@brief 回读专业标注的可见文字片段，保留原始顺序。"""
+    try:
+        count = int(_safe_member(annotation_owner, "GetTextCount", default=0) or 0)
+    except (TypeError, ValueError):
+        count = 0
+    if not 0 <= count <= 1000:
+        count = 0
+    parts = []
+    for index in range(count):
+        text = str(_safe_member(annotation_owner, "GetTextAtIndex", index, default="") or "")
+        if text:
+            parts.append(text)
+    return parts
+
+
+def _professional_annotation_record(owner, kind, view_record):
+    """@brief 构造带所属视图、文字和边界的专业标注证据。"""
+    return {
+        "kind": kind,
+        "sheet": view_record["sheet"],
+        "view": view_record["name"],
+        "semantic_view": view_record.get("semantic_view") or "",
+        "text_parts": _annotation_text_parts(owner),
+        "box": _annotation_box(owner),
+    }
+
+
+def _collect_view_professional_annotations(view, view_record):
+    """@brief 使用 SW2026 Interop 已反射确认的 IView 回读接口收集专业标注。"""
+    result = {
+        "center_marks": [],
+        "center_lines": [],
+        "datum_tags": [],
+        "geometric_tolerances": [],
+        "surface_finish_symbols": [],
+        "weld_symbols": [],
+    }
+    for owner in _as_sequence(_safe_member(view, "GetCenterMarks", default=[])):
+        record = _professional_annotation_record(owner, "center_mark", view_record)
+        record.update({
+            "size_m": _safe_member(owner, "Size", default=None),
+            "show_lines": _safe_member(owner, "ShowLines", default=None),
+            "style": _safe_member(owner, "Style", default=None),
+        })
+        result["center_marks"].append(record)
+    for owner in _as_sequence(_safe_member(view, "GetCenterLines", default=[])):
+        result["center_lines"].append(_professional_annotation_record(owner, "center_line", view_record))
+    for owner in _as_sequence(_safe_member(view, "GetDatumTags", default=[])):
+        record = _professional_annotation_record(owner, "datum", view_record)
+        record["label"] = str(_safe_member(owner, "GetLabel", default="") or "")
+        result["datum_tags"].append(record)
+    for owner in _as_sequence(_safe_member(view, "GetGTols", default=[])):
+        record = _professional_annotation_record(owner, "geometric_tolerance", view_record)
+        try:
+            frame_count = int(_safe_member(owner, "GetFrameCount", default=0) or 0)
+        except (TypeError, ValueError):
+            frame_count = 0
+        frame_count = frame_count if 0 <= frame_count <= 100 else 0
+        record["datum_identifier"] = str(_safe_member(owner, "GetDatumIdentifier", default="") or "")
+        record["frames"] = [
+            {
+                "index": index,
+                "symbols": _as_sequence(_safe_member(owner, "GetFrameSymbols3", index, default=[])),
+                "values": _as_sequence(_safe_member(owner, "GetFrameValues", index, default=[])),
+            }
+            for index in range(frame_count)
+        ]
+        result["geometric_tolerances"].append(record)
+    for owner in _as_sequence(_safe_member(view, "GetSFSymbols", default=[])):
+        record = _professional_annotation_record(owner, "surface_finish", view_record)
+        record.update({
+            "symbol_type": _safe_member(owner, "GetSymbolType", default=None),
+            "symbol": _safe_member(owner, "GetSymbol", default=None),
+            "direction_of_lay": _safe_member(owner, "GetDirectionOfLay", default=None),
+        })
+        result["surface_finish_symbols"].append(record)
+    for owner in _as_sequence(_safe_member(view, "GetWeldSymbols", default=[])):
+        result["weld_symbols"].append(_professional_annotation_record(owner, "weld_symbol", view_record))
+    return result
+
+
 def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_block_box=None) -> dict:
     """@brief 读取工程图结构并返回可审计报告，不修改文档。"""
     sheets = _as_sequence(_safe_member(drawing_model, "GetSheetNames", default=[]))
@@ -1358,6 +1440,15 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
     dimensions = []
     notes = []
     tables = []
+    professional_annotations = {
+        "center_marks": [],
+        "center_lines": [],
+        "hole_callouts": [],
+        "datum_tags": [],
+        "geometric_tolerances": [],
+        "surface_finish_symbols": [],
+        "weld_symbols": [],
+    }
     for sheet_name in sheets or [""]:
         sheet = _safe_member(drawing_model, "GetSheet", sheet_name) or _safe_member(drawing_model, "GetCurrentSheet")
         sheet_views = _as_sequence(_safe_member(sheet, "GetViews", default=[]))
@@ -1385,11 +1476,14 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
                 "box": _normalise_box(_safe_member(view, "GetOutline")),
             }
             views.append(view_record)
+            view_annotations = _collect_view_professional_annotations(view, view_record)
+            for key, records in view_annotations.items():
+                professional_annotations[key].extend(records)
             view_dimensions = _view_display_dimensions(view)
             for dimension in view_dimensions:
                 native_box = _annotation_box(dimension)
                 estimated_box_evidence = estimate_dimension_text_box(dimension) if native_box is None else None
-                dimensions.append({
+                dimension_record = {
                     "sheet": str(sheet_name),
                     "view": _safe_member(view, "Name", default=""),
                     "semantic_view": view_record["semantic_view"],
@@ -1409,7 +1503,21 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
                         "confidence": "high",
                         "method": "annotation_get_box",
                     } if native_box else estimated_box_evidence,
-                })
+                    "is_hole_callout": bool(_safe_member(dimension, "IsHoleCallout", default=False)),
+                    "hole_callout_variables": _as_sequence(_safe_member(dimension, "GetHoleCalloutVariables", default=[])),
+                }
+                dimensions.append(dimension_record)
+                if dimension_record["is_hole_callout"]:
+                    professional_annotations["hole_callouts"].append({
+                        "kind": "hole_callout",
+                        "sheet": dimension_record["sheet"],
+                        "view": dimension_record["view"],
+                        "semantic_view": dimension_record["semantic_view"],
+                        "name": dimension_record["name"],
+                        "text_parts": [dimension_record["text"]] if dimension_record["text"] else [],
+                        "variables": dimension_record["hole_callout_variables"],
+                        "box": dimension_record["box"],
+                    })
             for note in _as_sequence(_safe_member(view, "GetNotes", default=[])):
                 note_evidence = _note_evidence(note)
                 note_text = str(note_evidence.get("text") or "").strip()
@@ -1455,6 +1563,7 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
         "dimensions": dimensions,
         "notes": notes,
         "tables": tables,
+        "professional_annotations": professional_annotations,
         "template_path": str(template or ""),
         "paper_size": paper_size,
         "sheet_size": {"width_m": spec["width_m"], "height_m": spec["height_m"]} if spec else None,
@@ -1634,6 +1743,12 @@ def validate_generic_drawing_generation(spec) -> dict:
             "code": "DRAWING_HOLE_REQUIREMENTS_UNSUPPORTED",
             "path": "holeRequirements",
             "message": "通用生成器尚不能创建孔标注或孔表；请使用专项脚本并回读证据。",
+        })
+    if spec.get("professionalAnnotations"):
+        issues.append({
+            "code": "DRAWING_PROFESSIONAL_ANNOTATIONS_UNSUPPORTED",
+            "path": "professionalAnnotations",
+            "message": "通用生成器尚未完成中心标记、孔标注、基准、GD&T、表面粗糙度及焊接符号的跨版本写入验证。",
         })
     title_fields = sorted(set((spec.get("titleBlock") or {})) - {"required", "format"})
     if title_fields:

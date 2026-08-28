@@ -16,3 +16,5 @@
 - BOM 只接受 `swTableAnnotation_BillOfMaterials`，并要求存在非空数据行；请求配置时必须精确一致。
 - 标题栏模板候选不等于字段内容已验证；无法回读时保持 `review_required`。
 - DrawingSpec 请求的标准、轴测、剖视和局部视图都必须在结构证据中逐项出现。
+- 专业标注必须来自 `IView` 的中心标记、中心线、基准、GTOL、表面粗糙度或焊接符号实体，孔标注必须来自 `IDisplayDimension.IsHoleCallout`；不能用相同文字的普通注释替代。
+- `professionalAnnotations` 按视图、类型、数量和文字逐项匹配。基准标签精确匹配，`A` 不得命中 `AB`。

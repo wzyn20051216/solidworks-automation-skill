@@ -37,6 +37,7 @@
     },
     "requiredDimensions": { "type": "array", "items": { "$ref": "#/$defs/dimension" } },
     "holeRequirements": { "type": "array", "items": { "$ref": "#/$defs/hole" } },
+    "professionalAnnotations": { "$ref": "#/$defs/professionalAnnotations" },
     "titleBlock": { "type": "object" },
     "notes": { "type": "array", "items": { "type": "string" } },
     "bom": { "type": "object" },
@@ -82,6 +83,40 @@
         "datum": { "type": "string" }
       },
       "additionalProperties": true
+    },
+    "professionalAnnotations": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "centerMarks": { "type": "array", "items": { "$ref": "#/$defs/countAnnotation" } },
+        "centerLines": { "type": "array", "items": { "$ref": "#/$defs/countAnnotation" } },
+        "holeCallouts": { "type": "array", "items": { "$ref": "#/$defs/textAnnotation" } },
+        "datums": { "type": "array", "items": { "$ref": "#/$defs/textAnnotation" } },
+        "geometricTolerances": { "type": "array", "items": { "$ref": "#/$defs/textAnnotation" } },
+        "surfaceFinishSymbols": { "type": "array", "items": { "$ref": "#/$defs/textAnnotation" } },
+        "weldSymbols": { "type": "array", "items": { "$ref": "#/$defs/textAnnotation" } }
+      }
+    },
+    "countAnnotation": {
+      "type": "object",
+      "required": ["id", "view", "count"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "view": { "type": "string", "minLength": 1 },
+        "count": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "textAnnotation": {
+      "type": "object",
+      "required": ["id", "view", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "view": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "minLength": 1 },
+        "count": { "type": "integer", "minimum": 1 }
+      }
     }
   }
 }

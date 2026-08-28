@@ -391,6 +391,80 @@ def _view_report(spec: Mapping[str, Any], structure: Mapping[str, Any]) -> dict[
     }
 
 
+def _annotation_evidence_text(record: Mapping[str, Any]) -> str:
+    """@brief 汇总专业标注的专用字段，不扫描无关结构数据。"""
+    parts = [
+        record.get("label"),
+        record.get("name"),
+        record.get("datum_identifier"),
+        *(record.get("text_parts") or []),
+        *(record.get("variables") or []),
+    ]
+    for frame in record.get("frames") or []:
+        parts.extend(frame.get("symbols") or [])
+        parts.extend(frame.get("values") or [])
+    return " ".join(str(item or "") for item in parts)
+
+
+def _professional_annotation_report(spec: Mapping[str, Any], structure: Mapping[str, Any]) -> dict[str, Any]:
+    """@brief 按视图、类型、数量和文字核验专业工程图标注。"""
+    requested = dict(spec.get("professionalAnnotations") or {})
+    if not requested:
+        return {"required_count": 0, "missing": [], "checks": [], "status": "pass"}
+    evidence = dict(structure.get("professional_annotations") or {})
+    checks = []
+    collection_map = {
+        "centerMarks": "center_marks",
+        "centerLines": "center_lines",
+        "holeCallouts": "hole_callouts",
+        "datums": "datum_tags",
+        "geometricTolerances": "geometric_tolerances",
+        "surfaceFinishSymbols": "surface_finish_symbols",
+        "weldSymbols": "weld_symbols",
+    }
+    for request_key, evidence_key in collection_map.items():
+        records = list(evidence.get(evidence_key) or [])
+        for requirement in requested.get(request_key) or []:
+            expected_view = _canonical_view_name(requirement.get("view"))
+            candidates = [
+                record for record in records
+                if expected_view == _canonical_view_name(record.get("semantic_view") or record.get("view"))
+            ]
+            expected_count = int(requirement.get("count", 1))
+            expected_text = str(requirement.get("text") or "")
+            if request_key in {"centerMarks", "centerLines"}:
+                matched = candidates[:expected_count]
+            elif request_key == "datums":
+                matched = [
+                    record for record in candidates
+                    if _normalise_token(record.get("label")) == _normalise_token(expected_text)
+                ][:expected_count]
+            else:
+                matched = [
+                    record for record in candidates
+                    if _normalise_token(expected_text) in _normalise_token(_annotation_evidence_text(record))
+                ][:expected_count]
+            passed = len(matched) == expected_count
+            checks.append({
+                "id": str(requirement.get("id") or ""),
+                "kind": request_key,
+                "view": requirement.get("view"),
+                "expected_count": expected_count,
+                "matched_count": len(matched),
+                "passed": passed,
+                "expected_text": expected_text or None,
+            })
+    missing = [item["id"] for item in checks if not item["passed"]]
+    return {
+        "required_count": len(checks),
+        "matched_count": len(checks) - len(missing),
+        "missing": missing,
+        "checks": checks,
+        "status": "pass" if not missing else "fail",
+        "evidence": evidence,
+    }
+
+
 def _note_report(
     spec: Mapping[str, Any],
     structure: Mapping[str, Any] | None,
@@ -677,9 +751,16 @@ def review_drawing_artifacts(
     view_report = _view_report(spec, reviewed_structure)
     dimension_report = _required_dimension_report(spec, reviewed_structure)
     hole_report = _hole_report(spec, model_evidence)
+    professional_annotation_report = _professional_annotation_report(spec, reviewed_structure)
     checks.append(_check("drawing-required-views", view_report["status"], f"必需视图 {view_report['required_count']} 项，缺失 {len(view_report['missing'])} 项", missing=view_report["missing"]))
     checks.append(_check("drawing-required-dimensions", dimension_report["status"], f"必需尺寸 {dimension_report['required_count']} 项，缺失 {len(dimension_report['missing'])} 项", missing=dimension_report["missing"]))
     checks.append(_check("drawing-hole-requirements", hole_report["status"], f"孔槽要求 {hole_report['required_count']} 项，缺失 {len(hole_report['missing'])} 项", missing=hole_report["missing"]))
+    checks.append(_check(
+        "drawing-professional-annotations",
+        professional_annotation_report["status"],
+        f"专业标注 {professional_annotation_report['required_count']} 项，缺失 {len(professional_annotation_report['missing'])} 项",
+        missing=professional_annotation_report["missing"],
+    ))
     model_dimensions_requested = bool(spec.get("insertModelDimensions", True))
     model_dimension_status = "pass"
     if model_dimensions_requested and not structure.get("dimensions") and not spec.get("requiredDimensions"):
@@ -708,6 +789,8 @@ def review_drawing_artifacts(
         findings.append({"code": "DRAWING_REQUIRED_VIEWS_MISSING", "severity": "fail", "missing": view_report["missing"]})
     if hole_report["missing"]:
         findings.append({"code": "DRAWING_HOLE_REQUIREMENTS_MISSING", "severity": "fail", "missing": hole_report["missing"]})
+    if professional_annotation_report["missing"]:
+        findings.append({"code": "DRAWING_PROFESSIONAL_ANNOTATIONS_MISSING", "severity": "fail", "missing": professional_annotation_report["missing"]})
     if note_report["status"] != "pass":
         findings.append({
             "code": note_report["error_code"] or "DRAWING_NOTE_EVIDENCE_INCOMPLETE",
@@ -788,6 +871,7 @@ def review_drawing_artifacts(
         "view_evidence": view_report,
         "dimension_evidence": dimension_report,
         "hole_evidence": hole_report,
+        "professional_annotation_evidence": professional_annotation_report,
         "bom_evidence": bom_report,
         "title_block_evidence": title_block_report,
         "note_evidence": note_report,

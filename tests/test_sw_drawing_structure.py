@@ -234,6 +234,112 @@ def test_inspect_drawing_structure_maps_blank_projected_orientations_semanticall
     }
 
 
+def test_inspect_drawing_structure_reads_professional_annotation_entities():
+    """@brief 专业标注必须由 IView/IDisplayDimension 实体回读，不能由普通注释推断。"""
+    class AnnotationEntity:
+        def __init__(self, texts=()):
+            self.texts = list(texts)
+
+        def GetAnnotation(self):
+            return self
+
+        def GetBox(self):
+            return (0.20, 0.20, 0.0, 0.22, 0.21, 0.0)
+
+        def GetTextCount(self):
+            return len(self.texts)
+
+        def GetTextAtIndex(self, index):
+            return self.texts[index]
+
+    class CenterMark(AnnotationEntity):
+        Size = 0.004
+        ShowLines = True
+        Style = 1
+
+    class Datum(AnnotationEntity):
+        def GetLabel(self):
+            return "A"
+
+    class Gtol(AnnotationEntity):
+        def GetFrameCount(self):
+            return 1
+
+        def GetDatumIdentifier(self):
+            return "A"
+
+        def GetFrameSymbols3(self, index):
+            assert index == 0
+            return ["POSITION"]
+
+        def GetFrameValues(self, index):
+            assert index == 0
+            return ["0.1", "A"]
+
+    class SurfaceFinish(AnnotationEntity):
+        def GetSymbolType(self):
+            return 1
+
+        def GetSymbol(self):
+            return 2
+
+        def GetDirectionOfLay(self):
+            return 0
+
+    class HoleCallout(FakeDimension):
+        Name = "D-HOLE"
+
+        def IsHoleCallout(self):
+            return True
+
+        def GetHoleCalloutVariables(self):
+            return ["DIAMETER=8", "THRU=True"]
+
+        def GetText(self, _index):
+            return "Ø8 THRU"
+
+    class View(FakeView):
+        def GetDisplayDimensions(self):
+            return [HoleCallout()]
+
+        def GetCenterMarks(self):
+            return [CenterMark()]
+
+        def GetCenterLines(self):
+            return [AnnotationEntity()]
+
+        def GetDatumTags(self):
+            return [Datum(["A"])]
+
+        def GetGTols(self):
+            return [Gtol(["0.1", "A"])]
+
+        def GetSFSymbols(self):
+            return [SurfaceFinish(["Ra 3.2"])]
+
+        def GetWeldSymbols(self):
+            return [AnnotationEntity(["6", "FILLET"])]
+
+    class Sheet(FakeSheet):
+        def GetViews(self):
+            return [View()]
+
+    class Drawing(FakeDrawing):
+        def GetSheet(self, _name):
+            return Sheet()
+
+    result = inspect_drawing_structure(Drawing())
+    evidence = result["professional_annotations"]
+
+    assert len(evidence["center_marks"]) == 1
+    assert len(evidence["center_lines"]) == 1
+    assert evidence["datum_tags"][0]["label"] == "A"
+    assert evidence["geometric_tolerances"][0]["frames"][0]["values"] == ["0.1", "A"]
+    assert evidence["surface_finish_symbols"][0]["text_parts"] == ["Ra 3.2"]
+    assert evidence["weld_symbols"][0]["text_parts"] == ["6", "FILLET"]
+    assert evidence["hole_callouts"][0]["variables"] == ["DIAMETER=8", "THRU=True"]
+
+
 def test_inspect_drawing_structure_blocks_empty_drawing():
     class Empty:
         def GetSheetNames(self):
