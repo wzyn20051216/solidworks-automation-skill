@@ -1395,11 +1395,15 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
                     } if native_box else estimated_box_evidence,
                 })
             for note in _as_sequence(_safe_member(view, "GetNotes", default=[])):
+                note_evidence = _note_evidence(note)
+                note_text = str(note_evidence.get("text") or "").strip()
+                owner_view_type = view_record["type"]
                 notes.append({
                     "sheet": str(sheet_name),
                     "owner_view": view_record["name"],
-                    "owner_view_type": view_record["type"],
-                    **_note_evidence(note),
+                    "owner_view_type": owner_view_type,
+                    "note_kind": "view_label" if owner_view_type in {2, 3} and not note_text else "note",
+                    **note_evidence,
                 })
             for table in _as_sequence(_safe_member(view, "GetTableAnnotations", default=[])):
                 tables.append(_table_evidence(table, sheet_name))

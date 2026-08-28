@@ -738,3 +738,60 @@ def test_review_drawing_layout_checks_note_collisions_and_missing_boxes():
     })
     assert missing_box["status"] == "review_required"
     assert missing_box["error_code"] == "DRAWING_LAYOUT_EVIDENCE_INCOMPLETE"
+
+
+def test_blank_section_view_label_is_not_reported_as_user_note_intrusion():
+    """@brief 剖视图自带空标签框与所属视图相交不是技术注释侵入。"""
+    result = review_drawing_layout({
+        "views": [
+            {"name": "Front", "type": 7, "sheet": "Sheet1", "box": {"left": 0.02, "bottom": 0.10, "right": 0.10, "top": 0.18}},
+            {"name": "Top", "type": 4, "sheet": "Sheet1", "box": {"left": 0.02, "bottom": 0.20, "right": 0.10, "top": 0.27}},
+            {"name": "Right", "type": 4, "sheet": "Sheet1", "box": {"left": 0.12, "bottom": 0.10, "right": 0.19, "top": 0.18}},
+            {"name": "剖面视图 A-A", "type": 2, "sheet": "Sheet1", "box": {"left": 0.24, "bottom": 0.10, "right": 0.32, "top": 0.18}},
+        ],
+        "dimensions": [],
+        "notes": [{
+            "sheet": "Sheet1",
+            "text": "",
+            "box": {"left": 0.2636, "bottom": 0.175, "right": 0.2763, "top": 0.181},
+        }],
+        "title_block": {"box": {"left": 0.23, "bottom": 0.01, "right": 0.40, "top": 0.06}},
+    })
+
+    assert not any(item["code"] == "DRAWING_NOTE_VIEW_INTRUSION" for item in result["findings"])
+
+
+def test_inspection_marks_blank_section_owned_note_as_view_label():
+    """@brief 新生成的结构证据应显式记录标签所属视图及标签类型。"""
+    class Note:
+        def GetText(self):
+            return ""
+
+        def GetExtent(self):
+            return (0.24, 0.095, 0.0, 0.26, 0.102, 0.0)
+
+        def GetAnnotation(self):
+            return self
+
+        def GetPosition(self):
+            return (0.25, 0.10, 0.0)
+
+    class SectionView(FakeView):
+        Name = "剖面视图 A-A"
+        Type = 2
+
+        def GetNotes(self):
+            return [Note()]
+
+    class Sheet(FakeSheet):
+        def GetViews(self):
+            return [SectionView()]
+
+    class Drawing(FakeDrawing):
+        def GetSheet(self, _name):
+            return Sheet()
+
+    result = inspect_drawing_structure(Drawing())
+
+    assert result["notes"][0]["note_kind"] == "view_label"
+    assert result["notes"][0]["owner_view"] == "剖面视图 A-A"

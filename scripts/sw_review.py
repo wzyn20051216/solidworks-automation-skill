@@ -162,6 +162,21 @@ def review_drawing_layout(structure, *, padding_m=0.001, preview_evidence=None) 
         confidence = item.get("box_confidence") or "high"
         return source, confidence, "warning" if source != "native" else "fail"
 
+    def is_owner_view_label(note, view):
+        """@brief 识别剖视/局部视图自带标签，避免把标签与所属视图判成侵入。"""
+        if note.get("note_kind") == "view_label":
+            owner_name = str(note.get("owner_view") or "")
+            return bool(owner_name and owner_name == str(view.get("name") or ""))
+        if str(note.get("text") or "").strip():
+            return False
+        overlapping_special_views = [
+            item for item in views
+            if item.get("type") in {2, 3}
+            and same_sheet(note, item)
+            and _drawing_boxes_overlap(note.get("box"), item.get("box"), padding_m)
+        ]
+        return len(overlapping_special_views) == 1 and overlapping_special_views[0] is view
+
     for index, note in enumerate(notes):
         note_source, note_confidence, note_severity = evidence_for(note)
         if _drawing_boxes_overlap(note.get("box"), title_box, padding_m):
@@ -171,6 +186,8 @@ def review_drawing_layout(structure, *, padding_m=0.001, preview_evidence=None) 
                 evidence_source=note_source, confidence=note_confidence,
             )
         for view in views:
+            if is_owner_view_label(note, view):
+                continue
             if same_sheet(note, view) and _drawing_boxes_overlap(note.get("box"), view.get("box"), padding_m):
                 add_finding(
                     "DRAWING_NOTE_VIEW_INTRUSION", note_severity,
