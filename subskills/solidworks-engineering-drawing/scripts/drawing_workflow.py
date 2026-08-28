@@ -1360,12 +1360,27 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
     tables = []
     for sheet_name in sheets or [""]:
         sheet = _safe_member(drawing_model, "GetSheet", sheet_name) or _safe_member(drawing_model, "GetCurrentSheet")
-        for view in _as_sequence(_safe_member(sheet, "GetViews", default=[])):
+        sheet_views = _as_sequence(_safe_member(sheet, "GetViews", default=[]))
+        oriented_fronts = [
+            view for view in sheet_views
+            if _normalise_orientation(_safe_member(view, "GetOrientationName", default="")) == "front"
+        ]
+        base_candidates = oriented_fronts or [
+            view for view in sheet_views
+            if _safe_member(view, "Type", default=None) == 7 and _safe_member(view, "GetBaseView") is None
+        ]
+        standard_candidates = [*base_candidates, *[
+            view for view in sheet_views if _safe_member(view, "Type", default=None) == 4
+        ]]
+        mapped_views, _, _ = _map_native_standard_views(standard_candidates)
+        semantic_by_object = {id(view): name for name, view in mapped_views.items()}
+        for view in sheet_views:
             view_record = {
                 "sheet": str(sheet_name),
                 "name": _safe_member(view, "Name", default=""),
                 "type": _safe_member(view, "Type", default=None),
                 "orientation": _safe_member(view, "GetOrientationName", default=""),
+                "semantic_view": semantic_by_object.get(id(view), ""),
                 "scale": _safe_member(view, "ScaleRatio", default=None),
                 "box": _normalise_box(_safe_member(view, "GetOutline")),
             }
@@ -1377,6 +1392,7 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
                 dimensions.append({
                     "sheet": str(sheet_name),
                     "view": _safe_member(view, "Name", default=""),
+                    "semantic_view": view_record["semantic_view"],
                     "name": (
                         _safe_member(dimension, "Name", default="")
                         or _safe_member(dimension, "GetNameForSelection", default="")

@@ -182,6 +182,58 @@ def test_inspect_drawing_structure_reads_real_bom_type_cells_and_configuration()
     assert result["tables"][0]["cells"][1] == ["1", "PLATE-01", "2"]
 
 
+def test_inspect_drawing_structure_maps_blank_projected_orientations_semantically():
+    """@brief SW2026 投影视图方向名为空时，按基准关系与位置回读 front/top/right。"""
+    class View:
+        ScaleRatio = (1.0, 1.0)
+
+        def __init__(self, name, orientation, position, base=None):
+            self.Name = name
+            self.Type = 7 if base is None else 4
+            self.Position = position
+            self.orientation = orientation
+            self.base = base
+
+        def GetOrientationName(self):
+            return self.orientation
+
+        def GetBaseView(self):
+            return self.base
+
+        def GetOutline(self):
+            x, y = self.Position
+            return (x - 0.02, y - 0.01, x + 0.02, y + 0.01)
+
+        def GetDisplayDimensions(self):
+            return []
+
+        def GetNotes(self):
+            return []
+
+        def GetTableAnnotations(self):
+            return []
+
+    front = View("工程图视图1", "*前视", (0.15, 0.13))
+    top = View("工程图视图2", "", (0.15, 0.22), front)
+    right = View("工程图视图3", "", (0.26, 0.13), front)
+
+    class Sheet(FakeSheet):
+        def GetViews(self):
+            return [front, top, right]
+
+    class Drawing(FakeDrawing):
+        def GetSheet(self, _name):
+            return Sheet()
+
+    result = inspect_drawing_structure(Drawing())
+
+    assert {item["name"]: item["semantic_view"] for item in result["views"]} == {
+        "工程图视图1": "front",
+        "工程图视图2": "top",
+        "工程图视图3": "right",
+    }
+
+
 def test_inspect_drawing_structure_blocks_empty_drawing():
     class Empty:
         def GetSheetNames(self):

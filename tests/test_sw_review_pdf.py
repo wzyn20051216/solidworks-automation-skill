@@ -81,6 +81,7 @@ def test_pdf_overlapping_vector_text_blocks_drawing_delivery(tmp_path: Path) -> 
     spec = {
         "schemaVersion": "1.0", "sourceModel": "C:/cad/part.sldprt", "documentType": "part",
         "standard": "GB_T", "projection": "first_angle", "paperSize": "A3",
+        "modelSizeMm": [120, 80, 12],
         "views": {"front": {}, "top": {}, "right": {}},
         "outputs": {"slddrw": True, "pdf": True, "report": True},
     }

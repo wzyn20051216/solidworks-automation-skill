@@ -37,7 +37,7 @@ def _dimension_identity(dimension: Mapping[str, Any]) -> str:
 
 def _dimension_view(dimension: Mapping[str, Any]) -> str:
     """@brief 优先使用结构化视图名，兼容 SolidWorks 的 ID@View 名称。"""
-    explicit = str(dimension.get("view") or "").strip()
+    explicit = str(dimension.get("semantic_view") or dimension.get("view") or "").strip()
     if explicit:
         return explicit.lstrip("*")
     name = str(dimension.get("name") or "")
