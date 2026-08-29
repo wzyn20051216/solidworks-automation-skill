@@ -26,6 +26,7 @@ import {
   Square,
   Trash,
   UploadSimple,
+  WarningCircle,
   X,
 } from "@phosphor-icons/react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
@@ -35,6 +36,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { type CSSProperties, type ChangeEvent, type DragEvent, type PointerEvent as ReactPointerEvent, startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { ArtifactBrowser } from "./components/ArtifactBrowser";
+import { AppUpdatePanel } from "./components/AppUpdatePanel";
 import { ConversationControls } from "./components/ConversationControls";
 import { EnvironmentRemediationPanel } from "./components/EnvironmentRemediationPanel";
 import { ManualReviewPanel } from "./components/ManualReviewPanel";
@@ -51,6 +53,7 @@ import {
   retryStageLabel,
 } from "./domain/delivery";
 import { conciseTaskTitle, jobDisplayTitle, jobStatusLabel } from "./domain/jobs";
+import { isTauriRuntime, readPersistedState, writePersistedState } from "./persistence";
 import {
   DEFAULT_PROJECT,
   duplicateProjectRecord,
@@ -161,7 +164,7 @@ const SETTINGS_KEY = "cad-studio.settings.v1";
 const QUEUE_KEY = "cad-studio.queue.v1";
 const CHAT_KEY = "cad-studio.agent-chat.v1";
 const CONVERSATIONS_KEY = "cad-studio.agent-conversations.v1";
-const APP_VERSION = "0.3.3";
+const APP_VERSION = "0.3.4";
 const LEGACY_CONVERSATION_ID = "conversation-legacy";
 const manualReviewOptions = [
   ["native-open", "已用目标 CAD 软件原生打开并确认无报错"],
@@ -394,42 +397,6 @@ function jobKindDetail(kind: AutomationJobKind) {
   if (kind === "dfm_review") return { title: "DFM 制造复核", detail: "检查机加工、钣金、激光切割或 3D 打印风险" };
   if (kind === "codex_task" || kind === "agent_task") return { title: "Agent 执行", detail: "把图形化配置转换为当前 AI 的非交互执行任务" };
   return { title: "生成交付包", detail: "整理 STEP、STL、PDF、DWG 和交付清单" };
-}
-
-function isTauriRuntime() {
-  return "__TAURI_INTERNALS__" in window;
-}
-
-async function readPersistedState(namespace: string, legacyKey: string): Promise<unknown | null> {
-  if (!isTauriRuntime()) {
-    const raw = localStorage.getItem(legacyKey);
-    return raw ? JSON.parse(raw) : null;
-  }
-  try {
-    const stored = await invoke<unknown | null>("read_app_store", { namespace });
-    if (stored !== null) return stored;
-  } catch {
-    // 旧版桌面后端仍可使用 localStorage 数据启动，升级后会再次迁移。
-  }
-  const legacyRaw = localStorage.getItem(legacyKey);
-  if (!legacyRaw) return null;
-  try {
-    const migrated = JSON.parse(legacyRaw) as unknown;
-    await invoke("write_app_store", { namespace, payload: migrated });
-    localStorage.setItem(`${legacyKey}.migration-backup`, legacyRaw);
-    localStorage.removeItem(legacyKey);
-    return migrated;
-  } catch {
-    return null;
-  }
-}
-
-async function writePersistedState(namespace: string, legacyKey: string, payload: unknown) {
-  if (isTauriRuntime()) {
-    await invoke("write_app_store", { namespace, payload }).catch(() => undefined);
-    return;
-  }
-  localStorage.setItem(legacyKey, JSON.stringify(payload));
 }
 
 function isVideoPath(path: string) {
@@ -915,7 +882,9 @@ function App() {
   const [apiSyncMessage, setApiSyncMessage] = useState("可同步 CC Switch，也可继续使用本机 Agent CLI。");
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [storeMigration, setStoreMigration] = useState<AppStoreMigrationStatus | null>(null);
+  const [persistenceWarning, setPersistenceWarning] = useState<string | null>(null);
   const [queueLoaded, setQueueLoaded] = useState(false);
+  const [queueLoadError, setQueueLoadError] = useState<string | null>(null);
   const [jobs, setJobs] = useState<AutomationJob[]>([]);
   const [jobEvents, setJobEvents] = useState<Record<string, QueueEvent[]>>({});
   const [jobLogTails, setJobLogTails] = useState<Record<string, QueueLogTail>>({});
@@ -2295,7 +2264,10 @@ function App() {
   useEffect(() => {
     async function restoreSettings() {
       const persisted = await readPersistedState("settings", SETTINGS_KEY);
-      const settings = loadSettings(persisted ?? undefined);
+      if (persisted.degraded) setPersistenceWarning(persisted.value === null
+        ? "SQLite 暂时不可用，当前未读取到设置回退副本；软件会在后续保存时自动重试。"
+        : "SQLite 暂时不可用，设置已从本地回退副本恢复；软件会在后续保存时自动重试。");
+      const settings = loadSettings(persisted.value ?? undefined);
       if (!settings) {
         setSettingsLoaded(true);
         return;
@@ -2321,7 +2293,10 @@ function App() {
       }
       setSettingsLoaded(true);
     }
-    void restoreSettings();
+    void restoreSettings().catch((error) => {
+      setPersistenceWarning(`设置恢复失败：${error instanceof Error ? error.message : String(error)}`);
+      setSettingsLoaded(true);
+    });
   }, []);
 
   useEffect(() => {
@@ -2330,8 +2305,13 @@ function App() {
         readPersistedState("messages", CHAT_KEY),
         readPersistedState("conversations", CONVERSATIONS_KEY),
       ]);
-      const savedMessages = loadAgentChat(messagePayload ?? undefined);
-      let savedConversations = loadAgentConversations(conversationPayload ?? undefined);
+      if (messagePayload.degraded || conversationPayload.degraded) {
+        setPersistenceWarning(messagePayload.value === null && conversationPayload.value === null
+          ? "SQLite 暂时不可用，当前未读取到对话回退副本；软件会在后续保存时自动重试。"
+          : "SQLite 暂时不可用，对话已从本地回退副本恢复；软件会在后续保存时自动重试。");
+      }
+      const savedMessages = loadAgentChat(messagePayload.value ?? undefined);
+      let savedConversations = loadAgentConversations(conversationPayload.value ?? undefined);
       const hasLegacyMessages = savedMessages.some((message) => !message.conversationId);
       if (hasLegacyMessages && !savedConversations.some((conversation) => conversation.id === LEGACY_CONVERSATION_ID)) {
         const legacyAt = savedMessages[0]?.at || new Date().toISOString();
@@ -2353,13 +2333,20 @@ function App() {
       setAgentConversations(savedConversations);
       setChatLoaded(true);
     }
-    void restoreChat();
+    void restoreChat().catch((error) => {
+      setPersistenceWarning(`对话恢复失败：${error instanceof Error ? error.message : String(error)}`);
+      setChatLoaded(true);
+    });
   }, []);
 
   useEffect(() => {
     if (!chatLoaded) return;
-    void writePersistedState("messages", CHAT_KEY, agentMessages.slice(-200));
-    void writePersistedState("conversations", CONVERSATIONS_KEY, agentConversations.slice(0, 100));
+    void writePersistedState("messages", CHAT_KEY, agentMessages.slice(-200))
+      .then((result) => result.degraded && setPersistenceWarning("SQLite 写入失败，对话已安全保存到本地回退副本。"))
+      .catch((error) => setPersistenceWarning(`对话保存失败：${error instanceof Error ? error.message : String(error)}`));
+    void writePersistedState("conversations", CONVERSATIONS_KEY, agentConversations.slice(0, 100))
+      .then((result) => result.degraded && setPersistenceWarning("SQLite 写入失败，对话索引已安全保存到本地回退副本。"))
+      .catch((error) => setPersistenceWarning(`对话索引保存失败：${error instanceof Error ? error.message : String(error)}`));
   }, [agentConversations, agentMessages, chatLoaded]);
 
   useEffect(() => {
@@ -2407,6 +2394,7 @@ function App() {
       try {
         const savedJobs = await invoke<AutomationJob[]>("read_queue_jobs");
         if (disposed) return;
+        setQueueLoadError(null);
         const nextJobs = savedJobs
           .filter((job) => typeof job.id === "string")
           .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""))
@@ -2430,6 +2418,8 @@ function App() {
             setJobLogTails(Object.fromEntries(logPairs));
           });
         }
+      } catch (error) {
+        if (!disposed) setQueueLoadError(`任务队列读取失败：${error instanceof Error ? error.message : String(error)}`);
       } finally {
         if (!disposed) setQueueLoaded(true);
       }
@@ -2449,7 +2439,10 @@ function App() {
         void refreshWorkerStatus();
       }, 80);
     }).then((dispose) => {
-      unlisten = dispose;
+      if (disposed) dispose();
+      else unlisten = dispose;
+    }).catch((error) => {
+      if (!disposed) setQueueLoadError(`任务队列监听失败：${error instanceof Error ? error.message : String(error)}`);
     });
     return () => {
       disposed = true;
@@ -2522,7 +2515,9 @@ function App() {
       apiConfig,
       knowledgeBase,
     };
-    void writePersistedState("settings", SETTINGS_KEY, settings);
+    void writePersistedState("settings", SETTINGS_KEY, settings)
+      .then((result) => result.degraded && setPersistenceWarning("SQLite 写入失败，设置已安全保存到本地回退副本。"))
+      .catch((error) => setPersistenceWarning(`设置保存失败：${error instanceof Error ? error.message : String(error)}`));
   }, [activeProjectId, activeWallpaper, apiConfig, customWallpaper?.sourcePath, knowledgeBase, projectName, projects, recentProjectPath, recentWallpapers, settingsLoaded, wallpaperBlur, wallpaperBrightness, wallpaperMotionMode, wallpaperMotionStrength, wallpaperVignette, workspaceOpacity]);
 
   function renderTemplatePanel() {
@@ -2811,6 +2806,13 @@ function App() {
     return (
       <section className="tab-surface">
         <EnvironmentRemediationPanel remediations={runtimeHealth?.remediations ?? []} onCopyCommand={copyRuntimeCommand} onOpenDownload={openRuntimeDownload} />
+        {persistenceWarning ? (
+          <div className="persistence-warning" role="status">
+            <WarningCircle size={18} weight="duotone" />
+            <span>{persistenceWarning}</span>
+            <button type="button" onClick={() => setPersistenceWarning(null)}>知道了</button>
+          </div>
+        ) : null}
         <div className="settings-studio">
           <article className="setting-card api-card primary-setting">
             <div className="setting-title">
@@ -3362,6 +3364,7 @@ function App() {
           </header>
 
           {renderWorkspacePanel()}
+          <AppUpdatePanel expanded={activeTab === "settings"} />
 
           {["project", "model", "holes", "drawing"].includes(activeTab) ? (
             <>
@@ -3742,6 +3745,7 @@ function App() {
                   <span>{queueLoaded ? queueSummary : "加载中"}</span>
                 </div>
               </div>
+              {queueLoadError ? <div className="queue-error" role="alert">{queueLoadError}</div> : null}
               <div className="queue-list">
                 {activeProjectJobs.length === 0 ? (
                   <div className="queue-empty">

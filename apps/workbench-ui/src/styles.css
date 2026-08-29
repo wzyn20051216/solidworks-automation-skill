@@ -1456,6 +1456,41 @@ textarea {
   align-items: stretch;
 }
 
+.persistence-warning,
+.queue-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 11px 13px;
+  border: 1px solid rgba(194, 121, 39, 0.34);
+  border-left: 3px solid var(--warning);
+  border-radius: 7px;
+  color: #6a431e;
+  background: rgba(255, 245, 227, 0.88);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.persistence-warning span {
+  flex: 1;
+}
+
+.persistence-warning button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  color: #6a431e;
+  background: rgba(194, 121, 39, 0.12);
+  cursor: pointer;
+  font: inherit;
+}
+
+.queue-error {
+  margin: 0 0 10px;
+}
+
 .setting-card {
   display: grid;
   align-content: start;
@@ -1532,6 +1567,116 @@ textarea {
 
 .status-setting {
   min-height: 0;
+}
+
+.update-setting {
+  min-height: 0;
+  gap: 10px;
+}
+
+.update-setting.expanded {
+  margin-top: 14px;
+  width: min(640px, 100%);
+}
+
+.update-setting.floating {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 80;
+  width: min(360px, calc(100vw - 44px));
+  min-height: 0;
+  box-shadow: 0 18px 50px rgba(28, 35, 43, 0.22), inset 3px 0 var(--accent);
+}
+
+.update-setting.available {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--hairline));
+  box-shadow: var(--shadow-card), inset 3px 0 var(--accent);
+}
+
+.update-setting.error {
+  border-color: rgba(194, 121, 39, 0.35);
+}
+
+.update-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.update-heading > svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.update-heading > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.update-heading strong {
+  margin-top: 0;
+  font-size: 16px;
+}
+
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.update-actions button {
+  margin-top: 0;
+}
+
+.update-actions button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.update-progress {
+  position: relative;
+  height: 20px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(28, 35, 43, 0.07);
+}
+
+.update-progress i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  min-width: 8px;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 180ms ease;
+}
+
+.update-progress small {
+  position: relative;
+  z-index: 1;
+  display: block;
+  padding: 3px 8px;
+  color: var(--ink);
+  font-size: 9px;
+  font-weight: 900;
+  text-align: center;
+}
+
+.update-setting details {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.update-setting summary {
+  cursor: pointer;
+  font-weight: 850;
+}
+
+.update-setting details p {
+  max-height: 96px;
+  overflow: auto;
+  white-space: pre-wrap;
 }
 
 .status-setting.amber {

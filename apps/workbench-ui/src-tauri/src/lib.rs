@@ -1824,6 +1824,7 @@ fn validate_external_download_url(value: &str) -> Result<(), String> {
         "https://developers.openai.com/",
         "https://docs.anthropic.com/",
         "https://github.com/google-gemini/",
+        "https://github.com/wzyn20051216/solidworks-automation-skill/releases/",
         "https://opencode.ai/",
         "https://www.calculix.de/",
         "https://www.solidworks.com/",
@@ -2876,6 +2877,7 @@ pub fn run() {
             child: Mutex::new(None),
         })
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             save_queue_job,
             approve_queue_job,
@@ -2977,6 +2979,10 @@ mod tests {
         )
         .is_ok());
         assert!(validate_external_download_url("http://www.python.org/downloads/").is_err());
+        assert!(validate_external_download_url(
+            "https://github.com/wzyn20051216/solidworks-automation-skill/releases/latest"
+        )
+        .is_ok());
         assert!(
             validate_external_download_url("https://www.python.org.evil.example/download").is_err()
         );

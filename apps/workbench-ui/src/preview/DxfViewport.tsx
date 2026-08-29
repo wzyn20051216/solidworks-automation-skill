@@ -97,6 +97,7 @@ export const DxfViewport = forwardRef<PreviewActions, DxfViewportProps>(function
 
   useEffect(() => {
     let disposed = false;
+    let activeWorker: Worker | undefined;
     onPhase("正在读取文件", "读取 DXF 或 PreviewScene JSON");
     fetch(url).then((response) => response.ok ? response.text() : Promise.reject(new Error(`HTTP ${response.status}`))).then((source) => {
       if (disposed) return;
@@ -110,8 +111,10 @@ export const DxfViewport = forwardRef<PreviewActions, DxfViewportProps>(function
         return;
       }
       const worker = new Worker(new URL("./dxfWorker.ts", import.meta.url), { type: "module" });
+      activeWorker = worker;
       worker.onmessage = (event: MessageEvent<{ ok: boolean; scene?: PreviewScene; error?: string }>) => {
         worker.terminate();
+        activeWorker = undefined;
         if (disposed) return;
         if (!event.data.ok || !event.data.scene) {
           onPhase("预览失败", event.data.error || "DXF 解析失败");
@@ -124,11 +127,16 @@ export const DxfViewport = forwardRef<PreviewActions, DxfViewportProps>(function
       };
       worker.onerror = (error) => {
         worker.terminate();
+        activeWorker = undefined;
         if (!disposed) onPhase("预览失败", error.message);
       };
       worker.postMessage(source);
     }).catch((error: Error) => { if (!disposed) onPhase("预览失败", `DXF 读取失败: ${error.message}`); });
-    return () => { disposed = true; };
+    return () => {
+      disposed = true;
+      activeWorker?.terminate();
+      activeWorker = undefined;
+    };
   }, [onLayers, onPhase, onStats, url]);
 
   useEffect(() => {

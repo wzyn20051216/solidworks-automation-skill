@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "CAD Studio",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "identifier": "com.wzyn.cadstudio",
   "build": {
     "frontendDist": "../dist",
@@ -34,6 +34,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis"],
     "resources": {
       "resources/skill/": "skill/"
@@ -47,6 +48,17 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEzMEU0NkEwQTc5MDY5NDAKUldSQWFaQ25vRVlPRXlQRndDNVJVUXBZSzdJRTZUSG5iSnhtQVRmcXZnRnZPL3UyUkF2Z0lHaE8K",
+      "endpoints": [
+        "https://github.com/wzyn20051216/solidworks-automation-skill/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

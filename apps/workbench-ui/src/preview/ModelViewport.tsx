@@ -103,7 +103,15 @@ export const ModelViewport = forwardRef<PreviewActions, ModelViewportProps>(func
         object = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x3d8175, metalness: 0.16, roughness: 0.52 }));
       } else if (extension === "obj") object = await new OBJLoader().loadAsync(url);
       else object = (await new GLTFLoader().loadAsync(url)).scene;
-      if (disposed) return;
+      if (disposed) {
+        object.traverse((child) => {
+          const mesh = child as import("three").Mesh;
+          mesh.geometry?.dispose();
+          const materials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+          materials.forEach((material) => material.dispose());
+        });
+        return;
+      }
       let meshCount = 0;
       object.traverse((child) => {
         const mesh = child as import("three").Mesh;
