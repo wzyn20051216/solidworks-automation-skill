@@ -11,6 +11,13 @@ const executable = path.join(portableRoot, "CAD Studio.exe");
 const isolatedHome = path.join(repo, "release-output", "e2e-home");
 const queue = path.join(repo, "release-output", "e2e-queue");
 const webviewData = path.join(repo, "release-output", "e2e-webview2");
+const releaseOutput = path.resolve(repo, "release-output");
+
+/** @brief 限制端到端测试清理范围，避免误删工作区外目录。 */
+function assertSafeTestPath(target) {
+  const resolved = path.resolve(target);
+  if (path.dirname(resolved) !== releaseOutput) throw new Error(`拒绝清理测试目录: ${resolved}`);
+}
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -28,6 +35,7 @@ async function waitUntil(check, label, timeout = 30_000) {
 
 async function main() {
   if (!fs.existsSync(executable)) throw new Error(`便携版程序不存在: ${executable}`);
+  [isolatedHome, queue, webviewData].forEach(assertSafeTestPath);
   fs.rmSync(isolatedHome, { recursive: true, force: true });
   fs.rmSync(queue, { recursive: true, force: true });
   fs.rmSync(webviewData, { recursive: true, force: true });

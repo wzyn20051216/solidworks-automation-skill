@@ -138,6 +138,16 @@ python subskills\autocad-automation\scripts\acad_dotnet_regression.py --real-cad
 
 Windows SmartScreen 可能提示“未知发布者”，因为当前开源构建未购买商业代码签名证书。可先核对 Release 页面 SHA-256，再选择运行。
 
+### 自动更新
+
+CAD Studio Windows 桌面版启动后会静默检查一次 GitHub Release。发现新版本时，界面右下角会显示更新提示；进入“设置”可查看当前版本、版本说明和下载进度。
+
+1. 点击“下载并安装”后，软件下载更新包并验证 Tauri updater 签名。
+2. 签名有效后，Windows 安装程序会接管更新并关闭当前窗口。
+3. 检查或安装失败时，可点击“打开下载页”转到 GitHub Releases 手动下载，并按 `SHA256SUMS.txt` 复核文件。
+
+自动更新签名用于验证更新包来自本项目且未被篡改；它不等同于商业 Windows 代码签名，因此 SmartScreen 仍可能显示“未知发布者”。软件不会在未点击确认时自动安装更新。
+
 ## 4. 第一次使用
 
 1. 打开顶部“帮助”，查看环境状态。

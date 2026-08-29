@@ -53,8 +53,9 @@ def run_release_check() -> dict[str, object]:
     ui_version = _version(ROOT / "apps/workbench-ui/package.json", r'"version"\s*:\s*"([^"]+)"')
     tauri_version = _version(ROOT / "apps/workbench-ui/src-tauri/tauri.conf.json", r'"version"\s*:\s*"([^"]+)"')
     cargo_version = _version(ROOT / "apps/workbench-ui/src-tauri/Cargo.toml", r'(?m)^version\s*=\s*"([^"]+)"')
-    if len({ui_version, tauri_version, cargo_version}) != 1:
-        raise AssertionError(f"版本不一致: {ui_version}, {tauri_version}, {cargo_version}")
+    app_version = _version(ROOT / "apps/workbench-ui/src/App.tsx", r'const APP_VERSION\s*=\s*"([^"]+)"')
+    if len({ui_version, tauri_version, cargo_version, app_version}) != 1:
+        raise AssertionError(f"版本不一致: npm={ui_version}, tauri={tauri_version}, cargo={cargo_version}, app={app_version}")
     manifest = json.loads((ROOT / "capabilities.yaml").read_text(encoding="utf-8"))
     capabilities = manifest.get("capabilities", [])
     ids = [item.get("id") for item in capabilities]

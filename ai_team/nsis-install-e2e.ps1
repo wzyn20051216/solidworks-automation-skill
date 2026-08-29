@@ -3,6 +3,9 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $installRoot = Join-Path $repoRoot "release-output\nsis-test"
 $version = (Get-Content -LiteralPath (Join-Path $repoRoot "apps\workbench-ui\src-tauri\tauri.conf.json") -Raw | ConvertFrom-Json).version
 $installer = Join-Path $repoRoot "release-output\CAD-Studio-$version-Setup-x64.exe"
+$resolvedInstallRoot = [System.IO.Path]::GetFullPath($installRoot)
+$expectedInstallRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot "release-output\nsis-test"))
+if ($resolvedInstallRoot -ne $expectedInstallRoot) { throw "Unsafe NSIS test path: $resolvedInstallRoot" }
 
 if (Test-Path -LiteralPath $installRoot) {
     Remove-Item -LiteralPath $installRoot -Recurse -Force

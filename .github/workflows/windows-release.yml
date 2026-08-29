@@ -14,7 +14,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -45,15 +45,44 @@ jobs:
         run: npm ci
       - name: Build frontend
         working-directory: apps/workbench-ui
-        run: npm run build
+        run: |
+          npm test
+          npm run build
       - name: Test Rust backend
         working-directory: apps/workbench-ui/src-tauri
         run: |
           cargo fmt -- --check
           cargo test
           cargo clippy -- -D warnings
+      - name: Configure updater signing key
+        working-directory: apps/workbench-ui
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RELEASE_SIGNING_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $signingKey = $env:RELEASE_SIGNING_KEY
+          $signingPassword = $env:RELEASE_SIGNING_KEY_PASSWORD
+          if ([string]::IsNullOrWhiteSpace($signingKey)) {
+            if ("${{ startsWith(github.ref, 'refs/tags/v') }}" -eq "true") {
+              throw "TAURI_SIGNING_PRIVATE_KEY is required for a public release tag."
+            }
+            $temporaryKey = Join-Path $env:RUNNER_TEMP "cad-studio-ci-updater.key"
+            $passwordBytes = New-Object byte[] 32
+            [System.Security.Cryptography.RandomNumberGenerator]::Fill($passwordBytes)
+            $signingPassword = [Convert]::ToBase64String($passwordBytes)
+            npx tauri signer generate --password $signingPassword --write-keys $temporaryKey --ci
+            if ($LASTEXITCODE -ne 0) { throw "Cannot generate temporary updater signing key." }
+            $signingKey = Get-Content -LiteralPath $temporaryKey -Raw
+          }
+          if ([string]::IsNullOrWhiteSpace($signingPassword)) { throw "Updater signing key password is missing." }
+          "TAURI_SIGNING_PRIVATE_KEY<<CAD_STUDIO_SIGNING_KEY" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $signingKey | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CAD_STUDIO_SIGNING_KEY" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$signingPassword" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Build release packages
         run: powershell -File scripts/build_windows_release.ps1
+      - name: Verify updater release contract
+        run: powershell -File scripts/verify_updater_release.ps1
       - name: Install Playwright browser
         working-directory: apps/workbench-ui
         run: npx playwright install chromium
@@ -72,5 +101,7 @@ jobs:
           generate_release_notes: true
           files: |
             release-output/CAD-Studio-*-Setup-x64.exe
+            release-output/CAD-Studio-*-Setup-x64.exe.sig
             release-output/CAD-Studio-*-Portable.zip
+            release-output/latest.json
             release-output/SHA256SUMS.txt

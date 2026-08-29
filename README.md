@@ -86,6 +86,7 @@ python scripts/cad_studio.py create-ocp-surface --input .\smooth-loft.json --out
 - 🧠 **VibeCAD 参数化规划** - 将自然语言需求转换为设计计划、制造规则检查、SolidWorks API 执行摘要和审查门禁
 - 🧵 **螺纹孔建模** - 攻丝底孔、M3/M4/M5/M6/M8 盲孔/通孔、孔口倒角、装饰螺纹与可见螺旋线兜底
 - 🧾 **AutoCAD / DWG 子技能** - DXF 无头预览与结构审查可用；AutoCAD 原生 DWG 绘图仍受本机 ActiveX 代理稳定性门禁，详见能力清单
+- 🔄 **签名自动更新** - Windows 桌面版启动后静默检查 GitHub Release，发现新版本后由用户确认下载和安装；失败时保留手动下载入口
 - 🔩 **装配体操作** - 添加组件、配合关系、干涉检查、爆炸视图
 - 📐 **工程图出图** - 三视图、剖视图、尺寸标注、BOM 表
 - 🧾 **工程图专业子技能** - `solidworks-engineering-drawing` 独立负责 GB/T 第一角工程图、尺寸链、孔表、BOM、PDF/BMP 证据和制造交付审视，可由根技能或任意相关子技能按需连接
