@@ -30,6 +30,15 @@
 from scripts.sw_drawing import plan_standard_view_layout
 ```
 
+## 跨版本真机矩阵
+
+```powershell
+$env:CAD_STUDIO_VISIBLE='false'
+python tests/solidworks_drawing_version_matrix.py --years 2024 2025 2026
+```
+
+矩阵按精确版本 ProgID 串行执行，输出每个版本独立工程图报告和总矩阵 JSON。未注册版本记录为 `unavailable`；只有回读年份与请求年份一致时才记为 `pass`。
+
 新代码应优先使用本子技能脚本，并通过根技能提供的 COM/session API 执行。
 
 ## 状态
