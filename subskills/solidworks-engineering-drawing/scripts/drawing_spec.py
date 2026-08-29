@@ -104,6 +104,26 @@ def validate_drawing_spec(source: str | Path | Mapping[str, Any]) -> dict[str, A
         if not valid or not isinstance(locations, list) or len(locations) != item.get("count", -1):
             issues.append(_issue("DRAWING_HOLE_REQUIREMENT_INCOMPLETE", "孔槽要求必须包含规格、数量，并为每个孔提供定位坐标", path=f"holeRequirements[{index}]"))
 
+    center_mark_views: dict[str, int] = {}
+    orientation_aliases = {"front": "front", "frontview": "front", "前视": "front", "主视": "front",
+                           "top": "top", "topview": "top", "上视": "top", "俯视": "top",
+                           "right": "right", "rightview": "right", "右视": "right"}
+    professional_annotations = spec.get("professionalAnnotations") or {}
+    center_mark_specs = professional_annotations.get("centerMarks", []) if isinstance(professional_annotations, dict) else []
+    for index, item in enumerate(center_mark_specs or []):
+        if not isinstance(item, dict):
+            continue
+        compact_view = "".join(character for character in str(item.get("view") or "").casefold() if character.isalnum() or "\u4e00" <= character <= "\u9fff")
+        semantic_view = orientation_aliases.get(compact_view, compact_view)
+        if semantic_view in center_mark_views:
+            issues.append(_issue(
+                "DRAWING_CENTER_MARK_VIEW_DUPLICATE",
+                "同一标准视图只能声明一组自动中心标记要求，请合并 targets 并使用总数量。",
+                path=f"professionalAnnotations.centerMarks[{index}].view",
+            ))
+        else:
+            center_mark_views[semantic_view] = index
+
     if spec.get("documentType") == "sheet_metal":
         sheet_metal = spec.get("sheetMetal") or {}
         evidence = sheet_metal.get("flatPatternEvidencePath")

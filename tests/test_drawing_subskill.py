@@ -122,7 +122,10 @@ def test_generic_generator_blocks_unsupported_spec_before_com_mutation():
         requiredDimensions=[{"id": "D1", "kind": "overall", "view": "Front"}],
         holeRequirements=[{"id": "H1", "specification": "Ø8", "count": 1, "locationsMm": [[10, 10, 0]]}],
         titleBlock={"required": True, "format": "GB_T", "drawingNumber": "DWG-001"},
-        professionalAnnotations={"centerMarks": [{"id": "CM1", "view": "Front", "count": 2}]},
+        professionalAnnotations={
+            "centerMarks": [{"id": "CM1", "view": "Front", "count": 2, "targets": ["holes"]}],
+            "datums": [{"id": "DAT-A", "view": "Front", "text": "A"}],
+        },
     )
 
     result = generate_drawing_from_spec(MustNotBeTouched(), payload, payload["sourceModel"])
@@ -166,7 +169,7 @@ def test_reviewer_flags_requested_detail_view_that_is_not_in_structure():
 def test_professional_annotation_schema_and_reviewer_use_structured_evidence():
     """@brief 中心标记、孔标注、基准、GD&T 和粗糙度按类型与视图逐项核验。"""
     annotations = {
-        "centerMarks": [{"id": "CM1", "view": "Front", "count": 2}],
+        "centerMarks": [{"id": "CM1", "view": "Front", "count": 2, "targets": ["holes"]}],
         "holeCallouts": [{"id": "HC1", "view": "Front", "text": "Ø8 THRU", "count": 1}],
         "datums": [{"id": "DAT-A", "view": "Front", "text": "A"}],
         "geometricTolerances": [{"id": "GDT1", "view": "Front", "text": "0.1 A"}],
@@ -197,6 +200,33 @@ def test_empty_professional_annotation_groups_do_not_block_generic_generator():
     result = validate_generic_drawing_generation(_spec(professionalAnnotations={"centerMarks": []}))
 
     assert result["status"] == "pass"
+
+
+def test_center_marks_are_supported_by_generic_generator_capability_gate():
+    """@brief 自动中心标记已经具备写入和回读链，不应继续被专业标注总门禁拦截。"""
+    result = validate_generic_drawing_generation(_spec(professionalAnnotations={
+        "centerMarks": [{"id": "CM1", "view": "Front", "count": 1, "targets": ["holes"]}],
+    }))
+
+    assert result["status"] == "pass"
+
+
+def test_center_mark_schema_requires_targets_and_rejects_duplicate_view_groups():
+    """@brief 自动插入必须明确目标几何，同一视图的目标应合并为一个请求。"""
+    missing_targets = validate_drawing_spec(_spec(professionalAnnotations={
+        "centerMarks": [{"id": "CM1", "view": "Front", "count": 1}],
+    }))
+    duplicated = validate_drawing_spec(_spec(professionalAnnotations={
+        "centerMarks": [
+            {"id": "CM1", "view": "Front", "count": 1, "targets": ["holes"]},
+            {"id": "CM2", "view": "front-view", "count": 1, "targets": ["slots"]},
+        ],
+    }))
+
+    assert missing_targets["status"] == "blocked"
+    assert any(item["code"] == "DRAWING_SPEC_SCHEMA_INVALID" for item in missing_targets["issues"])
+    assert duplicated["status"] == "blocked"
+    assert any(item["code"] == "DRAWING_CENTER_MARK_VIEW_DUPLICATE" for item in duplicated["issues"])
 
 
 def test_professional_annotation_mutation_does_not_false_pass():

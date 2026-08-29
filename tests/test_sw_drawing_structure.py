@@ -6,6 +6,7 @@ import pytest
 from scripts.sw_drawing import (
     add_a3_sheet,
     auto_arrange_drawing_dimensions,
+    auto_insert_center_marks,
     create_adaptive_standard_views,
     estimate_dimension_text_box,
     inspect_drawing_structure,
@@ -338,6 +339,197 @@ def test_inspect_drawing_structure_reads_professional_annotation_entities():
     assert evidence["surface_finish_symbols"][0]["text_parts"] == ["Ra 3.2"]
     assert evidence["weld_symbols"][0]["text_parts"] == ["6", "FILLET"]
     assert evidence["hole_callouts"][0]["variables"] == ["DIAMETER=8", "THRU=True"]
+
+
+def test_inspect_drawing_structure_traverses_annotation_center_marks():
+    """@brief 注解型中心标记必须通过 GetFirstCenterMark2/GetNext 回读。"""
+    class CenterMark:
+        Size = 0.004
+        ShowLines = True
+        Style = 1
+
+        def __init__(self, next_mark=None):
+            self.next_mark = next_mark
+
+        def GetNext(self):
+            return self.next_mark
+
+    second = CenterMark()
+    first = CenterMark(second)
+
+    class View(FakeView):
+        def GetFirstCenterMark2(self):
+            return first
+
+        def GetCenterMarks(self):
+            return []
+
+    class Sheet(FakeSheet):
+        def GetViews(self):
+            return [View()]
+
+    class Drawing(FakeDrawing):
+        def GetSheet(self, _name):
+            return Sheet()
+
+    result = inspect_drawing_structure(Drawing())
+
+    assert len(result["professional_annotations"]["center_marks"]) == 2
+
+
+def test_auto_insert_center_marks_uses_verified_enum_and_entity_readback():
+    """@brief API 参数必须与已确认枚举一致，成功状态必须来自实体数量回读。"""
+    class CenterMark:
+        def __init__(self, next_mark=None):
+            self.next_mark = next_mark
+
+        def GetNext(self):
+            return self.next_mark
+
+    class View:
+        ScaleRatio = (1.0, 1.0)
+
+        def __init__(self, orientation, view_type, position):
+            self.orientation = orientation
+            self.Name = f"View-{orientation}"
+            self.Type = view_type
+            self.Position = position
+            self.calls = []
+            self.first_mark = None
+
+        def GetOrientationName(self):
+            return self.orientation
+
+        def GetBaseView(self):
+            return None if self.Type == 7 else front
+
+        def GetFirstCenterMark2(self):
+            return self.first_mark
+
+        def GetCenterMarks(self):
+            return []
+
+        def AutoInsertCenterMarks2(self, *args):
+            self.calls.append(args)
+            self.first_mark = CenterMark()
+            return True
+
+    front = View("*Front", 7, (0.15, 0.13))
+    top = View("*Top", 4, (0.15, 0.22))
+    right = View("*Right", 4, (0.26, 0.13))
+
+    class Sheet:
+        def GetViews(self):
+            return [front, top, right]
+
+    class Drawing:
+        def __init__(self):
+            self.activated = []
+
+        def GetCurrentSheet(self):
+            return Sheet()
+
+        def ActivateView(self, name):
+            self.activated.append(name)
+            return True
+
+        def ForceRebuild3(self, _top_only):
+            return True
+
+        def GraphicsRedraw2(self):
+            return True
+
+    drawing = Drawing()
+    result = auto_insert_center_marks(drawing, [{"id": "CM1", "view": "Front", "count": 1, "targets": ["holes"]}])
+
+    assert result["status"] == "pass"
+    assert drawing.activated == ["View-*Front"]
+    assert front.calls == [(1, 0, True, True, True, 0.0, 0.0, False, True, 0.0)]
+    assert result["requirements"][0]["after_count"] == 1
+    assert result["requirements"][0]["created_count"] == 1
+
+
+def test_auto_insert_center_marks_rejects_api_success_without_entity_readback():
+    """@brief COM 返回 True 但无中心标记实体时必须失败，避免假成功。"""
+    class View:
+        Name = "Front"
+        Type = 7
+        Position = (0.15, 0.13)
+
+        def GetOrientationName(self):
+            return "*Front"
+
+        def GetBaseView(self):
+            return None
+
+        def GetFirstCenterMark2(self):
+            return None
+
+        def GetCenterMarks(self):
+            return []
+
+        def AutoInsertCenterMarks2(self, *_args):
+            return True
+
+    view = View()
+
+    class Sheet:
+        def GetViews(self):
+            return [view]
+
+    class Drawing:
+        def GetCurrentSheet(self):
+            return Sheet()
+
+        def GetPathName(self):
+            return "C:/cad/saved.slddrw"
+
+    result = auto_insert_center_marks(Drawing(), [{"id": "CM1", "view": "Front", "count": 1, "targets": ["holes"]}])
+
+    assert result["status"] == "failed"
+    assert result["requirements"][0]["api_returned"] is True
+    assert result["requirements"][0]["after_count"] == 0
+    assert result["error_code"] == "DRAWING_CENTER_MARK_INSERT_OR_READBACK_FAILED"
+
+
+def test_auto_insert_center_marks_explains_unsaved_drawing_false_positive():
+    """@brief 未保存工程图出现 True/零实体时应给出可重试的首次保存提示码。"""
+    class View:
+        Name = "Front"
+        Type = 7
+        Position = (0.15, 0.13)
+
+        def GetOrientationName(self):
+            return "*Front"
+
+        def GetBaseView(self):
+            return None
+
+        def GetFirstCenterMark2(self):
+            return None
+
+        def GetCenterMarks(self):
+            return []
+
+        def AutoInsertCenterMarks2(self, *_args):
+            return True
+
+    class Sheet:
+        def GetViews(self):
+            return [View()]
+
+    class Drawing:
+        def GetCurrentSheet(self):
+            return Sheet()
+
+        def GetPathName(self):
+            return ""
+
+    result = auto_insert_center_marks(Drawing(), [{"id": "CM1", "view": "Front", "count": 1, "targets": ["holes"]}])
+
+    assert result["status"] == "failed"
+    assert result["retryable"] is True
+    assert result["error_code"] == "DRAWING_CENTER_MARK_DRAWING_SAVE_REQUIRED"
 
 
 def test_inspect_drawing_structure_blocks_empty_drawing():

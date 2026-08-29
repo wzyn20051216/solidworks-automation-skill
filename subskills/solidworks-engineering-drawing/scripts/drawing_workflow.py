@@ -38,6 +38,14 @@ ALIGN_DIMENSION_TYPES = {
     "right_align_text": 7,
 }
 
+# SolidWorks.Interop.swconst.swAutoInsertCenterMarkTypes_e
+# （SW2026 Interop 反射与官方 API 帮助交叉确认）。
+AUTO_CENTER_MARK_TARGETS = {
+    "holes": 1,
+    "fillets": 2,
+    "slots": 4,
+}
+
 
 def _safe_member(obj, name, *args, default=None):
     """@brief 读取工程图 COM 成员，失败时返回默认值。"""
@@ -711,6 +719,22 @@ def _map_native_standard_views(views):
     return by_orientation, diagnostics, "unresolved"
 
 
+def _map_standard_views_from_sheet_views(sheet_views):
+    """@brief 从整张图纸视图中筛出并映射前、俯、右三个标准视图。"""
+    oriented_fronts = [
+        view for view in sheet_views
+        if _normalise_orientation(_safe_member(view, "GetOrientationName", default="")) == "front"
+    ]
+    base_candidates = oriented_fronts or [
+        view for view in sheet_views
+        if _safe_member(view, "Type", default=None) == 7 and _safe_member(view, "GetBaseView") is None
+    ]
+    standard_candidates = [*base_candidates, *[
+        view for view in sheet_views if _safe_member(view, "Type", default=None) == 4
+    ]]
+    return _map_native_standard_views(standard_candidates)
+
+
 def create_adaptive_standard_views(drawing_model, part_path, layout) -> dict:
     """@brief 按预先计算的布局创建前、俯、右三个真实工程图视图。"""
     created = []
@@ -1374,6 +1398,26 @@ def _professional_annotation_record(owner, kind, view_record):
     }
 
 
+def _view_center_marks(view):
+    """@brief 遍历视图中心标记，并兼容 SW2025 SP1 之前的回读接口。"""
+    current = _safe_member(view, "GetFirstCenterMark2")
+    if current is None:
+        current = _safe_member(view, "GetFirstCenterMark")
+    marks = []
+    seen = set()
+    while current is not None and len(marks) < 10000:
+        identity = id(current)
+        if identity in seen:
+            break
+        seen.add(identity)
+        marks.append(current)
+        current = _safe_member(current, "GetNext")
+    if marks:
+        return marks
+    # GetCenterMarks 不能返回注解型中心标记，仅作为旧版本兼容回退。
+    return _as_sequence(_safe_member(view, "GetCenterMarks", default=[]))
+
+
 def _collect_view_professional_annotations(view, view_record):
     """@brief 使用 SW2026 Interop 已反射确认的 IView 回读接口收集专业标注。"""
     result = {
@@ -1384,7 +1428,7 @@ def _collect_view_professional_annotations(view, view_record):
         "surface_finish_symbols": [],
         "weld_symbols": [],
     }
-    for owner in _as_sequence(_safe_member(view, "GetCenterMarks", default=[])):
+    for owner in _view_center_marks(view):
         record = _professional_annotation_record(owner, "center_mark", view_record)
         record.update({
             "size_m": _safe_member(owner, "Size", default=None),
@@ -1452,18 +1496,7 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
     for sheet_name in sheets or [""]:
         sheet = _safe_member(drawing_model, "GetSheet", sheet_name) or _safe_member(drawing_model, "GetCurrentSheet")
         sheet_views = _as_sequence(_safe_member(sheet, "GetViews", default=[]))
-        oriented_fronts = [
-            view for view in sheet_views
-            if _normalise_orientation(_safe_member(view, "GetOrientationName", default="")) == "front"
-        ]
-        base_candidates = oriented_fronts or [
-            view for view in sheet_views
-            if _safe_member(view, "Type", default=None) == 7 and _safe_member(view, "GetBaseView") is None
-        ]
-        standard_candidates = [*base_candidates, *[
-            view for view in sheet_views if _safe_member(view, "Type", default=None) == 4
-        ]]
-        mapped_views, _, _ = _map_native_standard_views(standard_candidates)
+        mapped_views, _, _ = _map_standard_views_from_sheet_views(sheet_views)
         semantic_by_object = {id(view): name for name, view in mapped_views.items()}
         for view in sheet_views:
             view_record = {
@@ -1606,6 +1639,119 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
     return result
 
 
+def auto_insert_center_marks(drawing_model, requirements) -> dict:
+    """@brief 按视图自动插入中心标记，并以实体数量回读作为成功依据。"""
+    requested = list(requirements or [])
+    if not requested:
+        return {
+            "status": "not_requested",
+            "requested": False,
+            "requirements": [],
+            "manual_review_required": False,
+            "error_code": None,
+        }
+
+    sheet = _safe_member(drawing_model, "GetCurrentSheet")
+    sheet_views = _as_sequence(_safe_member(sheet, "GetViews", default=[]))
+    mapped_views, diagnostics, mapping_method = _map_standard_views_from_sheet_views(sheet_views)
+    drawing_path = str(_safe_member(drawing_model, "GetPathName", default="") or "")
+    results = []
+    for requirement in requested:
+        requirement_id = str(requirement.get("id") or "")
+        orientation = _normalise_orientation(requirement.get("view"))
+        expected_count = int(requirement.get("count") or 0)
+        targets = list(requirement.get("targets") or [])
+        insert_type = 0
+        for target in targets:
+            insert_type |= AUTO_CENTER_MARK_TARGETS.get(str(target), 0)
+        view = mapped_views.get(orientation)
+        if view is None or not orientation or insert_type == 0 or expected_count <= 0:
+            results.append({
+                "id": requirement_id,
+                "status": "failed",
+                "view": orientation or str(requirement.get("view") or ""),
+                "targets": targets,
+                "expected_count": expected_count,
+                "before_count": 0,
+                "after_count": 0,
+                "created_count": 0,
+                "api_returned": None,
+                "error_code": "DRAWING_CENTER_MARK_REQUIREMENT_UNRESOLVED",
+            })
+            continue
+
+        before_count = len(_view_center_marks(view))
+        api_returned = None
+        error = None
+        if before_count < expected_count:
+            view_name = str(_safe_member(view, "Name", default="") or "")
+            if view_name:
+                _safe_member(drawing_model, "ActivateView", view_name)
+            try:
+                api_returned = bool(get_com_member(
+                    view,
+                    "AutoInsertCenterMarks2",
+                    insert_type,
+                    0,      # swCenterMarkConnectionLine_None
+                    True,   # 线性槽使用槽中心
+                    True,   # 圆弧槽使用槽中心
+                    True,   # 使用文档默认尺寸与间隙
+                    0.0,
+                    0.0,
+                    False,
+                    True,
+                    0.0,
+                ))
+            except Exception as exc:
+                error = str(exc)
+            _safe_member(drawing_model, "ForceRebuild3", False)
+            _safe_member(drawing_model, "GraphicsRedraw2")
+        after_count = len(_view_center_marks(view))
+        passed = after_count >= expected_count
+        failure_code = None
+        if not passed:
+            failure_code = (
+                "DRAWING_CENTER_MARK_DRAWING_SAVE_REQUIRED"
+                if api_returned is True and not drawing_path
+                else "DRAWING_CENTER_MARK_INSERT_OR_READBACK_FAILED"
+            )
+        results.append({
+            "id": requirement_id,
+            "status": "pass" if passed else "failed",
+            "view": orientation,
+            "actual_view": str(_safe_member(view, "Name", default="") or ""),
+            "targets": targets,
+            "insert_type": insert_type,
+            "expected_count": expected_count,
+            "before_count": before_count,
+            "after_count": after_count,
+            "created_count": max(0, after_count - before_count),
+            "api_returned": api_returned,
+            "error": error,
+            "error_code": failure_code,
+        })
+
+    failed = [item for item in results if item["status"] != "pass"]
+    aggregate_error = None
+    if failed:
+        aggregate_error = (
+            "DRAWING_CENTER_MARK_DRAWING_SAVE_REQUIRED"
+            if all(item.get("error_code") == "DRAWING_CENTER_MARK_DRAWING_SAVE_REQUIRED" for item in failed)
+            else "DRAWING_CENTER_MARK_INSERT_OR_READBACK_FAILED"
+        )
+    return {
+        "status": "failed" if failed else "pass",
+        "requested": True,
+        "requirements": results,
+        "mapping_method": mapping_method,
+        "mapping_diagnostics": diagnostics,
+        "drawing_path": drawing_path,
+        "manual_review_required": True,
+        "retryable": aggregate_error == "DRAWING_CENTER_MARK_DRAWING_SAVE_REQUIRED",
+        "error_code": aggregate_error,
+    }
+
+
 def export_sheet_to_pdf(model, output_path, sheet_names=None, sw_app=None):
     """
     将工程图导出为 PDF
@@ -1745,11 +1891,16 @@ def validate_generic_drawing_generation(spec) -> dict:
             "message": "通用生成器尚不能创建孔标注或孔表；请使用专项脚本并回读证据。",
         })
     professional_annotations = dict(spec.get("professionalAnnotations") or {})
-    if any(professional_annotations.values()):
+    unsupported_professional_fields = sorted(
+        name for name, values in professional_annotations.items()
+        if name != "centerMarks" and values
+    )
+    if unsupported_professional_fields:
         issues.append({
             "code": "DRAWING_PROFESSIONAL_ANNOTATIONS_UNSUPPORTED",
             "path": "professionalAnnotations",
-            "message": "通用生成器尚未完成中心标记、孔标注、基准、GD&T、表面粗糙度及焊接符号的跨版本写入验证。",
+            "fields": unsupported_professional_fields,
+            "message": "通用生成器目前只支持已回读验证的自动中心标记；其余专业标注仍须使用专项脚本。",
         })
     title_fields = sorted(set((spec.get("titleBlock") or {})) - {"required", "format"})
     if title_fields:
@@ -1812,6 +1963,21 @@ def generate_drawing_from_spec(drawing_model, spec, source_model_path, template_
     views = create_adaptive_standard_views(drawing_model, str(source_model_path), layout)
     if views.get("status") != "pass":
         return {"status": "failed", "stage": "views", "sheetSetup": sheet_setup, "layout": layout, "views": views, "error_code": views.get("error_code"), "manual_review_required": True}
+    professional_annotations = dict(spec.get("professionalAnnotations") or {})
+    center_marks = auto_insert_center_marks(drawing_model, professional_annotations.get("centerMarks"))
+    if center_marks.get("status") == "failed":
+        save_required = center_marks.get("error_code") == "DRAWING_CENTER_MARK_DRAWING_SAVE_REQUIRED"
+        return {
+            "status": "blocked" if save_required else "failed",
+            "stage": "professional_annotations",
+            "professionalAnnotations": {"centerMarks": center_marks},
+            "sheetSetup": sheet_setup,
+            "layout": layout,
+            "views": views,
+            "error_code": center_marks.get("error_code"),
+            "retryable": bool(center_marks.get("retryable")),
+            "manual_review_required": True,
+        }
     dimension_result = insert_dimensions(drawing_model) if spec.get("requiredDimensions") or spec.get("insertModelDimensions", True) else False
     arrangement = auto_arrange_drawing_dimensions(drawing_model) if dimension_result else {"status": "review_required", "error_code": "DRAWING_DIMENSIONS_NOT_REQUESTED"}
     bom_spec = spec.get("bom") or {}
@@ -1856,6 +2022,7 @@ def generate_drawing_from_spec(drawing_model, spec, source_model_path, template_
         "sheetSetup": sheet_setup,
         "layout": layout,
         "views": views,
+        "professionalAnnotations": {"centerMarks": center_marks},
         "dimensions": {"inserted": bool(dimension_result), "arrangement": arrangement},
         "bom": bom_result,
         "notes": notes,

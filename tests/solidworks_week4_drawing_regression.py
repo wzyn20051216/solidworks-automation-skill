@@ -16,9 +16,10 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from sw_connect import get_com_member, get_sw_version  # noqa: E402
+from sw_connect import create_empty_dispatch_variant, get_com_member, get_sw_version  # noqa: E402
 from sw_drawing import (  # noqa: E402
     auto_arrange_drawing_dimensions,
+    auto_insert_center_marks,
     create_adaptive_standard_views,
     export_sheet_to_pdf,
     inspect_drawing_structure,
@@ -26,6 +27,7 @@ from sw_drawing import (  # noqa: E402
     plan_standard_view_layout,
     setup_current_sheet_as_a3,
 )
+from sw_hole_features import create_through_hole  # noqa: E402
 from sw_part import auto_dimension_sketch, extrude_boss, sketch_rectangle  # noqa: E402
 from sw_review import inspect_bmp_preview, review_drawing_layout, save_review_previews  # noqa: E402
 from sw_session import SolidWorksSession  # noqa: E402
@@ -55,6 +57,33 @@ def _sheet_format_candidates() -> list[str]:
     return candidates
 
 
+def _remove_front_center_marks(drawing, created_views) -> int:
+    """@brief 删除文档默认自动生成的前视图中心标记，构造可验证的写入前置状态。"""
+    front_record = next(item for item in created_views.get("views", []) if item.get("name") == "*Front")
+    front_name = str(front_record.get("actual_name") or "")
+    sheet = get_com_member(drawing, "GetCurrentSheet")
+    front_view = next(view for view in (get_com_member(sheet, "GetViews") or []) if str(get_com_member(view, "Name")) == front_name)
+    get_com_member(drawing, "ActivateView", front_name)
+    empty_select_data = create_empty_dispatch_variant()
+    removed = 0
+    for _ in range(100):
+        center_mark = get_com_member(front_view, "GetFirstCenterMark2")
+        if center_mark is None:
+            break
+        selected = bool(get_com_member(center_mark, "Select", False, empty_select_data))
+        if not selected:
+            annotation = get_com_member(center_mark, "GetAnnotation")
+            selected = bool(get_com_member(annotation, "Select3", False, empty_select_data))
+        if not selected:
+            raise RuntimeError("无法选择文档默认中心标记以构造写入回归前置状态")
+        get_com_member(drawing, "EditDelete")
+        get_com_member(drawing, "ForceRebuild3", False)
+        removed += 1
+    if get_com_member(front_view, "GetFirstCenterMark2") is not None:
+        raise RuntimeError("删除默认中心标记后回读仍非空")
+    return removed
+
+
 def run_regression(output_root: Path, *, version: int | None = None, run_id: str | None = None) -> dict:
     run_id = run_id or datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = output_root / run_id
@@ -76,6 +105,7 @@ def run_regression(output_root: Path, *, version: int | None = None, run_id: str
         feature = extrude_boss(part, sketch_name, 0.012)
         if feature is None:
             raise RuntimeError("安装板拉伸失败")
+        hole_evidence = create_through_hole(part, (0.0, 0.0), 0.008, name="中心通孔")
         if not session.save(part, str(part_path)):
             raise RuntimeError("安装板保存失败")
         # InsertModelAnnotations 从当前活动模型解析 DisplayDimension；工程图创建前
@@ -100,6 +130,22 @@ def run_regression(output_root: Path, *, version: int | None = None, run_id: str
         # 尺寸。这里保存的是本轮新产物，不会覆盖旧交付版本。
         if not session.save(drawing, str(drawing_path)):
             raise RuntimeError("工程图首次保存失败")
+        default_center_marks_removed = _remove_front_center_marks(drawing, created_views)
+        center_marks = auto_insert_center_marks(drawing, [{
+            "id": "CM-CENTER-HOLE",
+            "view": "Front",
+            "count": 1,
+            "targets": ["holes"],
+        }])
+        if center_marks.get("status") != "pass":
+            raise RuntimeError(f"中心标记插入或实体回读失败: {center_marks}")
+        center_mark_requirement = center_marks["requirements"][0]
+        if not (
+            center_mark_requirement.get("before_count") == 0
+            and center_mark_requirement.get("api_returned") is True
+            and center_mark_requirement.get("after_count", 0) >= 1
+        ):
+            raise RuntimeError(f"中心标记未形成强制写入证据链: {center_mark_requirement}")
         inserted_annotations = insert_dimensions(drawing)
         dimensions_inserted = bool(inserted_annotations)
         try:
@@ -122,6 +168,12 @@ def run_regression(output_root: Path, *, version: int | None = None, run_id: str
                 "工程图未读取到本轮插入的真实尺寸实体: "
                 f"inserted={dimensions_inserted}, dimension_count={structure.get('dimension_count', 0)}"
             )
+        front_center_marks = [
+            item for item in structure.get("professional_annotations", {}).get("center_marks", [])
+            if item.get("semantic_view") == "front"
+        ]
+        if not front_center_marks:
+            raise RuntimeError("中心标记未通过工程图结构二次回读")
         if not session.save(drawing, str(drawing_path)):
             raise RuntimeError("工程图保存失败")
         _require_file(drawing_path, "工程图")
@@ -156,6 +208,9 @@ def run_regression(output_root: Path, *, version: int | None = None, run_id: str
             "drawingLayoutReview": layout_review,
             "dimensions_inserted": dimensions_inserted,
             "officialDimensionArrangement": official_arrangement,
+            "centerMarks": center_marks,
+            "defaultCenterMarksRemoved": default_center_marks_removed,
+            "holeEvidence": hole_evidence,
             "modelDimensions": model_dimensions,
             "reviewFindings": structure.get("checks", []),
             "artifactRelations": [{"from": str(part_path), "to": str(drawing_path)}, {"from": str(drawing_path), "to": str(pdf_path)}],

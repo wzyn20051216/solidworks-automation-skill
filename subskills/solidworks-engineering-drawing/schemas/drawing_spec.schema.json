@@ -88,7 +88,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "centerMarks": { "type": "array", "items": { "$ref": "#/$defs/countAnnotation" } },
+        "centerMarks": { "type": "array", "items": { "$ref": "#/$defs/centerMarkAnnotation" } },
         "centerLines": { "type": "array", "items": { "$ref": "#/$defs/countAnnotation" } },
         "holeCallouts": { "type": "array", "items": { "$ref": "#/$defs/textAnnotation" } },
         "datums": { "type": "array", "items": { "$ref": "#/$defs/textAnnotation" } },
@@ -105,6 +105,22 @@
         "id": { "type": "string", "minLength": 1 },
         "view": { "type": "string", "minLength": 1 },
         "count": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "centerMarkAnnotation": {
+      "type": "object",
+      "required": ["id", "view", "count", "targets"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "view": { "type": "string", "minLength": 1 },
+        "count": { "type": "integer", "minimum": 1 },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["holes", "fillets", "slots"] }
+        }
       }
     },
     "textAnnotation": {
