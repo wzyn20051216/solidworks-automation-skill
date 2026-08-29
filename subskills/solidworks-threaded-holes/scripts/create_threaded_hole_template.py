@@ -359,7 +359,7 @@ def add_hole_mouth_chamfer(model, params: ThreadedHoleParams):
 
 def add_real_thread_feature(model, params: ThreadedHoleParams):
     """@brief 尝试添加 SolidWorks 真实 Thread 特征。"""
-    edge = select_hole_mouth_edge(model, params)
+    edge, _center = locate_hole_mouth_edge(model, params, select=False)
     thread_data = model.FeatureManager.CreateDefinition(SW_FM_SWEEP_THREAD)
     if thread_data is None:
         raise RuntimeError("CreateDefinition(swFmSweepThread) 返回 None")
@@ -369,6 +369,10 @@ def add_real_thread_feature(model, params: ThreadedHoleParams):
     except Exception as exc:
         print(f"WARN InitializeThreadData 跳过: {exc}")
 
+    clear(model)
+    if not edge.Select2(False, 1):
+        raise RuntimeError("选择孔口圆边失败，ThreadFeatureData 要求该引用的选择标记为 1")
+
     end_condition = SW_THREAD_END_REVOLUTIONS if params.through_hole else SW_THREAD_END_BLIND
     end_value = (
         ("Revolutions", params.thread_depth_mm / params.pitch_mm)
@@ -377,15 +381,14 @@ def add_real_thread_feature(model, params: ThreadedHoleParams):
     )
     for attr, value in (
         ("Edge", edge),
-        ("StartEntity", edge),
+        ("Type", "Metric Tap"),
         ("ThreadMethod", SW_THREAD_METHOD_CUT),
         ("EndCondition", end_condition),
         end_value,
         ("Pitch", mm(params.pitch_mm)),
-        ("Diameter", mm(params.nominal_diameter_mm)),
         ("Size", params.thread_label),
         ("PitchOverride", True),
-        ("DiameterOverride", True),
+        ("DiameterOverride", False),
         ("RightHanded", params.right_handed),
     ):
         try:
@@ -394,15 +397,6 @@ def add_real_thread_feature(model, params: ThreadedHoleParams):
         except Exception as exc:
             print(f"WARN 设置 {attr} 失败: {exc}")
 
-    try:
-        loaded = thread_data.LoadReferences(edge)
-        print(f"  LoadReferences(edge): {loaded}")
-    except Exception as exc:
-        print(f"WARN LoadReferences(edge) 失败: {exc}")
-
-    clear(model)
-    if not edge.Select2(False, 0):
-        raise RuntimeError("选择孔口圆边失败，无法创建 Thread 特征")
     feature = model.FeatureManager.CreateFeature(thread_data)
     if feature is None:
         raise RuntimeError("CreateFeature(ThreadFeatureData) 返回 None")

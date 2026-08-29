@@ -71,6 +71,49 @@ class FakeCutModel:
         self.FeatureManager = FakeFeatureManager()
 
 
+class FakeThreadEdge:
+    """@brief 记录 ThreadFeatureData 引用圆边的选择标记。"""
+
+    def __init__(self):
+        self.select_calls = []
+
+    def Select2(self, append, mark):
+        self.select_calls.append((append, mark))
+        return True
+
+
+class FakeThreadData:
+    """@brief 模拟可动态赋值的 IThreadFeatureData。"""
+
+    def InitializeThreadData(self):
+        return None
+
+
+class FakeThreadFeatureManager:
+    """@brief 模拟 ThreadFeatureData 创建链。"""
+
+    def __init__(self):
+        self.data = FakeThreadData()
+
+    def CreateDefinition(self, feature_id):
+        assert feature_id == threaded.SW_FM_SWEEP_THREAD
+        return self.data
+
+    def CreateFeature(self, data):
+        assert data is self.data
+        return FakeFeature()
+
+
+class FakeThreadModel:
+    """@brief 提供真实 Thread 创建函数所需的最小模型接口。"""
+
+    def __init__(self):
+        self.FeatureManager = FakeThreadFeatureManager()
+
+    def ClearSelection2(self, _clear_all):
+        return True
+
+
 def test_through_hole_uses_through_all_end_condition(monkeypatch) -> None:
     """@brief --through 必须创建真正的 Through All，不能用超深盲孔伪装。"""
     model = FakeCutModel()
@@ -79,6 +122,22 @@ def test_through_hole_uses_through_all_end_condition(monkeypatch) -> None:
     threaded.cut_hole_from_sketch(model, "Sketch1", 16.0, "贯穿攻丝底孔", through=True)
 
     assert model.FeatureManager.cut_calls[0][3] == threaded.SW_END_COND_THROUGH_ALL
+
+
+def test_real_thread_uses_official_edge_mark_without_start_entity(monkeypatch) -> None:
+    """@brief 平面圆边必须使用选择标记 1，不应再伪造 StartEntity。"""
+    model = FakeThreadModel()
+    edge = FakeThreadEdge()
+    params = threaded.build_params(make_args())
+    monkeypatch.setattr(threaded, "locate_hole_mouth_edge", lambda *_args, **_kwargs: (edge, (0.0, 0.0, 0.0)))
+
+    threaded.add_real_thread_feature(model, params)
+
+    assert edge.select_calls == [(False, 1)]
+    assert model.FeatureManager.data.Edge is edge
+    assert model.FeatureManager.data.Type == "Metric Tap"
+    assert not hasattr(model.FeatureManager.data, "StartEntity")
+    assert model.FeatureManager.data.DiameterOverride is False
 
 
 @pytest.mark.parametrize(
@@ -135,4 +194,3 @@ def test_basename_cannot_escape_output_directory(basename) -> None:
     """@brief 输出基名不能携带路径或 Windows 非法字符。"""
     with pytest.raises(ValueError):
         threaded.validate_basename(basename)
-
