@@ -30,9 +30,9 @@
       "label": "孔槽、螺纹、圆角与倒角",
       "level": "verified",
       "backends": ["solidworks-com"],
-      "verified_versions": ["2024"],
+      "verified_versions": ["2024", "2026"],
       "dependencies": ["SolidWorks", "pywin32", "comtypes"],
-      "limitations": ["每个孔槽必须有规格、数量和定位证据"],
+      "limitations": ["每个孔槽必须有规格、数量和定位证据；已验证螺纹范围是 ISO 公制内螺纹底孔 + Metric Tap Thread，Hole Wizard、外螺纹、英制/管螺纹和攻丝工艺细节仍需人工复核"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {

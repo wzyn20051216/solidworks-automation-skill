@@ -1,106 +1,71 @@
 ---
 name: solidworks-threaded-holes
-description: SolidWorks 螺丝孔/螺纹孔自动化子技能。用于创建或修改 M3/M4/M5/M6/M8 等内螺纹孔、攻丝底孔、盲孔/通孔、孔口倒角、装饰螺纹、可见 3D 螺旋线和螺纹参数属性；当用户要求“画螺丝孔”“有螺纹的孔”“攻牙孔”“M6x1 盲孔”“螺纹安装孔”“Hole Wizard/ThreadFeatureData/CosmeticThread”或需要导出 STEP 并审查螺纹孔模型时使用。
+description: SolidWorks ISO 公制内螺纹孔自动化子技能。用于创建和审查 M3-M12 粗牙或用户明确底孔的自定义公制内螺纹，覆盖攻丝底孔、盲孔/贯穿孔、孔口倒角、右旋/左旋、ThreadFeatureData/CosmeticThread 降级和交付证据。用户要求 Hole Wizard、修改现有零件、外螺纹、英制/管螺纹或显式牙型时也应读取本技能，但这些能力必须按路线图标为 pilot 或人工复核，不得宣称已稳定实现。
 ---
 
 # SolidWorks Threaded Holes
 
-## 核心判断
+## 先判定能力等级
 
-SolidWorks COM 创建真实 `ThreadFeatureData` 在不同版本和语言环境下很不稳定。默认交付不要押注单一 API，而是按稳定层级完成模型：
+当前稳定脚本是 `scripts/create_threaded_hole_template.py`，它在新建矩形样件上生成 ISO 公制内螺纹孔。
 
-1. 先运行父技能自检：`python ../../scripts/sw_preflight.py`。
-2. 建立真实几何：攻丝底孔直径、盲孔/通孔深度、孔口倒角必须正确。
-3. 尝试创建真实 Thread 特征；失败时继续尝试 `InsertCosmeticThread3`。
-4. 无论真实/装饰螺纹是否成功，都写入螺纹规格、自攻底孔、深度等自定义属性。
-5. 对需要肉眼可见螺纹的样件，添加 3D 草图螺旋线作为审查兜底。
-6. 保存 `SLDPRT`、导出 `STEP`、运行 `sw_review.run_review()`，检查预览和特征树。
+- `verified`：M3/M4/M5/M6/M8/M10/M12 粗牙内螺纹，盲孔或真正 `Through All` 底孔，孔口倒角，右旋/左旋，公差属性，真实 `Metric Tap` Thread 特征，STEP 和审查证据。已在 SolidWorks 2026 实测盲孔与贯穿孔。
+- `reviewed`：表外 ISO 公制规格；必须由用户显式提供 `--tap-drill`，不得猜测底孔。
+- `pilot`：对现有零件定位并改孔、Hole Wizard/Advanced Hole、外螺纹、英制/UN/UNF/NPT/BSP、多头螺纹、显式牙型与钻尖/退刀槽。执行前读取 [扩展路线图](references/threaded-hole-roadmap.md)。
 
-## 推荐调用
+## 稳定工作流
 
-优先复用父技能脚本：
-
-```python
-import sys
-sys.path.insert(0, r"C:\path\to\solidworks-automation-skill\scripts")
-
-from sw_connect import mm, get_com_member, create_empty_dispatch_variant
-from sw_session import SolidWorksSession
-from sw_export import export_to_step
-from sw_review import run_review
-from sw_part import sketch, sketch_rectangle, extrude_boss
-```
-
-需要快速生成样件时，从本子技能运行或复制：
-
-```text
-subskills/solidworks-threaded-holes/scripts/create_threaded_hole_template.py
-```
-
-详细实测经验和接口避坑见：
-
-```text
-subskills/solidworks-threaded-holes/references/threaded-hole-lessons.md
-```
-
-## 稳定流程
-
-1. 明确规格：螺纹如 `M6x1.0`、内/外螺纹、盲孔/通孔、螺纹深度、孔位置、材料和是否需要真实可切削螺纹。
-2. 选择攻丝底孔：默认粗牙内螺纹使用常规钻底孔，例如 `M3=2.5`、`M4=3.3`、`M5=4.2`、`M6=5.0`、`M8=6.8`、`M10=8.5` mm。
-3. 先切底孔：用圆草图 + `FeatureCut4` 做真实孔，不要先画复杂螺旋扫掠。
-4. 选择孔口圆边：枚举 `GetBodies2/GetEdges`，按圆心、半径和顶面高度找边，用 `edge.Select2()`，不要依赖 `Edge1` 或坐标点击。
-5. 尝试螺纹表达：
-   - 真实 Thread：`CreateDefinition(swFmSweepThread)` + `CreateFeature(thread_data)`。
-   - 装饰螺纹：`InsertCosmeticThread3(8, "Tapped Hole", "M6x1.0", diameter, 0, depth, note)`。
-   - 可见兜底：3D 草图短线段螺旋线，命名为 `Sketch_M6x1_Visible_Internal_Thread_Helix`。
-6. 最后做孔口倒角：常用 `C0.3-C0.8`，M6 默认 `C0.6`。
-7. 写自定义属性和参数 JSON，保存、导出 STEP、审查。
+1. 从仓库根目录运行 `python scripts/sw_preflight.py`。
+2. 确认螺纹规格、内/外螺纹、公差等级、旋向、盲孔/贯穿、螺纹深度、底孔深度、孔位和是否要求真实牙型。
+3. 在 COM 前校验所有值为有限数，底孔小于公称直径，螺纹深度不超过底孔/零件厚度，孔位保留螺纹大径和倒角边界。
+4. 先创建真实底孔几何：盲孔用 `swEndCondBlind=0`，贯穿孔必须用 `swEndCondThroughAll=1`，不得用“板厚 + 1 mm”盲孔伪装。
+5. 按圆心、半径和入口面枚举圆边，不依赖 `Edge1` 或屏幕坐标。
+6. 尝试真实 Thread：`Type="Metric Tap"`，平面圆边使用选择标记 `1`，不要把同一圆边写入 `StartEntity`，不要调用不存在的 `LoadReferences`，不要用公称直径覆盖底孔圆柱直径。
+7. Thread 失败时尝试 `InsertCosmeticThread3`；贯穿装饰螺纹用 `swEndConditionThrough=2`。COM 返回非空不等于持久化成功，必须重建后遍历特征树。
+8. 只有真实/装饰螺纹均未留在特征树时，`--visible-thread fallback` 才创建 3D 草图螺旋线。螺旋线允许小数圈以保持真实螺距；单独导出 `*_thread_evidence.bmp` 后将草图隐藏，避免污染标准预览。
+9. 创建孔口倒角，写入螺纹规格、底孔、深度、公差、旋向、终止条件和最终表达状态。
+10. 隐藏参考平面，保存 SLDPRT，导出 STEP，运行 `sw_review.run_review()`，目视检查等轴测/三视图。
 
 ## 模板用法
 
-默认生成 M6x1 内螺纹盲孔样件：
+默认 M6×1 右旋 6H 盲孔：
 
 ```powershell
 python subskills/solidworks-threaded-holes/scripts/create_threaded_hole_template.py `
+  --thread M6 `
   --output-dir C:\CADAutomationWorkbench\solidworks_threaded_hole_output
 ```
 
-生成 M8x1.25 螺纹孔并自定义块尺寸：
+M8×1 表外细牙、左旋、贯穿孔：
 
 ```powershell
 python subskills/solidworks-threaded-holes/scripts/create_threaded_hole_template.py `
-  --thread M8 `
-  --block-length 60 `
-  --block-width 36 `
-  --block-thickness 20 `
-  --thread-depth 16 `
-  --output-dir C:\CADAutomationWorkbench\m8_threaded_hole_output
+  --thread M8x1 `
+  --tap-drill 7.0 `
+  --through `
+  --handedness left `
+  --thread-class 6H `
+  --output-dir C:\CADAutomationWorkbench\m8x1_lh_output
 ```
 
-默认 `--hole-face top`，即从安装座上表面向实体内部打孔；需要侧面螺纹孔时传 `--hole-face front` 或 `--hole-face right`。
+`--visible-thread` 支持 `fallback`（默认）、`always` 和 `never`。正常交付保持 `fallback`；调试螺旋线时才使用 `always`。
 
-## 少走弯路
+## 交付与验证
 
-- 不要把 STEP 里的实体螺旋牙型当作默认交付；真实螺旋扫掠会显著增加重建时间和失败概率。
-- 不要承诺 `ThreadFeatureData` 一定能创建成功；本机实测 `CreateFeature(ThreadFeatureData)` 返回过 `None`。
-- 不要只靠 `CosmeticThread`；它可能返回非空对象，但保存后普通特征树不稳定显示。
-- 不要跳过攻丝底孔和孔口倒角；这两个是真实几何和加工语义的底线。
-- 不要把“看起来有线”当作工程图螺纹标注；交付时要在属性或说明中写清楚规格、深度和表达方式。
-- 不要只报告保存成功；必须看 review report 和等轴测/俯视预览。
-
-## 验证要求
-
-每次完成后输出：
+必须生成：
 
 - `*.SLDPRT`
 - `*.step`
 - `*_parameters.json`
 - `*_review_report.json`
-- `*_isometric.bmp/png`
+- `*_isometric.bmp` 及三视图
+- 仅在创建可见螺旋线时生成 `*_thread_evidence.bmp`
 
-审查时至少确认：
+`*_parameters.json` 中必须同时检查 `thread_attempts`、`thread_evidence` 和 `thread_status`。只有下列条件同时满足才可交付：
 
-- `evaluation.status` 为 `pass` 或可解释的 `warn`
-- `expected_outputs_exist` 为 `True`
-- `previews_not_blank` 为 `True`
-- 特征树包含底孔切除、孔口倒角，以及 Thread/CosmeticThread/可见螺旋线中的至少一种螺纹表达
+- `has_tap_drill_cut=true` 且 `has_mouth_chamfer=true`。
+- `representation` 为 `real-thread`、`cosmetic-thread` 或可解释的 `visible-helix`；`metadata-only` 必须阻断模板交付。
+- review 的 `expected_outputs_exist` 和 `previews_not_blank` 为 `true`。
+- 标准预览不显示参考平面，不出现穿透实体的 3D 草图虚线，孔位和倒角正确。
+
+详细实测接口、故障原因和官方文档链接见 [螺纹孔实测经验](references/threaded-hole-lessons.md)；未实现能力和验收门槛见 [扩展路线图](references/threaded-hole-roadmap.md)。

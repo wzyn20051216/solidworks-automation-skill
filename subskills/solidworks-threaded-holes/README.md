@@ -1,34 +1,46 @@
 # SolidWorks Threaded Holes
 
-`solidworks-threaded-holes` 是 `solidworks-automation` 仓库里的螺纹孔专项子技能，用来稳定生成可审查的攻丝底孔、螺纹孔、孔口倒角、螺纹参数属性和 STEP 输出。
+`solidworks-threaded-holes` 是 `solidworks-automation` 的 ISO 公制内螺纹孔子技能。它不只生成“看起来像孔”的模型，还会校验攻丝底孔、终止条件、螺纹深度、孔位边界，并在重建后回读特征树。
 
-## 适用场景
+## 当前能力
 
-- M3/M4/M5/M6/M8/M10/M12 内螺纹孔。
-- 盲孔、通孔、攻牙孔、螺纹安装孔。
-- 需要 Hole Wizard、ThreadFeatureData、CosmeticThread 或可见 3D 螺旋线表达。
-- 需要输出 `SLDPRT + STEP + parameters_json + review_report_json + preview`。
+- M3/M4/M5/M6/M8/M10/M12 粗牙 ISO 公制内螺纹。
+- 表外 ISO 公制规格：必须显式提供攻丝底孔，不自动猜测。
+- 盲孔与真正 `Through All` 贯穿孔。
+- `Metric Tap` 真实 Thread、CosmeticThread、精确螺距的 3D 证据螺旋线三级降级。
+- 右旋/左旋、螺纹公差属性、孔口倒角、STEP、多视图与结构化审查证据。
 
-## 核心原则
+SolidWorks 2026 已实测 M6×1 6H 右旋盲孔和贯穿孔，均在重建后识别到真实 Thread 特征并通过交付审查。
 
-SolidWorks COM 创建真实 Thread 特征在不同版本和语言环境下不稳定，所以默认按稳定层级交付：
-
-1. 攻丝底孔真实几何必须正确。
-2. 孔口倒角必须正确。
-3. 尝试真实 Thread 特征。
-4. 失败时尝试 CosmeticThread。
-5. 仍不稳定时保留可见 3D 螺旋线和自定义属性作为语义兜底。
-6. 必须运行 `sw_review.run_review()`。
-
-## 快速命令
-
-在仓库根目录执行：
+## 快速使用
 
 ```powershell
-py subskills\solidworks-threaded-holes\scripts\create_threaded_hole_template.py `
+python scripts\sw_preflight.py
+
+python subskills\solidworks-threaded-holes\scripts\create_threaded_hole_template.py `
   --thread M6 `
   --output-dir C:\CADAutomationWorkbench\solidworks_threaded_hole_output
 ```
+
+贯穿孔和左旋示例：
+
+```powershell
+python subskills\solidworks-threaded-holes\scripts\create_threaded_hole_template.py `
+  --thread M8x1 `
+  --tap-drill 7.0 `
+  --through `
+  --handedness left `
+  --thread-class 6H `
+  --output-dir C:\CADAutomationWorkbench\m8x1_lh_output
+```
+
+## 交付证据
+
+默认输出 `SLDPRT + STEP + parameters.json + review_report.json + 等轴测/三视图`。如果真实 Thread 和 CosmeticThread 都未留在特征树，还会生成独立的 `*_thread_evidence.bmp`；3D 螺旋线随后被隐藏，不污染标准预览。
+
+## 暂未宣称稳定的能力
+
+Hole Wizard/Advanced Hole、修改现有零件、外螺纹、UNC/UNF/NPT/BSP、多头螺纹、钻尖与攻丝退刀槽、工程图孔标注自动验收都属于后续扩展，见 [threaded-hole-roadmap.md](references/threaded-hole-roadmap.md)。
 
 ## 目录
 
@@ -39,13 +51,8 @@ solidworks-threaded-holes/
 ├── manifest.yaml
 ├── agents/
 ├── references/
-│   └── threaded-hole-lessons.md
+│   ├── threaded-hole-lessons.md
+│   └── threaded-hole-roadmap.md
 └── scripts/
     └── create_threaded_hole_template.py
 ```
-
-## 关联能力
-
-- 父技能：`solidworks-automation`
-- 上游规划：`solidworks-vibecad`
-- 若螺纹孔位于复杂 CNC 安装座中，配合 `solidworks-fillet-chamfer-cnc` 使用。

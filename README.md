@@ -318,7 +318,7 @@ npm run desktop:bundle
 |---|---|---|
 | [`solidworks-vibecad`](subskills/solidworks-vibecad/README.md) | experimental | 自然语言需求 -> 参数化设计计划、制造规则检查、执行摘要、审查门禁 |
 | [`solidworks-fillet-chamfer-cnc`](subskills/solidworks-fillet-chamfer-cnc/README.md) | stable | CNC 安装座、连接块、支架、多圆角/倒角、孔槽和减重口袋 |
-| [`solidworks-threaded-holes`](subskills/solidworks-threaded-holes/README.md) | stable | M3-M12 螺纹孔、攻丝底孔、孔口倒角、螺纹属性和 STEP 输出 |
+| [`solidworks-threaded-holes`](subskills/solidworks-threaded-holes/README.md) | stable | ISO 公制内螺纹、Metric Tap 真实 Thread、贯穿/盲孔语义、参数校验和重建后证据 |
 | [`solidworks-engineering-drawing`](subskills/solidworks-engineering-drawing/README.md) | pilot | GB/T 第一角零件/装配工程图、尺寸链、孔表、BOM、PDF/BMP 证据和制造交付审视 |
 | [`autocad-automation`](subskills/autocad-automation/README.md) | verified / pilot / blocked | DXF 无头预览与结构审查；AutoCAD 2024 .NET 白名单后端须经最近连续三次证据复验后为 verified；COM 原生写入仍受门禁 |
 

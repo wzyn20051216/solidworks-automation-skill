@@ -591,15 +591,27 @@ def build_params(args) -> ThreadedHoleParams:
 def collect_thread_feature_evidence(model, params: ThreadedHoleParams, visible_segments: int) -> dict:
     """@brief 重建后回读特征树，不把 COM 返回对象等同于持久化成功。"""
     features = []
-    feature = get_com_member(model, "FirstFeature")
     guard = 0
-    while feature is not None and guard < 10000:
-        features.append({
-            "name": str(get_com_member(feature, "Name") or ""),
-            "type": str(get_com_member(feature, "GetTypeName2") or ""),
-        })
-        feature = get_com_member(feature, "GetNextFeature")
-        guard += 1
+
+    def traverse(feature, next_member: str, parent: str | None = None) -> None:
+        """@brief 遍历同级特征及其子特征；CosmeticThread 通常挂在切除特征下。"""
+        nonlocal guard
+        while feature is not None and guard < 10000:
+            name = str(get_com_member(feature, "Name") or "")
+            item = {
+                "name": name,
+                "type": str(get_com_member(feature, "GetTypeName2") or ""),
+            }
+            if parent:
+                item["parent"] = parent
+            features.append(item)
+            guard += 1
+            subfeature = get_com_member(feature, "GetFirstSubFeature")
+            if subfeature is not None:
+                traverse(subfeature, "GetNextSubFeature", parent=name)
+            feature = get_com_member(feature, next_member)
+
+    traverse(get_com_member(model, "FirstFeature"), "GetNextFeature")
     names = [item["name"] for item in features]
     has_real = any(name.startswith(f"Thread_{params.thread_label}_Internal_") for name in names)
     has_cosmetic = any(name.startswith(f"CosmeticThread_{params.thread_label}_Internal_") for name in names)
@@ -614,6 +626,17 @@ def collect_thread_feature_evidence(model, params: ThreadedHoleParams, visible_s
         "has_visible_helix": has_visible,
         "features": features,
     }
+
+
+def require_thread_representation(evidence: dict) -> str:
+    """@brief 要求重建后存在真实、装饰或证据螺旋线之一。"""
+    representation = str(evidence.get("representation") or "metadata-only")
+    if representation == "metadata-only":
+        raise RuntimeError(
+            "重建后未找到 Thread、CosmeticThread 或可见螺旋线；"
+            "只有自定义属性不得标记为已验证交付"
+        )
+    return f"{representation}-verified"
 
 
 def create_threaded_hole_block(params: ThreadedHoleParams, output_dir: Path, basename: str):
@@ -686,7 +709,7 @@ def create_threaded_hole_block(params: ThreadedHoleParams, output_dir: Path, bas
     thread_evidence = collect_thread_feature_evidence(model, params, visible_segments)
     if not thread_evidence["has_tap_drill_cut"] or not thread_evidence["has_mouth_chamfer"]:
         raise RuntimeError("重建后未找到攻丝底孔切除或孔口倒角，停止交付")
-    thread_status = f"{thread_evidence['representation']}-verified"
+    thread_status = require_thread_representation(thread_evidence)
     write_thread_properties(model, params, thread_status, visible_segments)
     hide_reference_planes(model)
     model.ViewZoomtofit2()

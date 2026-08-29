@@ -18,6 +18,11 @@ SCRIPT_PATH = (
     / "scripts"
     / "create_threaded_hole_template.py"
 )
+# 某些旧测试在模块收集期把简化对象留在 sys.modules，
+# 动态加载子技能前必须清理该污染，否则全量测试存在顺序依赖。
+for module_name in ("sw_connect", "sw_preflight"):
+    if module_name in sys.modules and not getattr(sys.modules[module_name], "__file__", None):
+        del sys.modules[module_name]
 SPEC = importlib.util.spec_from_file_location("solidworks_threaded_hole_template", SCRIPT_PATH)
 threaded = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = threaded
@@ -114,6 +119,39 @@ class FakeThreadModel:
         return True
 
 
+class FakeTreeFeature:
+    """@brief 模拟顶层特征和子特征链。"""
+
+    def __init__(self, name, feature_type, next_feature=None, next_subfeature=None, first_subfeature=None):
+        self.Name = name
+        self._feature_type = feature_type
+        self._next_feature = next_feature
+        self._next_subfeature = next_subfeature
+        self._first_subfeature = first_subfeature
+
+    def GetTypeName2(self):
+        return self._feature_type
+
+    def GetNextFeature(self):
+        return self._next_feature
+
+    def GetNextSubFeature(self):
+        return self._next_subfeature
+
+    def GetFirstSubFeature(self):
+        return self._first_subfeature
+
+
+class FakeTreeModel:
+    """@brief 提供 FirstFeature 的特征树模型。"""
+
+    def __init__(self, first_feature):
+        self._first_feature = first_feature
+
+    def FirstFeature(self):
+        return self._first_feature
+
+
 def test_through_hole_uses_through_all_end_condition(monkeypatch) -> None:
     """@brief --through 必须创建真正的 Through All，不能用超深盲孔伪装。"""
     model = FakeCutModel()
@@ -187,6 +225,34 @@ def test_visible_helix_preserves_pitch_and_stays_inside_hole() -> None:
     assert plan["axial_depth_mm"] / plan["turns"] == pytest.approx(params.pitch_mm)
     assert plan["start_offset_mm"] + plan["axial_depth_mm"] <= params.pilot_depth_mm
     assert plan["segment_count"] == math.ceil(plan["turns"] * 32.0)
+
+
+def test_metadata_only_representation_is_not_verified() -> None:
+    """@brief 只有属性不能伪装成已验证螺纹表达。"""
+    with pytest.raises(RuntimeError, match="只有自定义属性"):
+        threaded.require_thread_representation({"representation": "metadata-only"})
+
+    assert threaded.require_thread_representation({"representation": "real-thread"}) == "real-thread-verified"
+
+
+def test_cosmetic_thread_is_detected_as_cut_subfeature() -> None:
+    """@brief CosmeticThread 是孔/切除的子特征，不能只遍历顶层特征。"""
+    params = threaded.build_params(make_args())
+    cosmetic = FakeTreeFeature("CosmeticThread_M6x1.0_Internal_Blind_RH", "CosmeticThread")
+    chamfer = FakeTreeFeature("Chamfer_Thread_Mouth", "Chamfer")
+    cut = FakeTreeFeature(
+        "Cut_M6x1.0_Tap_Drill",
+        "ICE",
+        next_feature=chamfer,
+        first_subfeature=cosmetic,
+    )
+
+    evidence = threaded.collect_thread_feature_evidence(FakeTreeModel(cut), params, visible_segments=0)
+
+    assert evidence["representation"] == "cosmetic-thread"
+    assert evidence["has_cosmetic_thread"] is True
+    cosmetic_item = next(item for item in evidence["features"] if item["type"] == "CosmeticThread")
+    assert cosmetic_item["parent"] == "Cut_M6x1.0_Tap_Drill"
 
 
 @pytest.mark.parametrize("basename", ["../escape", "folder/name", "bad:name", ".."])
