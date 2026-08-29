@@ -557,7 +557,12 @@ model.Extension.SelectByID2(
 
 ### ⭐ Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=wzyn20051216/solidworks-automation-skill&type=Date)](https://www.star-history.com/#wzyn20051216/solidworks-automation-skill&Date)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./assets/star-history-dark.svg">
+  <img alt="solidworks-automation-skill Star History" src="./assets/star-history.svg">
+</picture>
+
+趋势图由仓库内的 GitHub Actions 每周自动更新，不依赖第三方托管图表接口。
 
 ### ❓ 常见问题
 
