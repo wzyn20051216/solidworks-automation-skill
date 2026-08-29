@@ -3,6 +3,22 @@
 工程图生成与制造交付审视子技能。它可以被根 `solidworks-automation`、VibeCAD、孔槽/CNC
 子技能或工程编排器按需连接，不要求其他建模子技能反向依赖它。
 
+## 真机案例
+
+<p align="center">
+  <img src="../../assets/showcase/solidworks-engineering-drawing-demo.gif" alt="solidworks-engineering-drawing 复杂测试件真机案例" width="900">
+</p>
+
+案例在 SolidWorks 2026 SP01.1 中读取 NIST 公共领域 Additive Manufacturing Test Artifact Ver3B，先核对模型包围盒，再生成 GB/T 第一角 A1 工程图。实际交付包含：
+
+- 原生 `SLDPRT` 与 `SLDDRW`
+- 三视图、等轴测图和 A-A 剖视
+- 10 个必需尺寸与孔位/基准要求
+- PDF、BMP 预览、`drawing_evidence.json` 和 `drawing_review_report.json`
+- 当前工程图定向测试 70 项通过，实验产物的 PDF 可提取文字边界 0 重叠
+
+该案例用于证明“代码驱动 SolidWorks → 原生工程图 → 结构化证据”的完整链路，不代表无人值守制造放行；最终图框、尺寸链、孔表和制造语义仍需工程师目视复核。
+
 ## 输入
 
 使用 `schemas/drawing_spec.schema.json` 描述：

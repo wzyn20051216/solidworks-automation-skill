@@ -79,6 +79,25 @@ python scripts/cad_studio.py create-ocp-surface --input .\smooth-loft.json --out
 
 ## 中文
 
+### 🎞️ 真机案例：复杂测试件工程图
+
+<p align="center">
+  <img src="assets/showcase/solidworks-engineering-drawing-demo.gif" alt="代码驱动 SolidWorks 生成复杂测试件与 GB/T 工程图" width="900">
+</p>
+
+这个案例不是概念动画：`solidworks-engineering-drawing` 在 SolidWorks 2026 SP01.1 中读取 NIST 公共领域复杂测试件，核对 `141.421 × 141.421 × 17 mm` 包围盒，并生成原生 `SLDPRT + SLDDRW + PDF + evidence/review JSON`。工程图包含三视图、等轴测图、A-A 剖视和 10 个必需尺寸；当前工程图定向测试为 70 项通过，实验产物的 PDF 可提取文字边界为 0 重叠。
+
+> 工程图能力当前仍为 `pilot`。自动检查可以发现缺失输出和明显碰撞，但图框、尺寸链、孔表及制造语义仍要求工程师做最终目视复核。测试件来源为 NIST 公共领域资料，并非仓库自创的官方基准模型。
+
+#### 更多已验证案例
+
+| 案例 | 对应能力 | 已有证据 | 当前等级 |
+|---|---|---|---|
+| [NIST 复杂测试件工程图](subskills/solidworks-engineering-drawing/README.md) | GB/T 第一角工程图、尺寸链、PDF 边界审查 | SolidWorks 2026 原生零件/工程图/PDF、5 个视图、10 个必需尺寸、A-A 剖视 | `pilot`，人工复核必需 |
+| [M6×1 真实螺纹孔](subskills/solidworks-threaded-holes/README.md) | 盲孔/贯穿孔、Metric Tap Thread、孔口倒角 | 重建后回读真实 Thread；SLDPRT/STEP/四视图；review `pass/100` | `verified` |
+| [CNC 多圆角/倒角安装座](subskills/solidworks-fillet-chamfer-cnc/README.md) | 圆角、倒角、沉孔、长圆槽、减重口袋 | 可重复脚本、SLDPRT/STEP 与多视图审查流程 | `stable` 子技能 |
+| [桌面迷你风扇运动装配](examples/08_mini_fan_motion_assembly.py) | 多零件建模、装配 Mate、旋转马达 Motion Study | 4 个零件、原生装配体、Mate/Motion 验证脚本 | `pilot`，人工复核必需 |
+
 ### ✨ 特性
 
 - 🔧 **零件建模** - 草图绘制、拉伸、旋转、倒角、圆角、阵列等
@@ -613,6 +632,14 @@ model.Extension.SelectByID2(
 ---
 
 ## English
+
+### 🎞️ Real SolidWorks showcase
+
+<p align="center">
+  <img src="assets/showcase/solidworks-engineering-drawing-demo.gif" alt="Code-driven SolidWorks modeling and GB/T drawing generation" width="900">
+</p>
+
+The `solidworks-engineering-drawing` subskill runs a public-domain NIST test artifact through SolidWorks 2026 SP01.1 and produces native `SLDPRT`, `SLDDRW`, PDF, and structured evidence/review files. The drawing includes standard views, an isometric view, an A-A section, and ten required dimensions. This capability remains `pilot`: automated checks support review but do not replace engineering sign-off.
 
 ### ✨ Features
 
