@@ -1744,7 +1744,8 @@ def validate_generic_drawing_generation(spec) -> dict:
             "path": "holeRequirements",
             "message": "通用生成器尚不能创建孔标注或孔表；请使用专项脚本并回读证据。",
         })
-    if spec.get("professionalAnnotations"):
+    professional_annotations = dict(spec.get("professionalAnnotations") or {})
+    if any(professional_annotations.values()):
         issues.append({
             "code": "DRAWING_PROFESSIONAL_ANNOTATIONS_UNSUPPORTED",
             "path": "professionalAnnotations",

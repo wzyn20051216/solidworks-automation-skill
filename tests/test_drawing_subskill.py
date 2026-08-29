@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from scripts.drawing_spec import validate_drawing_spec
-from scripts.sw_drawing import add_note, generate_drawing_from_spec, plan_standard_view_layout
+from scripts.sw_drawing import add_note, generate_drawing_from_spec, plan_standard_view_layout, validate_generic_drawing_generation
 from scripts.sw_drawing_review import review_drawing_artifacts
 
 
@@ -190,6 +190,13 @@ def test_professional_annotation_schema_and_reviewer_use_structured_evidence():
     assert validate_drawing_spec(_spec(professionalAnnotations=annotations))["status"] == "pass"
     assert result["professional_annotation_evidence"]["status"] == "pass"
     assert result["professional_annotation_evidence"]["matched_count"] == 5
+
+
+def test_empty_professional_annotation_groups_do_not_block_generic_generator():
+    """@brief 空声明不代表请求写入专业标注，不应制造无意义能力阻断。"""
+    result = validate_generic_drawing_generation(_spec(professionalAnnotations={"centerMarks": []}))
+
+    assert result["status"] == "pass"
 
 
 def test_professional_annotation_mutation_does_not_false_pass():
