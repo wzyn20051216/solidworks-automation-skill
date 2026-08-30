@@ -9,7 +9,7 @@
 | 子技能 | 状态 | 用途 | 入口 |
 |---|---|---|---|
 | `solidworks-vibecad` | experimental | 自然语言需求 -> 参数化设计计划、制造规则检查、执行摘要、审查门禁 | `subskills/solidworks-vibecad/SKILL.md` |
-| `solidworks-fillet-chamfer-cnc` | stable | CNC 安装座、连接块、支架、多圆角/倒角、孔槽和减重口袋 | `subskills/solidworks-fillet-chamfer-cnc/SKILL.md` |
+| `solidworks-fillet-chamfer-cnc` | stable | CNC 安装座、参数/碰撞预检、语义选边、有界尺寸降级、孔槽和圆角口袋 | `subskills/solidworks-fillet-chamfer-cnc/SKILL.md` |
 | `solidworks-threaded-holes` | stable | M3-M12 螺纹孔、攻丝底孔、孔口倒角、螺纹属性和 STEP 输出 | `subskills/solidworks-threaded-holes/SKILL.md` |
 | `solidworks-engineering-drawing` | pilot | GB/T 第一角零件图/装配图、尺寸链、孔表、BOM、PDF/BMP 证据和制造交付审视 | `subskills/solidworks-engineering-drawing/SKILL.md` |
 | `autocad-automation` | stable | AutoCAD DWG/DXF 二维绘图、线稿矢量化、图层/文字/标注处理、导出和图纸自检 | `subskills/autocad-automation/SKILL.md` |

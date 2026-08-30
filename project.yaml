@@ -23,7 +23,7 @@ subskills:
   - name: solidworks-fillet-chamfer-cnc
     status: stable
     path: subskills/solidworks-fillet-chamfer-cnc
-    summary: CNC 安装座、连接块、支架、多圆角/倒角、孔槽和减重口袋。
+    summary: CNC 安装座、参数/碰撞预检、语义选边、有界尺寸降级、孔槽和圆角口袋。
   - name: solidworks-threaded-holes
     status: stable
     path: subskills/solidworks-threaded-holes
