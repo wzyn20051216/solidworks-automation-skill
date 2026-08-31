@@ -4,7 +4,7 @@
 
 当前真机路径聚焦恒定半径边圆角、角度倒角、孔口倒角和简单 CNC 安装座拓扑。下列能力不能因为 SolidWorks UI 支持就直接标记为稳定：
 
-- 可变半径圆角、多半径控制点、setback corner、face fillet、full-round fillet。
+- 可变半径圆角的端点半径、setback corner、face fillet、full-round fillet 已有 SolidWorks 2026 SP1.1 最小真机回归；多控制点、保持线和复杂曲面组合仍需按拓扑复验。
 - 保持线/保持面圆角、非对称宽度-宽度倒角、顶点倒角。
 - 曲面间 G1/G2 过渡、复杂退刀槽、五轴曲面清根。
 
@@ -170,7 +170,15 @@ def select_edges(model, predicate):
 1. **通用既有模型边清单**：导出边-面邻接、曲线类型、长度、包围盒和几何签名，供用户确认语义分组。
 2. **更多加工特征**：键槽、燕尾槽、T 型槽、退刀槽、O 形圈槽和沉头孔；每类先补参数/碰撞检查，再接 COM。
 3. **多实体和配置**：为每个实体、配置独立保存选边证据，禁止跨配置复用临时拓扑引用。
-4. **高级圆角/倒角**：可变半径、face/full-round、setback、宽度-宽度倒角；必须逐项真机探测，不做一个万能封装。
+4. **高级圆角/倒角**：可变半径、face/full-round、setback 采用四条独立执行路径与证据；宽度-宽度倒角仍待扩展，不做一个万能封装。
+
+## SolidWorks 2026 高级圆角实测结论
+
+- 可变半径：`FeatureFillet3`，目标边使用 mark 1；端点半径数组长度与选边端点对应，回读类型必须为 `VarFillet`。
+- face fillet：`CreateDefinition(swFmFillet)` → `Initialize(swFaceFillet)` → `SetFaces`；两组面分别回读 `Type=2`。
+- full-round：同样使用 `ISimpleFilletFeatureData2`，侧面组 1、中心面组、侧面组 2 分开写入并检查数量，回读 `Type=3`。
+- setback：`FeatureFillet3` 中三条交汇边 mark 1、角点 mark 0；距离必须使用 `SAFEARRAY<double>`。在 pywin32 下，普通 `tuple` 可被 COM 接受但求解返回 `None`，必须用 `VARIANT(VT_ARRAY | VT_R8, ...)`。
+- 四项均应独立生成零件，避免前一个高级圆角改变后续拓扑；只有保存、STEP、重开、特征类型和审查报告全通过才标记 `verified`。
 5. **制造验收**：加入刀具直径、刀长、最小内圆角、装夹方向、可达性和工序建议；规则通过仍需 CAM/工艺人员复核。
 
 ## 常见故障

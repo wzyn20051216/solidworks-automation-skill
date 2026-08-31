@@ -16,6 +16,7 @@ SCRIPT_DIR = ROOT / "subskills" / "solidworks-fillet-chamfer-cnc" / "scripts"
 sys.path.insert(0, str(SCRIPT_DIR))
 
 import cnc_strategy as strategy  # noqa: E402
+import advanced_fillet_strategy as advanced  # noqa: E402
 
 
 def test_default_parameters_pass_and_keep_dowels_clear_of_center_slot() -> None:
@@ -303,3 +304,102 @@ def test_nonpersistent_feature_aborts_without_trying_smaller_size(monkeypatch) -
         module.apply_treatment(model, operation, params)
 
     assert model.FeatureManager.calls == 1
+
+
+def test_advanced_variable_contract_validates_order_and_geometry() -> None:
+    """@brief 可变半径控制点必须有序，全部半径必须适配目标边。"""
+    spec = advanced.VariableFilletSpec(
+        start_radius=2.0,
+        end_radius=5.0,
+        control_points=((0.25, 3.0), (0.75, 4.0)),
+    )
+
+    report = advanced.validate_variable_spec(spec, edge_length_mm=60.0)
+
+    assert report["endpoint_radii_mm"] == [2.0, 5.0]
+    assert [item["location"] for item in report["control_points"]] == [0.25, 0.75]
+    with pytest.raises(ValueError, match="严格递增"):
+        advanced.validate_variable_spec(
+            advanced.VariableFilletSpec(control_points=((0.75, 3.0), (0.25, 4.0))),
+            edge_length_mm=60.0,
+        )
+    with pytest.raises(ValueError, match="最大圆角直径"):
+        advanced.validate_variable_spec(
+            advanced.VariableFilletSpec(start_radius=31.0, end_radius=2.0),
+            edge_length_mm=60.0,
+        )
+
+
+def test_face_and_full_round_contracts_reject_invalid_envelopes() -> None:
+    """@brief 面圆角净空和全圆角三组面都必须完整。"""
+    assert advanced.validate_face_spec(
+        advanced.FaceFilletSpec(radius=4.0), clearance_mm=16.0
+    )["status"] == "pass"
+    with pytest.raises(ValueError, match="可用净空"):
+        advanced.validate_face_spec(
+            advanced.FaceFilletSpec(radius=16.0), clearance_mm=16.0
+        )
+    with pytest.raises(ValueError, match="必须提供"):
+        advanced.validate_full_round_spec(
+            advanced.FullRoundFilletSpec(), face_set_counts=(1, 0, 1)
+        )
+
+
+def test_setback_contract_preserves_one_to_one_distance_mapping() -> None:
+    """@brief setback 距离数组必须与三条交汇边一一对应。"""
+    report = advanced.validate_setback_spec(
+        advanced.SetbackFilletSpec(radius=3.0, distances=(4.0, 5.0, 6.0)),
+        incident_edge_lengths_mm=(60.0, 40.0, 18.0),
+    )
+
+    assert report["distances_mm"] == [4.0, 5.0, 6.0]
+    with pytest.raises(ValueError, match="恰好三条"):
+        advanced.validate_setback_spec(
+            advanced.SetbackFilletSpec(), incident_edge_lengths_mm=(60.0, 40.0)
+        )
+    with pytest.raises(ValueError, match="小于对应边长"):
+        advanced.validate_setback_spec(
+            advanced.SetbackFilletSpec(distances=(61.0, 5.0, 6.0)),
+            incident_edge_lengths_mm=(60.0, 40.0, 18.0),
+        )
+
+
+def test_advanced_capability_report_never_equates_interface_with_verification() -> None:
+    """@brief 类型库成员齐全只标记 interface_ready，不能冒充真机 verified。"""
+    interfaces = {
+        interface: set(members)
+        for requirements in advanced.REQUIRED_INTERFACES.values()
+        for interface, members in requirements.items()
+    }
+    # 合并同一接口在不同能力中的要求。
+    for requirements in advanced.REQUIRED_INTERFACES.values():
+        for interface, members in requirements.items():
+            interfaces.setdefault(interface, set()).update(members)
+
+    report = advanced.build_capability_report(interfaces, source="mock.tlb")
+
+    assert all(
+        item["status"] == "interface_ready"
+        for item in report["capabilities"].values()
+    )
+    assert "真机" in report["note"]
+    interfaces["ISimpleFilletFeatureData2"].remove("SetFaces")
+    blocked = advanced.build_capability_report(interfaces, source="mock.tlb")
+    assert blocked["capabilities"]["face"]["status"] == "blocked"
+    assert blocked["capabilities"]["full_round"]["status"] == "blocked"
+
+
+def test_setback_distance_array_is_explicit_double_safearray() -> None:
+    """@brief setback 不能回退为会被 SolidWorks 静默拒绝的普通 tuple。"""
+    spec = importlib.util.spec_from_file_location(
+        "advanced_fillet_verifier_for_array_test",
+        SCRIPT_DIR / "verify_advanced_fillets.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    value = module._double_array([0.001, 0.002, 0.003])
+
+    assert value.varianttype == module.pythoncom.VT_ARRAY | module.pythoncom.VT_R8
+    assert tuple(value.value) == pytest.approx((0.001, 0.002, 0.003))

@@ -6,6 +6,7 @@
 
 - CNC 铝合金安装座、连接块、支架、底板、沉孔安装板。
 - 外轮廓大圆角、顶/底边倒角、孔口倒角。
+- 可变半径、face fillet、full-round 和三边角 setback 的环境探测与独立真机回归。
 - CNC 友好长圆口袋、中心槽、沉孔、定位孔和特征间净距检查。
 - 需要稳定选边、STEP 导出和多视角预览审查。
 
@@ -42,6 +43,17 @@ py subskills\solidworks-fillet-chamfer-cnc\scripts\create_cnc_mount_template.py 
 
 `strict` 不允许改变请求尺寸；`progressive` 会尝试 100%/75%/50%，但降级结果必须按实际尺寸交付。
 
+高级能力先探测接口，再选择性运行真机验证：
+
+```powershell
+py subskills\solidworks-fillet-chamfer-cnc\scripts\verify_advanced_fillets.py `
+  --verify-solidworks `
+  --modes variable face full_round setback `
+  --output-dir C:\CADAutomationWorkbench\advanced_fillet_verified
+```
+
+报告用 `interface_ready` 表示“接口存在”，用 `verified` 表示“真实建模、重建、保存、STEP、重开和预览审查全部通过”，两者不能混用。SolidWorks 2026 SP1.1 的四项最小样例已经完成真机闭环；其它版本和其它拓扑必须重新验证。
+
 ## 目录
 
 ```text
@@ -56,7 +68,9 @@ solidworks-fillet-chamfer-cnc/
 │   └── cnc_mount_precision_params.json
 └── scripts/
     ├── cnc_strategy.py
-    └── create_cnc_mount_template.py
+    ├── advanced_fillet_strategy.py
+    ├── create_cnc_mount_template.py
+    └── verify_advanced_fillets.py
 ```
 
 ## 关联能力

@@ -95,7 +95,7 @@ python scripts/cad_studio.py create-ocp-surface --input .\smooth-loft.json --out
 |---|---|---|---|
 | [NIST 复杂测试件工程图](subskills/solidworks-engineering-drawing/README.md) | GB/T 第一角工程图、尺寸链、PDF 边界审查 | SolidWorks 2026 原生零件/工程图/PDF、5 个视图、10 个必需尺寸、A-A 剖视 | `pilot`，人工复核必需 |
 | [M6×1 真实螺纹孔](subskills/solidworks-threaded-holes/README.md) | 盲孔/贯穿孔、Metric Tap Thread、孔口倒角 | 重建后回读真实 Thread；SLDPRT/STEP/四视图；review `pass/100` | `verified` |
-| [CNC 多圆角/倒角安装座](subskills/solidworks-fillet-chamfer-cnc/README.md) | 参数/碰撞预检、语义选边、圆角、倒角、沉孔、长圆槽、CNC 友好口袋 | SW2026 SP1.1 严格模式命中 4/8/6 期望边集；SLDPRT/STEP/四视图；review `pass/100` | `stable` 子技能 |
+| [CNC 多圆角/倒角安装座](subskills/solidworks-fillet-chamfer-cnc/README.md) | 参数/碰撞预检、语义选边、恒定/可变半径、face/full-round/setback、倒角、沉孔、长圆槽、CNC 友好口袋 | SW2026 SP1.1：模板严格模式命中 4/8/6 期望边集；四项高级圆角分别完成 SLDPRT/STEP/重开/四视图；review `pass/100` | `stable` 子技能 |
 | [桌面迷你风扇运动装配](examples/08_mini_fan_motion_assembly.py) | 多零件建模、装配 Mate、旋转马达 Motion Study | 4 个零件、原生装配体、Mate/Motion 验证脚本 | `pilot`，人工复核必需 |
 
 ### ✨ 特性
@@ -336,7 +336,7 @@ npm run desktop:bundle
 | 子技能 | 状态 | 用途 |
 |---|---|---|
 | [`solidworks-vibecad`](subskills/solidworks-vibecad/README.md) | experimental | 自然语言需求 -> 参数化设计计划、制造规则检查、执行摘要、审查门禁 |
-| [`solidworks-fillet-chamfer-cnc`](subskills/solidworks-fillet-chamfer-cnc/README.md) | stable | CNC 安装座、参数/碰撞预检、语义选边、有界尺寸降级、孔槽和圆角口袋 |
+| [`solidworks-fillet-chamfer-cnc`](subskills/solidworks-fillet-chamfer-cnc/README.md) | stable | CNC 安装座、参数/碰撞预检、语义选边、有界尺寸降级、可变半径、face/full-round/setback、孔槽和圆角口袋 |
 | [`solidworks-threaded-holes`](subskills/solidworks-threaded-holes/README.md) | stable | ISO 公制内螺纹、Metric Tap 真实 Thread、贯穿/盲孔语义、参数校验和重建后证据 |
 | [`solidworks-engineering-drawing`](subskills/solidworks-engineering-drawing/README.md) | pilot | GB/T 第一角零件/装配工程图、尺寸链、孔表、BOM、PDF/BMP 证据和制造交付审视 |
 | [`autocad-automation`](subskills/autocad-automation/README.md) | verified / pilot / blocked | DXF 无头预览与结构审查；AutoCAD 2024 .NET 白名单后端须经最近连续三次证据复验后为 verified；COM 原生写入仍受门禁 |

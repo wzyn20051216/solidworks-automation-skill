@@ -13,7 +13,7 @@ This repository is managed as one SolidWorks automation skill family. The root s
 | Name | Status | Trigger Words | Main Output |
 |---|---|---|---|
 | `solidworks-vibecad` | experimental | text-to-CAD, VibeCAD, 参数化设计计划, 行业知识库, 提示词模板 | `design_plan.json`, execution outline |
-| `solidworks-fillet-chamfer-cnc` | stable | CNC 安装座, 连接块, 支架, 圆角, 倒角, 减重口袋 | `SLDPRT`, `STEP`, parameters JSON, review report |
+| `solidworks-fillet-chamfer-cnc` | stable | CNC 安装座, 连接块, 支架, 恒定/可变半径, face/full-round/setback, 倒角, 减重口袋 | `SLDPRT`, `STEP`, parameters/capabilities JSON, review report |
 | `solidworks-threaded-holes` | stable | 螺纹孔, 攻牙孔, 攻丝底孔, M6x1, CosmeticThread | `SLDPRT`, `STEP`, threaded-hole parameters, review report |
 
 ## Recommended Agent Routing

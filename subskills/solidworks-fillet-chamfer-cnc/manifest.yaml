@@ -1,11 +1,13 @@
 name: solidworks-fillet-chamfer-cnc
 title: SolidWorks Fillet Chamfer CNC
 status: stable
-summary: 生成带参数/碰撞预检、语义选边、有界尺寸降级、重建证据和圆角口袋的 CNC 模型。
+summary: 生成带参数/碰撞预检、语义选边、有界尺寸降级和重建证据的 CNC 模型，并独立验证可变半径、face/full-round/setback。
 entrypoint: SKILL.md
 scripts:
   - scripts/cnc_strategy.py
+  - scripts/advanced_fillet_strategy.py
   - scripts/create_cnc_mount_template.py
+  - scripts/verify_advanced_fillets.py
 references:
   - references/cnc-fillet-chamfer-lessons.md
 examples:

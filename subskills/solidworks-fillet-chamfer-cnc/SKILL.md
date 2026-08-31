@@ -1,6 +1,6 @@
 ---
 name: solidworks-fillet-chamfer-cnc
-description: SolidWorks CNC 零件的多圆角/倒角自动化子技能。用于安装座、连接块、支架、沉孔板等模型的参数预检、语义选边、恒定半径圆角、角度倒角、孔口倒角、CNC 友好口袋、有界降级和重建证据；不把未验证的可变半径、退刀圆角或复杂曲面过渡宣称为稳定能力。
+description: SolidWorks CNC 零件的多圆角/倒角自动化子技能。用于安装座、连接块、支架、沉孔板等模型的参数预检、语义选边、恒定/可变半径圆角、face/full-round/setback、角度倒角、孔口倒角、CNC 友好口袋、有界降级和重建证据。
 ---
 
 # SolidWorks Fillet Chamfer CNC
@@ -11,7 +11,8 @@ description: SolidWorks CNC 零件的多圆角/倒角自动化子技能。用于
 
 - 新建 CNC 安装座或验证参数时，先使用模板脚本的 `--dry-run`；计划通过后再连接 SolidWorks。
 - 修改既有零件时，先读取 [详细经验](references/cnc-fillet-chamfer-lessons.md) 的“既有模型选边”部分，不套用模板的固定期望边数。
-- 用户要求可变半径、面圆角、圆角保持线、退刀槽、倒角宽度-宽度、setback 或复杂曲面过渡时，先运行父技能能力探测并查官方 API；没有真机回归证据时保持 `pilot` 或人工复核。
+- 用户要求可变半径、面圆角、full-round 或 setback 时，先运行本子技能的高级能力探测；SolidWorks 版本或输入拓扑不同于已验证样例时保持 `pilot`，不要跨版本直接宣称稳定。
+- 圆角保持线、退刀槽、倒角宽度-宽度和复杂曲面过渡仍需逐项探测，没有真机回归证据时保持 `pilot` 或人工复核。
 
 ## 模板入口
 
@@ -45,11 +46,38 @@ python subskills\solidworks-fillet-chamfer-cnc\scripts\create_cnc_mount_template
 5. 每个圆角/倒角必须在重建后从特征树回读；COM 返回非空不等于持久化成功。
 6. 生成后保存 SLDPRT、导出 STEP、运行 `sw_review.run_review()`，并人工查看等轴测和俯视预览。
 
+## 高级圆角入口
+
+先只读探测本机类型库，不启动 SolidWorks：
+
+```powershell
+python subskills\solidworks-fillet-chamfer-cnc\scripts\verify_advanced_fillets.py `
+  --output-dir C:\CADAutomationWorkbench\advanced_fillet_probe
+```
+
+执行四项独立真机回归：
+
+```powershell
+python subskills\solidworks-fillet-chamfer-cnc\scripts\verify_advanced_fillets.py `
+  --verify-solidworks `
+  --modes variable face full_round setback `
+  --output-dir C:\CADAutomationWorkbench\advanced_fillet_verified
+```
+
+只有报告中的能力状态为 `verified`，且对应 SLDPRT、STEP、重开证据和审查报告都存在，才能声明该环境支持。当前在 SolidWorks 2026 SP1.1 验证的最小样例为：
+
+- 单边端点可变半径 R2→R5，特征类型回读为 `VarFillet`。
+- 两组相邻面的 R4 face fillet，`ISimpleFilletFeatureData2.Type=2`。
+- 三组面各 1 个面的 full-round，`ISimpleFilletFeatureData2.Type=3`。
+- 三边角 R3、逐边 setback 1 mm，回读 setback 顶点数为 1。
+
+setback 的距离数组必须显式封装为 `VT_ARRAY | VT_R8`。普通 Python `tuple` 可能不抛 COM 异常，却让 `FeatureFillet` 返回 `None`，不得把这种结果降级为普通圆角。
+
 ## CNC 几何默认值
 
 - 减重口袋默认使用 `rounded_slot`，避免把不可加工的零半径内角当作成品；明确需要后工序清角时才使用 `rectangle` 并保留 DFM 警告。
 - 定位孔、中心槽和减重口袋必须用同一参数源做二维包络检查。模板 v2 默认把定位孔布置在 Y 方向，避免旧布局与中心槽相交。
-- 恒定半径圆角和角度倒角是当前稳定路径。复杂过渡必须记录 API、SolidWorks 版本、输入拓扑、重建结果和预览证据后才能升级能力等级。
+- 恒定半径圆角和角度倒角是通用稳定路径；可变半径、face/full-round/setback 已有 SolidWorks 2026 SP1.1 最小真机回归，但应用到其它拓扑或版本时仍须重新运行能力脚本。复杂过渡必须记录 API、SolidWorks 版本、输入拓扑、重建结果和预览证据后才能升级能力等级。
 
 详细的选边签名、失败语义、既有模型策略和扩展路线见 [CNC 多圆角/倒角经验](references/cnc-fillet-chamfer-lessons.md)。
 
