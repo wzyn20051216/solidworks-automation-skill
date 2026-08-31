@@ -2,11 +2,11 @@
 
 ## v2 能力边界
 
-当前真机路径聚焦恒定半径边圆角、角度倒角、孔口倒角和简单 CNC 安装座拓扑。下列能力不能因为 SolidWorks UI 支持就直接标记为稳定：
+当前真机路径除恒定半径边圆角、角度倒角和孔口倒角外，已经覆盖六条彼此隔离的高级路径。能力必须按“版本 + 输入拓扑”声明，不能因为 SolidWorks UI 支持就跨环境标记稳定：
 
-- 可变半径圆角的端点半径、setback corner、face fillet、full-round fillet 已有 SolidWorks 2026 SP1.1 最小真机回归；多控制点、保持线和复杂曲面组合仍需按拓扑复验。
-- 保持线/保持面圆角、非对称宽度-宽度倒角、顶点倒角。
-- 曲面间 G1/G2 过渡、复杂退刀槽、五轴曲面清根。
+- 三中间控制点可变半径、setback corner、face fillet、full-round、平面—圆柱面 G2 组合和非对称宽度-宽度倒角已有 SolidWorks 2026 SP1.1 最小真机回归。
+- 保持线/保持面圆角仍为 `blocked`：投影分割线和 mark `2/4/8` 能确定性生成，但 `HoldLines` 在 pywin32 下普通数组回读为 0，`SAFEARRAY<IDispatch>` 触发服务器异常。
+- 顶点倒角、自由曲面间 G1/G2、复杂退刀槽和五轴曲面清根仍未覆盖。
 
 扩展这些能力时，先查目标 SolidWorks 版本的官方 API，再用最小零件完成创建、保存、关闭、重开、特征树回读、STEP 导出和多视角预览。只有连续回归通过后才能修改能力等级。
 
@@ -170,15 +170,31 @@ def select_edges(model, predicate):
 1. **通用既有模型边清单**：导出边-面邻接、曲线类型、长度、包围盒和几何签名，供用户确认语义分组。
 2. **更多加工特征**：键槽、燕尾槽、T 型槽、退刀槽、O 形圈槽和沉头孔；每类先补参数/碰撞检查，再接 COM。
 3. **多实体和配置**：为每个实体、配置独立保存选边证据，禁止跨配置复用临时拓扑引用。
-4. **高级圆角/倒角**：可变半径、face/full-round、setback 采用四条独立执行路径与证据；宽度-宽度倒角仍待扩展，不做一个万能封装。
+4. **高级圆角/倒角**：多控制点可变半径、face/full-round、setback、G2 曲面组合和宽度-宽度倒角采用六条独立执行路径与证据，不做一个万能封装；保持线保留独立负向探测。
 
 ## SolidWorks 2026 高级圆角实测结论
 
-- 可变半径：`FeatureFillet3`，目标边使用 mark 1；端点半径数组长度与选边端点对应，回读类型必须为 `VarFillet`。
+- 可变半径：`FeatureFillet3`，目标边使用 mark 1，中间 `POINTREF` 使用 mark 256；25%/50%/75% 控制点分别回读 R3/R6/R4，位置读回值是百分数 `25/50/75`，不是比例 `0.25/0.5/0.75`。
 - face fillet：`CreateDefinition(swFmFillet)` → `Initialize(swFaceFillet)` → `SetFaces`；两组面分别回读 `Type=2`。
+- G2 曲面组合：圆柱顶平面与圆柱侧面分别写入两个 face set，设置 `CurvatureContinuous=true`；重开后必须仍读回 `Type=2` 和 G2 标志。
 - full-round：同样使用 `ISimpleFilletFeatureData2`，侧面组 1、中心面组、侧面组 2 分开写入并检查数量，回读 `Type=3`。
 - setback：`FeatureFillet3` 中三条交汇边 mark 1、角点 mark 0；距离必须使用 `SAFEARRAY<double>`。在 pywin32 下，普通 `tuple` 可被 COM 接受但求解返回 `None`，必须用 `VARIANT(VT_ARRAY | VT_R8, ...)`。
-- 四项均应独立生成零件，避免前一个高级圆角改变后续拓扑；只有保存、STEP、重开、特征类型和审查报告全通过才标记 `verified`。
+- 宽度-宽度倒角：`InsertFeatureChamfer` 的 `ChamferType=2`，两侧宽度写入 `Width/OtherDist`，不是顶点倒角参数槽；`GetEdgeChamferDistance` 的 side 索引为 `0/1`。
+- 六项均应独立生成零件，避免前一个高级圆角改变后续拓扑；只有保存、STEP、重开、FeatureData 和审查报告全通过才标记 `verified`。
+- 保持线：官方要求面组 mark `2/4`、保持线 mark `8` 并设置 `HoldLines`。当前回归严格要求 `GetHoldLineCount=1`，不会把返回的普通 `Fillet` 或分割线特征误报为保持线圆角。
+
+官方接口依据：
+
+- [IFeatureManager.FeatureFillet3](https://help.solidworks.com/2026/English/api/sldworksapi/SOLIDWORKS.Interop.sldworks~SOLIDWORKS.Interop.sldworks.IFeatureManager~FeatureFillet3.html)
+- [ISimpleFilletFeatureData2](https://help.solidworks.com/2026/English/api/sldworksapi/SolidWorks.Interop.sldworks~SolidWorks.Interop.sldworks.ISimpleFilletFeatureData2.html)
+- [HoldLines](https://help.solidworks.com/2025/english/api/sldworksapi/SolidWorks.Interop.sldworks~SolidWorks.Interop.sldworks.ISimpleFilletFeatureData2~HoldLines.html)
+- [InsertFeatureChamfer](https://help.solidworks.com/2026/english/api/sldworksapi/SolidWorks.Interop.sldworks~SolidWorks.Interop.sldworks.IFeatureManager~InsertFeatureChamfer.html)
+
+## 开源复杂支架回归
+
+选用 FreeCAD-library 的 `2020_corner_bracket-Corner.step`，固定提交 `b342740f...` 与 SHA-256 `25e3fbc1...`。该件包含底板、立板、加强结构、孔和长圆槽；源拓扑回读为 `1 solid / 40 faces / 98 edges / 64 vertices`。脚本按清单锁定端点 `(-0,-20,3)→(-0,-3,20) mm`、长度 `24.041631 mm` 的唯一斜边，实际创建 C0.2/C0.4 宽度-宽度倒角；处理与重开拓扑均为 `1 solid / 41 faces / 101 edges / 66 vertices`。复杂件结果补充证明真实拓扑上的求解和持久化，六个受控样例仍负责高级参数的独立精确读回。
+
+案例采用 FreeCAD-library 的 [CC BY 3.0](https://github.com/FreeCAD/FreeCAD-library) 许可，贡献者署名和下载哈希写入 `examples/open_source_corner_bracket_case.json`。
 5. **制造验收**：加入刀具直径、刀长、最小内圆角、装夹方向、可达性和工序建议；规则通过仍需 CAM/工艺人员复核。
 
 ## 常见故障

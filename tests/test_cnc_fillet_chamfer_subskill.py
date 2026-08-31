@@ -345,6 +345,46 @@ def test_face_and_full_round_contracts_reject_invalid_envelopes() -> None:
         )
 
 
+def test_hold_line_surface_combo_and_width_width_contracts() -> None:
+    """@brief 新增高级路径必须拒绝数量、曲面类型和包络不一致。"""
+    hold = advanced.validate_hold_line_spec(
+        advanced.HoldLineFilletSpec(radius=4.0, hold_line_count=1),
+        clearance_mm=16.0,
+        available_hold_lines=1,
+    )
+    assert hold["hold_line_count"] == 1
+    with pytest.raises(ValueError, match="数量"):
+        advanced.validate_hold_line_spec(
+            advanced.HoldLineFilletSpec(hold_line_count=2),
+            clearance_mm=16.0,
+            available_hold_lines=1,
+        )
+
+    surface = advanced.validate_surface_combination_spec(
+        advanced.SurfaceCombinationSpec(radius=3.0),
+        clearance_mm=15.0,
+        surface_types=("plane", "cylinder"),
+    )
+    assert surface["curvature_continuous"] is True
+    with pytest.raises(ValueError, match="不同曲面类型"):
+        advanced.validate_surface_combination_spec(
+            advanced.SurfaceCombinationSpec(),
+            clearance_mm=15.0,
+            surface_types=("plane", "plane"),
+        )
+
+    chamfer = advanced.validate_width_width_chamfer_spec(
+        advanced.WidthWidthChamferSpec(width1=2.0, width2=4.0),
+        adjacent_clearances_mm=(15.0, 16.0),
+    )
+    assert chamfer["widths_mm"] == [2.0, 4.0]
+    with pytest.raises(ValueError, match="必须小于"):
+        advanced.validate_width_width_chamfer_spec(
+            advanced.WidthWidthChamferSpec(width1=15.0, width2=4.0),
+            adjacent_clearances_mm=(15.0, 16.0),
+        )
+
+
 def test_setback_contract_preserves_one_to_one_distance_mapping() -> None:
     """@brief setback 距离数组必须与三条交汇边一一对应。"""
     report = advanced.validate_setback_spec(

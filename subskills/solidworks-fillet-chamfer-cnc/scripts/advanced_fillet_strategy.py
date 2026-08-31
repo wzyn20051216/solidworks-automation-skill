@@ -1,6 +1,6 @@
 """SolidWorks 高级圆角的离线契约与本机能力探测。
 
-@brief 为可变半径、面圆角、全圆角和 setback 提供严格参数校验。
+@brief 为可变半径、保持线、曲率连续面圆角、全圆角、setback 和宽度-宽度倒角提供严格参数校验。
 @details 本模块不连接 SolidWorks；类型库探测也只读取本机 COM 元数据。
 """
 
@@ -12,7 +12,15 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 
-ADVANCED_KINDS = ("variable", "face", "full_round", "setback")
+ADVANCED_KINDS = (
+    "variable",
+    "face",
+    "hold_line",
+    "surface_combo",
+    "full_round",
+    "setback",
+    "width_width_chamfer",
+)
 
 REQUIRED_INTERFACES: Mapping[str, Mapping[str, tuple[str, ...]]] = {
     "variable": {
@@ -27,6 +35,23 @@ REQUIRED_INTERFACES: Mapping[str, Mapping[str, tuple[str, ...]]] = {
         "IFeatureManager": ("CreateDefinition", "CreateFeature"),
         "ISimpleFilletFeatureData2": ("Initialize", "SetFaces"),
     },
+    "hold_line": {
+        "IFeatureManager": ("CreateDefinition", "CreateFeature"),
+        "ISimpleFilletFeatureData2": (
+            "Initialize",
+            "SetFaces",
+            "HoldLines",
+            "GetHoldLineCount",
+        ),
+    },
+    "surface_combo": {
+        "IFeatureManager": ("CreateDefinition", "CreateFeature"),
+        "ISimpleFilletFeatureData2": (
+            "Initialize",
+            "SetFaces",
+            "CurvatureContinuous",
+        ),
+    },
     "full_round": {
         "IFeatureManager": ("CreateDefinition", "CreateFeature"),
         "ISimpleFilletFeatureData2": ("Initialize", "SetFaces"),
@@ -34,6 +59,13 @@ REQUIRED_INTERFACES: Mapping[str, Mapping[str, tuple[str, ...]]] = {
     "setback": {
         "IFeatureManager": ("FeatureFillet3",),
         "ISimpleFilletFeatureData2": ("GetSetbackVerticesCount",),
+    },
+    "width_width_chamfer": {
+        "IFeatureManager": ("InsertFeatureChamfer",),
+        "IChamferFeatureData2": (
+            "GetEdgeChamferDistance",
+            "Type",
+        ),
     },
 }
 
@@ -59,6 +91,25 @@ class FaceFilletSpec:
 
 
 @dataclass(frozen=True)
+class HoldLineFilletSpec:
+    """@brief 两组面和一条或多条保持线定义的面圆角。"""
+
+    radius: float = 4.0
+    hold_line_count: int = 1
+    tangent_hold_line: bool = False
+    propagate_tangent: bool = False
+
+
+@dataclass(frozen=True)
+class SurfaceCombinationSpec:
+    """@brief 平面/圆柱面组合的曲率连续面圆角参数。"""
+
+    radius: float = 3.0
+    curvature_continuous: bool = True
+    propagate_tangent: bool = False
+
+
+@dataclass(frozen=True)
 class FullRoundFilletSpec:
     """@brief 侧面组 1、中心面组、侧面组 2 的全圆角参数。"""
 
@@ -72,6 +123,15 @@ class SetbackFilletSpec:
     radius: float = 3.0
     distances: tuple[float, float, float] = (4.0, 4.0, 4.0)
     overflow: str = "default"
+
+
+@dataclass(frozen=True)
+class WidthWidthChamferSpec:
+    """@brief 非对称宽度-宽度（距离-距离）倒角参数。"""
+
+    width1: float = 2.0
+    width2: float = 4.0
+    propagate_tangent: bool = True
 
 
 def _finite_positive(name: str, value: Any) -> float:
@@ -132,6 +192,59 @@ def validate_face_spec(spec: FaceFilletSpec, *, clearance_mm: float) -> dict[str
     return {"status": "pass", "kind": "face", "radius_mm": radius}
 
 
+def validate_hold_line_spec(
+    spec: HoldLineFilletSpec,
+    *,
+    clearance_mm: float,
+    available_hold_lines: int,
+) -> dict[str, Any]:
+    """@brief 校验保持线数量及面组净空。"""
+    radius = _finite_positive("radius", spec.radius)
+    clearance = _finite_positive("clearance_mm", clearance_mm)
+    requested = int(spec.hold_line_count)
+    available = int(available_hold_lines)
+    if requested <= 0:
+        raise ValueError("hold_line_count 必须为正整数")
+    if available != requested:
+        raise ValueError("保持线候选数量必须与请求数量一致")
+    if radius >= clearance:
+        raise ValueError("保持线圆角半径必须小于两面可用净空")
+    return {
+        "status": "pass",
+        "kind": "hold_line",
+        "radius_mm": radius,
+        "hold_line_count": requested,
+        "tangent_hold_line": bool(spec.tangent_hold_line),
+    }
+
+
+def validate_surface_combination_spec(
+    spec: SurfaceCombinationSpec,
+    *,
+    clearance_mm: float,
+    surface_types: tuple[str, str],
+) -> dict[str, Any]:
+    """@brief 校验曲率连续圆角连接的是两种明确的曲面类型。"""
+    radius = _finite_positive("radius", spec.radius)
+    clearance = _finite_positive("clearance_mm", clearance_mm)
+    normalized = tuple(str(item).strip().lower() for item in surface_types)
+    if len(normalized) != 2 or any(not item for item in normalized):
+        raise ValueError("复杂曲面组合必须提供两个可识别曲面类型")
+    if len(set(normalized)) != 2:
+        raise ValueError("复杂曲面组合必须覆盖两种不同曲面类型")
+    if radius >= clearance:
+        raise ValueError("复杂曲面组合圆角半径必须小于可用净空")
+    if not spec.curvature_continuous:
+        raise ValueError("surface_combo 路径必须启用曲率连续")
+    return {
+        "status": "pass",
+        "kind": "surface_combo",
+        "radius_mm": radius,
+        "curvature_continuous": True,
+        "surface_types": list(normalized),
+    }
+
+
 def validate_full_round_spec(
     _spec: FullRoundFilletSpec,
     *,
@@ -169,6 +282,32 @@ def validate_setback_spec(
         "radius_mm": radius,
         "distances_mm": distances,
         "incident_edge_lengths_mm": lengths,
+    }
+
+
+def validate_width_width_chamfer_spec(
+    spec: WidthWidthChamferSpec,
+    *,
+    adjacent_clearances_mm: tuple[float, float],
+) -> dict[str, Any]:
+    """@brief 校验距离-距离倒角两侧宽度与相邻面净空。"""
+    width1 = _finite_positive("width1", spec.width1)
+    width2 = _finite_positive("width2", spec.width2)
+    if len(adjacent_clearances_mm) != 2:
+        raise ValueError("宽度-宽度倒角必须提供两侧净空")
+    clearances = tuple(
+        _finite_positive(f"adjacent_clearances_mm[{index}]", value)
+        for index, value in enumerate(adjacent_clearances_mm)
+    )
+    for index, (width, clearance) in enumerate(zip((width1, width2), clearances), start=1):
+        if width >= clearance:
+            raise ValueError(f"width{index} 必须小于对应侧净空")
+    return {
+        "status": "pass",
+        "kind": "width_width_chamfer",
+        "widths_mm": [width1, width2],
+        "adjacent_clearances_mm": list(clearances),
+        "asymmetric": not math.isclose(width1, width2),
     }
 
 

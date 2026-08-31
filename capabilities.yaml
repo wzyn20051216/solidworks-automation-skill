@@ -32,7 +32,7 @@
       "backends": ["solidworks-com"],
       "verified_versions": ["2024", "2026"],
       "dependencies": ["SolidWorks", "pywin32", "comtypes"],
-      "limitations": ["每个孔槽必须有规格、数量和定位证据；已验证螺纹范围是 ISO 公制内螺纹底孔 + Metric Tap Thread，Hole Wizard、外螺纹、英制/管螺纹和攻丝工艺细节仍需人工复核"],
+      "limitations": ["每个孔槽必须有规格、数量和定位证据；SW2026 SP1.1 已验证三中间控制点可变半径、face/full-round/setback、平面—圆柱面 G2 组合和 C2/C4 宽度-宽度倒角；保持线圆角因 HoldLines 数组封送无法读回仍为 blocked；已验证螺纹范围是 ISO 公制内螺纹底孔 + Metric Tap Thread，Hole Wizard、外螺纹、英制/管螺纹和攻丝工艺细节仍需人工复核"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {

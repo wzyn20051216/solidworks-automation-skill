@@ -53,3 +53,42 @@ def test_open_document_falls_back_to_dynamic_proxy(tmp_path, monkeypatch):
     )
 
     assert sw_connect.open_document(GeneratedSolidWorks(), source, silent=True) is expected
+
+
+def test_step_import_falls_back_to_dynamic_loadfile4(tmp_path, monkeypatch):
+    """@brief SW2026 LoadFile4 的 by-ref VARIANT 失败时也必须切换动态代理。"""
+    source = tmp_path / "complex.step"
+    source.write_bytes(b"ISO-10303-21")
+    expected = FakeModel()
+    import_data = object()
+
+    class GeneratedSolidWorks:
+        _oleobj_ = object()
+
+        def GetOpenDocumentByName(self, _path):
+            return None
+
+        def GetImportFileData(self, _path):
+            return import_data
+
+        def LoadFile4(self, *_args):
+            raise TypeError("int() argument must not be VARIANT")
+
+    class DynamicSolidWorks:
+        def LoadFile4(self, path, argument, data, errors):
+            assert Path(path) == source.resolve()
+            assert argument == "r"
+            assert data is import_data
+            errors.value = 0
+            return expected
+
+    monkeypatch.setattr(sw_connect, "ensure_default_templates", lambda _sw: True)
+    monkeypatch.setattr(
+        sw_connect.win32com_client.dynamic,
+        "DumbDispatch",
+        lambda ole_object, _name: DynamicSolidWorks()
+        if ole_object is GeneratedSolidWorks._oleobj_
+        else None,
+    )
+
+    assert sw_connect.open_document(GeneratedSolidWorks(), source) is expected

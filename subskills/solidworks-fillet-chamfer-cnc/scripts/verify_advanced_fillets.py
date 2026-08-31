@@ -1,6 +1,6 @@
 """SolidWorks 2026 高级圆角能力探测与真机回归。
 
-@brief 验证可变半径、面圆角、全圆角和三边角 setback。
+@brief 验证多控制点可变半径、保持线、曲率连续曲面组合、全圆角、setback 和宽度-宽度倒角。
 @details 每种能力使用独立零件，保存、STEP 导出、重开和预览均成功才记为 verified。
 """
 
@@ -11,7 +11,7 @@ import json
 import sys
 import traceback
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -23,14 +23,20 @@ from advanced_fillet_strategy import (  # noqa: E402
     ADVANCED_KINDS,
     FaceFilletSpec,
     FullRoundFilletSpec,
+    HoldLineFilletSpec,
     SetbackFilletSpec,
+    SurfaceCombinationSpec,
     VariableFilletSpec,
+    WidthWidthChamferSpec,
     build_capability_report,
     inspect_typelib_members,
     validate_face_spec,
     validate_full_round_spec,
+    validate_hold_line_spec,
     validate_setback_spec,
+    validate_surface_combination_spec,
     validate_variable_spec,
+    validate_width_width_chamfer_spec,
 )
 from sw_appearance import set_document_appearance  # noqa: E402
 from sw_connect import create_empty_dispatch_variant, get_com_member, mm  # noqa: E402
@@ -59,9 +65,23 @@ SW_FILLET_PROPAGATE = 1
 SW_FILLET_UNIFORM_RADIUS = 2
 SW_FILLET_VARIABLE_TYPE = 4
 SW_FILLET_CORNER_TYPE = 32
+SW_FILLET_USE_TANGENT_HOLD_LINE = 16
+SW_CHAMFER_DISTANCE_DISTANCE = 2
+SW_CHAMFER_TANGENT_PROPAGATION = 4
 GEOMETRY_TOLERANCE_M = 1e-5
 SW_DISPLAY_ORIGINS = 6
 SW_DISPLAY_REFERENCE_TRIAD = 205
+
+
+class HoldLineInteropBlockedError(RuntimeError):
+    """@brief 表示保持线几何已准备，但 COM 数组封送未形成可读回特征。"""
+
+    def __init__(self, attempts: list[dict[str, Any]]):
+        super().__init__(
+            "SW2026 保持线数组封送未通过：HoldLines 回读为 0 或 COM 服务器拒绝 SAFEARRAY；"
+            f"已记录 {len(attempts)} 次受控尝试"
+        )
+        self.attempts = attempts
 
 
 def _dispatch_array(items: tuple[Any, ...]):
@@ -75,6 +95,20 @@ def _double_array(values: tuple[float, ...] | list[float]):
         pythoncom.VT_ARRAY | pythoncom.VT_R8,
         [float(value) for value in values],
     )
+
+
+def _variant_array(items: tuple[Any, ...]):
+    """@brief 构造属性 setter 常用的 SAFEARRAY<VARIANT>。"""
+    return VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_VARIANT, list(items))
+
+
+def _typed_feature_data(data, interface_name: str):
+    """@brief 通过已生成的 SW2026 makepy 接口包装无类型 FeatureData。"""
+    module = _win32com_client.gencache.EnsureModule(
+        "{83A33D31-27C5-11CE-BFD4-00400513BB57}", 0, 34, 0
+    )
+    interface = getattr(module, interface_name)
+    return interface(data._oleobj_)
 
 
 def _find_typelib(explicit: Path | None) -> Path:
@@ -138,6 +172,55 @@ def _create_box(model, length_mm: float, width_mm: float, height_mm: float, name
     feature.Name = name
     model.ForceRebuild3(False)
     return feature
+
+
+def _create_cylinder(model, radius_mm: float, height_mm: float, name: str):
+    """@brief 创建平面与圆柱面组合的曲率连续回归基体。"""
+    _select_plane(model)
+    model.SketchManager.InsertSketch(True)
+    active = model.SketchManager.ActiveSketch
+    sketch_name = active.Name if active else "Sketch1"
+    model.SketchManager.CreateCircleByRadius(0, 0, 0, mm(radius_mm))
+    model.SketchManager.InsertSketch(True)
+    model.ClearSelection2(True)
+    if not model.Extension.SelectByID2(
+        sketch_name, "SKETCH", 0, 0, 0, False, 0, create_empty_dispatch_variant(), 0
+    ):
+        raise RuntimeError(f"无法选择圆柱草图: {sketch_name}")
+    feature = model.FeatureManager.FeatureExtrusion3(
+        True, False, False, 0, 0, mm(height_mm), 0,
+        False, False, False, False, 0, 0,
+        False, False, False, False,
+        True, False, True, 0, 0, False,
+    )
+    if feature is None:
+        raise RuntimeError("曲面组合验证圆柱创建失败")
+    feature.Name = name
+    model.ForceRebuild3(False)
+    return feature
+
+
+def _add_projected_hold_line(model):
+    """@brief 在顶面投影距外边 4 mm 的分割线，形成真实保持线。"""
+    _select_plane(model)
+    model.SketchManager.InsertSketch(True)
+    active = model.SketchManager.ActiveSketch
+    sketch_name = active.Name if active else "Sketch1"
+    model.SketchManager.CreateLine(mm(-30.0), mm(21.0), 0, mm(30.0), mm(21.0), 0)
+    model.SketchManager.InsertSketch(True)
+    top = _find_face(model, lambda box: _near(box[2], mm(16.0)) and _near(box[5], mm(16.0)))
+    model.ClearSelection2(True)
+    if not model.Extension.SelectByID2(
+        sketch_name, "SKETCH", 0, 0, 0, False, 4, create_empty_dispatch_variant(), 0
+    ):
+        raise RuntimeError(f"无法选择保持线投影草图: {sketch_name}")
+    if not top.Select2(True, 1):
+        raise RuntimeError("无法选择保持线分割目标面")
+    model.InsertSplitLineProject(True, True)
+    if not model.ForceRebuild3(False):
+        raise RuntimeError("投影保持线重建失败")
+    if model.FeatureByName("Split Line1") is None and model.FeatureByName("分割线1") is None:
+        raise RuntimeError("投影保持线未在特征树中持久化")
 
 
 def _body(model):
@@ -205,6 +288,26 @@ def _find_face(model, predicate: Callable[[tuple[float, ...]], bool]):
     return matches[0]
 
 
+def _surface_type(face) -> str:
+    """@brief 回读面的解析曲面类型，拒绝仅凭包围盒猜测。"""
+    surface = get_com_member(face, "GetSurface")
+    if surface is None:
+        return "unknown"
+    for member, label in (
+        ("IsPlane", "plane"),
+        ("IsCylinder", "cylinder"),
+        ("IsCone", "cone"),
+        ("IsSphere", "sphere"),
+        ("IsTorus", "torus"),
+    ):
+        try:
+            if bool(get_com_member(surface, member)):
+                return label
+        except Exception:
+            continue
+    return "freeform"
+
+
 def _find_vertex(model, target: tuple[float, float, float]):
     """@brief 按精确角点坐标查找唯一顶点。"""
     vertices = []
@@ -251,8 +354,12 @@ def _assert_feature(model, feature, name: str):
 
 
 def _create_variable(model):
-    """@brief 创建单边端点 R2→R5 的真实可变半径圆角。"""
-    spec = VariableFilletSpec(start_radius=2.0, end_radius=5.0)
+    """@brief 创建带三个中间控制点的真实可变半径圆角。"""
+    spec = VariableFilletSpec(
+        start_radius=2.0,
+        end_radius=5.0,
+        control_points=((0.25, 3.0), (0.50, 6.0), (0.75, 4.0)),
+    )
     edge = _find_edge(
         model,
         lambda a, b: _near(abs(a[0] - b[0]), mm(60.0))
@@ -263,14 +370,26 @@ def _create_variable(model):
     model.ClearSelection2(True)
     if not edge.Select2(False, 1):
         raise RuntimeError("可变半径目标边选择失败")
+    points = _edge_points(edge)
+    if points is None:
+        raise RuntimeError("可变半径目标边端点不可读")
+    start, end = points
+    for location, _radius in spec.control_points:
+        xyz = tuple(start[index] + location * (end[index] - start[index]) for index in range(3))
+        if not model.Extension.SelectByID2(
+            "", "POINTREF", *xyz, True, 256, create_empty_dispatch_variant(), 0
+        ):
+            raise RuntimeError(f"可变半径控制点选择失败: location={location}")
     options = SW_FILLET_PROPAGATE + SW_FILLET_UNIFORM_RADIUS + SW_FILLET_VARIABLE_TYPE
     feature = model.FeatureManager.FeatureFillet3(
         options, 0.0, 0.0, 0.0, SW_FEATURE_VARIABLE,
         SW_OVERFLOW_DEFAULT, SW_PROFILE_CIRCULAR,
-        (mm(spec.start_radius), mm(spec.end_radius)),
-        0, 0, 0, 0, 0, 0,
+        _double_array((mm(spec.start_radius), mm(spec.end_radius))),
+        0, 0, 0,
+        _double_array([mm(radius) for _location, radius in spec.control_points]),
+        0, 0,
     )
-    return _assert_feature(model, feature, "Advanced_Variable_R2_R5"), validation
+    return _assert_feature(model, feature, "Advanced_Variable_MultiPoint"), validation
 
 
 def _create_face(model):
@@ -296,6 +415,163 @@ def _create_face(model):
         raise RuntimeError("面圆角 Face Set 2 回读数量异常")
     feature = model.FeatureManager.CreateFeature(data)
     return _assert_feature(model, feature, "Advanced_Face_Fillet_R4"), validation
+
+
+def _create_hold_line(model):
+    """@brief 创建由侧面底边约束边界的保持线面圆角。"""
+    spec = HoldLineFilletSpec(radius=4.0, hold_line_count=1)
+    _add_projected_hold_line(model)
+    inner_top = _find_face(
+        model,
+        lambda box: _near(box[1], mm(-25.0)) and _near(box[4], mm(21.0))
+        and _near(box[2], mm(16.0)) and _near(box[5], mm(16.0)),
+    )
+    outer_top = _find_face(
+        model,
+        lambda box: _near(box[1], mm(21.0)) and _near(box[4], mm(25.0))
+        and _near(box[2], mm(16.0)) and _near(box[5], mm(16.0)),
+    )
+    side = _find_face(model, lambda box: _near(box[1], mm(25.0)) and _near(box[4], mm(25.0)))
+    hold_line = _find_edge(
+        model,
+        lambda a, b: _near(abs(a[0] - b[0]), mm(60.0))
+        and _near(a[1], mm(21.0)) and _near(b[1], mm(21.0))
+        and _near(a[2], mm(16.0)) and _near(b[2], mm(16.0)),
+    )
+    validation = validate_hold_line_spec(
+        spec,
+        clearance_mm=16.0,
+        available_hold_lines=1,
+    )
+    attempts = []
+    feature = None
+    hold_line_values = (
+        ("tuple", (hold_line,)),
+        ("list", [hold_line]),
+        ("dispatch_safearray", _dispatch_array((hold_line,))),
+        ("variant_safearray", _variant_array((hold_line,))),
+    )
+    for top_label, top in (("inner", inner_top), ("outer", outer_top)):
+        for value_label, hold_line_value in hold_line_values:
+            try:
+                model.ClearSelection2(True)
+                if (
+                    not top.Select2(False, 2)
+                    or not side.Select2(True, 4)
+                    or not hold_line.Select2(True, 8)
+                ):
+                    raise RuntimeError("保持线圆角的面组或保持线选择失败")
+                data = model.FeatureManager.CreateDefinition(SW_FM_FILLET)
+                if data is None:
+                    raise RuntimeError("保持线圆角 CreateDefinition 返回 None")
+                data = _typed_feature_data(data, "ISimpleFilletFeatureData2")
+                if not data.Initialize(SW_SIMPLE_FACE):
+                    raise RuntimeError("保持线圆角 FeatureData 初始化失败")
+                data.ConicTypeForCrossSectionProfile = SW_PROFILE_CIRCULAR
+                data.SetFaces(SW_FACE_SET_1, _dispatch_array((top,)))
+                data.SetFaces(SW_FACE_SET_2, _dispatch_array((side,)))
+                data.HoldLines = hold_line_value
+                hold_line_count = int(data.GetHoldLineCount())
+                if hold_line_count == 1:
+                    feature = model.FeatureManager.CreateFeature(data)
+                attempts.append({
+                    "api": "ISimpleFilletFeatureData2.HoldLines",
+                    "top_face": top_label,
+                    "encoding": value_label,
+                    "hold_line_count": hold_line_count,
+                    "created": feature is not None,
+                })
+            except Exception as exc:
+                attempts.append({
+                    "api": "ISimpleFilletFeatureData2.HoldLines",
+                    "top_face": top_label,
+                    "encoding": value_label,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "created": False,
+                })
+            if feature is not None:
+                break
+        if feature is not None:
+            break
+    for top_label, top in (() if feature is not None else (("inner", inner_top), ("outer", outer_top))):
+        for face_order, faces in (("top-side", (top, side)), ("side-top", (side, top))):
+            for tangent_hold_line in (False, True):
+                for direction in (0, 2048, 4096, 2048 + 4096):
+                    model.ClearSelection2(True)
+                    if (
+                        not faces[0].Select2(False, 2)
+                        or not faces[1].Select2(True, 4)
+                        or not hold_line.Select2(True, 8)
+                    ):
+                        raise RuntimeError("保持线圆角的面组或保持线选择失败")
+                    options = direction
+                    if tangent_hold_line:
+                        options += SW_FILLET_USE_TANGENT_HOLD_LINE
+                    if spec.propagate_tangent:
+                        options += SW_FILLET_PROPAGATE
+                    feature = model.FeatureManager.FeatureFillet3(
+                        options,
+                        0.0,
+                        0.0,
+                        0.0,
+                        SW_SIMPLE_FACE,
+                        SW_OVERFLOW_DEFAULT,
+                        SW_PROFILE_CIRCULAR,
+                        None, None, None, None, None, None, None,
+                    )
+                    attempts.append({
+                        "api": "IFeatureManager.FeatureFillet3",
+                        "top_face": top_label,
+                        "face_order": face_order,
+                        "tangent_hold_line": tangent_hold_line,
+                        "options": options,
+                        "created": feature is not None,
+                    })
+                    if feature is not None:
+                        break
+                if feature is not None:
+                    break
+            if feature is not None:
+                break
+        if feature is not None:
+            break
+    if feature is not None:
+        validation["selected_attempt"] = attempts[-1]
+    validation["attempts"] = attempts
+    if feature is None:
+        raise HoldLineInteropBlockedError(attempts)
+    return _assert_feature(model, feature, "Advanced_Hold_Line_Fillet"), validation
+
+
+def _create_surface_combo(model):
+    """@brief 创建平面到圆柱面的 G2 曲率连续面圆角。"""
+    spec = SurfaceCombinationSpec(radius=3.0, curvature_continuous=True)
+    top = _find_face(model, lambda box: _near(box[2], mm(20.0)) and _near(box[5], mm(20.0)))
+    cylinder = _find_face(
+        model,
+        lambda box: _near(box[0], mm(-15.0)) and _near(box[3], mm(15.0))
+        and _near(box[1], mm(-15.0)) and _near(box[4], mm(15.0))
+        and _near(box[2], 0.0) and _near(box[5], mm(20.0)),
+    )
+    surface_types = (_surface_type(top), _surface_type(cylinder))
+    validation = validate_surface_combination_spec(
+        spec,
+        clearance_mm=15.0,
+        surface_types=surface_types,
+    )
+    model.ClearSelection2(True)
+    if not top.Select2(False, 2) or not cylinder.Select2(True, 4):
+        raise RuntimeError("复杂曲面组合的平面/圆柱面选择失败")
+    data = model.FeatureManager.CreateDefinition(SW_FM_FILLET)
+    if data is None or not data.Initialize(SW_SIMPLE_FACE):
+        raise RuntimeError("复杂曲面组合 FeatureData 初始化失败")
+    data.DefaultRadius = mm(spec.radius)
+    data.CurvatureContinuous = spec.curvature_continuous
+    data.PropagateToTangentFaces = spec.propagate_tangent
+    data.SetFaces(SW_FACE_SET_1, _dispatch_array((top,)))
+    data.SetFaces(SW_FACE_SET_2, _dispatch_array((cylinder,)))
+    feature = model.FeatureManager.CreateFeature(data)
+    return _assert_feature(model, feature, "Advanced_G2_Plane_Cylinder"), validation
 
 
 def _create_full_round(model):
@@ -359,15 +635,48 @@ def _create_setback(model):
     return _assert_feature(model, feature, "Advanced_Setback_R3"), validation
 
 
+def _create_width_width_chamfer(model):
+    """@brief 创建两侧距离不同的真实距离-距离倒角。"""
+    spec = WidthWidthChamferSpec(width1=2.0, width2=4.0)
+    edge = _find_edge(
+        model,
+        lambda a, b: _near(abs(a[0] - b[0]), mm(60.0))
+        and _near(a[1], mm(15.0)) and _near(b[1], mm(15.0))
+        and _near(a[2], mm(16.0)) and _near(b[2], mm(16.0)),
+    )
+    validation = validate_width_width_chamfer_spec(
+        spec,
+        adjacent_clearances_mm=(15.0, 16.0),
+    )
+    model.ClearSelection2(True)
+    if not edge.Select2(False, 0):
+        raise RuntimeError("宽度-宽度倒角目标边选择失败")
+    options = SW_CHAMFER_TANGENT_PROPAGATION if spec.propagate_tangent else 0
+    feature = model.FeatureManager.InsertFeatureChamfer(
+        options,
+        SW_CHAMFER_DISTANCE_DISTANCE,
+        mm(spec.width1),
+        0.0,
+        mm(spec.width2),
+        0.0,
+        0.0,
+        0.0,
+    )
+    return _assert_feature(model, feature, "Advanced_Width_Width_C2_C4"), validation
+
+
 BUILDERS: Mapping[str, tuple[tuple[float, float, float], Callable[[Any], tuple[Any, dict[str, Any]]]]] = {
     "variable": ((60.0, 30.0, 16.0), _create_variable),
     "face": ((60.0, 30.0, 16.0), _create_face),
+    "hold_line": ((60.0, 50.0, 16.0), _create_hold_line),
+    "surface_combo": ((30.0, 30.0, 20.0), _create_surface_combo),
     "full_round": ((60.0, 12.0, 12.0), _create_full_round),
     "setback": ((60.0, 40.0, 18.0), _create_setback),
+    "width_width_chamfer": ((60.0, 30.0, 16.0), _create_width_width_chamfer),
 }
 
 
-def _feature_data_evidence(feature, kind: str) -> dict[str, Any]:
+def _feature_data_evidence(feature, kind: str, model=None) -> dict[str, Any]:
     """@brief 回读高级圆角 FeatureData 的关键事实。"""
     data = get_com_member(feature, "GetDefinition")
     evidence: dict[str, Any] = {
@@ -377,9 +686,13 @@ def _feature_data_evidence(feature, kind: str) -> dict[str, Any]:
     }
     if data is None:
         return evidence
+    try:
+        evidence["selection_access"] = bool(data.AccessSelections(model, None)) if model is not None else False
+    except Exception:
+        evidence["selection_access"] = False
     for name in (
         "Type", "DefaultRadius", "FilletEdgeCount", "GetControlPointsCount",
-        "GetSetbackVerticesCount",
+        "GetSetbackVerticesCount", "GetHoldLineCount", "CurvatureContinuous",
     ):
         try:
             value = get_com_member(data, name)
@@ -388,8 +701,72 @@ def _feature_data_evidence(feature, kind: str) -> dict[str, Any]:
             evidence[name] = value
         except Exception:
             continue
+    if kind == "variable" and int(evidence.get("GetControlPointsCount") or 0) > 0:
+        controls = []
+        for index in range(int(evidence["GetControlPointsCount"])):
+            location = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_R8, 0.0)
+            edge = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_DISPATCH, None)
+            try:
+                radius = data.GetControlPointRadiusAtIndex(index, location, edge)
+                controls.append({
+                    "index": index,
+                    "location_percent": round(float(location.value), 6),
+                    "radius_mm": round(float(radius) * 1000.0, 6),
+                    "edge_available": edge.value is not None,
+                })
+            except Exception as exc:
+                controls.append({"index": index, "error": str(exc)})
+        evidence["control_points"] = controls
+    if kind == "width_width_chamfer":
+        try:
+            evidence["edge_distances_mm"] = [
+                round(float(data.GetEdgeChamferDistance(side)) * 1000.0, 6)
+                for side in (0, 1)
+            ]
+        except Exception as exc:
+            evidence["edge_distances_error"] = str(exc)
+    try:
+        data.ReleaseSelectionAccess()
+    except Exception:
+        pass
     evidence["kind"] = kind
     return evidence
+
+
+def _evidence_passes(kind: str, evidence: Mapping[str, Any]) -> bool:
+    """@brief 以 FeatureData 回读值判定高级特征是否真的按请求创建。"""
+    if not evidence.get("definition_available"):
+        return False
+    if kind == "variable":
+        controls = evidence.get("control_points") or []
+        return (
+            str(evidence.get("type_name")) == "VarFillet"
+            and int(evidence.get("GetControlPointsCount") or 0) == 3
+            and len(controls) == 3
+            and all("error" not in item for item in controls)
+            and [item["location_percent"] for item in controls] == [25.0, 50.0, 75.0]
+            and [item["radius_mm"] for item in controls] == [3.0, 6.0, 4.0]
+        )
+    if kind == "face":
+        return int(evidence.get("Type") or -1) == SW_SIMPLE_FACE
+    if kind == "hold_line":
+        return (
+            int(evidence.get("Type") or -1) == SW_SIMPLE_FACE
+            and int(evidence.get("GetHoldLineCount") or 0) == 1
+        )
+    if kind == "surface_combo":
+        return (
+            int(evidence.get("Type") or -1) == SW_SIMPLE_FACE
+            and evidence.get("CurvatureContinuous") is True
+        )
+    if kind == "full_round":
+        return int(evidence.get("Type") or -1) == SW_SIMPLE_FULL_ROUND
+    if kind == "setback":
+        return int(evidence.get("GetSetbackVerticesCount") or 0) == 1
+    if kind == "width_width_chamfer":
+        distances = sorted(float(value) for value in evidence.get("edge_distances_mm") or [])
+        return int(evidence.get("Type") or -1) == SW_CHAMFER_DISTANCE_DISTANCE and distances == [2.0, 4.0]
+    return False
 
 
 def _verify_one(session: SolidWorksSession, kind: str, output_dir: Path) -> dict[str, Any]:
@@ -402,7 +779,10 @@ def _verify_one(session: SolidWorksSession, kind: str, output_dir: Path) -> dict
     reopened = None
     try:
         model = session.new_part()
-        _create_box(model, *size, name=f"Base_{kind}")
+        if kind == "surface_combo":
+            _create_cylinder(model, radius_mm=size[0] / 2.0, height_mm=size[2], name=f"Base_{kind}")
+        else:
+            _create_box(model, *size, name=f"Base_{kind}")
         feature, validation = builder(model)
         set_document_appearance(model, "silver")
         _hide_review_helpers(model)
@@ -417,7 +797,7 @@ def _verify_one(session: SolidWorksSession, kind: str, output_dir: Path) -> dict
             basename=basename,
             expected_outputs=[str(part_path), str(step_path)],
         )
-        before_close = _feature_data_evidence(feature, kind)
+        before_close = _feature_data_evidence(feature, kind, model)
         feature_name = str(feature.Name)
         session.close(title=get_com_member(model, "GetTitle"))
         model = None
@@ -429,11 +809,18 @@ def _verify_one(session: SolidWorksSession, kind: str, output_dir: Path) -> dict
             if reopened_feature
             else None
         )
+        reopened_evidence = (
+            _feature_data_evidence(reopened_feature, kind, reopened)
+            if reopened_feature is not None
+            else {"definition_available": False, "kind": kind}
+        )
         session.close(model=reopened)
         reopened = None
         status = (
             "verified"
             if reopen_ok
+            and _evidence_passes(kind, before_close)
+            and _evidence_passes(kind, reopened_evidence)
             and part_path.is_file()
             and step_path.is_file()
             and review["evaluation"]["status"] in {"pass", "warn"}
@@ -444,7 +831,11 @@ def _verify_one(session: SolidWorksSession, kind: str, output_dir: Path) -> dict
             "kind": kind,
             "validation": validation,
             "feature": before_close,
-            "reopen": {"success": reopen_ok, "type_name": reopened_type},
+            "reopen": {
+                "success": reopen_ok,
+                "type_name": reopened_type,
+                "feature": reopened_evidence,
+            },
             "review": review["evaluation"],
             "review_path": str(review_path),
             "outputs": {
@@ -514,13 +905,16 @@ def main() -> int:
                     capability["runtime"] = _verify_one(session, kind, args.output_dir)
                     capability["status"] = capability["runtime"]["status"]
                 except Exception as exc:
-                    capability["status"] = "failed"
+                    status = "blocked" if isinstance(exc, HoldLineInteropBlockedError) else "failed"
+                    capability["status"] = status
                     capability["runtime"] = {
-                        "status": "failed",
+                        "status": status,
                         "error_type": type(exc).__name__,
                         "error": str(exc),
                         "traceback": traceback.format_exc(),
                     }
+                    if isinstance(exc, HoldLineInteropBlockedError):
+                        capability["runtime"]["attempts"] = exc.attempts
         finally:
             session.quit_owned_instance()
     report_path = args.output_dir / "advanced_fillet_capabilities.json"

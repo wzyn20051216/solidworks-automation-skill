@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "name": "FreeCAD Library 2020 corner bracket",
+  "repository": "https://github.com/FreeCAD/FreeCAD-library",
+  "commit": "b342740f9b9ecc63dab5855bab3b9fdf3e3e3488",
+  "source_path": "Mechanical Parts/Mountings/Corner/2020_corner_bracket-Corner.step",
+  "download_url": "https://raw.githubusercontent.com/FreeCAD/FreeCAD-library/b342740f9b9ecc63dab5855bab3b9fdf3e3e3488/Mechanical%20Parts/Mountings/Corner/2020_corner_bracket-Corner.step",
+  "sha256": "25e3fbc171f13e1a96258ab084b2d8134a737ebd34098a312e297344481af348",
+  "license": "CC BY 3.0",
+  "license_url": "https://creativecommons.org/licenses/by/3.0/",
+  "attribution": "FreeCAD-library contributor hasecilu",
+  "expected_source_topology": {
+    "solids": 1,
+    "faces": 40,
+    "edges": 98
+  },
+  "advanced_operation": {
+    "kind": "width_width_chamfer",
+    "widths_mm": [0.2, 0.4],
+    "edge_signature": {
+      "curve": "line",
+      "length_mm": 24.041631,
+      "endpoints_mm": [
+        [-0.0, -20.0, 3.0],
+        [-0.0, -3.0, 20.0]
+      ]
+    }
+  },
+  "purpose": "复杂支架 STEP 导入、唯一签名边 C0.2/C0.4 宽度-宽度倒角、原生另存、STEP 回导、重开与多视角审查回归"
+}

@@ -452,7 +452,17 @@ def open_document(sw, file_path, read_only=False, silent=False, raise_on_error=F
             return None
         # 非 DXF/DWG、非 Pro/E 外来文件应传 "r"，表示导入为新的 SolidWorks 文档；
         # 空字符串会在部分 SW2024 环境中弹出模板选择对话框并阻塞自动化。
-        model = sw.LoadFile4(file_path, "r", import_data, errors)
+        try:
+            model = sw.LoadFile4(file_path, "r", import_data, errors)
+        except TypeError:
+            # SW2026 的 makepy 强类型代理会对 LoadFile4 的 [out] long
+            # 再执行 int(VARIANT)，与 OpenDoc6 的已知问题相同。动态代理
+            # 可以正确保留 by-ref 错误码，同时继续复用已取得的导入选项。
+            ole_object = getattr(sw, "_oleobj_", None)
+            if ole_object is None:
+                raise
+            dynamic_sw = win32com_client.dynamic.DumbDispatch(ole_object, "SldWorks.Application")
+            model = dynamic_sw.LoadFile4(file_path, "r", import_data, errors)
         warnings.value = 0
     else:
         doc_type = type_map.get(ext, 1)

@@ -1,0 +1,23 @@
+{
+  "skill_name": "solidworks-fillet-chamfer-cnc",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "在 SolidWorks 2026 里验证一条 60 mm 直边的可变半径圆角：端点 R2/R5，25%、50%、75% 三个中间点分别 R3/R6/R4；再分别验证平面到圆柱面的 G2 圆角和 C2/C4 宽度-宽度倒角。必须保存、导出 STEP、重开并读回真实参数。",
+      "expected_output": "应运行 verify_advanced_fillets.py 的 variable、surface_combo、width_width_chamfer 三种独立模式；只有 GetControlPointsCount=3、位置百分数 25/50/75、半径 3/6/4 mm、CurvatureContinuous=true、Chamfer Type=2 且 side 0/1 距离为 2/4 mm，并完成 SLDPRT/STEP/重开/review 后才标记 verified。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "帮我在这个分割面模型上自动创建保持线面圆角。如果 Python COM 不能可靠设置 HoldLines，也不要偷偷改成普通 face fillet。",
+      "expected_output": "应使用面组 mark 2/4、保持线 mark 8，并要求 GetHoldLineCount=1；在当前 SW2026 pywin32 封送失败时返回 blocked 和结构化尝试证据，不得把普通 Fillet、分割线或仅接口存在误报为保持线圆角成功。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "找一个网上开源、结构比较复杂的支架，用它测试宽度-宽度倒角和完整交付，来源必须可复现。",
+      "expected_output": "应使用 open_source_corner_bracket_case.json 锁定 FreeCAD-library 提交、SHA-256、许可和署名；导入源拓扑精确为 1 实体/40 面/98 边，按唯一端点与长度签名创建 C0.2/C0.4 倒角，读回 Type=2 与 0.2/0.4 mm，处理后 41 面/101 边/66 顶点在重开后保持，并生成 SLDPRT、STEP、review 和来源报告。",
+      "files": []
+    }
+  ]
+}
