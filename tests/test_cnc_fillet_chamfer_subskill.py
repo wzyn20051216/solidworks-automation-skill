@@ -17,6 +17,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 import cnc_strategy as strategy  # noqa: E402
 import advanced_fillet_strategy as advanced  # noqa: E402
+import hold_line_bridge as hold_bridge  # noqa: E402
 
 
 def test_default_parameters_pass_and_keep_dowels_clear_of_center_slot() -> None:
@@ -383,6 +384,51 @@ def test_hold_line_surface_combo_and_width_width_contracts() -> None:
             advanced.WidthWidthChamferSpec(width1=15.0, width2=4.0),
             adjacent_clearances_mm=(15.0, 16.0),
         )
+
+
+def test_hold_line_multilanguage_probe_is_safe_by_default(monkeypatch) -> None:
+    """@brief 已知故障构建必须默认阻断，同时保留跨语言和显式复测证据。"""
+    monkeypatch.delenv(hold_bridge.UNSAFE_HOLD_LINE_ENV, raising=False)
+
+    with pytest.raises(hold_bridge.HoldLineBridgeError) as caught:
+        hold_bridge.create_hold_line_via_native_addin(object(), "fixture.SLDPRT")
+
+    evidence = caught.value.evidence
+    assert evidence["status"] == "blocked"
+    assert evidence["reason"] == "known_server_fault"
+    assert evidence["failure_boundary"].endswith("ISetHoldLines")
+    assert any("C#" in backend for backend in evidence["tested_backends"])
+    assert any("native C++" in backend for backend in evidence["tested_backends"])
+    assert evidence["unsafe_opt_in"].endswith("=1")
+    hold_bridge._require_unsafe_probe(
+        "native-cpp-swb", False, solidworks_revision="33.5.0"
+    )
+
+
+def test_native_hold_line_bridge_has_one_in_process_responsibility() -> None:
+    """@brief 原生桥接只保留 UI 延迟写入，不得恢复注册表或 Add-in 实验路径。"""
+    source = (
+        SCRIPT_DIR / "native" / "NativeHoldLineAddin.cpp"
+    ).read_text(encoding="utf-8")
+
+    assert "ISetHoldLines" in source
+    assert "SetTimer" in source
+    assert "DllRegisterServer" not in source
+    assert "RegCreateKey" not in source
+    assert "CreateFeature(" not in source
+
+
+def test_open_source_complex_regression_contract_is_reproducible() -> None:
+    """@brief 复杂样例必须锁定 MIT 来源、四控制点和不等宽倒角读回。"""
+    source = (SCRIPT_DIR / "verify_open_source_bracket.py").read_text(encoding="utf-8")
+
+    assert "archimedes-market/parametric-bracket-library" in source
+    assert 'SOURCE_LICENSE = "MIT"' in source
+    assert "SOURCE_SHA256" in source
+    assert "输入 STEP 哈希不匹配" in source
+    assert "GetControlPointsCount" in source
+    assert "== 4" in source
+    assert "_advanced_evidence_passes(before)" in source
 
 
 def test_setback_contract_preserves_one_to_one_distance_mapping() -> None:

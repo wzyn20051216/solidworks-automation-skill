@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -37,6 +38,12 @@ from advanced_fillet_strategy import (  # noqa: E402
     validate_surface_combination_spec,
     validate_variable_spec,
     validate_width_width_chamfer_spec,
+)
+from hold_line_bridge import (  # noqa: E402
+    HoldLineBridgeError,
+    create_hold_line_via_csharp,
+    create_hold_line_via_native_addin,
+    unsafe_hold_line_probe_enabled,
 )
 from sw_appearance import set_document_appearance  # noqa: E402
 from sw_connect import create_empty_dispatch_variant, get_com_member, mm  # noqa: E402
@@ -74,11 +81,12 @@ SW_DISPLAY_REFERENCE_TRIAD = 205
 
 
 class HoldLineInteropBlockedError(RuntimeError):
-    """@brief 表示保持线几何已准备，但 COM 数组封送未形成可读回特征。"""
+    """@brief 表示保持线几何已准备，但跨语言后端未形成可读回特征。"""
 
     def __init__(self, attempts: list[dict[str, Any]]):
         super().__init__(
-            "SW2026 保持线数组封送未通过：HoldLines 回读为 0 或 COM 服务器拒绝 SAFEARRAY；"
+            "SW2026 SP1.1 保持线调用未通过：Python、C#、SWBasic 与进程内 C++ 均在 "
+            "HoldLines/ISetHoldLines 边界失败；"
             f"已记录 {len(attempts)} 次受控尝试"
         )
         self.attempts = attempts
@@ -417,8 +425,8 @@ def _create_face(model):
     return _assert_feature(model, feature, "Advanced_Face_Fillet_R4"), validation
 
 
-def _create_hold_line(model):
-    """@brief 创建由侧面底边约束边界的保持线面圆角。"""
+def _create_hold_line(model, sw=None):
+    """@brief 优先用原生 C++ 创建保持线圆角，并保留跨语言负向证据。"""
     spec = HoldLineFilletSpec(radius=4.0, hold_line_count=1)
     _add_projected_hold_line(model)
     inner_top = _find_face(
@@ -444,6 +452,62 @@ def _create_hold_line(model):
         available_hold_lines=1,
     )
     attempts = []
+    try:
+        model.ClearSelection2(True)
+        if (
+            not outer_top.Select2(False, 2)
+            or not side.Select2(True, 4)
+            or not hold_line.Select2(True, 8)
+        ):
+            raise HoldLineBridgeError("SWBasic 桥接所需的面组或保持线选择失败")
+        native = create_hold_line_via_native_addin(
+            sw,
+            str(get_com_member(model, "GetTitle")),
+        )
+        feature_name = str(native.get("featureName") or "Advanced_Hold_Line_Fillet")
+        feature = model.FeatureByName(feature_name)
+        if feature is None:
+            raise HoldLineBridgeError(
+                "原生 Add-in 报告成功，但 Python 会话未找到保持线特征",
+                native,
+            )
+        validation["backend"] = "native-cpp-swb"
+        validation["native_bridge"] = native
+        return _assert_feature(model, feature, feature_name), validation
+    except HoldLineBridgeError as exc:
+        attempts.append({
+            "api": "C++ ISimpleFilletFeatureData2.ISetHoldLines",
+            "backend": "native-cpp-swb",
+            "error": str(exc),
+            "evidence": exc.evidence,
+            "created": False,
+        })
+    try:
+        bridge = create_hold_line_via_csharp(
+            str(get_com_member(model, "GetTitle")),
+            solidworks_revision=str(get_com_member(sw, "RevisionNumber")),
+        )
+        feature_name = str(bridge.get("featureName") or "Advanced_Hold_Line_Fillet")
+        feature = model.FeatureByName(feature_name)
+        if feature is None:
+            raise HoldLineBridgeError(
+                "C# 桥接器报告成功，但 Python 会话未找到保持线特征",
+                bridge,
+            )
+        validation["backend"] = "csharp-pia"
+        validation["bridge"] = bridge
+        return _assert_feature(model, feature, feature_name), validation
+    except HoldLineBridgeError as exc:
+        attempts.append({
+            "api": "C# ISimpleFilletFeatureData2.HoldLines",
+            "backend": "csharp-pia",
+            "error": str(exc),
+            "evidence": exc.evidence,
+            "created": False,
+        })
+    if not unsafe_hold_line_probe_enabled():
+        validation["attempts"] = attempts
+        raise HoldLineInteropBlockedError(attempts)
     feature = None
     hold_line_values = (
         ("tuple", (hold_line,)),
@@ -783,7 +847,7 @@ def _verify_one(session: SolidWorksSession, kind: str, output_dir: Path) -> dict
             _create_cylinder(model, radius_mm=size[0] / 2.0, height_mm=size[2], name=f"Base_{kind}")
         else:
             _create_box(model, *size, name=f"Base_{kind}")
-        feature, validation = builder(model)
+        feature, validation = builder(model, session.sw) if kind == "hold_line" else builder(model)
         set_document_appearance(model, "silver")
         _hide_review_helpers(model)
         model.ViewZoomtofit2()
@@ -867,6 +931,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--verify-solidworks", action="store_true", help="执行真实 SolidWorks 建模回归。")
     parser.add_argument(
+        "--unsafe-native-hold-line",
+        action="store_true",
+        help="仅在隔离实例中复测已知可能导致 SolidWorks 服务器故障的保持线后端。",
+    )
+    parser.add_argument(
         "--output-dir", type=Path,
         default=Path.cwd() / "solidworks_advanced_fillet_output",
         help="报告和真机产物目录。",
@@ -877,6 +946,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     """@brief 命令行入口。"""
     args = parse_args()
+    if args.unsafe_native_hold_line:
+        os.environ["CAD_STUDIO_UNSAFE_NATIVE_HOLD_LINE"] = "1"
     args.output_dir = args.output_dir.resolve()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     typelib = _find_typelib(args.typelib)

@@ -6,7 +6,8 @@
 
 - CNC 铝合金安装座、连接块、支架、底板、沉孔安装板。
 - 外轮廓大圆角、顶/底边倒角、孔口倒角。
-- 三中间控制点可变半径、face fillet、full-round、三边角 setback、平面—圆柱面 G2 组合和 C2/C4 宽度-宽度倒角的环境探测与独立真机回归。
+- 三/四中间控制点可变半径、face fillet、full-round、三边角 setback、平面—圆柱面 G2 组合和不等宽宽度-宽度倒角的环境探测与真机回归。
+- Python、C# PIA、SWBasic、进程内非托管 C++ 四条保持线后端的安全能力探测与版本化阻断证据。
 - 固定提交、SHA-256 和 CC BY 3.0 署名的 FreeCAD-library 复杂角支架往返回归，并在唯一几何签名边上施加 C0.2/C0.4 宽度-宽度倒角。
 - CNC 友好长圆口袋、中心槽、沉孔、定位孔和特征间净距检查。
 - 需要稳定选边、STEP 导出和多视角预览审查。
@@ -53,11 +54,17 @@ py subskills\solidworks-fillet-chamfer-cnc\scripts\verify_advanced_fillets.py `
   --output-dir C:\CADAutomationWorkbench\advanced_fillet_verified
 ```
 
-报告用 `interface_ready` 表示“接口存在”，用 `verified` 表示“真实建模、重建、保存、STEP、重开和预览审查全部通过”，两者不能混用。SolidWorks 2026 SP1.1 的上述六项样例已经完成真机闭环；保持线圆角仍因 `HoldLines` 数组封送读回为 0 而保持阻断，其它版本和其它拓扑也必须重新验证。
+报告用 `interface_ready` 表示“接口存在”，用 `verified` 表示“真实建模、重建、保存、STEP、重开和预览审查全部通过”，两者不能混用。SolidWorks 2026 SP1.1 的上述六项样例已经完成真机闭环。保持线并非只受 Python 限制：C# PIA、SWBasic 和符合官方要求的进程内非托管 C++ 也已复测，当前构建在 `ISetHoldLines` 边界仍失败，所以默认安全返回 `blocked`。其它 SolidWorks 服务包必须在隔离实例中重新验证。
 
 复杂开源案例：
 
 ```powershell
+py subskills\solidworks-fillet-chamfer-cnc\scripts\verify_open_source_bracket.py `
+  --source C:\CADAutomationWorkbench\sources\l_gusset.step `
+  --source-commit 5b285130bff480cda282499e83604b295dd0aa4d `
+  --version 2026 `
+  --output-dir C:\CADAutomationWorkbench\opensource_l_gusset
+
 py subskills\solidworks-fillet-chamfer-cnc\scripts\verify_open_source_complex_case.py `
   --version 2026 `
   --output-dir C:\CADAutomationWorkbench\opensource_corner_bracket
@@ -81,6 +88,7 @@ solidworks-fillet-chamfer-cnc/
     ├── advanced_fillet_strategy.py
     ├── create_cnc_mount_template.py
     ├── verify_advanced_fillets.py
+    ├── verify_open_source_bracket.py
     └── verify_open_source_complex_case.py
 ```
 

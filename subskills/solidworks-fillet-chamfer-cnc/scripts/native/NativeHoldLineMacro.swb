@@ -1,0 +1,51 @@
+Private Declare PtrSafe Function RunPreparedHoldLine Lib "__NATIVE_DLL__" (ByVal applicationUnknown As LongLong, ByVal featureDataUnknown As LongLong, ByVal holdLineUnknown As LongLong) As Long
+
+Dim swApp As Object
+Dim swModel As Object
+Dim swSelectionManager As Object
+Dim swFace1 As Object
+Dim swFace2 As Object
+Dim swHoldLine As Object
+Dim swFeatureData As Object
+Dim swFeature As Object
+Dim nativeStatus As Long
+Dim appPointer As LongLong
+Dim dataPointer As LongLong
+Dim holdPointer As LongLong
+Dim faceSet1(0)
+Dim faceSet2(0)
+
+Sub main()
+    On Error GoTo MacroError
+    Set swApp = Application.SldWorks
+    Set swModel = swApp.ActiveDoc
+    Set swSelectionManager = swModel.SelectionManager
+    Set swFace1 = swSelectionManager.GetSelectedObject6(1, 2)
+    Set swFace2 = swSelectionManager.GetSelectedObject6(1, 4)
+    Set swHoldLine = swSelectionManager.GetSelectedObject6(1, 8)
+    Set swFeatureData = swModel.FeatureManager.CreateDefinition(1)
+    If Not swFeatureData.Initialize(2) Then
+        Exit Sub
+    End If
+    swFeatureData.ConicTypeForCrossSectionProfile = 0
+    Set faceSet1(0) = swFace1
+    Set faceSet2(0) = swFace2
+    swFeatureData.SetFaces 1, faceSet1
+    swFeatureData.SetFaces 2, faceSet2
+    appPointer = ObjPtr(swApp)
+    dataPointer = ObjPtr(swFeatureData)
+    holdPointer = ObjPtr(swHoldLine)
+    nativeStatus = RunPreparedHoldLine(appPointer, dataPointer, holdPointer)
+    DoEvents
+    If nativeStatus = 0 And swFeatureData.GetHoldLineCount() = 1 Then
+        Set swFeature = swModel.FeatureManager.CreateFeature(swFeatureData)
+        If Not swFeature Is Nothing Then
+            swFeature.Name = "Advanced_Hold_Line_Fillet"
+            swModel.ForceRebuild3 False
+        End If
+    End If
+    Exit Sub
+
+MacroError:
+    Exit Sub
+End Sub

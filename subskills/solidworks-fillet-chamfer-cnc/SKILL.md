@@ -12,7 +12,7 @@ description: SolidWorks CNC 零件的多圆角/倒角自动化子技能。用于
 - 新建 CNC 安装座或验证参数时，先使用模板脚本的 `--dry-run`；计划通过后再连接 SolidWorks。
 - 修改既有零件时，先读取 [详细经验](references/cnc-fillet-chamfer-lessons.md) 的“既有模型选边”部分，不套用模板的固定期望边数。
 - 用户要求可变半径、面圆角、full-round 或 setback 时，先运行本子技能的高级能力探测；SolidWorks 版本或输入拓扑不同于已验证样例时保持 `pilot`，不要跨版本直接宣称稳定。
-- 多控制点、曲面组合和宽度-宽度倒角已经有 SW2026 SP1.1 独立真机证据，但换版本或换拓扑仍须复跑；保持线圆角的 Python COM 数组封送仍未通过，必须保持 `pilot/blocked`，不能退化成普通面圆角后声称成功。
+- 多控制点、曲面组合和宽度-宽度倒角已经有 SW2026 SP1.1 独立真机证据，但换版本或换拓扑仍须复跑；保持线圆角已经跨 Python、C# PIA、SWBasic 和进程内非托管 C++ 复测，故障边界收敛在本机 SW2026 SP1.1 的 `ISetHoldLines` 调用，而非 Python 单一语言限制。该构建必须保持 `pilot/blocked`，不能退化成普通面圆角后声称成功。
 
 ## 模板入口
 
@@ -76,9 +76,25 @@ python subskills\solidworks-fillet-chamfer-cnc\scripts\verify_advanced_fillets.p
 
 setback 的距离数组必须显式封装为 `VT_ARRAY | VT_R8`。普通 Python `tuple` 可能不抛 COM 异常，却让 `FeatureFillet` 返回 `None`，不得把这种结果降级为普通圆角。
 
-保持线模式使用投影分割线、两组面 mark `2/4` 和保持线 mark `8`，并要求 `GetHoldLineCount=1`。SW2026 SP1.1 中 pywin32 的普通数组被静默丢弃，`SAFEARRAY<IDispatch>` 会产生 COM 服务器异常；因此 `--modes hold_line` 当前用于负向能力探测，返回非零是预期的阻断证据。
+保持线模式使用投影分割线、两组面 mark `2/4` 和保持线 mark `8`，并要求 `GetHoldLineCount=1`。官方 `ISetHoldLines` 只支持 SolidWorks 进程内非托管 C++，所以脚本已提供 MSVC x64 DLL + SWBasic 主线程调度器；C# PIA 和 Python 路径保留作对照。在本机 SW2026 SP1.1 / Revision 34.1.1 中，Python 普通数组回读为 0、显式 SAFEARRAY 服务器故障，C#、SWBasic 和原生 C++ 也未得到可持久化的保持线，原生调用更在 `ISetHoldLines` 边界触发服务器故障。默认因此只返回结构化 `blocked/known_server_fault`，不会执行危险调用。
+
+只有需要在隔离的自有 SolidWorks 实例中复测其它服务包时，才显式加入 `--unsafe-native-hold-line`；该开关可能令实例退出，不得用于已有未保存文档的会话。成功标准仍是创建特征后与重开后两次 `GetHoldLineCount=1`。
 
 ## 开源复杂案例回归
+
+新增 MIT 许可的 CadQuery `parametric-bracket-library/l_gusset` 回归。该件包含互相垂直的两块安装板、三角加强筋和六个安装孔；SW2026 导入基线为 `1 solid / 18 faces / 49 edges`。在同一复杂实体上创建 20/40/60/80% 四个中间控制点可变半径圆角，以及 C0.8/C1.4 宽度-宽度倒角：
+
+```powershell
+python subskills\solidworks-fillet-chamfer-cnc\scripts\verify_open_source_bracket.py `
+  --source C:\CADAutomationWorkbench\sources\l_gusset.step `
+  --source-commit 5b285130bff480cda282499e83604b295dd0aa4d `
+  --version 2026 `
+  --output-dir C:\CADAutomationWorkbench\opensource_l_gusset
+```
+
+只有固定提交、CadQuery 2.8.0 生成物的 SHA-256、复杂度门禁、四个控制点的百分比/半径、不等宽倒角两侧距离、处理后拓扑、重建、SLDPRT、STEP、重开和四视角审查全部通过，才标记 `verified`。输入 STEP 可按该仓库 README 用 CadQuery 2.8.0 生成；脚本不会在运行时执行未经锁定的网络下载。
+
+原有 FreeCAD-library 复杂角支架继续作为第二个独立倒角回归：
 
 复杂模型回归固定使用 FreeCAD-library 的 `2020_corner_bracket-Corner.step`，锁定提交、SHA-256 和 CC BY 3.0 署名；不使用会随主分支变化的裸链接：
 
