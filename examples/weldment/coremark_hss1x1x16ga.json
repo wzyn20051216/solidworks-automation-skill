@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "1.0",
+  "source": {
+    "repository": "https://github.com/someoneskater/Coremark-Weldment-Profiles",
+    "license": "MIT",
+    "dataset": "data/profile_data.json",
+    "category": "steel_square_tube"
+  },
+  "profile": {
+    "designation": "HSS1x1x16ga",
+    "outer_dim_in": 1.0,
+    "wall_thickness_in": 0.0625,
+    "corner_radius_outer_in": 0.125,
+    "corner_radius_inner_in": 0.0625,
+    "material": "steel_a500b",
+    "sku": "01760"
+  },
+  "regressionGeometry": {
+    "outer_mm": 25.4,
+    "wall_mm": 1.5875,
+    "profile_note": "双闭合圆角方管轮廓按来源数据使用外圆角 3.175 mm、内圆角 1.5875 mm。",
+    "frame_width_mm": 300.0,
+    "frame_height_mm": 180.0
+  }
+}

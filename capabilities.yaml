@@ -369,12 +369,12 @@
     {
       "id": "weldments",
       "label": "焊件与切割清单",
-      "level": "reference_only",
+      "level": "pilot",
       "backends": ["solidworks-com"],
-      "verified_versions": [],
-      "dependencies": ["SolidWorks"],
-      "limitations": ["尚无稳定执行器和真实回归样件"],
-      "allowed_modes": ["interactive"]
+      "verified_versions": ["2026"],
+      "dependencies": ["SolidWorks", "pywin32"],
+      "limitations": ["SW2026 SP01.1 已真机验证自定义 .sldlfp、InsertStructuralWeldment5、四构件 45° 端部斜接、按长度分组的两个 CutListFolder、数量/长度/角度/来源属性 CSV 及保存重开；3D 草图、多组复杂节点、自动排序、工程图切割清单和多版本矩阵仍需后续回归"],
+      "allowed_modes": ["interactive", "reviewed"]
     },
     {
       "id": "surface_modeling",

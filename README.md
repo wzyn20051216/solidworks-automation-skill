@@ -6,7 +6,7 @@
 
 CAD Studio 桌面端与 Skill/CLI/MCP 是平级入口：这个仓库同时可以作为 Skill 包和 MCP Server 使用。Skill 适合导入支持 skills 的客户端，MCP 适合做本地工具连接；两者共用同一套能力和脚本。实际可执行范围以根目录 `capabilities.yaml` 为唯一真源；未验证能力不会被包装成已完成的无人值守交付。
 
-> 可靠性边界：当前真机基线为 SolidWorks 2024、SolidWorks 2026 SP01.1 和 AutoCAD 2024。SolidWorks 2026 仅对能力清单中列出 2026 的能力视为已验证；SolidWorks 2025 及其余未回归能力仍是兼容性目标。配置族与钣金 U 型轮廓法兰/展开 DXF 已进入 `pilot`，设计表和焊件仍为参考或兼容目标；Simulation/FEA、Routing、复杂曲面和模具也处于受控 `pilot` 门禁，不能冒充原生完整交付。
+> 可靠性边界：当前真机基线为 SolidWorks 2024、SolidWorks 2026 SP01.1 和 AutoCAD 2024。SolidWorks 2026 仅对能力清单中列出 2026 的能力视为已验证；SolidWorks 2025 及其余未回归能力仍是兼容性目标。配置族、钣金 U 型轮廓法兰/展开 DXF，以及 HSS 矩形焊接框架/切割清单已进入 `pilot`；设计表与复杂钣金/焊件仍是兼容目标。Simulation/FEA、Routing、复杂曲面和模具也处于受控 `pilot` 门禁，不能冒充原生完整交付。
 
 ## 下载与首次启动
 
@@ -116,7 +116,7 @@ python scripts/cad_studio.py create-ocp-surface --input .\smooth-loft.json --out
 - 🎬 **Motion Study** - 自动创建运动算例、匀速旋转马达并计算/播放动画
 - 🔌 **MCP Server** - 将 SolidWorks COM 自动化封装成 Codex / Claude / Cursor 可调用的本地 MCP 工具，覆盖基础建模、装配、Mate、外观、导出、审查和旋转马达
 - 🔨 **钣金设计（试点）** - SW2026 已验证开放 U 型轮廓双折弯、板厚/半径/K 因子重开回读及含折弯线 DXF；复杂钣金仍需人工复核
-- ⚡ **焊件设计（参考）** - 结构构件与切割清单尚无稳定回归执行器
+- ⚡ **焊件设计（试点）** - SW2026 已验证自定义 `.sldlfp`、四根 HSS 斜接框架、按长度/数量分组的原生切割清单及 CSV；回归数据来自 MIT 许可的 [Coremark Weldment Profiles](https://github.com/someoneskater/Coremark-Weldment-Profiles)
 - 📊 **FEA 仿真（试点）** - CalculiX 2.23 已真实求解线性静力、NLGEOM、受限塑性和双实体面接触样件，可解析最终步穿透/压力/滑移并执行线性或非线性网格收敛序列；结果统一保留人工复核，不等于安全认证
 - 📝 **配置与属性** - SW2026 已真机验证三配置创建/切换、配置尺寸/属性和保存重开；设计表仍按能力清单限制使用
 - 🏭 **DFM 制造复核（试点）** - 机加工、钣金、激光切割和 3D 打印的结构化风险检查，支持供应商 profile 与 B-Rep 证据绑定；规则通过仍需人工确认

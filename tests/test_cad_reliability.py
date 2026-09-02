@@ -32,6 +32,8 @@ def test_capability_manifest_marks_unverified_workflows():
     assert index["drawing_dimension_insertion"]["level"] == "verified"
     assert index["sheet_metal"]["level"] == "pilot"
     assert index["sheet_metal"]["verified_versions"] == ["2026"]
+    assert index["weldments"]["level"] == "pilot"
+    assert index["weldments"]["verified_versions"] == ["2026"]
     assert unattended_allowed(["part_and_features"]) is True
     assert unattended_allowed(["sheet_metal"]) is False
 

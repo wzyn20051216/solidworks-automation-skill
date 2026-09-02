@@ -26,7 +26,7 @@ python scripts\sw_capability_probe.py --output capability_report.json
 | 工程图 | Pilot | 必须人工复核图框、视图、尺寸链和 GB/T 格式 |
 | 配置、设计表 | Reference only | 先做最小样件回归，再用于客户模型 |
 | 钣金 | Pilot（SW2026 开放轮廓基体法兰） | 必须回读原生 SheetMetal/BaseFlange/FlatPattern、制造参数，并验证重开与 DXF |
-| 焊件 | Reference only | 不允许仅凭 `references/advanced.md` 直接无人值守交付 |
+| 焊件 | Pilot（SW2026 HSS 平面框架） | 必须回读 WeldmentFeature/WeldMemberFeat、每项实体数、长度、数量、角度、来源属性及重开证据 |
 | 复杂曲面、模具 | Pilot | `create-ocp-loft/create-ocp-surface` 可生成并重开受限直纹/平滑 Loft、Sweep/Knit/Thicken；G1/G2 和曲率半径只使用离散采样证据，复杂路径和模具仍门禁 |
 | Routing | Pilot | 只能运行 `routing-preflight` 或 `check-routing`；无加载项/许可证证据时原生写入必须 blocked |
 | Simulation/FEA | Pilot | `run-fea` 可运行受限线性/非线性静力并解析最终步接触穿透/压力/滑移，`run-fea-convergence` 执行 3-8 档线性或非线性网格序列；塑性、接触和收敛均必须保留工程复核 |

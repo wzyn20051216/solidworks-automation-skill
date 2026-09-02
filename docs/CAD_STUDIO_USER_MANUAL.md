@@ -92,7 +92,7 @@ OCCT 当前覆盖盒体、圆柱、布尔合并、圆柱孔切除，以及独立
 python scripts/cad_studio.py doctor
 ```
 
-能力限制以仓库根目录 `capabilities.yaml` 为准。配置族和 SW2026 开放轮廓钣金已进入受控 `pilot`，设计表、复杂钣金和焊件仍不会被标记为完整交付。Simulation/FEA 可用 CalculiX 执行受限线性静力任务，复杂曲面可用 OCP 执行受限封闭直纹 Loft；这些试点能力缺少结果证据、网格收敛或几何质量证明时不能冒充完整工程交付。
+能力限制以仓库根目录 `capabilities.yaml` 为准。配置族、SW2026 开放轮廓钣金和 HSS 矩形焊接框架已进入受控 `pilot`，设计表、复杂钣金/焊件仍不会被标记为完整交付。焊件必须回读 `WeldmentFeature`、`WeldMemberFeat`、每个 `CutListFolder` 的实体数、长度、数量和角度，并保存重开复核。Simulation/FEA 可用 CalculiX 执行受限线性静力任务，复杂曲面可用 OCP 执行受限封闭直纹 Loft；这些试点能力缺少结果证据、网格收敛或几何质量证明时不能冒充完整工程交付。
 
 当前 CLI 也可独立运行这些受控门禁：
 

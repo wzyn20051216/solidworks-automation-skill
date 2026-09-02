@@ -145,40 +145,48 @@ bend_radius = sheet_metal_data.BendRadius # 折弯半径
 ### 切割清单
 
 ```python
-def get_cut_list(model):
-    """遍历焊件切割清单"""
-    feat = model.FirstFeature()
-    items = []
-    while feat:
-        if feat.GetTypeName2() == "CutListFolder":
-            props = feat.CustomPropertyManager
-            # 读取属性
-            qty_val = ""
-            qty_resolved = ""
-            props.Get6("QUANTITY", False, qty_val, qty_resolved, False, False)
+from sw_weldment import (
+    create_structural_member,
+    ensure_cut_list,
+    export_cut_list_csv,
+    set_cut_list_properties,
+    weldment_evidence,
+)
 
-            desc_val = ""
-            desc_resolved = ""
-            props.Get6("DESCRIPTION", False, desc_val, desc_resolved, False, False)
-
-            items.append({
-                "name": feat.Name,
-                "quantity": qty_resolved,
-                "description": desc_resolved
-            })
-        feat = feat.GetNextFeature()
-    return items
+member = create_structural_member(
+    model,
+    profile_path,
+    [sketch_segments],
+    apply_corner_treatment=True,
+)
+ensure_cut_list(model)
+set_cut_list_properties(model, {"PROFILE_DESIGNATION": "HSS1x1x16ga"})
+evidence = weldment_evidence(model)
+export_cut_list_csv(evidence, csv_path)
 ```
+
+SW2026 的 `InsertWeldmentCutList2` 在 Python IDispatch 下可能被投影成值为
+`None` 的伪属性；封装会按本机类型库确认的 DISPID 174 以
+`DISPATCH_METHOD` 调用。矩形框架回归会按实体包围盒最长边分组，生成两个
+真实 `CutListFolder`，而不是把不同长度构件错误合并。
 
 ### 结构构件
 
 ```python
-# 插入结构构件（焊件型材）
-feature_mgr.InsertStructuralWeldment5(
-    ProfilePath,   # str: 型材文件路径（.sldlfp）
-    ...
+from sw_weldment import create_weldment_profile
+
+# 型材文档中先完成并退出闭合轮廓草图；可写入型材/BOM 来源属性。
+profile = create_weldment_profile(
+    profile_model,
+    profile_sketch,
+    profile_path,
+    properties={"DESCRIPTION": "HSS1x1x16ga", "MATERIAL": "steel_a500b"},
 )
 ```
+
+`create_structural_member()` 内部使用 `CreateStructuralMemberGroup` 与最新
+`InsertStructuralWeldment5`，路径段和组均作为 `VT_ARRAY | VT_DISPATCH`
+安全数组封送；调用者不需要猜长参数或依赖当前选择集。
 
 ## 曲面建模
 
