@@ -46,33 +46,40 @@ names = props.GetNames()
 ### 配置管理
 
 ```python
-# 获取所有配置名称
-config_names = model.GetConfigurationNames()
-
-# 激活配置
-model.ShowConfiguration2(configName)
-
-# 获取配置对象
-config = model.GetConfigurationByName(configName)
-
-# 添加新配置
-config_mgr = model.ConfigurationManager
-new_config = config_mgr.AddConfiguration2(
-    "NewConfig",    # 名称
-    "描述",          # 描述
-    "",             # 替代名称
-    0,              # 选项
-    "",             # 父配置
-    "",             # 描述2
-    True            # 使用所有参数
+from sw_document_data import (
+    activate_configuration,
+    create_configuration,
+    inspect_configurations,
+    update_dimension_mm,
 )
 
-# 修改配置中的尺寸
-model.ShowConfiguration2("Config1")
-dim = model.Parameter("D1@Boss-Extrude1")
-dim.SystemValue = 0.05  # 50mm（单位: 米）
-model.EditRebuild3()
+# 使用官方 AddConfiguration3 创建并激活；默认同名配置幂等复用。
+created = create_configuration(
+    model,
+    "加工",
+    comment="CNC 工况",
+    alternate_name="MACHINED",
+)
+
+# 使用官方 ShowConfiguration2，并以活动配置名回读而非单独 COM 返回值判定。
+activated = activate_configuration(model, "加工")
+
+# 用显式 VT_ARRAY|VT_BSTR 写入指定配置，API 内部单位自动换算为米。
+dimension = update_dimension_mm(
+    model,
+    "D1@Boss-Extrude1",
+    50.0,
+    configuration_mode="specific",
+    configuration_names=["加工"],
+)
+
+evidence = inspect_configurations(model)
 ```
+
+SW2026 真机已验证配置创建、切换、配置级尺寸/属性以及保存重开回读。`AddConfiguration3`
+会自动激活新配置，因此重复调用 `ShowConfiguration2` 可能返回 `False`；执行器会记录原始
+返回值，但以 `ConfigurationManager.ActiveConfiguration.Name` 回读和重建结果作为成功证据。
+设计表、派生配置、显示状态和大规模抑制矩阵仍是 `pilot` 范围外能力。
 
 ### 设计表
 

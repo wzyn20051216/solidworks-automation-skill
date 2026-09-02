@@ -4,6 +4,187 @@
     "solidworks": ["2024", "2026"],
     "autocad": ["2024"]
   },
+  "backend_schema_version": "1.0",
+  "backend_catalog": {
+    "solidworks-com-pywin32": {
+      "language": "Python",
+      "runtime": "out_of_process_automation",
+      "suitable_for": ["短生命周期宏式任务", "Automation 兼容接口", "可显式构造 VARIANT/SAFEARRAY 的参数"],
+      "limitations": ["不能调用官方标记为仅进程内非托管 C++ 的指针接口", "长期事件回调和复杂 UI 生命周期不作为首选"]
+    },
+    "solidworks-com-comtypes": {
+      "language": "Python",
+      "runtime": "out_of_process_automation",
+      "suitable_for": ["pywin32 封送失败时的独立 COM 封送回退", "Pack and Go 等 Automation 接口"],
+      "limitations": ["不是原生指针接口的替代品", "必须重新回读产物，不能把调用成功当作交付成功"]
+    },
+    "solidworks-csharp-pia": {
+      "language": "C#",
+      "runtime": "out_of_process_managed",
+      "suitable_for": ["强类型 PIA 参数", "object/out 参数和 SAFEARRAY", "Python COM 封送交叉验证"],
+      "limitations": ["同样不能调用官方标记为仅进程内非托管 C++ 的接口", "进程外调用仍受 SolidWorks 主线程和版本行为约束"]
+    },
+    "solidworks-csharp-addin": {
+      "language": "C#",
+      "runtime": "in_process_managed_addin",
+      "suitable_for": ["事件订阅", "PropertyManagerPage", "TaskPane", "长期驻留 UI 回调"],
+      "limitations": ["需要注册、签名和受信任部署", "不替代仅支持非托管 C++ 的指针接口"]
+    },
+    "solidworks-native-cpp": {
+      "language": "C++",
+      "runtime": "in_process_unmanaged",
+      "suitable_for": ["官方限定的进程内 I* 指针接口", "大批量底层几何读取", "精确原生语义"],
+      "limitations": ["宿主崩溃风险最高，必须隔离、限定版本并真机回归", "不能绕过许可证、缺失加载项或 API 本身缺少的数据"]
+    },
+    "solidworks-swbasic": {
+      "language": "SWBasic/VBA",
+      "runtime": "solidworks_main_thread_macro",
+      "suitable_for": ["切回 SolidWorks 主线程", "最小复现和兼容性诊断"],
+      "limitations": ["不能调用仅支持非托管 C++ 的指针接口", "不适合大型可维护执行器"]
+    },
+    "headless-occt-python": {
+      "language": "Python/C++ bindings",
+      "runtime": "headless_open_format",
+      "suitable_for": ["STEP/IGES/BREP/STL 等开放格式", "无 SolidWorks 环境的几何构造、检查和预览"],
+      "limitations": ["不能生成或验证原生 SLDPRT/SLDASM/SLDDRW 特征树语义"]
+    },
+    "autocad-dotnet": {
+      "language": "C#",
+      "runtime": "in_process_managed_plugin",
+      "suitable_for": ["AutoCAD 数据库事务", "原生 DWG 写入", "ActiveX 代理不稳定时的白名单命令"],
+      "limitations": ["需要与 AutoCAD 主版本匹配的托管引用和受信任插件部署"]
+    },
+    "external-solver-python": {
+      "language": "Python + solver native executable",
+      "runtime": "external_process",
+      "suitable_for": ["CalculiX/Elmer 输入生成、求解编排和结果审计"],
+      "limitations": ["需要求解器安装、材料/边界条件证据和工程师复核"]
+    },
+    "local-python": {
+      "language": "Python",
+      "runtime": "local_process",
+      "suitable_for": ["需求规划", "证据、DFM、清单和文件审计"],
+      "limitations": ["不凭文件元数据宣称专有 CAD 特征已经验证"]
+    }
+  },
+  "operation_routes": [
+    {
+      "id": "solidworks_standard_automation",
+      "label": "SolidWorks 常规模型、装配、工程图和导出",
+      "capability_ids": ["part_and_features", "holes_and_finishing", "assembly_and_mates", "drawing_dimension_insertion", "export_delivery"],
+      "candidates": [
+        {"backend": "solidworks-com-pywin32", "semantics": "exact_automation", "priority": 10},
+        {"backend": "solidworks-com-comtypes", "semantics": "exact_automation", "priority": 20},
+        {"backend": "solidworks-csharp-pia", "semantics": "exact_automation", "priority": 30}
+      ],
+      "review_required": true
+    },
+    {
+      "id": "solidworks_typed_safearray",
+      "label": "显式 SAFEARRAY、BYREF 和 object/out 参数",
+      "capability_ids": ["parameter_updates", "custom_properties_and_bom", "pack_and_go", "motion_study"],
+      "candidates": [
+        {"backend": "solidworks-com-pywin32", "semantics": "exact_automation", "priority": 10},
+        {"backend": "solidworks-com-comtypes", "semantics": "exact_automation", "priority": 20},
+        {"backend": "solidworks-csharp-pia", "semantics": "exact_automation", "priority": 30}
+      ],
+      "review_required": true
+    },
+    {
+      "id": "solidworks_pointer_array_api",
+      "label": "官方仅支持进程内非托管 C++ 的 I* 指针数组接口",
+      "capability_ids": ["part_and_features", "assembly_and_mates", "drawings_and_bom", "pack_and_go"],
+      "examples": ["ISldWorks.IGetDocuments", "IModelDocExtension.IGetMassProperties", "IModelDocExtension.IListExternalFileReferences", "ISldWorks.IGetDocumentDependencies2", "IModelDoc2.IGetConfigurationNames"],
+      "candidates": [
+        {"backend": "solidworks-com-pywin32", "semantics": "automation_equivalent", "priority": 10},
+        {"backend": "solidworks-csharp-pia", "semantics": "automation_equivalent", "priority": 20},
+        {"backend": "solidworks-native-cpp", "semantics": "exact_native", "priority": 30}
+      ],
+      "review_required": true,
+      "notes": ["默认优先同名非 I 方法或 CreateMassProperty 等 Automation 替代接口；只有明确要求原始指针语义时才选择 C++"]
+    },
+    {
+      "id": "fillet_hold_lines_exact",
+      "label": "保持线圆角精确 ISetHoldLines 路径",
+      "capability_ids": ["holes_and_finishing"],
+      "candidates": [
+        {"backend": "solidworks-native-cpp", "semantics": "exact_native", "priority": 10}
+      ],
+      "diagnostic_backends": ["solidworks-swbasic", "solidworks-csharp-pia"],
+      "blocked_revisions": {
+        "34.1.1": "SW2026 SP1.1 已在 Python、C# PIA、SWBasic 和原生 C++ 交叉验证；原生 ISetHoldLines 仍触发宿主侧故障，禁止自动写入"
+      },
+      "review_required": true
+    },
+    {
+      "id": "solidworks_addin_ui_events",
+      "label": "事件、PropertyManagerPage 与 TaskPane",
+      "capability_ids": [],
+      "candidates": [
+        {"backend": "solidworks-csharp-addin", "semantics": "exact_managed_addin", "priority": 10},
+        {"backend": "solidworks-native-cpp", "semantics": "exact_native_addin", "priority": 20}
+      ],
+      "review_required": true
+    },
+    {
+      "id": "solidworks_configuration_family",
+      "label": "配置族读取、切换、创建和配置尺寸",
+      "capability_ids": ["configurations_and_design_tables", "parameter_updates"],
+      "candidates": [
+        {"backend": "solidworks-com-pywin32", "semantics": "exact_automation", "priority": 10},
+        {"backend": "solidworks-csharp-pia", "semantics": "exact_automation", "priority": 20}
+      ],
+      "review_required": true,
+      "notes": ["必须使用 GetConfigurationNames 而不是仅支持非托管 C++ 的 IGetConfigurationNames"]
+    },
+    {
+      "id": "headless_open_geometry",
+      "label": "无 CAD 开放格式几何",
+      "capability_ids": ["headless_open_format_writing", "surface_modeling", "mold_tools"],
+      "candidates": [
+        {"backend": "headless-occt-python", "semantics": "open_format", "priority": 10}
+      ],
+      "review_required": true
+    },
+    {
+      "id": "autocad_native_database",
+      "label": "AutoCAD 原生数据库和 DWG 写入",
+      "capability_ids": ["autocad_basic_drafting", "autocad_dotnet_backend"],
+      "candidates": [
+        {"backend": "autocad-dotnet", "semantics": "exact_managed_plugin", "priority": 10}
+      ],
+      "review_required": true
+    },
+    {
+      "id": "external_fea",
+      "label": "外部有限元求解",
+      "capability_ids": ["simulation_and_fea"],
+      "candidates": [
+        {"backend": "external-solver-python", "semantics": "solver_native", "priority": 10}
+      ],
+      "review_required": true
+    },
+    {
+      "id": "drawing_exact_text_bounds",
+      "label": "工程图注解文字精确包围盒",
+      "capability_ids": ["drawings_and_bom"],
+      "candidates": [],
+      "blocked_reason": "IAnnotation 不提供精确文字包围盒；换语言不能补出 API 未暴露的数据，只能保守估算并人工目视复核",
+      "review_required": true
+    },
+    {
+      "id": "solidworks_routing_native_authoring",
+      "label": "SolidWorks Routing 原生特征写入",
+      "capability_ids": ["routing"],
+      "candidates": [
+        {"backend": "solidworks-com-pywin32", "semantics": "exact_automation", "priority": 10},
+        {"backend": "solidworks-csharp-pia", "semantics": "exact_automation", "priority": 20}
+      ],
+      "requires": ["SolidWorks Routing 加载项", "有效许可证"],
+      "review_required": true,
+      "notes": ["缺少加载项或许可证时，切换语言无效，必须 blocked"]
+    }
+  ],
   "capabilities": [
     {
       "id": "requirements_planning",
@@ -32,7 +213,7 @@
       "backends": ["solidworks-com"],
       "verified_versions": ["2024", "2026"],
       "dependencies": ["SolidWorks", "pywin32", "comtypes"],
-      "limitations": ["每个孔槽必须有规格、数量和定位证据；SW2026 SP1.1 已验证三中间控制点可变半径、face/full-round/setback、平面—圆柱面 G2 组合和 C2/C4 宽度-宽度倒角；保持线圆角因 HoldLines 数组封送无法读回仍为 blocked；已验证螺纹范围是 ISO 公制内螺纹底孔 + Metric Tap Thread，Hole Wizard、外螺纹、英制/管螺纹和攻丝工艺细节仍需人工复核"],
+      "limitations": ["每个孔槽必须有规格、数量和定位证据；SW2026 SP1.1 已验证三中间控制点可变半径、face/full-round/setback、平面—圆柱面 G2 组合和 C2/C4 宽度-宽度倒角；保持线圆角已排除单纯 Python 封送问题：Python、C# PIA、SWBasic 和原生 C++ 交叉验证后，SW2026 SP1.1 的精确 ISetHoldLines 路径仍为宿主侧 blocked；已验证螺纹范围是 ISO 公制内螺纹底孔 + Metric Tap Thread，Hole Wizard、外螺纹、英制/管螺纹和攻丝工艺细节仍需人工复核"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {
@@ -168,12 +349,12 @@
     {
       "id": "configurations_and_design_tables",
       "label": "配置与设计表",
-      "level": "reference_only",
+      "level": "pilot",
       "backends": ["solidworks-com"],
-      "verified_versions": [],
-      "dependencies": ["SolidWorks", "Excel"],
-      "limitations": ["尚无连续真实回归样件，不允许无人值守交付"],
-      "allowed_modes": ["interactive"]
+      "verified_versions": ["2026"],
+      "dependencies": ["SolidWorks", "pywin32", "设计表另需 Excel"],
+      "limitations": ["SW2026 已真机验证配置创建、激活、配置级命名尺寸、配置级属性和保存重开回读；AddConfiguration3 会自动激活新配置，重复 ShowConfiguration2 的 False 必须以活动配置回读判定", "设计表创建/编辑、派生配置、显示状态、配置专属抑制和大型配置族仍未验证，不允许无人值守交付"],
+      "allowed_modes": ["interactive", "reviewed"]
     },
     {
       "id": "sheet_metal",

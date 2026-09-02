@@ -114,6 +114,7 @@ claude mcp add --scope user solidworks -- python C:\path\to\solidworks-automatio
 
 | 工具 | 说明 | 是否修改 SolidWorks |
 |---|---|---|
+| `cadstudio_resolve_backend` | 按能力真源、接口语义、可用运行时、Revision 和加载项条件选择 Python/C#/C++/SWBasic/OCCT 等后端 | 否 |
 | `cadstudio_write_open_format` | 从本地 `.cadstudio.json` 白名单写出 STEP/IGES/BREP/STL/OBJ/GLB/DXF/SVG/PDF/PNG、Preview Manifest/Scene 和几何/哈希证据 | 否 |
 | `cadstudio_build_dxf_preview_scene` | 只读 DXF 白名单转换为不覆盖旧文件的 `.scene.json` | 否 |
 | `cadstudio_check_dfm` | 对 NeutralCadDocument 执行机加工、钣金、激光切割或 3D 打印 DFM 规则检查，支持 supplier profile 与 B-Rep 证据；缺关键输入返回 blocked，规则通过仍需人工复核 | 否 |
@@ -140,6 +141,9 @@ claude mcp add --scope user solidworks -- python C:\path\to\solidworks-automatio
 | `solidworks_add_concentric_mate` | 按圆柱面半径范围添加同心 Mate，可选择是否锁转 | 是 |
 | `solidworks_set_appearance` | 设置活动文档或指定组件外观颜色 | 是 |
 | `solidworks_export_active` | 导出活动文档为 STEP/STL/IGES/Parasolid/PDF/DXF | 是，写输出文件 |
+| `solidworks_inspect_configurations` | 读取配置清单和当前活动配置 | 否 |
+| `solidworks_create_configuration` | 用 AddConfiguration3 创建/复用配置，可激活、重建、保存并回读 | 是 |
+| `solidworks_activate_configuration` | 切换配置并用活动配置名和重建结果回读验证 | 是 |
 | `solidworks_update_dimension` | 按准确尺寸名修改参数，返回修改前后、重建和保存证据 | 是 |
 | `solidworks_set_custom_properties` | 写入并回读文件级或配置级自定义属性 | 是 |
 | `solidworks_batch_export_files` | 多文件、多格式批量导出并核验本轮产物 | 是，写输出文件 |

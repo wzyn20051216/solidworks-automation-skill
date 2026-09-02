@@ -46,22 +46,154 @@ def _configuration_names(model) -> list[str]:
     return [str(name) for name in (names or [])]
 
 
-def inspect_configurations(model) -> dict[str, Any]:
-    """@brief 读取配置族清单并返回当前配置，配置修改仍需人工复核。"""
-    names = _configuration_names(model)
-    current = ""
+def _resolve_configuration_name(names: Sequence[str], requested: str) -> str | None:
+    """@brief 按 SolidWorks 配置名不区分大小写语义返回实际名称。"""
+    matches = [str(name) for name in names if str(name).casefold() == requested.casefold()]
+    if len(matches) > 1:
+        raise RuntimeError(f"配置名大小写匹配不唯一: {requested}")
+    return matches[0] if matches else None
+
+
+def _active_configuration_name(model) -> str:
+    """@brief 返回当前活动配置名；接口不可用时返回空字符串。"""
     try:
         manager = get_com_member(model, "ConfigurationManager")
         active = get_com_member(manager, "ActiveConfiguration")
-        current = str(get_com_member(active, "Name") or "")
+        return str(get_com_member(active, "Name") or "")
     except Exception:
-        pass
+        return ""
+
+
+def inspect_configurations(model) -> dict[str, Any]:
+    """@brief 读取配置族清单并返回当前配置，配置修改仍需人工复核。"""
+    names = _configuration_names(model)
+    current = _active_configuration_name(model)
     return {
         "status": "pilot" if names else "blocked",
         "configurations": names,
         "active_configuration": current,
         "review_required": True,
-        "limitations": ["未执行设计表/配置族批量变更", "配置间尺寸和属性需在 SolidWorks 中人工复核"],
+        "limitations": ["未执行设计表创建/编辑和大型配置族批量变更", "配置间尺寸、属性、抑制状态和几何差异仍需人工复核"],
+    }
+
+
+def activate_configuration(
+    model,
+    configuration_name: str,
+    *,
+    rebuild: bool = True,
+    save: bool = False,
+) -> dict[str, Any]:
+    """@brief 激活现有配置并通过活动配置名回读验证。"""
+    requested_name = str(configuration_name).strip()
+    if not requested_name:
+        raise ValueError("configuration_name 不能为空")
+    names = _configuration_names(model)
+    name = _resolve_configuration_name(names, requested_name)
+    if name is None:
+        raise LookupError(f"找不到配置: {requested_name}")
+
+    before = _active_configuration_name(model)
+    api_called = before != name
+    api_return = bool(get_com_member(model, "ShowConfiguration2", name)) if api_called else None
+    after = _active_configuration_name(model)
+    readback_verified = after == name
+    api_success = readback_verified
+    rebuild_success = bool(get_com_member(model, "EditRebuild3")) if rebuild and readback_verified else readback_verified
+    save_success = bool(save_document(model)) if save and readback_verified and rebuild_success else not save
+    success = readback_verified and rebuild_success and save_success
+    return {
+        "success": success,
+        "configuration": name,
+        "requested_configuration": requested_name,
+        "before": before,
+        "after": after,
+        "api_called": api_called,
+        "api_return": api_return,
+        "api_success": api_success,
+        "readback_verified": readback_verified,
+        "rebuild_success": rebuild_success,
+        "save_requested": save,
+        "save_success": save_success,
+        "review_required": True,
+    }
+
+
+def create_configuration(
+    model,
+    configuration_name: str,
+    *,
+    comment: str = "",
+    alternate_name: str = "",
+    options: int = 0,
+    if_exists: str = "reuse",
+    activate: bool = True,
+    rebuild: bool = True,
+    save: bool = False,
+) -> dict[str, Any]:
+    """@brief 使用 AddConfiguration3 创建配置，并校验清单及活动配置回读。
+
+    ``options`` 对应官方 ``swConfigurationOptions2_e`` 位掩码。默认值 0 保持
+    SolidWorks 默认行为；非零值必须由调用者基于目标版本枚举显式提供。
+    """
+    requested_name = str(configuration_name).strip()
+    if not requested_name:
+        raise ValueError("configuration_name 不能为空")
+    if if_exists not in {"reuse", "error"}:
+        raise ValueError("if_exists 只支持 reuse 或 error")
+    if int(options) < 0:
+        raise ValueError("options 不能为负数")
+
+    before_names = _configuration_names(model)
+    existing_name = _resolve_configuration_name(before_names, requested_name)
+    existed = existing_name is not None
+    name = existing_name or requested_name
+    if existed and if_exists == "error":
+        raise FileExistsError(f"配置已存在: {name}")
+
+    created = None if existed else get_com_member(
+        model,
+        "AddConfiguration3",
+        name,
+        str(comment),
+        str(alternate_name),
+        int(options),
+    )
+    if not existed and created is None:
+        raise RuntimeError(f"AddConfiguration3 未返回配置对象: {name}")
+
+    after_names = _configuration_names(model)
+    listed_name = _resolve_configuration_name(after_names, name)
+    listed = listed_name is not None
+    name = listed_name or name
+    activation = (
+        activate_configuration(model, name, rebuild=rebuild, save=False)
+        if activate and listed
+        else None
+    )
+    if activation:
+        rebuild_success = bool(activation["rebuild_success"])
+    elif rebuild and listed:
+        rebuild_success = bool(get_com_member(model, "EditRebuild3"))
+    else:
+        rebuild_success = listed
+    active_verified = activation["readback_verified"] if activation else True
+    save_success = bool(save_document(model)) if save and listed and rebuild_success and active_verified else not save
+    success = listed and rebuild_success and active_verified and save_success
+    return {
+        "success": success,
+        "configuration": name,
+        "requested_configuration": requested_name,
+        "created": not existed,
+        "reused": existed,
+        "listed_after_create": listed,
+        "configurations_before": before_names,
+        "configurations_after": after_names,
+        "options": int(options),
+        "activation": activation,
+        "save_requested": save,
+        "save_success": save_success,
+        "review_required": True,
     }
 
 

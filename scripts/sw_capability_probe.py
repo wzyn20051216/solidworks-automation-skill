@@ -10,11 +10,11 @@ from pathlib import Path
 
 try:
     from .sw_preflight import import_com_dependencies, missing_com_dependencies, solidworks_installed
-    from .capabilities import capability_index, load_capabilities, manifest_path
+    from .capabilities import backend_route_snapshot, capability_index, load_capabilities, manifest_path
     from .cad_installation import discover_installations
 except ImportError:
     from sw_preflight import import_com_dependencies, missing_com_dependencies, solidworks_installed
-    from capabilities import capability_index, load_capabilities, manifest_path
+    from capabilities import backend_route_snapshot, capability_index, load_capabilities, manifest_path
     from cad_installation import discover_installations
 
 
@@ -105,6 +105,7 @@ def probe_capabilities(check_solidworks: bool = True) -> dict:
         "manifest_path": str(manifest_path()),
         "capability_manifest_schema": manifest.get("schema_version", "1.0"),
         "verified_versions": manifest.get("verified_versions", {}),
+        "language_backend_matrix": backend_route_snapshot(manifest),
         "solidworks_detected": solidworks_installed() if check_solidworks else None,
         "missing_com_dependencies": missing,
         "type_libraries": {},
@@ -112,6 +113,7 @@ def probe_capabilities(check_solidworks: bool = True) -> dict:
         "notes": [
             "type_library_present 只证明本机安装包含接口定义，不证明许可证、当前文档或自动化实现已验证。",
             "implementation_status=reference_only/not_implemented 的能力禁止自动宣称完成。",
+            "language_backend_matrix 只定义适用边界；具体运行时仍须由 backend_router.py 按版本、依赖和接口语义选择。",
         ],
     }
     if missing or not check_solidworks:

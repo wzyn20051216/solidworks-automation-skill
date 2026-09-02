@@ -87,6 +87,9 @@ def _load_automation_modules() -> None:
         "export_to_step": export.export_to_step,
         "export_to_stl": export.export_to_stl,
         "batch_export_formats": export.batch_export_formats,
+        "inspect_configurations": document_data.inspect_configurations,
+        "activate_configuration": document_data.activate_configuration,
+        "create_configuration": document_data.create_configuration,
         "update_dimension_mm": document_data.update_dimension_mm,
         "set_custom_properties": document_data.set_custom_properties,
         "export_assembly_bom_csv": delivery.export_assembly_bom_csv,
@@ -208,6 +211,17 @@ class SolidWorksConnectInput(BaseInput):
 
     visible: bool = Field(default=True, description="Whether a newly started SolidWorks instance should be visible.")
     wait_seconds: int = Field(default=5, ge=0, le=60, description="Seconds to wait after starting SolidWorks.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+
+class CadStudioBackendRouteInput(BaseInput):
+    """Input for resolving a language/runtime backend from the capability matrix."""
+
+    operation_id: str = Field(..., min_length=1, max_length=160)
+    available_backends: list[str] = Field(default_factory=list, max_length=50)
+    available_requirements: list[str] = Field(default_factory=list, max_length=50)
+    solidworks_revision: Optional[str] = Field(default=None, max_length=40)
+    exact_api: bool = Field(default=False)
     response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
 
 
@@ -577,6 +591,35 @@ class SolidWorksDimensionUpdateInput(BaseInput):
     configuration_names: list[str] = Field(default_factory=list, max_length=200)
     rebuild: bool = Field(default=True)
     save: bool = Field(default=False, description="Save the current document after a verified rebuild.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+
+class SolidWorksConfigurationCreateInput(BaseInput):
+    """Input for creating and optionally activating a SolidWorks configuration."""
+
+    configuration_name: str = Field(..., min_length=1, max_length=240)
+    comment: str = Field(default="", max_length=1024)
+    alternate_name: str = Field(default="", max_length=240)
+    options: int = Field(default=0, ge=0, description="swConfigurationOptions2_e bitmask; default 0.")
+    if_exists: str = Field(default="reuse", pattern="^(reuse|error)$")
+    activate: bool = Field(default=True)
+    rebuild: bool = Field(default=True)
+    save: bool = Field(default=False)
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+
+class SolidWorksConfigurationInspectInput(BaseInput):
+    """Input for inspecting the active document configuration family."""
+
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+
+class SolidWorksConfigurationActivateInput(BaseInput):
+    """Input for activating and verifying an existing SolidWorks configuration."""
+
+    configuration_name: str = Field(..., min_length=1, max_length=240)
+    rebuild: bool = Field(default=True)
+    save: bool = Field(default=False)
     response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
 
 
@@ -990,6 +1033,28 @@ def _run_locked(operation, response_format: ResponseFormat, load_automation: boo
             return _result(payload, response_format)
         except Exception as exc:
             return _tool_error(exc, response_format)
+
+
+@mcp.tool(
+    name="cadstudio_resolve_backend",
+    title="Resolve CAD Language Backend",
+    annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+)
+def cadstudio_resolve_backend(params: CadStudioBackendRouteInput) -> str:
+    """Select Python, C#, C++, SWBasic, OCCT, AutoCAD .NET, or an external solver."""
+
+    def op():
+        from scripts.capabilities import resolve_operation_backend
+
+        return resolve_operation_backend(
+            params.operation_id,
+            available_backends=params.available_backends or None,
+            available_requirements=params.available_requirements,
+            solidworks_revision=params.solidworks_revision,
+            exact_api=params.exact_api,
+        )
+
+    return _run_locked(op, params.response_format, load_automation=False)
 
 
 @mcp.tool(
@@ -1770,6 +1835,74 @@ def solidworks_export_active(params: SolidWorksExportInput) -> str:
             "format": params.export_format.value,
             "document": _model_summary(model),
         }
+
+    return _run_locked(op, params.response_format)
+
+
+@mcp.tool(
+    name="solidworks_inspect_configurations",
+    title="Inspect SolidWorks Configurations",
+    annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+)
+def solidworks_inspect_configurations(
+    params: SolidWorksConfigurationInspectInput = SolidWorksConfigurationInspectInput(),
+) -> str:
+    """Inspect configuration names and the active configuration without modifying the document."""
+
+    def op():
+        _sw, model = _active_model_required()
+        result = inspect_configurations(model)
+        result["document"] = _model_summary(model)
+        return result
+
+    return _run_locked(op, params.response_format)
+
+
+@mcp.tool(
+    name="solidworks_create_configuration",
+    title="Create SolidWorks Configuration",
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+)
+def solidworks_create_configuration(params: SolidWorksConfigurationCreateInput) -> str:
+    """Create, optionally activate, rebuild, save, and read back a configuration."""
+
+    def op():
+        _sw, model = _active_model_required()
+        result = create_configuration(
+            model,
+            params.configuration_name,
+            comment=params.comment,
+            alternate_name=params.alternate_name,
+            options=params.options,
+            if_exists=params.if_exists,
+            activate=params.activate,
+            rebuild=params.rebuild,
+            save=params.save,
+        )
+        result["document"] = _model_summary(model)
+        return result
+
+    return _run_locked(op, params.response_format)
+
+
+@mcp.tool(
+    name="solidworks_activate_configuration",
+    title="Activate SolidWorks Configuration",
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+)
+def solidworks_activate_configuration(params: SolidWorksConfigurationActivateInput) -> str:
+    """Activate an existing configuration and verify the active configuration by readback."""
+
+    def op():
+        _sw, model = _active_model_required()
+        result = activate_configuration(
+            model,
+            params.configuration_name,
+            rebuild=params.rebuild,
+            save=params.save,
+        )
+        result["document"] = _model_summary(model)
+        return result
 
     return _run_locked(op, params.response_format)
 

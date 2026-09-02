@@ -59,6 +59,7 @@ SolidWorks 是 Windows 桌面 COM 应用，不是原生 MCP 服务。MCP Server 
 
 CAD Studio 门禁工具：
 
+- `cadstudio_resolve_backend`
 - `cadstudio_write_open_format`
 - `cadstudio_build_dxf_preview_scene`
 - `cadstudio_check_dfm`
@@ -77,6 +78,9 @@ SolidWorks 原生工具：
 - `solidworks_connect`
 - `solidworks_new_document`
 - `solidworks_open_document`
+- `solidworks_inspect_configurations`
+- `solidworks_create_configuration`
+- `solidworks_activate_configuration`
 - `solidworks_save_document`
 - `solidworks_close_documents`
 - `solidworks_export_active`

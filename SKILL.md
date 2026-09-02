@@ -31,9 +31,9 @@ python SKILL_DIR/scripts/sw_preflight.py
 python SKILL_DIR/scripts/cad_studio.py doctor
 ```
 
-`capabilities.yaml` 是 Skill、MCP、队列和 UI 共用的能力唯一真源。能力等级为 `verified`、`pilot`、`reference_only` 或 `not_implemented`；后两者不得作为无人值守交付。
+`capabilities.yaml` 是 Skill、MCP、队列和 UI 共用的能力唯一真源。能力等级为 `verified`、`pilot`、`reference_only` 或 `not_implemented`；后两者不得作为无人值守交付。该清单还维护 Python、C# PIA/Add-in、原生 C++、SWBasic、OCCT 和外部求解器的原子操作路由；执行前可用 `python scripts/backend_router.py --list` 查询，规则见 `references/language-backend-routing.md`。
 
-### 双入口与双后端
+### 多入口与多后端
 
 - CAD Studio 与 Skill/CLI/MCP 是平级入口，共用 Automation Job、NeutralCadDocument、Preview Manifest、Evidence Graph 和能力清单。
 - 检测不到 SolidWorks/AutoCAD 时，只阻断 `SLDPRT/SLDASM/SLDDRW/DWG` 等原生格式；开放格式任务优先路由到 `headless_open_format_writing`。
@@ -94,6 +94,7 @@ session.export(model, r"C:\temp\cylinder.step")
 | 入口自检与依赖补齐 | `scripts/sw_preflight.py` | `references/troubleshooting.md` |
 | 无 CAD 开放格式写入 | `scripts/headless_cad_writer.py`、`scripts/cad_studio.py write-open-format` | `capabilities.yaml`、公共 CAD Core Schema |
 | 高级能力/类型库探测 | `scripts/sw_capability_probe.py` | `references/complex-mechanical-routing.md` |
+| Python/C#/C++/SWBasic/OCCT 后端选择 | `scripts/backend_router.py` | `references/language-backend-routing.md`、`capabilities.yaml` |
 | 多模型宏生成防护 | `scripts/sw_macro_guard.py` | `references/openclaw.md` |
 | 友好会话 API | `scripts/sw_session.py` | - |
 | 连接与文档管理 | `scripts/sw_connect.py` | - |
@@ -108,7 +109,7 @@ session.export(model, r"C:\temp\cylinder.step")
 | Motion Study 运动算例、旋转马达与结果审计 | `scripts/sw_motion.py` | `references/motion-study.md`、`references/complex-mechanical-routing.md` |
 | 工程图出图 | `scripts/sw_drawing.py` | `references/drawing.md` |
 | 文件导出 | `scripts/sw_export.py` | `references/export.md` |
-| 参数修改与自定义属性 | `scripts/sw_document_data.py` | `references/advanced.md` |
+| 配置族创建/激活、参数修改与自定义属性 | `scripts/sw_document_data.py` | `references/advanced.md` |
 | 装配 BOM CSV 与 Pack and Go | `scripts/sw_delivery.py` | `references/export.md` |
 | OBJ/STL 高还原网格参考导入 | `scripts/sw_import_mesh_reference.py` | `references/mesh-reference-import.md` |
 | 结果自审查 | `scripts/sw_review.py` | `references/review.md` |
@@ -147,7 +148,7 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 
 ## 使用流程
 
-1. 先根据 `preferredBackend`、`requiredOutputs`、`nativeFormatRequired` 和 `fallbackPolicy` 判定后端；不要先假定必须有 SolidWorks。
+1. 先根据原子操作运行 `backend_router.py`，再结合 `preferredBackend`、`requiredOutputs`、`nativeFormatRequired` 和 `fallbackPolicy` 判定后端；不要先假定 Python、C# 或 SolidWorks 必然可用。普通任务优先 Automation 等价接口，明确要求仅非托管 C++ 支持的原始 `I*` 指针语义时才升级到原生 C++。
 2. 需要原生 SolidWorks 格式时运行 `sw_preflight.py`；缺依赖则请求用户授权自动安装，缺 SolidWorks 则只阻断原生阶段。
 3. 不需要原生格式或允许开放格式回退时，运行 `python scripts/cad_studio.py write-open-format --input model.cadstudio.json --out-dir output`。
 4. 需要制造性快速复核时，运行 `python scripts/cad_studio.py check-dfm --input model.cadstudio.json --output output/dfm_report.json --process machining`；支持 `--profile supplier.json` 和 `--brep-evidence brep.json`。报告缺少材料、壁厚、K 因子、割缝、成型空间或要求的 B-Rep 证据时返回 `blocked`，规则通过也必须人工复核。

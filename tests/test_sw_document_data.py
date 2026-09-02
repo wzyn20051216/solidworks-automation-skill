@@ -79,6 +79,37 @@ class FakePropertyRebuildModel(FakeModel):
     EditRebuild3 = True
 
 
+class FakeConfigurationModel(FakeModel):
+    """@brief 模拟 AddConfiguration3、ShowConfiguration2 与活动配置回读。"""
+
+    def __init__(self):
+        super().__init__()
+        self.names = ["默认"]
+        self.active = type("Config", (), {"Name": "默认"})()
+        self.ConfigurationManager = type("Manager", (), {})()
+        self.ConfigurationManager.ActiveConfiguration = self.active
+
+    def GetConfigurationNames(self):
+        return list(self.names)
+
+    def AddConfiguration3(self, name, comment, alternate_name, options):
+        config = type(
+            "Config",
+            (),
+            {"Name": name, "Comment": comment, "AlternateName": alternate_name, "Options": options},
+        )()
+        self.names.append(name)
+        return config
+
+    def ShowConfiguration2(self, name):
+        if name not in self.names:
+            return False
+        self.active = type("Config", (), {"Name": name})()
+        self.ConfigurationManager.ActiveConfiguration = self.active
+        self.dimension.current = name if name in self.dimension.values else "默认"
+        return True
+
+
 def setup_module():
     document_data.VARIANT = FakeVariant
     document_data.pythoncom.VT_ARRAY = 0x2000
@@ -156,3 +187,86 @@ def test_inspects_configurations_and_active_configuration():
     assert result["status"] == "pilot"
     assert result["configurations"] == ["默认", "加工"]
     assert result["active_configuration"] == "加工"
+
+
+def test_creates_activates_and_reads_back_configuration():
+    """@brief 新配置必须同时出现在清单并成为活动配置。"""
+    model = FakeConfigurationModel()
+
+    result = document_data.create_configuration(
+        model,
+        "加工",
+        comment="CNC 工况",
+        alternate_name="MACHINED",
+    )
+
+    assert result["success"] is True
+    assert result["created"] is True
+    assert result["configurations_after"] == ["默认", "加工"]
+    assert result["activation"]["readback_verified"] is True
+    assert result["activation"]["after"] == "加工"
+
+
+def test_configuration_create_is_idempotent_or_strict_on_request():
+    """@brief 默认复用已有配置，严格模式拒绝同名覆盖。"""
+    model = FakeConfigurationModel()
+    model.AddConfiguration3("加工", "", "", 0)
+
+    reused = document_data.create_configuration(model, "加工")
+
+    assert reused["success"] is True
+    assert reused["created"] is False
+    assert reused["reused"] is True
+    try:
+        document_data.create_configuration(model, "加工", if_exists="error")
+    except FileExistsError as error:
+        assert "配置已存在" in str(error)
+    else:
+        raise AssertionError("strict duplicate configuration should fail")
+
+
+def test_activate_configuration_rejects_unknown_name_before_com_call():
+    """@brief 未知配置必须在调用 ShowConfiguration2 前失败。"""
+    model = FakeConfigurationModel()
+
+    try:
+        document_data.activate_configuration(model, "不存在")
+    except LookupError as error:
+        assert "找不到配置" in str(error)
+    else:
+        raise AssertionError("unknown configuration should fail")
+
+
+def test_activate_configuration_accepts_already_active_readback_without_redundant_call():
+    """@brief SW2026 创建后已激活时不应被重复 ShowConfiguration2 的 False 误判。"""
+    model = FakeConfigurationModel()
+    model.AddConfiguration3("薄型", "", "", 0)
+    model.ShowConfiguration2("薄型")
+    calls = 0
+
+    def unexpected_show(_name):
+        nonlocal calls
+        calls += 1
+        return False
+
+    model.ShowConfiguration2 = unexpected_show
+    result = document_data.activate_configuration(model, "薄型")
+
+    assert result["success"] is True
+    assert result["api_called"] is False
+    assert result["api_return"] is None
+    assert calls == 0
+
+
+def test_configuration_names_are_resolved_case_insensitively() -> None:
+    """@brief 英文配置名大小写差异不应创建重复配置。"""
+    model = FakeConfigurationModel()
+    model.AddConfiguration3("Machined", "", "", 0)
+
+    result = document_data.create_configuration(model, "MACHINED")
+
+    assert result["success"] is True
+    assert result["created"] is False
+    assert result["configuration"] == "Machined"
+    assert result["requested_configuration"] == "MACHINED"
+    assert model.names.count("Machined") == 1
