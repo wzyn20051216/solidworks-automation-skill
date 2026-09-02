@@ -26,6 +26,19 @@ def test_backend_matrix_is_valid_and_covers_multiple_languages() -> None:
     assert snapshot["route_count"] >= 11
     assert {"Python", "C#", "C++", "SWBasic/VBA"} <= set(snapshot["languages"])
     assert "fillet_hold_lines_exact" in snapshot["operation_ids"]
+    assert "solidworks_addin_ui_events" in snapshot["operation_ids"]
+
+
+def test_addin_ui_route_prefers_in_process_csharp_host() -> None:
+    """@brief 长期 UI/事件生命周期应优先托管进程内 Add-in。"""
+    result = resolve_operation_backend(
+        "solidworks_addin_ui_events",
+        available_backends=["solidworks-csharp-addin", "solidworks-native-cpp"],
+    )
+
+    assert result["status"] == "ready"
+    assert result["backend"] == "solidworks-csharp-addin"
+    assert result["semantics"] == "exact_managed_addin"
 
 
 def test_pointer_array_route_prefers_automation_equivalent_for_normal_workflow() -> None:

@@ -11,6 +11,8 @@ build/
 dist/
 subskills/autocad-automation/dotnet/**/bin/
 subskills/autocad-automation/dotnet/**/obj/
+dotnet/**/bin/
+dotnet/**/obj/
 *.egg-info/
 
 # Node / frontend

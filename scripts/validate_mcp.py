@@ -24,6 +24,7 @@ REQUIRED_TOOLS = {
     "cadstudio_check_dfm",
     "cadstudio_check_routing",
     "cadstudio_routing_preflight",
+    "solidworks_addin_host_status",
     "cadstudio_fea_preflight",
     "cadstudio_prepare_fea",
     "cadstudio_run_fea",

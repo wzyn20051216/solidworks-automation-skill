@@ -34,6 +34,8 @@ def test_capability_manifest_marks_unverified_workflows():
     assert index["sheet_metal"]["verified_versions"] == ["2026"]
     assert index["weldments"]["level"] == "pilot"
     assert index["weldments"]["verified_versions"] == ["2026"]
+    assert index["solidworks_addin_host"]["level"] == "pilot"
+    assert index["solidworks_addin_host"]["verified_versions"] == []
     assert unattended_allowed(["part_and_features"]) is True
     assert unattended_allowed(["sheet_metal"]) is False
 

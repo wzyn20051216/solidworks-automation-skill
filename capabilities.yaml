@@ -119,7 +119,7 @@
     {
       "id": "solidworks_addin_ui_events",
       "label": "事件、PropertyManagerPage 与 TaskPane",
-      "capability_ids": [],
+      "capability_ids": ["solidworks_addin_host"],
       "candidates": [
         {"backend": "solidworks-csharp-addin", "semantics": "exact_managed_addin", "priority": 10},
         {"backend": "solidworks-native-cpp", "semantics": "exact_native_addin", "priority": 20}
@@ -194,6 +194,16 @@
       "verified_versions": [],
       "dependencies": ["python"],
       "limitations": ["关键尺寸、公差、载荷和安全参数仍需人工确认"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "solidworks_addin_host",
+      "label": "SolidWorks C# 进程内 Add-in 宿主",
+      "level": "pilot",
+      "backends": ["solidworks-csharp-addin"],
+      "verified_versions": [],
+      "dependencies": ["SolidWorks", ".NET Framework 4.8", "SolidWorks PIA", "64 位 RegAsm 与管理员注册"],
+      "limitations": ["已按本机 SW2026 PIA 34.1.1.11 完成强名称 x64/net48 构建、COM 激活冒烟和注册/诊断门禁；当前非管理员会话无法写入 HKLM\\SOFTWARE\\SOLIDWORKS\\Addins，因此尚未把 ConnectToSW、应用事件、CommandManager、TaskPane、PropertyManagerPage 标记为真机通过", "CurrentUser 注册仅供 COM 激活冒烟，不能伪装成 SolidWorks 进程内发现；正式注册必须提升权限使用 Machine 模式，随后运行真实 Probe", "强名称用于程序集身份；企业分发仍应增加可信发布者 Authenticode 签名、固定安装目录与卸载流程"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {

@@ -22,6 +22,7 @@ TOP_LEVEL_FILES = (
 )
 RUNTIME_ROOTS = (
     "agents",
+    "dotnet",
     "examples",
     "mcp-server",
     "references",

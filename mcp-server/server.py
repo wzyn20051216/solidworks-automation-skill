@@ -594,6 +594,13 @@ class SolidWorksDimensionUpdateInput(BaseInput):
     response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
 
 
+class SolidWorksAddinHostStatusInput(BaseInput):
+    """Input for read-only C# Add-in host deployment and runtime diagnostics."""
+
+    assembly_path: Optional[str] = Field(default=None, description="Optional absolute Add-in assembly path.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+
 class SolidWorksConfigurationCreateInput(BaseInput):
     """Input for creating and optionally activating a SolidWorks configuration."""
 
@@ -1177,6 +1184,29 @@ def cadstudio_routing_preflight(params: CadStudioRoutingPreflightInput = CadStud
         from scripts.routing_review import probe_solidworks_routing
 
         return probe_solidworks_routing()
+
+    return _run_locked(op, params.response_format, load_automation=False)
+
+
+@mcp.tool(
+    name="solidworks_addin_host_status",
+    title="Probe SolidWorks C# Add-in Host",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+def solidworks_addin_host_status(
+    params: SolidWorksAddinHostStatusInput = SolidWorksAddinHostStatusInput(),
+) -> str:
+    """Inspect the Add-in assembly, exact registration scopes, diagnostics, and blockers."""
+
+    def op():
+        from scripts.sw_addin_host import probe_addin_host
+
+        return probe_addin_host(params.assembly_path)
 
     return _run_locked(op, params.response_format, load_automation=False)
 

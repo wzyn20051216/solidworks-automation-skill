@@ -95,6 +95,7 @@ session.export(model, r"C:\temp\cylinder.step")
 | 无 CAD 开放格式写入 | `scripts/headless_cad_writer.py`、`scripts/cad_studio.py write-open-format` | `capabilities.yaml`、公共 CAD Core Schema |
 | 高级能力/类型库探测 | `scripts/sw_capability_probe.py` | `references/complex-mechanical-routing.md` |
 | Python/C#/C++/SWBasic/OCCT 后端选择 | `scripts/backend_router.py` | `references/language-backend-routing.md`、`capabilities.yaml` |
+| C# 进程内 Add-in 宿主、事件与 UI | `scripts/sw_addin_host.ps1`、`scripts/sw_addin_host.py` | `references/solidworks-addin-host.md` |
 | 多模型宏生成防护 | `scripts/sw_macro_guard.py` | `references/openclaw.md` |
 | 友好会话 API | `scripts/sw_session.py` | - |
 | 连接与文档管理 | `scripts/sw_connect.py` | - |
@@ -149,6 +150,7 @@ from sw_connect import connect_solidworks, mm, deg, new_document
 ## 使用流程
 
 1. 先根据原子操作运行 `backend_router.py`，再结合 `preferredBackend`、`requiredOutputs`、`nativeFormatRequired` 和 `fallbackPolicy` 判定后端；不要先假定 Python、C# 或 SolidWorks 必然可用。普通任务优先 Automation 等价接口，明确要求仅非托管 C++ 支持的原始 `I*` 指针语义时才升级到原生 C++。
+   事件订阅、PropertyManagerPage、TaskPane 或长期驻留 UI 走 `solidworks_addin_ui_events` 路由，优先 C# Add-in；必须检查 HKLM 注册和 `host-status.json`，不能只凭 `LoadAddIn=0` 宣称成功。
 2. 需要原生 SolidWorks 格式时运行 `sw_preflight.py`；缺依赖则请求用户授权自动安装，缺 SolidWorks 则只阻断原生阶段。
 3. 不需要原生格式或允许开放格式回退时，运行 `python scripts/cad_studio.py write-open-format --input model.cadstudio.json --out-dir output`。
 4. 需要制造性快速复核时，运行 `python scripts/cad_studio.py check-dfm --input model.cadstudio.json --output output/dfm_report.json --process machining`；支持 `--profile supplier.json` 和 `--brep-evidence brep.json`。报告缺少材料、壁厚、K 因子、割缝、成型空间或要求的 B-Rep 证据时返回 `blocked`，规则通过也必须人工复核。

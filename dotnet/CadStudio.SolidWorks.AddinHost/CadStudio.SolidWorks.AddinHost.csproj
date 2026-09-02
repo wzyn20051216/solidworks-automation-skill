@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AssemblyName>CadStudio.SolidWorks.AddinHost</AssemblyName>
+    <RootNamespace>CadStudio.SolidWorks.AddinHost</RootNamespace>
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>$(IntermediateOutputPath)CadStudio.AddinHost.snk</AssemblyOriginatorKeyFile>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(SolidWorksApiDir)' == ''">
+    <SolidWorksApiDir>$(SOLIDWORKS_API_DIR)</SolidWorksApiDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net48" Version="1.0.3" PrivateAssets="all" />
+    <Reference Include="SolidWorks.Interop.sldworks">
+      <HintPath>$(SolidWorksApiDir)\SolidWorks.Interop.sldworks.dll</HintPath>
+      <Private>true</Private>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swconst">
+      <HintPath>$(SolidWorksApiDir)\SolidWorks.Interop.swconst.dll</HintPath>
+      <Private>true</Private>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+    </Reference>
+    <Reference Include="SolidWorks.Interop.swpublished">
+      <HintPath>$(SolidWorksApiDir)\SolidWorks.Interop.swpublished.dll</HintPath>
+      <Private>true</Private>
+      <EmbedInteropTypes>false</EmbedInteropTypes>
+    </Reference>
+    <Reference Include="System.Web.Extensions" />
+  </ItemGroup>
+
+  <Target Name="ValidateSolidWorksApiDir" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(SolidWorksApiDir)\SolidWorks.Interop.sldworks.dll')"
+           Text="SolidWorksApiDir 无效；请传入 SolidWorks api\redist 目录。当前值：$(SolidWorksApiDir)" />
+  </Target>
+
+  <Target Name="PrepareStrongNameKey" BeforeTargets="CoreCompile">
+    <Exec Command="powershell -NoProfile -Command &quot;[IO.File]::WriteAllBytes('$(MSBuildProjectDirectory)\$(IntermediateOutputPath)CadStudio.AddinHost.snk',[Convert]::FromBase64String((Get-Content -Raw '$(MSBuildProjectDirectory)\CadStudio.AddinHost.snk.base64')))&quot;" />
+  </Target>
+</Project>
