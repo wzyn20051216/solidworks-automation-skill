@@ -16,7 +16,8 @@ param(
 
     [string]$SolidWorksApiDir = $env:SOLIDWORKS_API_DIR,
     [string]$DotNetPath = "$env:LOCALAPPDATA\Microsoft\dotnet\dotnet.exe",
-    [string]$Configuration = 'Release'
+    [string]$Configuration = 'Release',
+    [switch]$ElevatedChild
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,6 +58,29 @@ function Build-AddinHost {
     & $DotNetPath build $ProjectPath -c $Configuration "-p:SolidWorksApiDir=$apiDir" --nologo
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $AssemblyPath)) {
         throw "Add-in build failed: $AssemblyPath"
+    }
+}
+
+function Test-IsAdministrator {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Invoke-ElevatedSelf {
+    param([ValidateSet('Register', 'Unregister')][string]$ElevatedAction)
+    $apiDir = Resolve-SolidWorksApiDir
+    $quote = {
+        param([string]$Value)
+        return "'" + $Value.Replace("'", "''") + "'"
+    }
+    $command = "& $(& $quote $PSCommandPath) -Action $ElevatedAction -RegistrationScope Machine -SolidWorksApiDir $(& $quote $apiDir) -DotNetPath $(& $quote $DotNetPath) -Configuration $(& $quote $Configuration) -ElevatedChild"
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+    $process = Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded
+    ) -Wait -PassThru
+    if ($process.ExitCode -ne 0) {
+        throw "Elevated $ElevatedAction failed or was cancelled. Exit code: $($process.ExitCode)"
     }
 }
 
@@ -109,12 +133,19 @@ switch ($Action) {
         Build-AddinHost
     }
     'Register' {
-        Build-AddinHost
         if ($RegistrationScope -eq 'Machine') {
-            if (-not (Test-Path $RegAsmPath)) { throw "64-bit RegAsm not found: $RegAsmPath" }
-            & $RegAsmPath $AssemblyPath /codebase
-            if ($LASTEXITCODE -ne 0) { throw 'RegAsm registration failed; Machine mode requires elevation.' }
+            if (-not (Test-IsAdministrator)) {
+                if ($ElevatedChild) { throw 'Machine registration did not receive administrator privileges.' }
+                Build-AddinHost
+                Invoke-ElevatedSelf 'Register'
+            } else {
+                Build-AddinHost
+                if (-not (Test-Path $RegAsmPath)) { throw "64-bit RegAsm not found: $RegAsmPath" }
+                & $RegAsmPath $AssemblyPath /codebase
+                if ($LASTEXITCODE -ne 0) { throw 'RegAsm registration failed.' }
+            }
         } else {
+            Build-AddinHost
             Register-CurrentUser
         }
     }
@@ -134,14 +165,19 @@ switch ($Action) {
         if (-not (Test-Path "HKLM:\SOFTWARE\SOLIDWORKS\Addins\$AddinGuid")) {
             throw 'HKLM SolidWorks Add-ins registration is missing. Run an elevated Machine registration before the in-process probe.'
         }
-        & python (Join-Path $ProjectRoot 'tests\solidworks_addin_host_regression.py') --assembly $AssemblyPath
+        & python (Join-Path $ProjectRoot 'tests\solidworks_addin_host_regression.py') --assembly $AssemblyPath --start
         if ($LASTEXITCODE -ne 0) { throw 'SolidWorks Add-in live probe failed.' }
     }
     'Unregister' {
         if ($RegistrationScope -eq 'Machine') {
-            if (-not (Test-Path $RegAsmPath)) { throw "64-bit RegAsm not found: $RegAsmPath" }
-            & $RegAsmPath $AssemblyPath /unregister
-            if ($LASTEXITCODE -ne 0) { throw 'RegAsm unregister failed; Machine mode requires elevation.' }
+            if (-not (Test-IsAdministrator)) {
+                if ($ElevatedChild) { throw 'Machine unregister did not receive administrator privileges.' }
+                Invoke-ElevatedSelf 'Unregister'
+            } else {
+                if (-not (Test-Path $RegAsmPath)) { throw "64-bit RegAsm not found: $RegAsmPath" }
+                & $RegAsmPath $AssemblyPath /unregister
+                if ($LASTEXITCODE -ne 0) { throw 'RegAsm unregister failed.' }
+            }
         } else {
             Unregister-CurrentUser
         }

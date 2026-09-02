@@ -48,7 +48,7 @@ def _wait_for_connected(path: Path, timeout_seconds: float = 20.0, *, require_pr
     raise RuntimeError(f"Add-in 未在 {timeout_seconds:.0f}s 内就绪：{last_payload}")
 
 
-def run_regression(assembly: Path, *, keep_loaded: bool = True) -> dict:
+def run_regression(assembly: Path, *, keep_loaded: bool = True, start_solidworks: bool = False) -> dict:
     """@brief 加载宿主、触发应用事件并核验机器可读诊断证据。"""
     assembly = assembly.expanduser().resolve()
     if not assembly.is_file():
@@ -57,7 +57,24 @@ def run_regression(assembly: Path, *, keep_loaded: bool = True) -> dict:
     if diagnostics.exists():
         diagnostics.unlink()
 
-    sw_app = win32com.client.GetActiveObject("SldWorks.Application")
+    started_solidworks = False
+    try:
+        sw_app = win32com.client.GetActiveObject("SldWorks.Application")
+    except Exception:
+        if not start_solidworks:
+            raise RuntimeError("SolidWorks 未运行；传入 --start 可启动本机默认版本。")
+        sw_app = win32com.client.Dispatch("SldWorks.Application")
+        sw_app.Visible = True
+        started_solidworks = True
+        deadline = time.monotonic() + 45.0
+        while time.monotonic() < deadline:
+            try:
+                _com_value(sw_app, "RevisionNumber")
+                break
+            except Exception:
+                time.sleep(0.25)
+        else:
+            raise RuntimeError("SolidWorks 启动后 45s 内未就绪。")
     load_status = int(sw_app.LoadAddIn(str(assembly)))
     if load_status not in {0, 2}:
         raise RuntimeError(f"LoadAddIn 失败，swLoadAddinError_e={load_status}")
@@ -90,6 +107,7 @@ def run_regression(assembly: Path, *, keep_loaded: bool = True) -> dict:
         "load_status": load_status,
         "unload_status": unload_status,
         "solidworks_revision": revision,
+        "solidworks_started_by_probe": started_solidworks,
         "diagnostics": str(diagnostics),
         "command_group_ready": event_payload["commandGroupReady"],
         "task_pane_ready": event_payload["taskPaneReady"],
@@ -120,9 +138,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--assembly", required=True, type=Path)
     parser.add_argument("--unload", action="store_true")
+    parser.add_argument("--start", action="store_true")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    result = run_regression(args.assembly, keep_loaded=not args.unload)
+    result = run_regression(
+        args.assembly,
+        keep_loaded=not args.unload,
+        start_solidworks=args.start,
+    )
     rendered = json.dumps(result, ensure_ascii=False, indent=2)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

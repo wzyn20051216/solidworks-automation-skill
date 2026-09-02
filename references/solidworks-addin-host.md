@@ -41,7 +41,8 @@ powershell -ExecutionPolicy Bypass -File scripts\sw_addin_host.ps1 -Action Regis
 powershell -ExecutionPolicy Bypass -File scripts\sw_addin_host.ps1 -Action ComSmoke -RegistrationScope CurrentUser
 ```
 
-SolidWorks 进程内加载必须在管理员 PowerShell 中执行 Machine 注册：
+SolidWorks 进程内加载必须执行 Machine 注册。普通 PowerShell 会自动弹出一次 UAC，
+提升后的子进程只执行固定 GUID 的构建/注册动作：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\sw_addin_host.ps1 -Action Register -RegistrationScope Machine -SolidWorksApiDir '<api\redist>'

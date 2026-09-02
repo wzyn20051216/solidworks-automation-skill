@@ -48,3 +48,11 @@ def test_project_targets_64_bit_net48_and_local_pia_directory() -> None:
     assert "$(SolidWorksApiDir)" in project
     assert "SolidWorks.Interop.swpublished.dll" in project
     assert "<SignAssembly>true</SignAssembly>" in project
+
+
+def test_registration_script_elevates_only_machine_operations_and_probe_can_start_host() -> None:
+    script = (ROOT / "scripts" / "sw_addin_host.ps1").read_text(encoding="utf-8")
+    assert "Test-IsAdministrator" in script
+    assert "Invoke-ElevatedSelf 'Register'" in script
+    assert "Invoke-ElevatedSelf 'Unregister'" in script
+    assert "--assembly $AssemblyPath --start" in script
