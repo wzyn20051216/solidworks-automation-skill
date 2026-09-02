@@ -99,43 +99,36 @@ model.InsertFamilyTableEdit()
 ### 基本操作
 
 ```python
-# 钣金相关特征通过 FeatureManager 创建
-# 1. 基体法兰
-feature_mgr.InsertSheetMetalBaseFlange2(
-    Thickness,    # float: 板厚（米）
-    BendRadius,   # float: 折弯半径（米）
-    ...
+from sw_sheet_metal import BaseFlangeSpec, create_base_flange
+
+# 先创建并退出开放或闭合草图，再使用现代 FeatureData API。
+feature = create_base_flange(
+    model,
+    sketch_name,
+    BaseFlangeSpec(
+        thickness=0.002,
+        bend_radius=0.0025,
+        depth=0.100,
+        k_factor=0.42,
+    ),
 )
-
-# 2. 边线法兰
-feature_mgr.InsertSheetMetalEdgeFlange2(...)
-
-# 3. 斜接法兰
-feature_mgr.InsertSheetMetalMiterFlange(...)
-
-# 4. 展开
-feature_mgr.InsertSheetMetalFlatPattern2()
-
-# 5. 折叠
-feature_mgr.InsertSheetMetalFold()
 ```
+
+该封装使用 `CreateDefinition(swFmBaseFlange)`、`IBaseFlangeFeatureData.Initialize`
+和 `CreateFeature`，不会猜测已废弃长参数接口。SW2026 SP01.1 已验证开放 U 型轮廓、
+两道真实折弯及保存重开；边线法兰、斜接法兰和放样折弯仍按 `pilot` 门禁处理。
 
 ### 展开图导出
 
 ```python
-# 导出展开图为 DXF
-model.ExportToDWG2(
-    dxfPath,           # str: 输出路径
-    modelPath,         # str: 模型路径（或空字符串）
-    1,                 # int: 导出类型（1=展开图）
-    True,              # bool: 显示外轮廓
-    True,              # bool: 包含弯曲线
-    False,             # bool: 草图实体
-    False,             # bool: 隐藏边线
-    0,                 # int: 弯曲注释
-    None               # variant: 导出数据
-)
+from sw_export import export_flat_pattern_dxf
+
+# 零件必须先保存；选项位掩码默认为“展开几何(1) + 折弯线(4)”。
+export_flat_pattern_dxf(model, dxfPath, include_bend_lines=True)
 ```
+
+`ExportToDWG2` 的第五个参数是 12 个双精度数值组成的对齐数组，第八个参数才是
+钣金选项位掩码；不要把多个布尔值误当作“轮廓/折弯线/草图/隐藏边线”。
 
 ### 钣金参数
 

@@ -79,6 +79,25 @@ def export_to_pdf(model, output_path, sheet_names=None):
     return success
 
 
+SW_EXPORT_TO_DWG_SHEET_METAL = 1
+SW_SHEET_METAL_EXPORT_GEOMETRY = 1
+SW_SHEET_METAL_EXPORT_HIDDEN_EDGES = 2
+SW_SHEET_METAL_EXPORT_BEND_LINES = 4
+SW_SHEET_METAL_EXPORT_SKETCHES = 8
+SW_SHEET_METAL_EXPORT_MERGE_COPLANAR_FACES = 16
+SW_SHEET_METAL_EXPORT_LIBRARY_FEATURES = 32
+SW_SHEET_METAL_EXPORT_FORMING_TOOLS = 64
+SW_SHEET_METAL_EXPORT_BOUNDING_BOX = 2048
+
+
+def _sheet_metal_alignment_variant(alignment=None):
+    """@brief 创建 ``ExportToDWG2`` 要求的 12 个双精度对齐参数。"""
+    values = tuple(alignment or (0.0,) * 12)
+    if len(values) != 12:
+        raise ValueError("钣金 DXF 对齐参数必须包含 12 个双精度数值")
+    return VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, values)
+
+
 def export_to_dxf(model, output_path):
     """
     导出为 DXF/DWG 格式
@@ -88,29 +107,56 @@ def export_to_dxf(model, output_path):
     if doc_type == 3:  # 工程图
         return _export_generic(model, output_path)
     else:
-        # 零件（钣金展开图）
-        return model.ExportToDWG2(
-            output_path, get_com_member(model, "GetPathName"),
-            1, True, True, False, False, 0, None
-        )
+        # 零件默认按“展开几何 + 折弯线”导出；其余选项由位掩码控制。
+        return export_flat_pattern_dxf(model, output_path)
 
 
-def export_flat_pattern_dxf(model, output_path):
+def export_flat_pattern_dxf(
+    model,
+    output_path,
+    *,
+    include_bend_lines=True,
+    include_sketches=False,
+    include_hidden_edges=False,
+    include_bounding_box=False,
+    merge_coplanar_faces=False,
+    alignment=None,
+):
     """
     导出钣金展开图为 DXF
 
     参数:
         model: 钣金零件的 IModelDoc2
     """
-    return model.ExportToDWG2(
-        output_path, "",
-        1,      # 导出展开图
-        True,   # 包含外轮廓
-        True,   # 包含弯曲线
-        False,  # 草图实体
-        False,  # 隐藏边线
-        0, None
-    )
+    model_path = str(get_com_member(model, "GetPathName") or "")
+    if not model_path:
+        raise ValueError("导出展开 DXF 前必须先保存钣金零件")
+
+    output_path = os.path.abspath(os.path.expandvars(os.path.expanduser(output_path)))
+    _ensure_parent_dir(output_path)
+    options = SW_SHEET_METAL_EXPORT_GEOMETRY
+    if include_bend_lines:
+        options |= SW_SHEET_METAL_EXPORT_BEND_LINES
+    if include_sketches:
+        options |= SW_SHEET_METAL_EXPORT_SKETCHES
+    if include_hidden_edges:
+        options |= SW_SHEET_METAL_EXPORT_HIDDEN_EDGES
+    if include_bounding_box:
+        options |= SW_SHEET_METAL_EXPORT_BOUNDING_BOX
+    if merge_coplanar_faces:
+        options |= SW_SHEET_METAL_EXPORT_MERGE_COPLANAR_FACES
+
+    return bool(model.ExportToDWG2(
+        output_path,
+        model_path,
+        SW_EXPORT_TO_DWG_SHEET_METAL,
+        True,
+        _sheet_metal_alignment_variant(alignment),
+        False,
+        False,
+        options,
+        None,
+    ))
 
 
 def batch_export(sw, file_paths, output_dir, format_ext=".step"):

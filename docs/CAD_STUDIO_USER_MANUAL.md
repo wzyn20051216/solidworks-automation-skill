@@ -4,7 +4,7 @@
 
 ## 1. 软件能做什么
 
-- 从自然语言规划并创建基础零件、外壳、夹具和装配体；钣金等未验证能力按能力清单进入人工复核或阻断。
+- 从自然语言规划并创建基础零件、外壳、夹具和装配体；SW2026 可试点创建开放轮廓基体法兰并导出展开 DXF，其余钣金能力按能力清单进入人工复核或阻断。
 - 修改已有 SLDPRT、SLDASM、STEP、STL、DWG、DXF、PDF 或参考图片。
 - 创建通孔、盲孔、沉孔、沉头孔、螺纹孔、长圆孔、半圆槽和阵列孔。
 - 无 CAD 软件时输出 `.cadstudio.json`、STL、OBJ、DXF、SVG、PDF、PNG 和复核报告；原生 SLDPRT/SLDASM/SLDDRW/DWG 需要对应 CAD 软件和已验证后端。
@@ -92,7 +92,7 @@ OCCT 当前覆盖盒体、圆柱、布尔合并、圆柱孔切除，以及独立
 python scripts/cad_studio.py doctor
 ```
 
-能力限制以仓库根目录 `capabilities.yaml` 为准。配置/设计表、钣金和焊件当前不会被标记为已交付。Simulation/FEA 可用 CalculiX 执行受限线性静力任务，复杂曲面可用 OCP 执行受限封闭直纹 Loft；二者仍是 `pilot`，缺少结果证据、网格收敛或曲面质量证明时不能冒充完整工程交付。
+能力限制以仓库根目录 `capabilities.yaml` 为准。配置族和 SW2026 开放轮廓钣金已进入受控 `pilot`，设计表、复杂钣金和焊件仍不会被标记为完整交付。Simulation/FEA 可用 CalculiX 执行受限线性静力任务，复杂曲面可用 OCP 执行受限封闭直纹 Loft；这些试点能力缺少结果证据、网格收敛或几何质量证明时不能冒充完整工程交付。
 
 当前 CLI 也可独立运行这些受控门禁：
 

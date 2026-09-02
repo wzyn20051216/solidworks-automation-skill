@@ -359,12 +359,12 @@
     {
       "id": "sheet_metal",
       "label": "钣金建模与展开",
-      "level": "reference_only",
+      "level": "pilot",
       "backends": ["solidworks-com"],
-      "verified_versions": [],
-      "dependencies": ["SolidWorks"],
-      "limitations": ["尚无稳定执行器和版本矩阵，不允许宣称已完成"],
-      "allowed_modes": ["interactive"]
+      "verified_versions": ["2026"],
+      "dependencies": ["SolidWorks", "pywin32"],
+      "limitations": ["SW2026 SP01.1 已真机验证现代 BaseFlange FeatureData、开放 U 型轮廓双折弯、板厚/半径/K 因子参数重开回读和含折弯线 DXF；边线法兰、放样折弯、转钣金、折弯表及多版本矩阵仍需后续真机回归"],
+      "allowed_modes": ["interactive", "reviewed"]
     },
     {
       "id": "weldments",
