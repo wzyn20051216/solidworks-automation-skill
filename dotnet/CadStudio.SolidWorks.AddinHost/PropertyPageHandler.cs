@@ -1,10 +1,14 @@
 using System;
+using System.Runtime.InteropServices;
 using SolidWorks.Interop.swpublished;
 
 namespace CadStudio.SolidWorks.AddinHost
 {
     /// <summary>SW2026 IPropertyManagerPage2Handler9 的完整托管回调实现。</summary>
-    internal sealed class PropertyPageHandler : IPropertyManagerPage2Handler9
+    [ComVisible(true)]
+    [Guid("8F33287B-C62A-4E05-85E6-3D7339A7F74B")]
+    [ClassInterface(ClassInterfaceType.AutoDispatch)]
+    public sealed class PropertyPageHandler : IPropertyManagerPage2Handler9
     {
         private readonly Action<string> activity;
 

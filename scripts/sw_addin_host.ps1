@@ -25,6 +25,7 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $ProjectPath = Join-Path $ProjectRoot 'dotnet\CadStudio.SolidWorks.AddinHost\CadStudio.SolidWorks.AddinHost.csproj'
 $OutputDir = Join-Path $ProjectRoot "dotnet\CadStudio.SolidWorks.AddinHost\bin\$Configuration\net48"
 $AssemblyPath = Join-Path $OutputDir 'CadStudio.SolidWorks.AddinHost.dll'
+$TypeLibraryPath = Join-Path $OutputDir 'CadStudio.SolidWorks.AddinHost.tlb'
 $AddinGuid = '{8EE76E8D-9B47-4DE0-AFA2-B2E36621A134}'
 $ProgId = 'CadStudio.SolidWorks.AddinHost'
 $ClassName = 'CadStudio.SolidWorks.AddinHost.SwAddin'
@@ -141,7 +142,7 @@ switch ($Action) {
             } else {
                 Build-AddinHost
                 if (-not (Test-Path $RegAsmPath)) { throw "64-bit RegAsm not found: $RegAsmPath" }
-                & $RegAsmPath $AssemblyPath /codebase
+                & $RegAsmPath $AssemblyPath /codebase "/tlb:$TypeLibraryPath"
                 if ($LASTEXITCODE -ne 0) { throw 'RegAsm registration failed.' }
             }
         } else {
@@ -175,7 +176,7 @@ switch ($Action) {
                 Invoke-ElevatedSelf 'Unregister'
             } else {
                 if (-not (Test-Path $RegAsmPath)) { throw "64-bit RegAsm not found: $RegAsmPath" }
-                & $RegAsmPath $AssemblyPath /unregister
+                & $RegAsmPath $AssemblyPath /unregister "/tlb:$TypeLibraryPath"
                 if ($LASTEXITCODE -ne 0) { throw 'RegAsm unregister failed.' }
             }
         } else {
@@ -188,6 +189,8 @@ switch ($Action) {
     action = $Action
     scope = $RegistrationScope
     assembly = $AssemblyPath
+    type_library = $TypeLibraryPath
+    type_library_exists = Test-Path $TypeLibraryPath
     com_registered = (Test-Path "HKCU:\Software\Classes\CLSID\$AddinGuid\InprocServer32") -or (Test-Path "HKLM:\Software\Classes\CLSID\$AddinGuid\InprocServer32")
     solidworks_discovery_registered = Test-Path "HKLM:\SOFTWARE\SOLIDWORKS\Addins\$AddinGuid"
     in_process_probe_ready = (Test-Path "HKLM:\SOFTWARE\SOLIDWORKS\Addins\$AddinGuid") -and (Get-Process SLDWORKS -ErrorAction SilentlyContinue)

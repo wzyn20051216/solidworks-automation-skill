@@ -78,7 +78,7 @@ namespace CadStudio.SolidWorks.AddinHost
         {
             lock (syncRoot)
             {
-                errors.Add(string.Format("{0:o} [{1}] {2}", DateTime.UtcNow, area, exception.Message));
+                errors.Add(string.Format("{0:o} [{1}] {2}", DateTime.UtcNow, area, exception));
                 if (errors.Count > 20)
                 {
                     errors.RemoveAt(0);

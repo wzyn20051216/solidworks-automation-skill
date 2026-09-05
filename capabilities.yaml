@@ -199,11 +199,11 @@
     {
       "id": "solidworks_addin_host",
       "label": "SolidWorks C# 进程内 Add-in 宿主",
-      "level": "pilot",
+      "level": "verified",
       "backends": ["solidworks-csharp-addin"],
-      "verified_versions": [],
-      "dependencies": ["SolidWorks", ".NET Framework 4.8", "SolidWorks PIA", "64 位 RegAsm 与管理员注册"],
-      "limitations": ["已按本机 SW2026 PIA 34.1.1.11 完成强名称 x64/net48 构建、COM 激活冒烟和注册/诊断门禁；当前非管理员会话无法写入 HKLM\\SOFTWARE\\SOLIDWORKS\\Addins，因此尚未把 ConnectToSW、应用事件、CommandManager、TaskPane、PropertyManagerPage 标记为真机通过", "CurrentUser 注册仅供 COM 激活冒烟，不能伪装成 SolidWorks 进程内发现；正式注册必须提升权限使用 Machine 模式，随后运行真实 Probe", "强名称用于程序集身份；企业分发仍应增加可信发布者 Authenticode 签名、固定安装目录与卸载流程"],
+      "verified_versions": ["2026"],
+      "dependencies": ["SolidWorks", ".NET Framework 4.8", "SolidWorks PIA", "64 位 RegAsm /codebase /tlb 与管理员注册"],
+      "limitations": ["SW2026 SP1.1 Revision 34.1.1 已真机验证 ConnectToSW、SetAddinCallbackInfo2、SldWorks 应用事件、三命令 CommandGroup、64 位 TaskPane、IPropertyManagerPage2Handler9 和进程内 JSON 诊断；回归同时验证 FileNewNotify2 与 CloseDoc 后文档数归零", "正式发现仍必须存在 HKLM\\SOFTWARE\\SOLIDWORKS\\Addins、机器 COM 注册和已注册的 64 位 TLB；LoadAddIn=0 不能单独作为成功证据", "应用级 FileCloseNotify 仅适用于工程图 CloseAndReopen，普通文档关闭应检查文档数或订阅文档级事件", "强名称用于程序集身份；企业分发仍应增加可信发布者 Authenticode 签名、固定安装目录与卸载流程"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {

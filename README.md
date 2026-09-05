@@ -6,7 +6,7 @@
 
 CAD Studio 桌面端与 Skill/CLI/MCP 是平级入口：这个仓库同时可以作为 Skill 包和 MCP Server 使用。Skill 适合导入支持 skills 的客户端，MCP 适合做本地工具连接；两者共用同一套能力和脚本。实际可执行范围以根目录 `capabilities.yaml` 为唯一真源；未验证能力不会被包装成已完成的无人值守交付。
 
-> 可靠性边界：当前真机基线为 SolidWorks 2024、SolidWorks 2026 SP01.1 和 AutoCAD 2024。SolidWorks 2026 仅对能力清单中列出 2026 的能力视为已验证；SolidWorks 2025 及其余未回归能力仍是兼容性目标。配置族、钣金 U 型轮廓法兰/展开 DXF，以及 HSS 矩形焊接框架/切割清单已进入 `pilot`；设计表与复杂钣金/焊件仍是兼容目标。C# Add-in 宿主已完成强名称构建、COM 冒烟和严格注册门禁，但当前非管理员会话未完成 HKLM 注册后的进程内 UI/事件回归，因此不列入已验证版本。Simulation/FEA、Routing、复杂曲面和模具也处于受控 `pilot` 门禁，不能冒充原生完整交付。
+> 可靠性边界：当前真机基线为 SolidWorks 2024、SolidWorks 2026 SP01.1 和 AutoCAD 2024。SolidWorks 2026 仅对能力清单中列出 2026 的能力视为已验证；SolidWorks 2025 及其余未回归能力仍是兼容性目标。配置族、钣金 U 型轮廓法兰/展开 DXF，以及 HSS 矩形焊接框架/切割清单已进入 `pilot`；设计表与复杂钣金/焊件仍是兼容目标。C# Add-in 宿主已在 SW2026 SP1.1 完成进程内 callback、应用事件、CommandGroup、TaskPane、PropertyManagerPage 和 JSON 诊断回归；正式部署必须使用 64 位 RegAsm `/codebase /tlb`。Simulation/FEA、Routing、复杂曲面和模具也处于受控 `pilot` 门禁，不能冒充原生完整交付。
 
 ## 下载与首次启动
 
@@ -102,7 +102,7 @@ python scripts/cad_studio.py create-ocp-surface --input .\smooth-loft.json --out
 
 - 🔧 **零件建模** - 草图绘制、拉伸、旋转、倒角、圆角、阵列等
 - 🧭 **多语言后端路由** - 按原子操作在 Python、C# PIA/Add-in、原生 C++、SWBasic、OCCT 和外部求解器之间选择，区分 Automation 等价语义与精确原生接口
-- 🧩 **C# Add-in 宿主（试点）** - `net48/x64` 强名称程序集覆盖应用事件、三命令 CommandGroup、TaskPane、完整 PMP Handler 与 JSON 诊断；Machine 注册和真机 Probe 见 [`references/solidworks-addin-host.md`](references/solidworks-addin-host.md)
+- 🧩 **C# Add-in 宿主（SW2026 已验证）** - `net48/x64` 强名称程序集覆盖应用事件、三命令 CommandGroup、TaskPane、完整 PMP Handler 与 JSON 诊断；Machine `/codebase /tlb` 注册和真机 Probe 见 [`references/solidworks-addin-host.md`](references/solidworks-addin-host.md)
 - 🧱 **无 CAD 开放格式后端** - OCCT/OCP 隔离进程真实写入 STEP、IGES、BREP、STL、OBJ、GLB，二维后端写入 DXF、SVG、PDF、PNG；复杂特征按能力门禁阻断
 - 🧠 **VibeCAD 参数化规划** - 将自然语言需求转换为设计计划、制造规则检查、SolidWorks API 执行摘要和审查门禁
 - 🧵 **螺纹孔建模** - 攻丝底孔、M3/M4/M5/M6/M8 盲孔/通孔、孔口倒角、装饰螺纹与可见螺旋线兜底

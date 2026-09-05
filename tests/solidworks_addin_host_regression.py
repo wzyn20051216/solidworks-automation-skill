@@ -16,6 +16,10 @@ ADDIN_GUID = "8EE76E8D-9B47-4DE0-AFA2-B2E36621A134"
 def _com_value(owner, name: str, *args):
     """@brief 兼容 pywin32 将无参 COM 方法暴露为属性或可调用对象的差异。"""
     member = getattr(owner, name)
+    # CDispatch 表示 pywin32 在取属性时已经执行了无参 COM 调用；它虽然
+    # 也实现了 __call__，再次调用却会尝试访问并不存在的默认成员。
+    if not args and hasattr(member, "_oleobj_"):
+        return member
     return member(*args) if callable(member) else member
 
 
@@ -83,15 +87,16 @@ def run_regression(assembly: Path, *, keep_loaded: bool = True, start_solidworks
     if initial.get("solidWorksRevision") != revision:
         raise AssertionError((initial.get("solidWorksRevision"), revision))
 
-    created = sw_app.NewPart()
+    created = _com_value(sw_app, "NewPart")
     if created is None:
         raise RuntimeError("NewPart 未返回文档，无法验证 FileNewNotify2。")
     title = str(_com_value(created, "GetTitle"))
     sw_app.CloseDoc(title)
-    _wait_for_connected(diagnostics)
     event_payload = _wait_for_event(diagnostics, "file_new")
-    if int(event_payload.get("eventCounts", {}).get("file_close", 0)) < 1:
-        event_payload = _wait_for_event(diagnostics, "file_close")
+    event_payload = _wait_for_event(diagnostics, "active_model_doc_change")
+    documents_after_close = int(_com_value(sw_app, "GetDocumentCount"))
+    if documents_after_close != 0:
+        raise RuntimeError(f"CloseDoc 后仍有 {documents_after_close} 个文档打开。")
 
     unload_status = None
     if not keep_loaded:
@@ -113,6 +118,7 @@ def run_regression(assembly: Path, *, keep_loaded: bool = True, start_solidworks
         "task_pane_ready": event_payload["taskPaneReady"],
         "property_manager_page_ready": event_payload["propertyManagerPageReady"],
         "event_counts": event_payload["eventCounts"],
+        "documents_after_close": documents_after_close,
         "errors": event_payload["errors"],
     }
 

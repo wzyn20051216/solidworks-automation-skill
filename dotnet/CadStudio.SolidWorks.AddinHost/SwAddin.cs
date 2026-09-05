@@ -23,7 +23,7 @@ namespace CadStudio.SolidWorks.AddinHost
 
         private readonly HostDiagnostics diagnostics = new HostDiagnostics();
         private ISldWorks swApp;
-        private DSldWorksEvents_Event applicationEvents;
+        private SldWorks applicationEvents;
         private ICommandManager commandManager;
         private ICommandGroup commandGroup;
         private ITaskpaneView taskPane;
@@ -34,6 +34,12 @@ namespace CadStudio.SolidWorks.AddinHost
         private bool commandGroupReady;
         private bool taskPaneReady;
         private bool propertyManagerPageReady;
+
+        /// <summary>初始化宿主并记录 COM 类已被实际实例化。</summary>
+        public SwAddin()
+        {
+            diagnostics.RecordEvent("constructed");
+        }
 
         /// <summary>注册 COM 类和 SolidWorks Add-ins 元数据。</summary>
         [ComRegisterFunction]
@@ -74,17 +80,21 @@ namespace CadStudio.SolidWorks.AddinHost
                 {
                     throw new InvalidOperationException("SetAddinCallbackInfo2 未注册有效回调。");
                 }
+                diagnostics.RecordEvent("callback_ready");
                 AttachApplicationEvents();
+                diagnostics.RecordEvent("application_events_ready");
                 commandGroupReady = CreateCommandGroup();
                 if (!commandGroupReady)
                 {
                     throw new InvalidOperationException("CommandGroup 激活失败。");
                 }
+                diagnostics.RecordEvent("command_group_ready");
                 taskPaneReady = CreateTaskPane();
                 if (!taskPaneReady)
                 {
                     throw new InvalidOperationException("TaskPane 创建或显示失败。");
                 }
+                diagnostics.RecordEvent("task_pane_ready");
                 propertyManagerPageReady = CreatePropertyManagerPage();
                 diagnostics.MarkUi(commandGroupReady, taskPaneReady, propertyManagerPageReady);
                 return callbackReady && commandGroupReady && taskPaneReady;
@@ -267,7 +277,7 @@ namespace CadStudio.SolidWorks.AddinHost
         /// <summary>订阅必要且低频的 SolidWorks 应用事件。</summary>
         private void AttachApplicationEvents()
         {
-            applicationEvents = (DSldWorksEvents_Event)swApp;
+            applicationEvents = (SldWorks)swApp;
             applicationEvents.ActiveModelDocChangeNotify += OnActiveModelDocChange;
             applicationEvents.FileOpenPostNotify += OnFileOpenPost;
             applicationEvents.FileNewNotify2 += OnFileNew;

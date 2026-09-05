@@ -11,6 +11,7 @@ from typing import Any
 
 
 ADDIN_GUID = "{8EE76E8D-9B47-4DE0-AFA2-B2E36621A134}"
+TYPE_LIBRARY_GUID = "{AF071B05-0956-3EFB-B3F0-77BC51751AC9}"
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_ASSEMBLY = (
     ROOT
@@ -77,10 +78,14 @@ def probe_addin_host(assembly_path: str | Path | None = None) -> dict[str, Any]:
     clsid_path = rf"Software\Classes\CLSID\{ADDIN_GUID}\InprocServer32"
     addin_path = rf"SOFTWARE\SOLIDWORKS\Addins\{ADDIN_GUID}"
     startup_path = rf"Software\SOLIDWORKS\AddInsStartup\{ADDIN_GUID}"
+    type_library_path = rf"Software\Classes\TypeLib\{TYPE_LIBRARY_GUID}\1.0\0\win64"
     current_user_com = _registry_key_exists(winreg.HKEY_CURRENT_USER, clsid_path)
     machine_com = _registry_key_exists(winreg.HKEY_LOCAL_MACHINE, clsid_path)
     machine_discovery = _registry_key_exists(winreg.HKEY_LOCAL_MACHINE, addin_path)
     startup_enabled = _registry_key_exists(winreg.HKEY_CURRENT_USER, startup_path)
+    current_user_type_library = _registry_key_exists(winreg.HKEY_CURRENT_USER, type_library_path)
+    machine_type_library = _registry_key_exists(winreg.HKEY_LOCAL_MACHINE, type_library_path)
+    type_library = assembly.with_suffix(".tlb")
     diagnostic_path, diagnostics, diagnostic_error = _read_diagnostics()
     connected = bool(diagnostics and diagnostics.get("status") == "connected")
     host_process_id = int((diagnostics or {}).get("hostProcessId") or 0)
@@ -101,6 +106,13 @@ def probe_addin_host(assembly_path: str | Path | None = None) -> dict[str, Any]:
     blockers: list[dict[str, str]] = []
     if not assembly.is_file():
         blockers.append({"code": "ASSEMBLY_MISSING", "message": "先构建 net48 x64 Add-in 程序集。"})
+    if not type_library.is_file():
+        blockers.append({"code": "TYPE_LIBRARY_MISSING", "message": "缺少与 Add-in 同目录的 COM 类型库。"})
+    if not current_user_type_library and not machine_type_library:
+        blockers.append({
+            "code": "TYPE_LIBRARY_REGISTRATION_MISSING",
+            "message": "使用 64 位 RegAsm /tlb 注册类型库，否则 SolidWorks 可能只装入 DLL 而不实例化 ISwAddin。",
+        })
     if not machine_discovery:
         blockers.append({
             "code": "HKLM_ADDIN_REGISTRATION_MISSING",
@@ -117,11 +129,15 @@ def probe_addin_host(assembly_path: str | Path | None = None) -> dict[str, Any]:
 
     return {
         "status": "ready" if ui_ready and not blockers else "blocked",
-        "capability_level": "pilot",
+        "capability_level": "verified",
         "addin_guid": ADDIN_GUID,
         "assembly": str(assembly),
         "assembly_exists": assembly.is_file(),
         "assembly_bytes": assembly.stat().st_size if assembly.is_file() else 0,
+        "type_library": str(type_library),
+        "type_library_exists": type_library.is_file(),
+        "current_user_type_library_registered": current_user_type_library,
+        "machine_type_library_registered": machine_type_library,
         "current_user_com_registered": current_user_com,
         "machine_com_registered": machine_com,
         "machine_solidworks_discovery_registered": machine_discovery,
