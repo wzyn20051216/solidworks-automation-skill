@@ -1,14 +1,20 @@
 """
 SolidWorks MCP Server.
 
-This stdio MCP server wraps the existing solidworks-automation skill scripts so
-MCP clients can operate a local Windows SolidWorks desktop session through
-Python COM. It intentionally serializes all tool calls because SolidWorks COM is
-a single-user desktop automation surface.
+This MCP server wraps the existing solidworks-automation skill scripts so MCP
+clients can operate a local Windows SolidWorks desktop session through Python
+COM. It intentionally serializes all tool calls because SolidWorks COM is a
+single-user desktop automation surface.
+
+It speaks MCP over ``stdio`` by default. Pass ``--transport streamable-http`` to
+serve the same tools over HTTP instead, so a client running on another machine
+can connect without spawning a local child process.
 """
 from __future__ import annotations
 
+import argparse
 import importlib
+import importlib.util
 import json
 import os
 import platform
@@ -2445,10 +2451,49 @@ def solidworks_validate_motion_study(params: SolidWorksMotionValidationInput = S
 
 
 def main() -> None:
-    """Run the SolidWorks MCP server over stdio."""
+    """Run the SolidWorks MCP server.
+
+    ``stdio`` stays the default so existing MCP host configurations keep working
+    unchanged. ``--transport streamable-http`` serves the same tool surface over
+    HTTP for remote clients.
+    """
+    parser = argparse.ArgumentParser(description="SolidWorks MCP server")
+    parser.add_argument(
+        "--transport",
+        choices=("stdio", "streamable-http"),
+        default="stdio",
+        help="MCP transport to serve (default: stdio)",
+    )
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("SW_MCP_HOST", "127.0.0.1"),
+        help="Bind address for streamable-http (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("SW_MCP_PORT", "8000")),
+        help="Bind port for streamable-http (default: 8000)",
+    )
+    args = parser.parse_args()
+
     if sys.stdout is not _MCP_STDOUT:
         sys.stdout = _MCP_STDOUT
-    mcp.run(transport="stdio")
+
+    if args.transport == "stdio":
+        mcp.run(transport="stdio")
+        return
+
+    # streamable-http is served by uvicorn, which FastMCP imports lazily.
+    if importlib.util.find_spec("uvicorn") is None:
+        raise SystemExit(
+            "streamable-http transport requires uvicorn: "
+            "python -m pip install uvicorn"
+        )
+    # FastMCP reads the bind address from its settings, so set them before run().
+    mcp.settings.host = args.host
+    mcp.settings.port = args.port
+    mcp.run(transport="streamable-http")
 
 
 if __name__ == "__main__":
