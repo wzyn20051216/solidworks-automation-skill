@@ -1,8 +1,10 @@
 # SolidWorks MCP Server
 
-本目录提供一个本地 `stdio` MCP Server，同时暴露无 CAD 开放格式工具和 SolidWorks COM 白名单工具。MCP 与 CAD Studio、Skill、CLI 共用能力清单和数据协议。
+本目录提供一个本地 MCP Server，同时暴露无 CAD 开放格式工具和 SolidWorks COM 白名单工具。MCP 与 CAD Studio、Skill、CLI 共用能力清单和数据协议。
 
 SolidWorks 是 Windows 桌面 COM 应用，不适合远程多客户端并发；因此本 server 默认使用 `stdio`，并在内部用全局锁串行执行所有 SolidWorks 操作。
+
+除 `stdio` 外，还可用 `--transport streamable-http` 把同一套工具以 HTTP 方式暴露，供**不在同一台机器上**的 MCP 客户端连接（例如 Linux 上的 agent 远程驱动 Windows 上的 SolidWorks）。此时全局串行锁依然生效，请仍然只接一个客户端。
 
 ## 环境要求
 
@@ -25,6 +27,39 @@ python mcp-server\server.py
 ```
 
 该命令通常由 MCP 客户端作为子进程启动，不需要手动长期运行。
+
+## HTTP 传输（streamable-http）
+
+当 MCP 客户端与 SolidWorks 不在同一台机器上时（例如 Linux 上的 agent 驱动 Windows 上的 SolidWorks），无法让客户端直接拉起本机的 stdio 子进程，此时改用 HTTP 传输：
+
+```powershell
+python -m pip install uvicorn
+python mcp-server\server.py --transport streamable-http --host 0.0.0.0 --port 8000
+```
+
+- 端点：`http://<本机IP>:8000/mcp`（Streamable HTTP，FastMCP 默认路径 `/mcp`）
+- `--host` 默认 `127.0.0.1`；局域网访问需显式传 `0.0.0.0`，并放行对应端口的防火墙
+- `--port` 默认 `8000`
+- 也可用环境变量 `SW_MCP_HOST` / `SW_MCP_PORT` 提供默认值，命令行参数优先
+- **`uvicorn` 是可选依赖**：仅在 `--transport streamable-http` 时需要；缺失时会给出明确提示
+- 默认值仍是 `stdio`，现有 MCP 客户端配置无需改动
+
+客户端配置示例（OpenCode / 其他支持 remote MCP 的客户端）：
+
+```jsonc
+{
+  "mcp": {
+    "servers": {
+      "solidworks": {
+        "type": "remote",
+        "url": "http://<SolidWorks机器的IP>:8000/mcp"
+      }
+    }
+  }
+}
+```
+
+> ⚠️ HTTP 模式默认**无鉴权**。请仅在可信局域网内使用，或自行在前置代理上加认证/限流。
 
 ## Smithery 发布
 
