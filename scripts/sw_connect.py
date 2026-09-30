@@ -52,6 +52,14 @@ class SolidWorksConnectionError(RuntimeError):
         super().__init__(f"[{code}] {stage}: {message}")
 
 
+class SolidWorksDocumentOpenError(RuntimeError):
+    """文档打开失败；error_code 保留 OpenDoc6/LoadFile4 原始位组合码。"""
+
+    def __init__(self, message, error_code=0):
+        self.error_code = int(error_code or 0)
+        super().__init__(message)
+
+
 class _LaunchGuard:
     """跨进程启动互斥；Windows 使用命名 Mutex，其它平台使用独占锁文件。"""
 
@@ -226,6 +234,22 @@ def close_owned_solidworks(sw, started_by_cad_studio):
     return False
 
 
+def _solidworks_process_running():
+    """探测 SLDWORKS.exe 进程是否已在运行(仅 Windows; 失败按未运行处理)。"""
+    if os.name != "nt":
+        return False
+    try:
+        import subprocess
+
+        output = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq SLDWORKS.exe", "/NH"],
+            capture_output=True, text=True, timeout=10,
+        ).stdout
+        return "SLDWORKS.exe" in output
+    except Exception:
+        return False
+
+
 def connect_solidworks(version=None, wait_seconds=5, visible=True, return_metadata=False):
     """
     连接到 SolidWorks 实例。
@@ -250,13 +274,19 @@ def connect_solidworks(version=None, wait_seconds=5, visible=True, return_metada
             print(f"已连接到运行中的 SolidWorks 实例（ProgID: {prog_id}）")
         except Exception as attach_error:
             try:
+                # Dispatch 对 ROT 单例会附着到既有实例而非新建; 用进程探测区分,
+                # 避免误报"启动了新实例"并在退出时误杀用户已开的 SolidWorks。
+                already_running = _solidworks_process_running()
                 sw = win32com_client.Dispatch(prog_id)
-                launched_here = True
+                launched_here = not already_running
                 try:
                     sw.Visible = visible
                 except Exception:
                     pass
-                print(f"启动了新的 SolidWorks 实例（ProgID: {prog_id}）")
+                if already_running:
+                    print(f"已连接到运行中的 SolidWorks 实例（ProgID: {prog_id}）")
+                else:
+                    print(f"启动了新的 SolidWorks 实例（ProgID: {prog_id}）")
                 _wait_until_ready(sw, wait_seconds)
             except SolidWorksConnectionError:
                 close_owned_solidworks(sw, launched_here)
@@ -459,6 +489,63 @@ def new_document(sw, doc_type="part", template_path=None):
     return model
 
 
+# swFileLoadError_e (swconst.tlb, SW2024 SP5 实测对齐): OpenDoc6/LoadFile4
+# 的 errors/warnings 是该枚举的位组合。
+SW_FILE_LOAD_ERRORS = {
+    1: "swGenericError(通用错误)",
+    2: "swFileNotFoundError(文件未找到)",
+    4: "swIdMatchError(内部ID不匹配)",
+    8: "swReadOnlyWarn(只读警告)",
+    16: "swSharingViolationWarn(共享冲突警告)",
+    32: "swDrawingANSIUpdateWarn(工程图ANSI更新警告)",
+    64: "swSheetScaleUpdateWarn(图纸比例更新警告)",
+    128: "swNeedsRegenWarn(需要重建警告)",
+    256: "swBasePartNotLoadedWarn(基体零件未加载警告)",
+    512: "swFileAlreadyOpenWarn(文件已打开警告)",
+    1024: "swInvalidFileTypeError(文件类型无效)",
+    2048: "swDrawingsOnlyRapidDraftWarn(仅快速工程图警告)",
+    4096: "swViewOnlyRestrictions(仅查看限制)",
+    8192: "swFutureVersion(未来版本)",
+    16384: "swViewMissingReferencedConfig(视图缺少引用配置)",
+    65536: "swFileWithSameTitleAlreadyOpen(同名文档已打开)",
+    131072: "swLiquidMachineDoc(受保护文档)",
+    262144: "swLowResourcesError(资源不足)",
+    524288: "swNoDisplayData(无显示数据)",
+    1048576: "swAddinInteruptError(插件中断)",
+    2097152: "swFileRequiresRepairError(文件损坏或需要修复)",
+    4194304: "swFileCriticalDataRepairError(关键数据需修复)",
+    8388608: "swApplicationBusy(应用忙)",
+    16777216: "swConnectedIsOffline(连接离线)",
+}
+
+
+def classify_sw_file_load_errors(code):
+    """
+    把 OpenDoc6/LoadFile4 返回的位组合错误码翻译为可读说明。
+
+    参数:
+        code: 整数错误码(0 表示无错误)
+
+    返回:
+        str 枚举名列表; 未匹配的位以 0x 十六进制保留
+    """
+    try:
+        code = int(code or 0)
+    except (TypeError, ValueError):
+        return "未知"
+    if code == 0:
+        return "无"
+    parts = []
+    remaining = code
+    for value in sorted(SW_FILE_LOAD_ERRORS, reverse=True):
+        if remaining & value == value:
+            parts.append(SW_FILE_LOAD_ERRORS[value].split("(")[0])
+            remaining &= ~value
+    if remaining:
+        parts.append(f"未知位(0x{remaining:X})")
+    return " | ".join(parts) if parts else "无"
+
+
 def open_document(sw, file_path, read_only=False, silent=False, raise_on_error=False):
     """
     打开已有文档。
@@ -550,9 +637,12 @@ def open_document(sw, file_path, read_only=False, silent=False, raise_on_error=F
     if model:
         print(f"已打开: {file_path}")
     else:
-        message = f"打开失败, 错误码: {errors.value}, 警告码: {warnings.value}"
+        message = (
+            f"打开失败, 错误码: {errors.value} ({classify_sw_file_load_errors(errors.value)}), "
+            f"警告码: {warnings.value} ({classify_sw_file_load_errors(warnings.value)})"
+        )
         if raise_on_error:
-            raise RuntimeError(message)
+            raise SolidWorksDocumentOpenError(message, error_code=int(errors.value or 0))
         print(message)
     return model
 

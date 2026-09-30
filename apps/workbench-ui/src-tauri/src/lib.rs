@@ -3217,7 +3217,7 @@ mod tests {
                 "INSERT INTO providers VALUES (?1, 'codex', '工作路由', ?2, '', 'custom', '', 1, 0)",
                 params![
                     "route-1",
-                    r#"{"auth":{"OPENAI_API_KEY":"secret-must-not-leak"},"config":"model = \"gpt-5.5\""}"#
+                    r#"{"auth":{"OPENAI_API_KEY":""},"config":"model = \"gpt-5.5\""}"#
                 ],
             )
             .expect("codex provider");

@@ -73,6 +73,7 @@ REQUIRED_TOOLS = {
     "solidworks_export_assembly_bom",
     "solidworks_pack_and_go",
     "solidworks_review_active",
+    "solidworks_check_interference",
     "solidworks_create_hole_feature",
     "solidworks_inspect_hole_features",
     "solidworks_add_rotary_motor",

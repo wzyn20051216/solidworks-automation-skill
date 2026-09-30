@@ -115,6 +115,7 @@ session.export(model, r"C:\temp\cylinder.step")
 | 装配 BOM CSV 与 Pack and Go | `scripts/sw_delivery.py` | `references/export.md` |
 | OBJ/STL 高还原网格参考导入 | `scripts/sw_import_mesh_reference.py` | `references/mesh-reference-import.md` |
 | 结果自审查 | `scripts/sw_review.py` | `references/review.md` |
+| 三维模型健康度与错误检查（重建门禁/特征错误码/零包络/装配干涉/工程图结构） | `scripts/sw_review.py`、`scripts/sw_assembly.py::get_interference_detection` | `references/review.md`、`references/assembly.md`；MCP 工具 `solidworks_check_interference` |
 | 语义实体引用 | `scripts/sw_entity_reference.py` | 逐步替代 Face1/Edge1 和屏幕坐标 |
 | DFM 制造风险复核 | `scripts/dfm_review.py`、`scripts/dfm_profiles.py`、`scripts/cad_studio.py check-dfm` | 供应商 profile、B-Rep 证据、机加工、钣金、激光切割和 3D 打印的结构化规则检查 |
 | Routing 中性复核与前置 | `scripts/routing_review.py`、`scripts/cad_studio.py check-routing`、`scripts/cad_studio.py routing-preflight` | 端点、分段、长度、弯曲半径、碰撞/间隙、支撑、Routing BOM；原生写入必须等加载项/许可证证据 |

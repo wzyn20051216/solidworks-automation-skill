@@ -273,7 +273,21 @@
       "backends": ["solidworks-com"],
       "verified_versions": ["2024"],
       "dependencies": ["SolidWorks", "pywin32", "comtypes"],
-      "limitations": ["必须回读配合特征和自由度；不等于完整干涉或受力分析"],
+      "limitations": ["必须回读配合特征和自由度；不等于完整干涉或受力分析；干涉几何检查见 model_health_error_check"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "model_health_error_check",
+      "label": "三维模型健康度与错误检查",
+      "level": "verified",
+      "backends": ["solidworks-com"],
+      "verified_versions": ["2024"],
+      "dependencies": ["SolidWorks", "pywin32"],
+      "limitations": [
+        "sw_review 覆盖 ForceRebuild3 重建门禁(rebuild_failed)、IFeature.GetErrorCode 特征故障清点(feature_errors_present)、零件零包络退化几何(degenerate_envelope)、装配体干涉(interference_detected, 现代 InterferenceDetectionManager API + 旧版回退)与工程图结构/布局审查(drawing_views_missing 等)",
+        "干涉为 warn 级并强制人工确认：压配合等有意干涉属正常业务状态；特征错误码数值语义随 SolidWorks 版本可能变化",
+        "不覆盖草图悬空关系的自动修复、DesignChecker 规则集与深度损坏文件的修复，打开错误仅分类(swFileLoadError_e)不修复"
+      ],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {

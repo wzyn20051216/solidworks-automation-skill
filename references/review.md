@@ -7,7 +7,7 @@
 1. COM 调用返回值不是 `None`，关键特征对象创建成功。
 2. `save_document()`、`session.save()`、`session.export()` 返回成功。
 3. 输出 `.sldprt` / `.sldasm` / `.slddrw` / `.step` / `.stl` 等文件真实存在且大小合理。
-4. 模型已重建：`model.ForceRebuild3(False)`。
+4. 模型已重建且重建成功：`model.ForceRebuild3(False)` 返回 `True`（返回 `False` 即特征无法求解，必须修复）。
 5. 模型已缩放到适合窗口：`model.ViewZoomtofit2()`。
 6. 至少导出一张等轴测 BMP，复杂模型导出前视、俯视、右视。
 
@@ -44,6 +44,26 @@ print(report["checks"])
 - `checks.previews_not_blank`：预览图是否疑似非空白。
 - `checks.expected_outputs_exist`：期望输出文件是否真实存在且大小大于 0。
 - `checks.feature_summary_available`：是否能读取特征树摘要。
+
+## 模型健康度检查(自动执行)
+
+`run_review()` 按文档类型自动追加以下错误检查，无需额外调用：
+
+- `checks.rebuild_ok` / `rebuild_failed`(fail)：`ForceRebuild3(False)` 返回 False，
+  即模型存在无法求解的特征，是最高优先级硬失败。
+- `model.faulty_features` / `feature_errors_present`(fail)：逐特征读取
+  `IFeature.GetErrorCode()`，非 0 的特征连同错误码列入清点。
+- `degenerate_envelope`(fail)：零件包络长宽高全为 0，模型没有可用实体。
+- 装配体：`interference` 段 + `interference_detected`(warn)：自动运行
+  `sw_assembly.get_interference_detection()`(SW2024+ 用 `InterferenceDetectionManager`)，
+  报告干涉数与干涉组件名；压配合等有意干涉属正常，故为 warn 并强制人工确认。
+- 工程图：`drawing_structure`/`drawing_layout` 段 + `drawing_views_missing`(fail)
+  与 `drawing_layout_review_required`(warn)：视图缺失或布局碰撞风险。
+- 零件专属：`geometry_measurements_unavailable`(warn)——包围盒/实体拓扑读取失败。
+  装配体/工程图不做 IPartDoc 几何测量(文档类型门禁)，不会误报。
+
+CLI 打不开的文件(不存在/损坏)会输出分类后的 `swFileLoadError_e` 错误码
+(如 2097152 = `swFileRequiresRepairError`)并以退出码 2 结束，不再抛裸 traceback。
 
 注意：结构化报告只能抓明显失败，不能替代人工或视觉模型对几何意图的判断。
 

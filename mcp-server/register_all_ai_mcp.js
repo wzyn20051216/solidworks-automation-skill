@@ -11,7 +11,7 @@ function parseArgs(argv) {
   const options = {
     name: 'solidworks',
     server: path.join(__dirname, 'server.py'),
-    python: process.env.PYTHON || 'python',
+    python: 'python',
     clients: DEFAULT_CLIENTS,
     installDependencies: false,
     backup: true,
@@ -122,9 +122,10 @@ function commandExists(command) {
 }
 
 function resolvePython(candidate) {
+  // 注意: 不读取 process.env.PYTHON 等环境变量作为命令来源;
+  // 需要指定解释器时使用 --python 显式传入
   const candidates = [
     candidate,
-    process.env.PYTHON,
     'python',
     'py',
     'python3',
@@ -135,41 +136,28 @@ function resolvePython(candidate) {
     if (seen.has(command)) continue;
     seen.add(command);
 
-    const args = command === 'py'
-      ? ['-3', '-c', 'import sys; print(sys.executable)']
-      : ['-c', 'import sys; print(sys.executable)'];
-    const result = run(command, args, { quiet: true });
+    // 探测代码经 stdin 传入(`python -`), 命令为真实 exe, 禁用 shell 走参数数组
+    const args = command === 'py' ? ['-3', '-'] : ['-'];
+    const result = run(command, args, {
+      quiet: true,
+      shell: false,
+      input: 'import sys\nprint(sys.executable)\n',
+    });
     if (result.status === 0) {
-      const executable = result.stdout.trim();
+      const executable = (result.stdout || '').trim();
       return executable || command;
     }
   }
 
-  throw new Error('Python was not found. Install Python 3.8+ and retry.');
+  throw new Error('Python was not found. Install Python 3.8+ or retry.');
 }
 
-function ensureServerReady(options, pythonCommand) {
-  if (!fs.existsSync(options.server)) {
-    throw new Error(`MCP server not found: ${options.server}`);
-  }
+// 命令 token 校验: 环境变量/CLI 提供的 python 命令不得包含 shell 元字符
+// (允许空格与 Windows 路径的反斜杠/冒号, 如 C:\Program Files\Python311\python.exe)
+const SAFE_COMMAND_TOKEN = /^[^;&|`$<>()!^"'\r\n]+$/;
 
-  const requirementsPath = path.join(path.dirname(options.server), 'requirements.txt');
-  if (options.installDependencies) {
-    if (!fs.existsSync(requirementsPath)) {
-      throw new Error(`Requirements file not found: ${requirementsPath}`);
-    }
-    console.log('Installing Python dependencies...');
-    const pip = run(pythonCommand, ['-m', 'pip', 'install', '-r', requirementsPath]);
-    if (pip.status !== 0) {
-      throw new Error('Failed to install Python dependencies.');
-    }
-  }
-
-  console.log('Checking MCP server syntax...');
-  const check = run(pythonCommand, ['-m', 'py_compile', options.server]);
-  if (check.status !== 0) {
-    throw new Error('MCP server syntax check failed.');
-  }
+function isSafeCommandToken(token) {
+  return typeof token === 'string' && SAFE_COMMAND_TOKEN.test(token);
 }
 
 function registerCodex(options, pythonCommand) {
@@ -306,7 +294,36 @@ function main() {
   console.log(`MCP server: ${options.server}`);
   console.log(`Python: ${pythonCommand}`);
 
-  ensureServerReady(options, pythonCommand);
+  // server 就绪检查(内联): 命令 token 校验 + server 路径包含约束 + 语法检查
+  if (!isSafeCommandToken(pythonCommand)) {
+    throw new Error(`Unsafe python command token: ${pythonCommand}`);
+  }
+  const allowedRoot = path.resolve(__dirname).toLowerCase();
+  const serverPath = path.resolve(options.server).toLowerCase();
+  if (!serverPath.startsWith(allowedRoot + path.sep.toLowerCase())) {
+    throw new Error(`MCP server path must stay under ${allowedRoot}: ${options.server}`);
+  }
+  if (!fs.existsSync(options.server)) {
+    throw new Error(`MCP server not found: ${options.server}`);
+  }
+  const requirementsPath = path.join(path.dirname(options.server), 'requirements.txt');
+  if (options.installDependencies) {
+    if (!fs.existsSync(requirementsPath)) {
+      throw new Error(`Requirements file not found: ${requirementsPath}`);
+    }
+    console.log('Installing Python dependencies...');
+    // python/py/python.exe 都是真实可执行文件(非 .cmd 垫片), 一律禁用 shell,
+    // 参数走数组, 切断 --python 污点进入 shell 的路径
+    const pip = run(pythonCommand, ['-m', 'pip', 'install', '-r', requirementsPath], { shell: false });
+    if (pip.status !== 0) {
+      throw new Error('Failed to install Python dependencies.');
+    }
+  }
+  console.log('Checking MCP server syntax...');
+  const check = run(pythonCommand, ['-m', 'py_compile', options.server], { shell: false });
+  if (check.status !== 0) {
+    throw new Error('MCP server syntax check failed.');
+  }
 
   const results = [];
   for (const client of options.clients) {

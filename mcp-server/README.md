@@ -154,6 +154,8 @@ claude mcp add --scope user solidworks -- python C:\path\to\solidworks-automatio
 | `solidworks_generate_drawing` | 按 DrawingSpec v1 生成 GB/T/ISO 工程图、SLDDRW、PDF、预览和审查报告；将 COM 尺寸位置与最终 PDF 文字框关联 | 是，写输出文件 |
 | `solidworks_review_drawing` | 按 DrawingSpec 审查工程图结构、布局、尺寸链、孔槽和最终 PDF 尺寸文字边界 | 否，写审查输出 |
 | `solidworks_inspect_drawing` | 只读读取工程图页、视图、尺寸、注释、表格和 BMP 预览证据 | 否，写审查输出 |
+| `solidworks_review_active` | 导出多视角 BMP 预览和 JSON 审查报告（含重建门禁、特征错误码、装配体干涉、工程图结构/布局审查） | 是，写输出文件 |
+| `solidworks_check_interference` | 对活动装配体运行干涉检查，返回干涉数、明细与干涉组件名（SW2024+ 现代 API，兼容旧版） | 否 |
 | `solidworks_create_hole_feature` | 创建盲孔、通孔、沉孔、沉头孔或半圆端槽，并返回参数证据 | 是 |
 | `solidworks_inspect_hole_features` | 读取 B-Rep 孔段、复合孔、槽端圆弧并验证孔位 | 否 |
 | `solidworks_add_rotary_motor` | 在活动装配体中新建 Motion Study 并添加匀速旋转马达 | 是 |

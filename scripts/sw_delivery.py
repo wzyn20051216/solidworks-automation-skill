@@ -7,6 +7,8 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -14,11 +16,11 @@ import pywintypes
 from win32com.client import gencache
 
 try:
-    from .sw_connect import get_com_member
+    from .sw_connect import get_com_member, _solidworks_process_running
     from .sw_document_data import read_custom_property
     from .sw_preflight import import_com_dependencies
 except ImportError:
-    from sw_connect import get_com_member
+    from sw_connect import get_com_member, _solidworks_process_running
     from sw_document_data import read_custom_property
     from sw_preflight import import_com_dependencies
 
@@ -728,6 +730,24 @@ def _get_pack_and_go(extension):
         except Exception as exc:
             errors.append(f"noarg-invoketypes: {exc}")
 
+        # SW2024 SP5 的 IDispatch::Invoke 实现要求以 by-ref dispatch 出参携带
+        # IPackAndGo (comtypes 走 vtable 无此限制)；返回值本身为空。
+        if dispid is not None:
+            output = _VARIANT(pythoncom.VT_BYREF | pythoncom.VT_DISPATCH, None)
+            try:
+                ole_object.Invoke(
+                    dispid,
+                    0,
+                    pythoncom.DISPATCH_METHOD | pythoncom.DISPATCH_PROPERTYGET,
+                    1,
+                    output,
+                )
+                package = _coerce_dispatch(output.value)
+                if package is not None:
+                    return package
+            except Exception as exc:
+                errors.append(f"byref-dispatch-out: {exc}")
+
     # 仅保留给旧版异常包装器的兼容路径；当前官方类型库不是 by-ref 签名。
     output = _VARIANT(pythoncom.VT_BYREF | pythoncom.VT_DISPATCH, None)
     member = getattr(extension, "GetPackAndGo", None)
@@ -863,6 +883,71 @@ def _comtypes_pack_and_go(
     flatten: bool,
     dependencies: list[str] | None = None,
 ) -> dict[str, Any]:
+    """@brief 进程隔离地执行 comtypes 兜底 Pack and Go。
+
+    comtypes 与父进程共存时会使调用线程上已有的 pywin32 代理断连
+    (RPC_E_DISCONNECTED)，pack_and_go 之后同进程内的任何 COM 调用都会以
+    AttributeError 假象失败（真机复现于 SW2024 SP5）。真实 COM 调用因此被
+    移入独立子进程 (``sw_delivery_comtypes_worker.py``)，父进程不受影响。
+    """
+    if os.environ.get("CADSTUDIO_PACK_WORKER") == "1":
+        return _comtypes_pack_and_go_impl(
+            source_path,
+            target,
+            existing_files,
+            include_drawings=include_drawings,
+            include_simulation_results=include_simulation_results,
+            include_toolbox_components=include_toolbox_components,
+            include_suppressed=include_suppressed,
+            flatten=flatten,
+            dependencies=dependencies,
+        )
+
+    payload = {
+        "source_path": source_path,
+        "target": str(target),
+        "existing_files": {key: list(value) if value is not None else None for key, value in existing_files.items()},
+        "include_drawings": include_drawings,
+        "include_simulation_results": include_simulation_results,
+        "include_toolbox_components": include_toolbox_components,
+        "include_suppressed": include_suppressed,
+        "flatten": flatten,
+        "dependencies": dependencies,
+    }
+    worker_script = Path(__file__).resolve().parent / "sw_delivery_comtypes_worker.py"
+    completed = subprocess.run(
+        [sys.executable, str(worker_script)],
+        input=json.dumps(payload, ensure_ascii=False),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=str(Path(__file__).resolve().parent.parent),
+    )
+    stdout = (completed.stdout or "").strip()
+    if completed.returncode != 0:
+        detail = (completed.stderr or stdout or f"exit={completed.returncode}")[-500:]
+        raise RuntimeError(f"comtypes worker 子进程失败: {detail}")
+    try:
+        decoded = json.loads(stdout.splitlines()[-1])
+    except Exception as exc:
+        raise RuntimeError(f"comtypes worker 输出不可解析: {str(stdout)[-300:]}") from exc
+    if "error" in decoded:
+        raise RuntimeError(f"comtypes worker 内部失败: {decoded['error']}")
+    return decoded["result"]
+
+
+def _comtypes_pack_and_go_impl(
+    source_path: str,
+    target: Path,
+    existing_files: dict[str, tuple[int, int] | None],
+    *,
+    include_drawings: bool,
+    include_simulation_results: bool,
+    include_toolbox_components: bool,
+    include_suppressed: bool,
+    flatten: bool,
+    dependencies: list[str] | None = None,
+) -> dict[str, Any]:
     """@brief 使用 comtypes 早绑定兜底执行 SolidWorks 原生 Pack and Go。"""
     import comtypes.client
 
@@ -871,9 +956,14 @@ def _comtypes_pack_and_go(
     major = _active_solidworks_major()
     progids = [f"SldWorks.Application.{major}"] if major is not None else []
     progids.append("SldWorks.Application")
+    # CreateObject 会经类工厂附着到已运行实例却被误标为"本进程启动"，
+    # 导致 finally 里的 ExitApp 退出共享实例、父进程代理全部断连。
+    process_was_running = _solidworks_process_running()
     sw, started_here, last_error = _connect_comtypes_solidworks(comtypes.client, progids)
     if sw is None:
         raise RuntimeError(f"comtypes 无法创建 SolidWorks 应用: {last_error}")
+    if started_here and process_was_running:
+        started_here = False
 
     document = None
     try:

@@ -14,11 +14,21 @@ import sys
 from pathlib import Path
 
 try:
-    from .sw_connect import connect_solidworks, get_com_member, open_document
+    from .sw_connect import (
+        connect_solidworks, get_com_member, open_document,
+        classify_sw_file_load_errors, SolidWorksDocumentOpenError,
+    )
     from .sw_preflight import import_com_dependencies
+    from .sw_drawing import inspect_drawing_structure
+    from .sw_assembly import get_interference_detection
 except ImportError:
-    from sw_connect import connect_solidworks, get_com_member, open_document
+    from sw_connect import (
+        connect_solidworks, get_com_member, open_document,
+        classify_sw_file_load_errors, SolidWorksDocumentOpenError,
+    )
     from sw_preflight import import_com_dependencies
+    from sw_drawing import inspect_drawing_structure
+    from sw_assembly import get_interference_detection
 
 
 pythoncom, _win32com, VARIANT = import_com_dependencies()
@@ -51,6 +61,12 @@ def _pdf_text_overlap_candidate(text: str) -> bool:
 
 def _import_pdf_parser():
     """@brief 导入 PyMuPDF，并支持 E 盘等显式可选依赖目录。"""
+    try:
+        # PyMuPDF >= 1.24 推荐 import pymupdf; import fitz 已弃用并在新版本移除
+        import pymupdf
+        return pymupdf
+    except ImportError:
+        pass
     try:
         import fitz
         return fitz
@@ -633,20 +649,27 @@ def save_review_previews(model, output_dir, basename="review", views=None):
 
 def collect_model_summary(model):
     """
-    收集基础模型摘要。
+    收集基础模型摘要，含特征级健康度证据(IFeature.GetErrorCode)。
 
     返回:
-        dict，包含标题、类型、特征数量、保存路径等信息。
+        dict，包含标题、类型、特征数量、保存路径、faulty_features 等信息。
     """
     features = []
     feature_error = None
     try:
         feature = get_com_member(model, "FirstFeature")
         while feature:
-            features.append({
+            entry = {
                 "name": get_com_member(feature, "Name"),
                 "type": get_com_member(feature, "GetTypeName2"),
-            })
+            }
+            try:
+                error_code = get_com_member(feature, "GetErrorCode")
+                entry["error_code"] = int(error_code) if error_code is not None else None
+            except Exception:
+                # 系统文件夹等特征不支持该成员，视为无错误证据
+                entry["error_code"] = None
+            features.append(entry)
             feature = get_com_member(feature, "GetNextFeature")
     except Exception as exc:
         feature_error = str(exc)
@@ -658,6 +681,15 @@ def collect_model_summary(model):
         "feature_count": len(features),
         "features": features,
     }
+    summary["faulty_features"] = [
+        {
+            "name": item.get("name"),
+            "type": item.get("type"),
+            "error_code": item.get("error_code"),
+        }
+        for item in features
+        if item.get("error_code")
+    ]
     if feature_error:
         summary["feature_error"] = feature_error
     return summary
@@ -787,6 +819,18 @@ def collect_geometry_measurements(model):
         "cylindrical_faces": [],
         "errors": [],
     }
+    # GetPartBox/GetBodies2 是 IPartDoc 成员, 对装配体/工程图文档必然失败;
+    # 先做文档类型门禁, 非零件直接标记不支持, 不产生误导性 errors。
+    doc_type = None
+    try:
+        doc_type = get_com_member(model, "GetType")
+    except Exception:
+        doc_type = None
+    if doc_type not in (None, 1):
+        measurements["unsupported_doc_type"] = doc_type
+        measurements["hole_count"] = 0
+        measurements["hole_groups"] = []
+        return measurements
     try:
         box = list(get_com_member(model, "GetPartBox", True) or [])
         if len(box) >= 6:
@@ -874,7 +918,12 @@ def build_review_report(model, output_dir, basename="review", views=None, expect
     output_dir = _expand_path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    get_com_member(model, "ForceRebuild3", False)
+    # 重建门禁: ForceRebuild3 返回 False 表示模型存在无法求解的特征, 必须进入报告
+    rebuild_ok = None
+    try:
+        rebuild_ok = bool(get_com_member(model, "ForceRebuild3", False))
+    except Exception:
+        rebuild_ok = None
     zoom_to_fit(model)
 
     views = views or ("isometric", "front", "top", "right")
@@ -884,6 +933,20 @@ def build_review_report(model, output_dir, basename="review", views=None, expect
     summary = collect_model_summary(model)
     geometry = collect_geometry_measurements(model)
 
+    doc_type = summary.get("type")
+
+    # 装配体自动执行干涉检查(现代 InterferenceDetectionManager API, 详见 sw_assembly)
+    interference = None
+    if doc_type == 2:
+        interference = get_interference_detection(model)
+
+    # 工程图自动执行结构 + 布局碰撞审查(与 review_manufacturing_drawing 同源证据)
+    drawing_structure = None
+    drawing_layout = None
+    if doc_type == 3:
+        drawing_structure = inspect_drawing_structure(model)
+        drawing_layout = review_drawing_layout(drawing_structure)
+
     checks = {
         "model_available": model is not None,
         "previews_created": all(item["exists"] and item["size_bytes"] > 0 for item in previews),
@@ -892,6 +955,11 @@ def build_review_report(model, output_dir, basename="review", views=None, expect
         "feature_summary_available": "feature_error" not in summary,
         "geometry_measurements_available": geometry.get("envelope_mm") is not None,
         "geometry_measurements_error_free": not geometry.get("errors"),
+        "rebuild_ok": rebuild_ok,
+        "feature_errors_absent": not summary.get("faulty_features"),
+        "interference_check_available": None if interference is None else interference.get("status") != "blocked",
+        "interference_free": None if interference is None else interference.get("interference_count") == 0,
+        "drawing_views_present": None if drawing_structure is None else drawing_structure.get("error_code") != "DRAWING_VIEWS_MISSING",
     }
 
     review_notes = [
@@ -907,7 +975,13 @@ def build_review_report(model, output_dir, basename="review", views=None, expect
         "expected_outputs": expected,
         "checks": checks,
         "review_notes": review_notes,
+        "rebuild": {"ok": rebuild_ok},
     }
+    if interference is not None:
+        report["interference"] = interference
+    if drawing_structure is not None:
+        report["drawing_structure"] = drawing_structure
+        report["drawing_layout"] = drawing_layout
     report["evaluation"] = evaluate_review_report(report)
     return report
 
@@ -922,6 +996,8 @@ def evaluate_review_report(report):
     checks = report.get("checks", {})
     previews = report.get("previews", [])
     expected_outputs = report.get("expected_outputs", [])
+    model_summary = report.get("model", {}) or {}
+    doc_type = model_summary.get("type")
     issues = []
     recommendations = []
     score = 100
@@ -938,6 +1014,103 @@ def evaluate_review_report(report):
         score -= penalty
         if severity == "fail":
             hard_fail = True
+
+    # ---- 模型健康度规则(D2/D3/D4) ----
+    if checks.get("rebuild_ok") is False:
+        add_issue(
+            "rebuild_failed",
+            "fail",
+            "模型强制重建失败(ForceRebuild3 返回 False)，存在无法求解的特征。",
+            "检查特征树中带错误标记的特征，修复悬空草图或失败特征后重新审查。",
+            40,
+        )
+
+    faulty_features = model_summary.get("faulty_features") or []
+    if faulty_features:
+        detail = ", ".join(
+            f"{item.get('name')}(code={item.get('error_code')})" for item in faulty_features[:5]
+        )
+        add_issue(
+            "feature_errors_present",
+            "fail",
+            f"{len(faulty_features)} 个特征处于错误状态: {detail}",
+            "修复或删除错误特征后重新审查。",
+            35,
+        )
+
+    if doc_type == 1 and checks.get("geometry_measurements_available") is False:
+        add_issue(
+            "geometry_measurements_unavailable",
+            "warn",
+            "零件几何测量不可用(包围盒或实体拓扑读取失败)。",
+            "检查实体是否存在、文档是否为曲面/空零件。",
+            8,
+        )
+
+    envelope = (report.get("cad_spec") or {}).get("envelope_mm") or {}
+    if doc_type == 1 and envelope:
+        try:
+            sizes = [float(envelope.get(key) or 0.0) for key in ("length", "width", "height")]
+            if all(size <= 1e-6 for size in sizes):
+                add_issue(
+                    "degenerate_envelope",
+                    "fail",
+                    "零件包络尺寸为 0：模型没有可用实体。",
+                    "检查实体是否被全部删除或特征是否全部失败。",
+                    35,
+                )
+        except (TypeError, ValueError):
+            pass
+
+    interference = report.get("interference")
+    if interference is not None:
+        if interference.get("status") == "blocked":
+            add_issue(
+                "interference_check_blocked",
+                "warn",
+                f"装配体干涉检查无法执行: {interference.get('error')}",
+                "确认装配体已完全加载(非轻化)后重试。",
+                8,
+            )
+        elif interference.get("interference_count"):
+            count = interference.get("interference_count")
+            components = interference.get("interfering_components") or []
+            suffix = f": {', '.join(str(c) for c in components[:6])}" if components else ""
+            add_issue(
+                "interference_detected",
+                "warn",
+                f"装配体检出 {count} 处干涉{suffix}。",
+                "调整配合或几何消除干涉；压配合等有意干涉需人工确认。",
+                20,
+            )
+
+    drawing_structure = report.get("drawing_structure")
+    if drawing_structure and drawing_structure.get("error_code") == "DRAWING_VIEWS_MISSING":
+        add_issue(
+            "drawing_views_missing",
+            "fail",
+            "工程图没有任何视图。",
+            "先创建标准三视图后再审查。",
+            35,
+        )
+    drawing_layout = report.get("drawing_layout")
+    if drawing_layout:
+        if drawing_layout.get("status") in ("blocked", "failed"):
+            add_issue(
+                "drawing_layout_blocked",
+                "warn",
+                f"工程图布局审查受阻: {drawing_layout.get('error_code')}",
+                "检查工程图视图与尺寸证据是否可读。",
+                8,
+            )
+        elif drawing_layout.get("status") == "review_required":
+            add_issue(
+                "drawing_layout_review_required",
+                "warn",
+                "工程图布局证据为估算级别，需人工目视复核。",
+                "查看预览图确认视图与尺寸无重叠。",
+                4,
+            )
 
     if not checks.get("model_available"):
         add_issue(
@@ -1057,9 +1230,13 @@ def write_review_report(report, output_path):
         报告路径字符串
     """
     output_path = _expand_path(output_path)
+    # CWE-22: 报告路径拒绝 '..' 穿越段, 防止写出目标目录之外
+    if ".." in output_path.parts:
+        raise ValueError(f"报告路径不允许包含 '..' 段: {output_path}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as file:
-        json.dump(report, file, ensure_ascii=False, indent=2)
+    output_path.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+    )
     return str(output_path)
 
 
@@ -1071,6 +1248,9 @@ def write_markdown_summary(report, output_path):
         摘要路径字符串
     """
     output_path = _expand_path(output_path)
+    # CWE-22: 摘要路径拒绝 '..' 穿越段, 防止写出目标目录之外
+    if ".." in output_path.parts:
+        raise ValueError(f"摘要路径不允许包含 '..' 段: {output_path}")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     evaluation = report.get("evaluation", {})
     checks = report.get("checks", {})
@@ -1107,9 +1287,22 @@ def write_markdown_summary(report, output_path):
     for preview in report.get("previews", []):
         lines.append(f"- `{preview.get('path')}`")
 
-    with open(output_path, "w", encoding="utf-8") as file:
-        file.write("\n".join(lines) + "\n")
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return str(output_path)
+
+
+def _safe_basename(basename):
+    """@brief 净化输出基名: 只保留文件名成分, 防止 `../` 等把报告写出输出目录。"""
+    cleaned = str(basename).replace("\\", "/").split("/")[-1].strip()
+    return cleaned or "review"
+
+
+def _ensure_writable_report_path(output_path):
+    """@brief 报告写路径守卫: 拒绝包含 '..' 逃逸段的路径, 防止穿越写出目标目录。"""
+    candidate = Path(str(output_path))
+    if ".." in candidate.parts:
+        raise ValueError(f"报告路径不允许包含 '..' 段: {output_path}")
+    return candidate
 
 
 def run_review(model, output_dir, basename="review", views=None, expected_outputs=None):
@@ -1120,6 +1313,7 @@ def run_review(model, output_dir, basename="review", views=None, expected_output
         (report, report_path)
     """
     output_dir = _expand_path(output_dir)
+    basename = _safe_basename(basename)
     report = build_review_report(
         model,
         output_dir=output_dir,
@@ -1153,9 +1347,18 @@ def main():
     args = _parse_args()
     sw, model = connect_solidworks(version=args.version)
     if args.file:
-        model = open_document(sw, args.file, silent=args.silent_open, raise_on_error=True)
+        try:
+            model = open_document(sw, args.file, silent=args.silent_open, raise_on_error=True)
+        except (SolidWorksDocumentOpenError, FileNotFoundError) as exc:
+            # 结构化失败而非裸 traceback, 与退出码契约(2=fail)对齐
+            code = getattr(exc, "error_code", None)
+            print(f"审查失败: {exc}")
+            if code is not None:
+                print(f"error_code: {code} ({classify_sw_file_load_errors(code)})")
+            return 2
     if model is None:
-        raise RuntimeError("没有可审查的活动 SolidWorks 文档")
+        print("审查失败: 没有可审查的活动 SolidWorks 文档")
+        return 2
 
     views = [item.strip() for item in args.views.split(",") if item.strip()]
     report, report_path = run_review(

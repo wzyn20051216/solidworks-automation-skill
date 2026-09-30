@@ -713,36 +713,100 @@ def replace_component(asm_model, old_component_name, new_part_path):
     return asm_model.ReplaceComponents2(new_part_path, "", False, 0, True)
 
 
-def get_interference_detection(asm_model):
-    """运行干涉检查并返回可审计报告。"""
+def _read_component_names(interference_item):
+    """@brief 读取单条干涉涉及的组件名(新版 IInterference 无 Name/Volume 属性)。
+
+    新版 IInterference 暴露 GetComponentCount/GetInterferenceBody/IGetComponents,
+    其中 I 前缀成员在动态派发下可能被拒(put-only 报错), 故逐步降级。
+    """
+    names = []
     try:
-        interference = asm_model.InterferenceDetection
-        interference.TreatSubAssembliesAsComponents = False
-        interference.TreatCoincidenceAsInterference = False
-        interference.Done()
-        count = int(safe_get_com_member(interference, "GetInterferenceCount") or 0)
-        items = []
-        for index in range(count):
+        components = safe_get_com_member(interference_item, "IGetComponents") or []
+        for comp in components:
             try:
-                item = interference.GetInterference(index)
-                items.append({
-                    "index": index,
-                    "name": safe_get_com_member(item, "Name"),
-                    "volume": safe_get_com_member(item, "Volume"),
-                })
-            except Exception as exc:
-                items.append({"index": index, "error": str(exc)})
+                names.append(str(safe_get_com_member(comp, "Name2")))
+            except Exception:
+                names.append(str(safe_get_com_member(comp, "Name")))
+    except Exception:
+        pass
+    return names
+
+
+def get_interference_detection(asm_model):
+    """@brief 运行干涉检查并返回可审计报告, 兼容两代 SolidWorks API。
+
+    SW2024+: IAssemblyDoc.InterferenceDetectionManager -> IInterferenceDetectionMgr,
+    干涉清单用 GetInterferences() 批量读取, 单条结果对象无 Name/Volume,
+    组件信息改由 GetInterferenceComponents/IGetComponents 获取。
+    旧版本: IAssemblyDoc.InterferenceDetection, 单条用 GetInterference(i),
+    直接读 Name/Volume。
+
+    @return dict: status pass(0 处)/warn(>0 处)/blocked(COM 失败), 含 api 代际、
+        interference_count、items 明细与 manual_review_required。
+    """
+    try:
+        manager = None
+        api = "modern"
+        try:
+            manager = safe_get_com_member(asm_model, "InterferenceDetectionManager")
+        except Exception:
+            api = "legacy"
+            manager = safe_get_com_member(asm_model, "InterferenceDetection")
+        if manager is None:
+            raise RuntimeError("未取得干涉检查管理器(InterferenceDetectionManager/InterferenceDetection 均不可用)")
+
+        manager.TreatSubAssembliesAsComponents = False
+        manager.TreatCoincidenceAsInterference = False
+        safe_get_com_member(manager, "Done")
+        count = int(safe_get_com_member(manager, "GetInterferenceCount") or 0)
+
+        items = []
+        interfering_components = []
+        if api == "modern":
+            interferences = safe_get_com_member(manager, "GetInterferences") or []
+            for index, item in enumerate(interferences):
+                entry = {"index": index}
+                # 新版 IInterference 不再暴露 Name/Volume; 组件名优先从管理器级
+                # GetInterferenceComponents() 汇总读取, 单条读取仅作兜底。
+                names = _read_component_names(item)
+                if names:
+                    entry["components"] = names
+                    entry["name"] = " & ".join(names)
+                items.append(entry)
+            try:
+                for comp in safe_get_com_member(manager, "GetInterferenceComponents") or []:
+                    try:
+                        interfering_components.append(str(safe_get_com_member(comp, "Name2")))
+                    except Exception:
+                        interfering_components.append(str(safe_get_com_member(comp, "Name")))
+            except Exception:
+                pass
+        else:
+            for index in range(count):
+                try:
+                    item = safe_get_com_member(manager, "GetInterference", index)
+                    items.append({
+                        "index": index,
+                        "name": safe_get_com_member(item, "Name"),
+                        "volume": safe_get_com_member(item, "Volume"),
+                    })
+                except Exception as exc:
+                    items.append({"index": index, "error": str(exc)})
         return {
             "status": "pass" if count == 0 else "warn",
+            "api": api,
             "interference_count": count,
             "items": items,
+            "interfering_components": interfering_components,
             "manual_review_required": count > 0,
         }
     except Exception as exc:
         return {
             "status": "blocked",
+            "api": None,
             "interference_count": None,
             "items": [],
+            "interfering_components": [],
             "manual_review_required": True,
             "error": str(exc),
         }

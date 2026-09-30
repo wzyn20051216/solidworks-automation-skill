@@ -209,7 +209,8 @@ def _common_candidates(product: str) -> list[Path]:
         Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Autodesk" / "AutoCAD 2024" / exe,
     ]
     for drive in ("D:", "E:"):
-        root = Path(drive)
+        # 盘符必须以分隔符结尾：Path("D:")/"x" 生成盘相对路径 "D:x"，Path("D:/")/"x" 才是绝对路径。
+        root = Path(f"{drive}/")
         if product == "solidworks":
             candidates.extend([
                 root / "Solidworks" / "SOLIDWORKS" / exe,

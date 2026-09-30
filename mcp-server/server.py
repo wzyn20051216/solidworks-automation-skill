@@ -143,6 +143,7 @@ def _load_automation_modules() -> None:
         "SW_MATE_COINCIDENT": assembly.SW_MATE_COINCIDENT,
         "SW_MATE_DISTANCE": assembly.SW_MATE_DISTANCE,
         "assembly_add_component": assembly.add_component,
+        "get_interference_detection": assembly.get_interference_detection,
         "add_concentric_mate_by_cylinders": assembly.add_concentric_mate_by_cylinders,
         "add_mate5_checked": assembly.add_mate5_checked,
         "collect_mate_feature_summary": assembly.collect_mate_feature_summary,
@@ -1022,6 +1023,11 @@ class SolidWorksInspectDrawingInput(BaseInput):
         if path.suffix.lower() != ".slddrw" or not path.is_file():
             raise ValueError(f"Drawing must be an existing .SLDDRW file: {value}")
         return value
+
+class SolidWorksInterferenceInput(BaseInput):
+    """Input for running an interference check on the active assembly."""
+
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
 
 
 class SolidWorksHoleFeatureInput(BaseInput):
@@ -3311,6 +3317,35 @@ def solidworks_inspect_drawing(params: SolidWorksInspectDrawingInput) -> str:
         report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         payload["reportPath"] = str(report_path)
         return payload
+
+    return _run_locked(op, params.response_format)
+
+
+@mcp.tool(
+    name="solidworks_check_interference",
+    title="Check Assembly Interference",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+def solidworks_check_interference(params: SolidWorksInterferenceInput) -> str:
+    """Run interference detection on the active SolidWorks assembly and return an auditable report.
+
+    Uses the modern InterferenceDetectionManager API (SW2024+) with legacy fallback;
+    reports interference count, per-interference detail and interfering component names.
+    The full report is also embedded in solidworks_review_active for assembly documents.
+    """
+
+    def op():
+        _sw, model = _active_assembly_required()
+        report = get_interference_detection(model)
+        return {
+            "status": "ok",
+            "interference": report,
+        }
 
     return _run_locked(op, params.response_format)
 

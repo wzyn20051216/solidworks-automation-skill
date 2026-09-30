@@ -218,17 +218,24 @@ for body in bodies:
 
 Gear Mate 不负责防止齿轮实体穿透；它只建立旋转比例关系。需要几何安全时：
 
-- 用 `InterferenceDetection` 或 GUI 中的干涉检查验证。
+- 用 `sw_assembly.get_interference_detection(asm)`（内部优先 SW2024+ 的
+  `InterferenceDetectionManager`，旧版本回退 `InterferenceDetection`），
+  或 GUI 中的干涉检查验证。
 - 用 Limit Angle / Limit Distance 限制行程。
 - 用 Mate Controller 保存几个关键位置并生成 Motion Study 动画。
 
 ```python
-interference = asm.InterferenceDetection
-interference.TreatSubAssembliesAsComponents = False
-interference.TreatCoincidenceAsInterference = False
-interference.Done()
-count = interference.GetInterferenceCount()
+from sw_assembly import get_interference_detection
+
+report = get_interference_detection(asm)
+# report: status pass(0 处)/warn(>0 处)/blocked, interference_count,
+#         interfering_components(组件名清单), items(逐条明细)
 ```
+
+注意：SW2024 起 IAssemblyDoc 的成员名是 `InterferenceDetectionManager`，
+结果对象 IInterference 不再暴露 Name/Volume，组件名从管理器级
+`GetInterferenceComponents()` 汇总读取；`sw_review.run_review` 对装配体文档
+会自动执行该检查并把 `interference_detected` 计入评分。
 
 ## 大型装配体建议
 
