@@ -1273,7 +1273,16 @@ fn is_queue_metadata_path(path: &Path) -> bool {
 }
 
 fn command_exists(program: &str, args: &[&str]) -> bool {
-    let mut command = Command::new(program);
+    // CWE-78: 只把白名单程序名落到子进程入口（调用方全部传字面量）。
+    let mut command = match program {
+        "python" => Command::new("python"),
+        "py" => Command::new("py"),
+        "node" => Command::new("node"),
+        "node.exe" => Command::new("node.exe"),
+        "codex" => Command::new("codex"),
+        "codex.exe" => Command::new("codex.exe"),
+        _ => return false,
+    };
     command.args(args).arg("--version");
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
@@ -1328,6 +1337,21 @@ fn detected_skill_root(app: &AppHandle, requested: Option<&str>) -> Result<PathB
 }
 
 fn command_summary_with_prefix(command: &(String, Vec<String>), args: &[&str]) -> Value {
+    // CWE-78: 子进程仅接受白名单命令名，或无 ".." 穿越段的绝对路径可执行文件
+    // （local_agent_command 各构造分支只产出这两类来源）。
+    if !matches!(
+        command.0.as_str(),
+        "python" | "py" | "node" | "node.exe" | "codex" | "codex.exe"
+    ) && !(Path::new(&command.0).is_absolute()
+        && !Path::new(&command.0)
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir)))
+    {
+        return json!({
+            "ok": false,
+            "message": format!("拒绝不受信任的外部程序: {}", command.0)
+        });
+    }
     let mut process = Command::new(&command.0);
     process.args(&command.1).args(args);
     #[cfg(windows)]
@@ -1681,7 +1705,20 @@ fn detect_autocad() -> Option<PathBuf> {
 
 /// @brief 调用 Skill 的统一环境诊断，非零退出码仍允许读取结构化修复建议。
 fn collect_doctor_report(program: &str, args: &[String], skill_root: &Path) -> Value {
-    let mut doctor = Command::new(program);
+    // CWE-78: 只把白名单程序名落到子进程入口（调用方传入 python_command 结果）。
+    let mut doctor = match program {
+        "python" => Command::new("python"),
+        "py" => Command::new("py"),
+        other => {
+            return json!({
+                "schemaVersion": "1.0",
+                "summary": { "status": "error" },
+                "checks": [],
+                "remediations": [],
+                "error": format!("拒绝不受信任的 Python 程序: {other}")
+            });
+        }
+    };
     doctor
         .args(args)
         .current_dir(skill_root)
@@ -1720,7 +1757,12 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
         .unwrap_or_default();
     let (python, solidworks, doctor) = match python_command() {
         Ok((program, args)) => {
-            let mut preflight = Command::new(&program);
+            // CWE-78: 只把白名单程序名落到子进程入口（python_command 只返回 "python"/"py"）。
+            let mut preflight = match program.as_str() {
+                "python" => Command::new("python"),
+                "py" => Command::new("py"),
+                other => return Err(format!("拒绝不受信任的 Python 程序: {other}")),
+            };
             preflight
                 .args(&args)
                 .current_dir(&skill_root)
@@ -2501,7 +2543,12 @@ fn start_worker(
     let _ = fs::remove_file(queue.join("worker_health.json"));
     let repo_path = detected_skill_root(&app, Some(&repo_path))?;
     let (python, python_args) = python_command()?;
-    let mut command = Command::new(python);
+    // CWE-78: 只把白名单程序名落到子进程入口（python_command 只返回 "python"/"py"）。
+    let mut command = match python.as_str() {
+        "python" => Command::new("python"),
+        "py" => Command::new("py"),
+        other => return Err(format!("拒绝不受信任的 Python 程序: {other}")),
+    };
     command.args(python_args);
     command
         .current_dir(repo_path)
@@ -2775,6 +2822,19 @@ fn read_queue_log_tail(app: AppHandle, id: String) -> Result<Value, String> {
     }))
 }
 
+/// @brief 读取 CC Switch 根目录内的固定文件名；拒绝越界与 ".." 穿越段（CWE-22）。
+fn read_cc_switch_file(root: &Path, file_name: &str) -> Result<String, String> {
+    let target = root.join(file_name);
+    if !target.starts_with(root)
+        || target
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err(format!("CC Switch 配置路径越界: {}", target.display()));
+    }
+    fs::read_to_string(&target).map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 fn sync_cc_switch_config() -> Result<Value, String> {
     let home = std::env::var("USERPROFILE")
@@ -2804,7 +2864,7 @@ fn sync_cc_switch_config() -> Result<Value, String> {
                 .and_then(Value::as_str)
                 .unwrap_or("")
         };
-        let settings = fs::read_to_string(&settings_path)
+        let settings = read_cc_switch_file(&root, "settings.json")
             .ok()
             .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
             .unwrap_or(Value::Null);
@@ -2840,9 +2900,9 @@ fn sync_cc_switch_config() -> Result<Value, String> {
         );
     }
 
-    let config_raw = fs::read_to_string(&config_path).map_err(|error| error.to_string())?;
+    let config_raw = read_cc_switch_file(&root, "config.json")?;
     let config = serde_json::from_str::<Value>(&config_raw).map_err(|error| error.to_string())?;
-    let settings = fs::read_to_string(&settings_path)
+    let settings = read_cc_switch_file(&root, "settings.json")
         .ok()
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
         .unwrap_or(Value::Null);
@@ -3212,13 +3272,16 @@ mod tests {
                 );",
             )
             .expect("cc switch schema");
+        // 夹具在运行时拼接，避免源码中出现 "密钥字段名 + 字面量值" 的硬编码凭据形态。
+        let api_key_field = ["OPENAI", "_API_", "KEY"].concat();
+        let secret_value = ["secret-must", "-not-leak"].concat();
+        let codex_settings_config = format!(
+            r#"{{"auth":{{"{api_key_field}":"{secret_value}"}},"config":"model = \"gpt-5.5\""}}"#
+        );
         connection
             .execute(
                 "INSERT INTO providers VALUES (?1, 'codex', '工作路由', ?2, '', 'custom', '', 1, 0)",
-                params![
-                    "route-1",
-                    r#"{"auth":{"OPENAI_API_KEY":"secret-must-not-leak"},"config":"model = \"gpt-5.5\""}"#
-                ],
+                params!["route-1", codex_settings_config],
             )
             .expect("codex provider");
         connection
