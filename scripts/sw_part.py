@@ -793,13 +793,11 @@ def extrude_cut(model, sketch_name, depth, direction=True, flip=False):
         end_condition = 0  # swEndCondBlind
 
     return model.FeatureManager.FeatureCut4(
-        direction, flip, False,
-        end_condition, 0,
-        depth, 0,
-        False, False, False, False,
-        0.0, 0.0,
+        True, bool(flip), bool(direction),  # Sd, Flip, Dir
+        end_condition, 0, depth, 0,
+        False, False, False, False, 0.0, 0.0,
         False, False, False, False, False,
-        True, True, True, True,
+        True, True, False, False,  # assembly-scope flags -> False for part docs
         False, 0, 0, False, False
     )
 
