@@ -106,7 +106,10 @@ class _LaunchGuard:
             self._owns_file = False
 
 
-def get_com_member(obj, attr_name, *args):
+_MEMBER_UNSET = object()
+
+
+def get_com_member(obj, attr_name, *args, default=_MEMBER_UNSET):
     """
     兼容 pywin32 中“同一成员在不同环境下可能是属性也可能是方法”的情况。
 
@@ -114,11 +117,17 @@ def get_com_member(obj, attr_name, *args):
         obj: COM 对象
         attr_name: 成员名称
         *args: 当成员可调用时传入的参数
+        default: 当成员不存在时返回的值；未提供则按旧行为抛出 AttributeError
 
     返回:
-        成员值或调用结果
+        成员值或调用结果；成员缺失且提供了 default 时返回 default
     """
-    member = getattr(obj, attr_name)
+    try:
+        member = getattr(obj, attr_name)
+    except AttributeError:
+        if default is not _MEMBER_UNSET:
+            return default
+        raise
     if args:
         return member(*args)
     try:
@@ -191,7 +200,7 @@ def _prog_id_for_version(version):
 def _read_active_document(sw):
     """读取活动文档，兼容 COM 属性/方法差异。"""
     try:
-        return get_com_member(sw, "ActiveDoc")
+        return get_com_member(sw, "ActiveDoc", default=None)
     except Exception:
         return None
 
