@@ -10,11 +10,13 @@ import sys
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 from html import escape
 from pathlib import Path
 
 
 GRAPHQL_URL = "https://api.github.com/graphql"
+ALLOWED_GRAPHQL_HOSTS = frozenset({"api.github.com"})
 QUERY = """
 query($owner: String!, $name: String!, $cursor: String) {
   repository(owner: $owner, name: $name) {
@@ -28,8 +30,16 @@ query($owner: String!, $name: String!, $cursor: String) {
 """
 
 
+def _validate_graphql_url(url: str) -> None:
+    """@brief GraphQL 端点仅允许 https 且主机在白名单内，防止请求被改指向任意源。"""
+    parts = urlsplit(url)
+    if parts.scheme != "https" or parts.hostname not in ALLOWED_GRAPHQL_HOSTS:
+        raise ValueError(f"GraphQL 端点必须为 https 且主机在 {sorted(ALLOWED_GRAPHQL_HOSTS)} 内: {url}")
+
+
 def _graphql(token: str, variables: dict) -> dict:
     """@brief 调用 GitHub GraphQL API，并将服务端错误转成明确异常。"""
+    _validate_graphql_url(GRAPHQL_URL)
     payload = json.dumps({"query": QUERY, "variables": variables}).encode("utf-8")
     request = urllib.request.Request(
         GRAPHQL_URL,

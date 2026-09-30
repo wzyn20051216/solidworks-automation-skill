@@ -9,6 +9,7 @@ import sys
 import urllib.request
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -23,11 +24,19 @@ from sw_session import SolidWorksSession  # noqa: E402
 
 
 DEFAULT_CASE = SUBSKILL_ROOT / "examples" / "open_source_corner_bracket_case.json"
+ALLOWED_DOWNLOAD_HOSTS = frozenset({"raw.githubusercontent.com"})
 SW_SOLID_BODY = 0
 SW_DISPLAY_ORIGINS = 6
 SW_DISPLAY_REFERENCE_TRIAD = 205
 SW_CHAMFER_DISTANCE_DISTANCE = 2
 SW_CHAMFER_TANGENT_PROPAGATION = 4
+
+
+def _validate_download_url(url: str) -> None:
+    """@brief 下载源仅允许 https 且主机在白名单内，阻断案例清单被篡改后的任意源请求。"""
+    parts = urlsplit(url)
+    if parts.scheme != "https" or parts.hostname not in ALLOWED_DOWNLOAD_HOSTS:
+        raise ValueError(f"download_url 必须为 https 且主机在 {sorted(ALLOWED_DOWNLOAD_HOSTS)} 内: {url}")
 
 
 def load_case(path: Path) -> dict[str, Any]:
@@ -42,6 +51,7 @@ def load_case(path: Path) -> dict[str, Any]:
         raise ValueError("案例 sha256 必须为 64 位十六进制")
     if str(payload["commit"]) not in str(payload["download_url"]):
         raise ValueError("案例下载 URL 必须固定到声明的 commit")
+    _validate_download_url(str(payload["download_url"]))
     return payload
 
 
