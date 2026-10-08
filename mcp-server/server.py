@@ -2312,7 +2312,7 @@ def solidworks_pattern(params: SolidWorksPatternInput) -> str:
             direction = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}[params.direction]
             feature = linear_pattern(
                 model, params.feature_name,
-                mm(direction[0]), mm(direction[1]), mm(direction[2]),
+                direction[0], direction[1], direction[2],
                 mm(params.spacing_mm), params.count,
             )
         else:

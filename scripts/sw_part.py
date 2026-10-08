@@ -921,15 +921,12 @@ def linear_pattern(model, feature_name, d1_x, d1_y, d1_z, d1_spacing, d1_count,
         d1_*: 方向1 的方向向量、间距（米）和数量
         d2_*: 方向2（可选）
     """
-    _select_by_id(model.Extension, feature_name, "BODYFEATURE", mark=4)
-    return model.FeatureManager.FeatureLinearPattern3(
-        d1_spacing, d2_spacing,
-        d1_count, d2_count,
-        False, False,
-        str(d1_x), str(d1_y), str(d1_z),
-        str(d2_x), str(d2_y), str(d2_z),
-        False, False
-    )
+    try:
+        from .sw_pattern import linear_pattern as create_pattern
+    except ImportError:
+        from sw_pattern import linear_pattern as create_pattern
+    return create_pattern(model, feature_name, (d1_x, d1_y, d1_z), d1_spacing, d1_count,
+        (d2_x, d2_y, d2_z), d2_spacing, d2_count)
 
 
 def circular_pattern(model, feature_name, axis_name, angle_rad, count, equal_spacing=True):
@@ -943,11 +940,11 @@ def circular_pattern(model, feature_name, axis_name, angle_rad, count, equal_spa
         count: 实例数量
         equal_spacing: True=等间距
     """
-    _select_by_id(model.Extension, feature_name, "BODYFEATURE", mark=4)
-    _select_by_id(model.Extension, axis_name, "AXIS", append=True, mark=1)
-    return model.FeatureManager.FeatureCircularPattern4(
-        count, angle_rad, False, "None", False, equal_spacing, False
-    )
+    try:
+        from .sw_pattern import circular_pattern as create_pattern
+    except ImportError:
+        from sw_pattern import circular_pattern as create_pattern
+    return create_pattern(model, feature_name, axis_name, angle_rad, count, equal_spacing)
 
 
 def shell(model, thickness, faces_to_remove=None):
