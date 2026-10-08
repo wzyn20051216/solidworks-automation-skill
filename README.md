@@ -137,13 +137,15 @@ V2 附带 **37 个 deterministic reliability scenarios**，覆盖正常执行、
 
 | Metric | Current baseline |
 |---|---|
-| Nominal workflow | 11/11 first-pass |
+| Nominal workflow | 10/10 first-pass（基线 v3，warning 等待人工复核） |
 | Injected false-completion cases | all detected |
 | Escaped false completion | 0 in current deterministic benchmark |
-| Regression suite | 740 passed / 1 skipped / 0 failed |
+| Regression suite | 当前方案 B 验证记录见 [可靠性修复与验收](docs/architecture/scheme-b-reliability.md) |
 
 > 这是 **deterministic engineering benchmark**（Fake Handler/Reviewer + 故障注入），
 > 不是生产 SLA 或真实用户成功率。详见 [`docs/architecture/v2-evaluation.md`](docs/architecture/v2-evaluation.md)。
+
+原生 SolidWorks 操作当前以 **2026** 为支持与验收目标。方案 B 保留现有执行架构，修复失败状态、原生阵列、草图可编辑性和文档归属，并提供可选 HTTP 与可验证的产物取回；原有 60 个 MCP 工具的名称和输入 Schema 保持兼容。
 
 ---
 

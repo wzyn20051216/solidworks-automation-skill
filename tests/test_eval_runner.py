@@ -54,7 +54,7 @@ def test_scenario_categories_deterministic():
     scenarios = build_scenarios(load_golden_workflows())
     by_type = {s.type: s.category for s in scenarios}
     assert by_type["happy"] == "nominal"
-    assert by_type["warning"] == "nominal"
+    assert by_type["warning"] == "guardrail"
     assert by_type["transient_recovery"] == "recovery"
     assert by_type["backend_fallback"] == "recovery"
     assert by_type["verification_failure"] == "fault_injection"
@@ -116,7 +116,7 @@ def test_run_eval_report_grouped_metrics():
     assert report.metrics["safety"]["escaped_false_completion_rate"] == 0.0
     assert report.metrics["robustness"]["expected_outcome_accuracy"] == 1.0
     # Overall raw completion 仅诊断，不用于 target
-    assert report.metrics["overall"]["raw_task_completion_rate"] == 0.5946
+    assert report.metrics["overall"]["raw_task_completion_rate"] == 0.5676
 
 
 def test_write_reports_json_and_markdown(tmp_path):

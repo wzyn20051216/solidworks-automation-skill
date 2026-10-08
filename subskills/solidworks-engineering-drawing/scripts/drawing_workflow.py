@@ -540,7 +540,7 @@ def _apply_view_layout(view, item, numerator, denominator) -> dict:
         if not moved:
             raise RuntimeError(f"SetViewPosition 返回失败: {center}")
     else:
-        view.Position = tuple(center)
+        view.Position = position
     actual_position = _view_position(view)
     position_verified = bool(
         actual_position
@@ -600,7 +600,7 @@ def _set_view_center(view, center) -> list[float]:
         if not moved:
             raise RuntimeError(f"SetViewPosition 返回失败: {target}")
     else:
-        view.Position = tuple(target)
+        view.Position = position
     actual = _view_position(view)
     if actual is None or abs(actual[0] - target[0]) > 1e-5 or abs(actual[1] - target[1]) > 1e-5:
         raise RuntimeError(f"视图位置回读不一致: requested={target}, actual={actual}")
@@ -1398,11 +1398,18 @@ def _professional_annotation_record(owner, kind, view_record):
     }
 
 
+def first_center_mark(view):
+    """@brief 仅对缺失成员回退旧接口，真实调用错误继续向上传递。"""
+    for name in ("GetFirstCenterMark2", "GetFirstCenterMark"):
+        value = get_com_member(view, name, default=None)
+        if value is not None:
+            return value
+    return None
+
+
 def _view_center_marks(view):
     """@brief 遍历视图中心标记，并兼容 SW2025 SP1 之前的回读接口。"""
-    current = _safe_member(view, "GetFirstCenterMark2")
-    if current is None:
-        current = _safe_member(view, "GetFirstCenterMark")
+    current = first_center_mark(view)
     marks = []
     seen = set()
     while current is not None and len(marks) < 10000:

@@ -15,10 +15,11 @@ from typing import Any, Iterable
 PROFILE_SCHEMA = "cadstudio.dfm-profile"
 PROFILE_VERSION = "1.0"
 MAX_PROFILE_BYTES = 1024 * 1024
-SUPPORTED_PROCESSES = {"machining", "sheet_metal", "laser_cutting", "3d_printing"}
+SUPPORTED_PROCESSES = {"machining", "sheet_metal", "laser_cutting", "3d_printing", "injection_molding"}
 TOP_LEVEL_FIELDS = {"schema", "version", "id", "source", "limits", "processes", "description"}
 SOURCE_FIELDS = {"type", "name", "revision", "reference"}
 LIMIT_FIELDS = {
+    "minimumDraftAngleDeg", "maximumRibWallRatio", "maximumWallThicknessVariation", "minimumEjectorWaterClearance",
     "allowedMaterials",
     "minimumWallThickness",
     "maximumEnvelope",
@@ -41,6 +42,7 @@ LIMIT_FIELDS = {
 }
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _MINIMUM_LIMITS = {
+    "minimumDraftAngleDeg", "minimumEjectorWaterClearance",
     "minimumWallThickness",
     "minimumDrillDiameter",
     "minimumInternalCornerRadius",
@@ -51,6 +53,7 @@ _MINIMUM_LIMITS = {
     "minimumHoleOrSlot",
 }
 _MAXIMUM_LIMITS = {
+    "maximumRibWallRatio", "maximumWallThicknessVariation",
     "maximumHoleDepthDiameterRatio",
     "maximumThickness",
     "maximumKerf",

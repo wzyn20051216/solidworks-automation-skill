@@ -34,6 +34,31 @@ from .state import (
 )
 from .trace import emit
 from .verification import verify
+from .capability import requires_review as registry_requires_review
+
+
+def normalize_tool_payload(raw: Mapping[str, Any]) -> dict[str, Any]:
+    """@brief 校验显式执行事实；保留历史结果字段，不将失败标记渲染成成功。
+    @param raw 既有工具或 Handler 的结构化结果。
+    @return 兼容原字段的结果；失败时附加稳定错误码和失败字段。
+    """
+    payload = dict(raw)
+    flags = ["success", "saved", "exported", "rebuild_ok"]
+    if payload.get("dry_run") is not True:
+        flags.extend(("feature_created", "motor_feature_created", "component_added", "mate_created"))
+    failed = [name for name in flags if payload.get(name) is False]
+    uncertain = [name for name in flags if name in payload and payload[name] is not None and not isinstance(payload[name], bool)]
+    uncertain.extend(name for name in ("feature_created", "rebuild_ok") if name in payload and payload[name] is None)
+    if payload.get("output_path") and "saved" in payload and payload["saved"] is None:
+        uncertain.append("saved")
+    if failed:
+        payload.update(status="error", success=False,
+                       error_code=payload.get("error_code") or "TOOL_OPERATION_FAILED",
+                       failed_fields=failed)
+        payload.setdefault("message", "必要执行步骤失败: " + ", ".join(failed))
+    elif uncertain:
+        payload.update(status="blocked", success=False, error_code="TOOL_RESULT_UNVERIFIED", unverified_fields=uncertain)
+    return payload
 
 
 def _extract_message(raw: Any) -> str:
@@ -144,6 +169,7 @@ def execute_with_core(
     capability_facade: Any = None,
     max_retries: int | None = None,
     trace_dir: Any = None,
+    defer_completion: bool = False,
 ) -> ExecutionAssessment:
     """@brief 串起 State + Handler + Verification + Recovery + Trace，返回评估结果。
 
@@ -151,6 +177,9 @@ def execute_with_core(
     :param reviewer: 可选零参 callable；requires_review 时若未提供 reviewer_result 才调用。
     :param reviewer_result: 既有 Review 结果（dict/list）；提供时不重复调用 reviewer。
     """
+    if operation_id or capability_id:
+        required = registry_requires_review(operation_id=operation_id, capability_id=capability_id)
+        requires_review = requires_review or required is not False
     step_id = step_id or f"{run_id}:step0"
     run = RunContext(run_id=run_id, goal="", trace_id=run_id)
     step = StepRecord(
@@ -203,17 +232,33 @@ def execute_with_core(
             step_id=step_id,
         )
     else:
+        payload = normalize_tool_payload(raw_result) if isinstance(raw_result, Mapping) else None
+        failed = raw_result is None or raw_result is False or (
+            payload is not None and (payload.get("success") is False or
+            str(payload.get("status", "")).lower() in {"error", "fail", "failed", "blocked", "unavailable"})
+        )
         execution_result = ExecutionResult(
-            success=True,
+            success=not failed,
             message=_extract_message(raw_result),
             outputs=_extract_outputs(raw_result),
-            error_code=_extract_error_code(raw_result),
+            error_code=_extract_error_code(payload or {}) or ("TOOL_RESULT_UNAVAILABLE" if failed else None),
         )
-        _trace("tool.succeeded", trace_dir, run_id=run_id, step_id=step_id, capability_id=capability_id,
+        if failed:
+            blocked = payload is not None and payload.get("status") == "blocked"
+            step.transition(StepStatus.BLOCKED if blocked else StepStatus.FAILED)
+            run.transition(RunStatus.BLOCKED if blocked else RunStatus.FAILED)
+            step.error_code = execution_result.error_code
+            recovery_decision = decide(execution_result=execution_result.to_dict(),
+                operation_id=operation_id, capability_id=capability_id,
+                capability_facade=capability_facade, max_retries=max_retries,
+                trace_dir=trace_dir, run_id=run_id, step_id=step_id)
+        _trace("tool.failed" if failed else "tool.succeeded", trace_dir, run_id=run_id, step_id=step_id, capability_id=capability_id,
                message=execution_result.message)
 
     verification_result: VerificationResult | None = None
-    if requires_review and exception is None:
+    manual_required = isinstance(raw_result, Mapping) and bool(raw_result.get("manual_review_required") or raw_result.get("manualReviewRequired"))
+    requires_review = requires_review or manual_required or (isinstance(raw_result, Mapping) and raw_result.get("status") == "review_required")
+    if requires_review and execution_result.success and not defer_completion:
         run.transition(RunStatus.VERIFYING)
         step.transition(StepStatus.VERIFYING)
         verification_result = verify(
@@ -227,6 +272,7 @@ def execute_with_core(
             step_id=step_id,
         )
         step.verification = verification_result
+        verification_result.manual_review_required |= manual_required
         if verification_result.status == VerificationStatus.FAIL:
             step.transition(StepStatus.FAILED)
             run.transition(RunStatus.FAILED)
@@ -240,10 +286,11 @@ def execute_with_core(
                 run_id=run_id,
                 step_id=step_id,
             )
-        elif verification_result.status == VerificationStatus.BLOCKED:
+        elif verification_result.status != VerificationStatus.PASS or verification_result.manual_review_required:
             step.transition(StepStatus.BLOCKED)
             run.transition(RunStatus.BLOCKED)
             recovery_decision = decide(
+                error_kind=ErrorKind.USER_ACTION_REQUIRED if verification_result.manual_review_required else None,
                 verification_result=verification_result.to_dict(),
                 operation_id=operation_id,
                 capability_id=capability_id,
@@ -253,12 +300,13 @@ def execute_with_core(
                 run_id=run_id,
                 step_id=step_id,
             )
-        else:  # PASS / WARN
+        else:  # 仅明确 PASS 且无需人工复核，才可以完成。
             step.transition(StepStatus.SUCCESS)
             run.transition(RunStatus.COMPLETED)
-    elif exception is None:
+    elif execution_result.success:
         step.transition(StepStatus.SUCCESS)
-        run.transition(RunStatus.COMPLETED)
+        if not defer_completion:
+            run.transition(RunStatus.COMPLETED)
 
     # 仅在完整链模式（requires_review）下补 run 终态事件；Worker 模式由 Worker 自身写终态。
     if requires_review:
@@ -283,4 +331,4 @@ def execute_with_core(
     )
 
 
-__all__ = ["ExecutionAssessment", "execute_with_core"]
+__all__ = ["ExecutionAssessment", "execute_with_core", "normalize_tool_payload"]

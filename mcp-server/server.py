@@ -1,14 +1,21 @@
 """
 SolidWorks MCP Server.
 
-This stdio MCP server wraps the existing solidworks-automation skill scripts so
-MCP clients can operate a local Windows SolidWorks desktop session through
-Python COM. It intentionally serializes all tool calls because SolidWorks COM is
-a single-user desktop automation surface.
+This MCP server wraps the existing solidworks-automation skill scripts so MCP
+clients can operate a local Windows SolidWorks desktop session through Python
+COM. It intentionally serializes all tool calls because SolidWorks COM is a
+single-user desktop automation surface.
+
+It speaks MCP over ``stdio`` by default. Pass ``--transport streamable-http`` to
+serve the same tools over HTTP instead, so a client running on another machine
+can connect without spawning a local child process.
 """
 from __future__ import annotations
 
+import argparse
+import base64
 import importlib
+import importlib.util
 import json
 import math
 import os
@@ -34,6 +41,8 @@ if __name__ == "__main__":
 
 
 SERVER_DIR = Path(__file__).resolve().parent
+if str(SERVER_DIR) not in sys.path:
+    sys.path.insert(0, str(SERVER_DIR))
 REPO_DIR = SERVER_DIR.parent
 SCRIPTS_DIR = REPO_DIR / "scripts"
 if str(REPO_DIR) not in sys.path:
@@ -42,6 +51,8 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from scripts.sw_preflight import missing_com_dependencies, solidworks_installed  # noqa: E402
+from scripts.core.execution import normalize_tool_payload  # noqa: E402
+from artifact_access import ArtifactAccess, MAX_INLINE  # noqa: E402
 
 
 pythoncom = None
@@ -53,6 +64,8 @@ def _load_automation_modules() -> None:
     global pythoncom, _automation_loaded
     if _automation_loaded:
         return
+    from scripts.sw_preflight import import_com_dependencies
+    import_com_dependencies(allow_install=False)
 
     connect = importlib.import_module("scripts.sw_connect")
     part = importlib.import_module("scripts.sw_part")
@@ -232,7 +245,7 @@ class ExportFormat(str, Enum):
 
 
 HEADLESS_OPEN_FORMATS = {"cadstudio", "step", "iges", "brep", "stl", "obj", "glb", "dxf", "svg", "pdf", "png"}
-DFM_PROCESSES = {"auto", "machining", "sheet_metal", "laser_cutting", "3d_printing", "CNC", "FDM", "SLA"}
+DFM_PROCESSES = {"auto", "machining", "sheet_metal", "laser_cutting", "3d_printing", "injection_molding", "injection", "注塑", "CNC", "FDM", "SLA"}
 FEA_SOLVERS = {"auto", "calculix", "elmer"}
 
 
@@ -1250,6 +1263,7 @@ def _set_component_fixed(asm_model, component, fixed: bool = True) -> bool:
 
 def _result(payload: Dict[str, Any], response_format: ResponseFormat) -> str:
     """Format a tool response as JSON or Markdown."""
+    payload = normalize_tool_payload(payload)
     if response_format == ResponseFormat.JSON:
         return json.dumps(payload, ensure_ascii=False, indent=2)
     lines = [f"# {payload.get('status', 'result')}"]
@@ -1264,6 +1278,15 @@ def _result(payload: Dict[str, Any], response_format: ResponseFormat) -> str:
     return "\n".join(lines)
 
 
+def _artifact_access():
+    """@brief 使用既有 CAD Studio 工作目录存账本；输出根由操作员配置。"""
+    import tempfile
+    from apps.desktop.cad_workbench.queue_worker import default_tauri_queue_dir
+    root = os.environ.get("SW_MCP_OUTPUT_ROOT") or str(Path(tempfile.gettempdir()) / "solidworks-automation-artifacts")
+    queue = os.environ.get("SW_MCP_QUEUE_DIR") or str(default_tauri_queue_dir())
+    return ArtifactAccess(root, queue)
+
+
 def _tool_error(exc: Exception, response_format: ResponseFormat = ResponseFormat.JSON) -> str:
     """Return actionable tool error content."""
     payload = {
@@ -1275,6 +1298,12 @@ def _tool_error(exc: Exception, response_format: ResponseFormat = ResponseFormat
             "components are resolved, and file paths are absolute Windows paths."
         ),
     }
+    code = getattr(exc, "code", None)
+    if code:
+        payload["error_code"] = str(code)
+        payload["retryable"] = False
+        if str(code) in {"SW_DOCUMENT_BUDGET", "SW_DOCUMENT_STATE_UNAVAILABLE", "SW_INSTANCE_NOT_READY", "SW_PROCESS_STATE_UNAVAILABLE", "SW_VERSION_MISMATCH"}:
+            payload["status"] = "blocked"
     return _result(payload, response_format)
 
 
@@ -1313,6 +1342,11 @@ def _run_locked(operation, response_format: ResponseFormat, load_automation: boo
         _coinitialize()
         with redirect_stdout(sys.stderr):
             payload = operation()
+        payload = normalize_tool_payload(payload)
+        if payload.get("status") not in {"error", "failed", "fail", "blocked"}:
+            refs = _artifact_access().publish(payload)
+            if refs:
+                payload["artifact_refs"] = refs
         return _result(payload, response_format)
     except Exception as exc:
         return _tool_error(exc, response_format)
@@ -1931,6 +1965,8 @@ def solidworks_create_basic_part(params: SolidWorksCreateBasicPartInput) -> str:
                 sketch_rectangle(model, 0.0, 0.0, mm(params.width_mm), mm(params.height_mm))
             else:
                 raise ValueError(f"Unsupported shape: {params.shape}")
+            from scripts.sw_sketch_quality import fully_define_sketch
+            sketch_quality = fully_define_sketch(model)
         feature = extrude_boss(model, sketch_name, mm(params.depth_mm))
         appearance_ok = None
         if params.color:
@@ -1938,10 +1974,12 @@ def solidworks_create_basic_part(params: SolidWorksCreateBasicPartInput) -> str:
         save_ok = None
         if params.output_path:
             save_ok = save_document(model, params.output_path)
-        model.ForceRebuild3(False)
+        rebuild_ok = bool(model.ForceRebuild3(False))
         return {
             "status": "ok",
             "shape": params.shape.value,
+            "sketch_quality": sketch_quality,
+            "rebuild_ok": rebuild_ok,
             "feature_created": feature is not None,
             "feature_name": get_com_member(feature, "Name") if feature else None,
             "appearance_ok": appearance_ok,
@@ -2309,7 +2347,7 @@ def solidworks_pattern(params: SolidWorksPatternInput) -> str:
             direction = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}[params.direction]
             feature = linear_pattern(
                 model, params.feature_name,
-                mm(direction[0]), mm(direction[1]), mm(direction[2]),
+                direction[0], direction[1], direction[2],
                 mm(params.spacing_mm), params.count,
             )
         else:
@@ -3148,11 +3186,15 @@ def solidworks_review_active(params: SolidWorksReviewInput) -> str:
     def op():
         _sw, model = _active_model_required()
         report, report_path = run_review(model, params.output_dir, basename=params.basename)
+        evaluation = report.get("evaluation") or {}
         return {
-            "status": "ok",
+            "status": "failed" if evaluation.get("status") == "fail" else "review_required" if evaluation.get("manual_review_required") else "ok",
             "report_path": report_path,
             "evaluation": report.get("evaluation"),
             "checks": report.get("checks"),
+            "previews": report.get("previews", []),
+            "sketch_quality": report.get("sketch_quality"),
+            "manual_review_required": bool(evaluation.get("manual_review_required")),
             "document": _model_summary(model),
         }
 
@@ -3519,11 +3561,117 @@ def solidworks_validate_motion_study(params: SolidWorksMotionValidationInput = S
     return _run_locked(op, params.response_format)
 
 
+class ArtifactReadInput(BaseInput):
+    """@brief 使用交付 ID 取回图片或有界文件块，禁止传任意本地路径。"""
+    artifact_id: str = Field(..., pattern=r"^mcp-[0-9a-f]{32}-[0-9]{1,5}$")
+    offset: int = Field(default=0, ge=0)
+    max_bytes: int = Field(default=1024 * 1024, ge=1, le=MAX_INLINE)
+    as_preview: bool = Field(default=True)
+
+
+@mcp.tool(name="cadstudio_read_artifact", title="Read Verified CAD Artifact",
+    annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False})
+def cadstudio_read_artifact(params: ArtifactReadInput):
+    """Return an in-protocol PNG preview or a hashed file chunk for an issued artifact ID."""
+    try:
+        path, data, metadata = _artifact_access().read(params.artifact_id, params.offset, params.max_bytes)
+        if params.as_preview and params.offset == 0 and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp"}:
+            path, data, metadata = _artifact_access().read(params.artifact_id, 0, MAX_INLINE)
+            if metadata["next_offset"] is not None:
+                raise ValueError("预览图片超过内联大小上限")
+            import io
+            from PIL import Image as PillowImage
+            from mcp.server.fastmcp import Image
+            with PillowImage.open(io.BytesIO(data)) as source:
+                if source.width * source.height > 20_000_000:
+                    raise ValueError("预览像素数超过上限")
+                converted = io.BytesIO()
+                source.convert("RGB").save(converted, format="PNG")
+            encoded = converted.getvalue()
+            if len(encoded) > MAX_INLINE:
+                raise ValueError("转换后的 PNG 超过内联大小上限，请取回原始文件块")
+            return Image(data=encoded, format="png")
+        return _result({"status": "ok", **metadata, "encoding": "base64",
+            "data": base64.b64encode(data).decode("ascii")}, params.response_format)
+    except Exception as error:
+        return _tool_error(error, params.response_format)
+
+
+@mcp.resource("cad-artifact://delivery/{artifact_id}", mime_type="application/octet-stream")
+def read_artifact_resource(artifact_id: str) -> bytes:
+    """@brief 原始交付文件资源；超大文件通过有界块工具读取。"""
+    _, data, metadata = _artifact_access().read(artifact_id)
+    if metadata["next_offset"] is not None:
+        raise ValueError("文件超过内联资源大小，请使用 cadstudio_read_artifact 分块读取")
+    return data
+
+
 def main() -> None:
-    """Run the SolidWorks MCP server over stdio."""
+    """Run the SolidWorks MCP server.
+
+    ``stdio`` stays the default so existing MCP host configurations keep working
+    unchanged. ``--transport streamable-http`` serves the same tool surface over
+    HTTP for remote clients.
+    """
+    parser = argparse.ArgumentParser(description="SolidWorks MCP server")
+    parser.add_argument(
+        "--transport",
+        choices=("stdio", "streamable-http"),
+        default="stdio",
+        help="MCP transport to serve (default: stdio)",
+    )
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("SW_MCP_HOST", "127.0.0.1"),
+        help="Bind address for streamable-http (default: 127.0.0.1)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Bind port for streamable-http (default: 8000)",
+    )
+    parser.add_argument("--allow-host", action="append", default=[], help="允许的远端 Host，例如 cad.example:*，可重复")
+    parser.add_argument("--allow-origin", action="append", default=[], help="允许的浏览器 Origin，可重复")
+    parser.add_argument("--output-root", default=os.environ.get("SW_MCP_OUTPUT_ROOT"), help="允许客户端取回的产物目录")
+    args = parser.parse_args()
+
     if sys.stdout is not _MCP_STDOUT:
         sys.stdout = _MCP_STDOUT
-    mcp.run(transport="stdio")
+    if args.output_root:
+        os.environ["SW_MCP_OUTPUT_ROOT"] = args.output_root
+
+    if args.transport == "stdio":
+        mcp.run(transport="stdio")
+        return
+    try:
+        args.port = args.port if args.port is not None else int(os.environ.get("SW_MCP_PORT", "8000"))
+    except ValueError:
+        parser.error("SW_MCP_PORT 必须是整数")
+    if not 1 <= args.port <= 65535:
+        parser.error("port 必须在 1..65535")
+    token = os.environ.get("SW_MCP_TOKEN")
+    if args.host not in {"127.0.0.1", "localhost", "::1"} and (not token or not args.allow_host):
+        parser.error("远端监听需设置 SW_MCP_TOKEN 并显式指定 --allow-host")
+
+    # streamable-http is served by uvicorn, which FastMCP imports lazily.
+    if importlib.util.find_spec("uvicorn") is None:
+        raise SystemExit(
+            "streamable-http transport requires uvicorn: "
+            "python -m pip install uvicorn"
+        )
+    # FastMCP reads the bind address from its settings, so set them before run().
+    mcp.settings.host = args.host
+    mcp.settings.port = args.port
+    from mcp.server.transport_security import TransportSecuritySettings
+    from http_transport import TokenAuthMiddleware
+    import uvicorn
+    mcp.settings.transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*", *args.allow_host],
+        allowed_origins=["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*", *args.allow_origin],
+    )
+    uvicorn.run(TokenAuthMiddleware(mcp.streamable_http_app(), token), host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

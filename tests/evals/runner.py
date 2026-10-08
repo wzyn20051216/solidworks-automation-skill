@@ -132,7 +132,7 @@ def _cross_cutting_scenarios() -> list[EvalScenario]:
         sc("reviewer-blocked", "reviewer_blocked", "Reviewer 阻塞", "blocked", [
             AttemptSpec(handler=fixtures.success_handler(fixtures.ok_result(arts)), reviewer=fixtures.blocked_reviewer()),
         ]),
-        sc("warning", "warning", "警告但可交付", "completed", [
+        sc("warning", "warning", "警告等待人工复核", "blocked", [
             AttemptSpec(handler=fixtures.success_handler(fixtures.ok_result(arts)), reviewer=fixtures.warn_reviewer()),
         ]),
     ]

@@ -1,15 +1,17 @@
 # SolidWorks MCP Server
 
-本目录提供一个本地 `stdio` MCP Server，同时暴露无 CAD 开放格式工具和 SolidWorks COM 白名单工具。MCP 与 CAD Studio、Skill、CLI 共用能力清单和数据协议。
+本目录提供一个本地 MCP Server，同时暴露无 CAD 开放格式工具和 SolidWorks COM 白名单工具。MCP 与 CAD Studio、Skill、CLI 共用能力清单和数据协议。
 
 SolidWorks 是 Windows 桌面 COM 应用，不适合远程多客户端并发；因此本 server 默认使用 `stdio`，并在内部用全局锁串行执行所有 SolidWorks 操作。
+
+除 `stdio` 外，还可用 `--transport streamable-http` 把同一套工具以 HTTP 方式暴露，供**不在同一台机器上**的 MCP 客户端连接（例如 Linux 上的 agent 远程驱动 Windows 上的 SolidWorks）。此时全局串行锁依然生效，请仍然只接一个客户端。
 
 ## 环境要求
 
 - Windows 10/11
 - 仅调用 `cadstudio_write_open_format` 时不需要安装 SolidWorks/AutoCAD
-- 调用 `solidworks_*` 原生工具时需要 SolidWorks 已安装并至少启动过一次，完成 COM 注册
-- Python 3.8+
+- 原生 SolidWorks 操作以 SolidWorks 2026 为支持与验收目标；安装后至少启动一次，完成 COM 注册
+- Python 3.10+
 - Python 依赖：
 
 ```powershell
@@ -25,6 +27,57 @@ python mcp-server\server.py
 ```
 
 该命令通常由 MCP 客户端作为子进程启动，不需要手动长期运行。
+
+## HTTP 传输（streamable-http）
+
+当 MCP 客户端与 SolidWorks 不在同一台机器上时（例如 Linux 上的 agent 驱动 Windows 上的 SolidWorks），无法让客户端直接拉起本机的 stdio 子进程，此时改用 HTTP 传输：
+
+```powershell
+python -m pip install uvicorn
+$env:SW_MCP_TOKEN = "<替换为随机共享密钥>"
+python mcp-server\server.py --transport streamable-http --host 0.0.0.0 --port 8000 `
+  --allow-host "192.168.1.10:*" --output-root "C:\cad-output"
+```
+
+- 端点：`http://<本机IP>:8000/mcp`（Streamable HTTP，FastMCP 默认路径 `/mcp`）
+- `--host` 默认 `127.0.0.1`；局域网访问需显式传 `0.0.0.0`，并放行对应端口的防火墙
+- `--port` 默认 `8000`
+- 也可用环境变量 `SW_MCP_HOST` / `SW_MCP_PORT` 提供默认值，命令行参数优先
+- **`uvicorn` 是可选依赖**：仅在 `--transport streamable-http` 时需要；缺失时会给出明确提示
+- 默认值仍是 `stdio`，现有 MCP 客户端配置无需改动
+- 非回环监听必须设置 `SW_MCP_TOKEN` 和显式 `--allow-host`；Host 填客户端访问的实际 IP/域名，可重复指定
+- 客户端请求携带 `Authorization: Bearer <共享密钥>`；浏览器客户端另需明确 `--allow-origin "https://客户端域名"`
+- Host/Origin 校验保持开启；用本机私有测试端点验证过握手、401、错误 Host 与错误 Origin 拒绝
+- 通过公网或不可信网络连接时，使用带 TLS 的反向代理或受控隧道保护传输
+
+客户端配置示例（OpenCode / 其他支持 remote MCP 的客户端）：
+
+```jsonc
+{
+  "mcp": {
+    "servers": {
+      "solidworks": {
+        "type": "remote",
+        "url": "http://192.168.1.10:8000/mcp",
+        "headers": { "Authorization": "Bearer <共享密钥>" }
+      }
+    }
+  }
+}
+```
+
+客户端的 URL/headers 配置字段以对应客户端文档为准。该传输使用现有 MCP 进程和 COM 串行锁。
+
+### 取回预览与交付文件
+
+输出文件位于 `--output-root`（或 `SW_MCP_OUTPUT_ROOT`）内时，工具结果附加 `artifact_refs`，包含不透明 `artifact_id`、`uri`、文件大小和 SHA-256。未配置时只允许系统临时目录下的 `solidworks-automation-artifacts`；建议明确指定交付目录。
+
+- 调用 `cadstudio_read_artifact`，参数为 `{"params":{"artifact_id":"<结果中的 ID>"}}`，小图返回标准 PNG 内容块。
+- 用 `resources/read` 读取结果中的 `cad-artifact://delivery/...` URI，取回不超过 8 MiB 的原始二进制文件。
+- 大文件用 `cadstudio_read_artifact`，设置 `as_preview:false`、`offset`、`max_bytes`，按 `next_offset` 拼接 base64 块；完成后比对 SHA-256。
+- 读取适配复用既有 Artifact Ledger；文件改变、目录越界或任意路径参数均不能作为已验证产物读取。
+
+远端输入仍需预先放到 CAD 主机；产物读取接口只服务已有交付文件。现有 60 个工具的名称和输入 Schema 保持一致，新增 1 个只读产物工具。
 
 ## Smithery 发布
 
@@ -117,7 +170,8 @@ claude mcp add --scope user solidworks -- python C:\path\to\solidworks-automatio
 | `cadstudio_resolve_backend` | 按能力真源、接口语义、可用运行时、Revision 和加载项条件选择 Python/C#/C++/SWBasic/OCCT 等后端 | 否 |
 | `cadstudio_write_open_format` | 从本地 `.cadstudio.json` 白名单写出 STEP/IGES/BREP/STL/OBJ/GLB/DXF/SVG/PDF/PNG、Preview Manifest/Scene 和几何/哈希证据 | 否 |
 | `cadstudio_build_dxf_preview_scene` | 只读 DXF 白名单转换为不覆盖旧文件的 `.scene.json` | 否 |
-| `cadstudio_check_dfm` | 对 NeutralCadDocument 执行机加工、钣金、激光切割或 3D 打印 DFM 规则检查，支持 supplier profile 与 B-Rep 证据；缺关键输入返回 blocked，规则通过仍需人工复核 | 否 |
+| `cadstudio_read_artifact` | 按交付 ID 返回 PNG 预览或有界二进制块，校验已有 Ledger 的 SHA-256 | 否 |
+| `cadstudio_check_dfm` | 对 NeutralCadDocument 执行机加工、钣金、激光切割、3D 打印或注塑声明型 DFM 检查；缺关键输入返回 blocked，规则通过仍需人工复核 | 否 |
 | `cadstudio_check_routing` | 校验中性 Routing 端点、分段、长度、弯曲半径、碰撞/间隙、支撑和 Routing BOM | 否 |
 | `cadstudio_routing_preflight` | 探测 SOLIDWORKS Routing 类型库、加载项注册和许可证证据；缺证据返回 blocked | 否 |
 | `solidworks_addin_host_status` | 只读检查 C# Add-in 程序集、HKCU/HKLM 注册层级、进程内 UI/事件诊断和阻塞码 | 否 |

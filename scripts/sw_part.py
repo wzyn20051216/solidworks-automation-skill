@@ -742,7 +742,7 @@ def extrude_boss(model, sketch_name, depth, direction=True, merge=True):
         model: IModelDoc2
         sketch_name: 草图名称（如 "Sketch1"）
         depth: 拉伸深度（米）
-        direction: True=正方向
+        direction: True=反转默认方向；凸台默认沿草图法向
         merge: True=合并结果
     """
     _ensure_sketch_selected(model, sketch_name)
@@ -781,8 +781,8 @@ def extrude_cut(model, sketch_name, depth, direction=True, flip=False):
         model: IModelDoc2
         sketch_name: 草图名称
         depth: 切除深度（米），0 表示完全贯穿
-        direction: True=正方向
-        flip: True=翻转切除方向
+        direction: True=反转默认方向；切除默认逆草图法向
+        flip: True=切除轮廓外侧，False=切除轮廓内侧
     """
     _ensure_sketch_selected(model, sketch_name)
     if depth == 0:
@@ -921,15 +921,12 @@ def linear_pattern(model, feature_name, d1_x, d1_y, d1_z, d1_spacing, d1_count,
         d1_*: 方向1 的方向向量、间距（米）和数量
         d2_*: 方向2（可选）
     """
-    _select_by_id(model.Extension, feature_name, "BODYFEATURE", mark=4)
-    return model.FeatureManager.FeatureLinearPattern3(
-        d1_spacing, d2_spacing,
-        d1_count, d2_count,
-        False, False,
-        str(d1_x), str(d1_y), str(d1_z),
-        str(d2_x), str(d2_y), str(d2_z),
-        False, False
-    )
+    try:
+        from .sw_pattern import linear_pattern as create_pattern
+    except ImportError:
+        from sw_pattern import linear_pattern as create_pattern
+    return create_pattern(model, feature_name, (d1_x, d1_y, d1_z), d1_spacing, d1_count,
+        (d2_x, d2_y, d2_z), d2_spacing, d2_count)
 
 
 def circular_pattern(model, feature_name, axis_name, angle_rad, count, equal_spacing=True):
@@ -943,11 +940,11 @@ def circular_pattern(model, feature_name, axis_name, angle_rad, count, equal_spa
         count: 实例数量
         equal_spacing: True=等间距
     """
-    _select_by_id(model.Extension, feature_name, "BODYFEATURE", mark=4)
-    _select_by_id(model.Extension, axis_name, "AXIS", append=True, mark=1)
-    return model.FeatureManager.FeatureCircularPattern4(
-        count, angle_rad, False, "None", False, equal_spacing, False
-    )
+    try:
+        from .sw_pattern import circular_pattern as create_pattern
+    except ImportError:
+        from sw_pattern import circular_pattern as create_pattern
+    return create_pattern(model, feature_name, axis_name, angle_rad, count, equal_spacing)
 
 
 def shell(model, thickness, faces_to_remove=None):

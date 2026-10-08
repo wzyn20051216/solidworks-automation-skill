@@ -24,7 +24,7 @@
 
 | 指标 | 值 |
 |---|---|
-| Nominal First-Pass Success | 100% (11/11) |
+| Nominal First-Pass Success | 100% (10/10，基线 v3) |
 | Nominal Task Success | 100% |
 | Failure Detection | 100% |
 | Policy Block Accuracy | 100% |
@@ -34,6 +34,8 @@
 | Escaped False-Completion | 0% |
 
 ## Limitations
+
+- 2026-10-08 方案 B 将 warning/manual review 改为 blocked，补充 SolidWorks 2026 真机草图、阵列、文档归属和远程产物验收，详见 [`scheme-b-reliability.md`](scheme-b-reliability.md)。旧版本不在当前支持与验收范围。
 
 - 上述 benchmark 是 **synthetic / deterministic**（Fake Handler/Reviewer + 故障注入），
   **不是**真实用户成功率、真实 SolidWorks 全场景成功率、LLM 智能水平或生产 SLA。

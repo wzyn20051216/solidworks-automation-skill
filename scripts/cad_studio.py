@@ -147,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     dfm = sub.add_parser("check-dfm")
     dfm.add_argument("--input", type=Path, required=True, help="NeutralCadDocument .cadstudio.json")
     dfm.add_argument("--output", type=Path, required=True, help="不覆盖旧文件的 DFM report JSON 输出")
-    dfm.add_argument("--process", default="auto", help="machining/sheet_metal/laser_cutting/3d_printing；auto 时读取文档 metadata")
+    dfm.add_argument("--process", default="auto", help="machining/sheet_metal/laser_cutting/3d_printing/injection_molding；auto 时读取文档 metadata")
     dfm.add_argument("--profile", action="append", default=[], help="可重复指定 DFM Profile JSON，按供应商能力交集合并")
     dfm.add_argument("--brep-evidence", type=Path, help="可选 SolidWorks/OCCT B-Rep 证据 JSON")
     routing = sub.add_parser("check-routing")

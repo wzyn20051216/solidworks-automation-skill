@@ -1,18 +1,18 @@
 {
   "schema_version": "2.0",
-  "baseline_version": "2",
+  "baseline_version": "3",
   "workflow_count": 10,
   "scenario_count": 37,
   "generated_from": "tests/evals/runner.py (Deterministic Execution Reliability Benchmark)",
   "nominal_metrics": {
-    "scenario_count": 11,
+    "scenario_count": 10,
     "task_success_rate": 1.0,
     "first_pass_success_rate": 1.0,
     "average_tool_calls": 1.0,
     "average_duration_ms": 0.0
   },
   "robustness_metrics": {
-    "scenario_count": 26,
+    "scenario_count": 27,
     "expected_outcome_accuracy": 1.0,
     "recovery_success_rate": 1.0,
     "failure_detection_rate": 1.0,
@@ -29,7 +29,7 @@
   },
   "overall_diagnostic_metrics": {
     "scenario_count": 37,
-    "raw_task_completion_rate": 0.5946,
+    "raw_task_completion_rate": 0.5676,
     "average_tool_calls": 1.27,
     "average_duration_ms": 0.0
   }

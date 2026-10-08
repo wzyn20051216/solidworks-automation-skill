@@ -21,10 +21,10 @@ RECOVERABLE_ACTIONS = frozenset({"retry", "fallback_backend", "replan_required"}
 FALSE_COMPLETION_VERDICTS = frozenset({"FAIL", "BLOCKED"})
 
 #: benchmark group（分类必须是 deterministic，由 runner 按 scenario type 确定）。
-NOMINAL_TYPES = frozenset({"happy", "warning"})
+NOMINAL_TYPES = frozenset({"happy"})
 RECOVERY_TYPES = frozenset({"transient_recovery", "backend_fallback"})
 FAULT_INJECTION_TYPES = frozenset({"verification_failure", "reviewer_blocked", "retry_exhausted"})
-GUARDRAIL_TYPES = frozenset({"policy_block", "user_action_required", "capability_gap"})
+GUARDRAIL_TYPES = frozenset({"policy_block", "user_action_required", "capability_gap", "warning"})
 
 
 def scenario_category(scenario_type: str) -> str:

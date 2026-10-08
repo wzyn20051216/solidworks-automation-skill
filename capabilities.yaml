@@ -344,13 +344,14 @@
     },
     {
       "id": "dfm_checks",
-      "label": "机加工、钣金、激光切割与 3D 打印 DFM 复核",
+      "label": "机加工、钣金、激光切割、3D 打印与注塑 DFM 复核",
       "level": "pilot",
       "backends": ["local-python"],
       "verified_versions": [],
       "dependencies": ["python"],
       "limitations": [
         "支持供应商 DFM Profile 能力交集、单位归一和 SolidWorks/OCCT B-Rep 证据绑定；缺失或伪造关键证据会返回 blocked",
+        "注塑分支是声明型 pilot 筛查，支持拔模、筋厚、壁厚变化、倒扣方案、浇口及顶针/水路间距；不自动识别倒扣或进行模流认证",
         "机器规则全部通过仍必须人工确认材料、公差、载荷、装配、刀具/模具、打印方向和供应商能力",
         "DFM 报告是风险复核，不是制造认证；缺少材料、壁厚、K 因子、割缝或成型空间等关键输入时返回 blocked"
       ],
