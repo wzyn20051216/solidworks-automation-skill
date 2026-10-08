@@ -277,17 +277,26 @@ class FakeInterference:
             raise RuntimeError("assembly busy")
 
     def GetInterferenceCount(self):
+        if self.fail_on == "count":
+            raise RuntimeError("count unavailable")
         return self.count
 
-    def GetInterference(self, index):
-        return types.SimpleNamespace(Name=f"Interference{index}", Volume=1e-07, GetComponents=lambda: [])
+    def GetInterferences(self):
+        assert not self.done_called
+        if self.fail_on == "calculate":
+            raise RuntimeError("calculation failed")
+        return [types.SimpleNamespace(Volume=1e-07, Components=[])
+                for _ in range(self.count)]
 
 
 class FakeAssembly:
     """装配体替身。"""
 
     def __init__(self, count=0, fail_on=None):
-        self.InterferenceDetection = FakeInterference(count, fail_on)
+        self.InterferenceDetectionManager = FakeInterference(count, fail_on)
+
+    def ClearSelection2(self, all_selections):
+        assert all_selections
 
 
 def test_interference_clean_assembly():
@@ -320,8 +329,27 @@ def test_interference_options_are_forwarded():
         treat_coincidence_as_interference=True,
     )
 
-    assert assembly.InterferenceDetection.TreatSubAssembliesAsComponents is True
-    assert assembly.InterferenceDetection.TreatCoincidenceAsInterference is True
+    assert assembly.InterferenceDetectionManager.TreatSubAssembliesAsComponents is True
+    assert assembly.InterferenceDetectionManager.TreatCoincidenceAsInterference is True
+    assert assembly.InterferenceDetectionManager.IgnoreHiddenBodies is False
+    assert assembly.InterferenceDetectionManager.done_called
+
+
+@pytest.mark.parametrize("failure", ["count", "calculate", "done"])
+def test_interference_api_failures_never_report_zero(failure):
+    """计算、数量或结束失败均不得伪造零干涉通过。"""
+    assembly = FakeAssembly(count=2, fail_on=failure)
+    result = sw_measure.inspect_interference(assembly)
+    assert result["status"] == "blocked"
+    assert result["interference_count"] is None
+    assert assembly.InterferenceDetectionManager.done_called
+
+
+def test_interference_array_count_mismatch_is_blocked():
+    """空数组与非零计数不一致时拒绝放行。"""
+    assembly = FakeAssembly(count=2)
+    assembly.InterferenceDetectionManager.GetInterferences = lambda: []
+    assert sw_measure.inspect_interference(assembly)["status"] == "blocked"
 
 
 def test_interference_failure_is_structured():

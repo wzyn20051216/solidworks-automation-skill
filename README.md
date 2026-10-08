@@ -232,3 +232,14 @@ V2 附带 **37 个 deterministic reliability scenarios**，覆盖正常执行、
 ---
 
 <sub>关注抖音 @balance. · 嵌入式开发、SolidWorks 自动化和 AI 辅助工程实践持续更新</sub>
+
+### 装配干涉检查 API
+
+`solidworks_interference_check` 使用 `IAssemblyDoc.InterferenceDetectionManager`，
+通过 `GetInterferences()` 计算并读取 `IInterference.Components` 和体积，最后调用
+`Done()`。隐藏实体和已忽略结果参与检查；同一个多实体零件内部的相交不计入。
+计算失败、计数读取失败、数组数量不一致或结束检查失败均返回 `blocked`，不会误报零干涉。
+抑制组件不参与计算；零结果仍需核对组件解析状态和设计意图。
+离线回归覆盖调用顺序、失败处理和 SI 体积换算（26 项通过）。
+SOLIDWORKS 2026 SP4.1（34.4.1）、Python 3.10 上已通过 MCP 实测正常返回；
+该真机样例为零干涉，非零结果读取仍以离线回归为证据。
