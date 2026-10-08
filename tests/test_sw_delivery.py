@@ -1,5 +1,7 @@
 """BOM 与 Pack and Go 的无 COM 回归测试。"""
 from pathlib import Path
+from types import SimpleNamespace
+from contextlib import nullcontext
 
 from scripts import sw_delivery
 
@@ -253,9 +255,11 @@ def test_pack_and_go_uses_official_noarg_invoketypes_signature(tmp_path):
     assert report["document_count"] == 2
 
 
-def test_comtypes_connection_does_not_own_active_instance():
+def test_comtypes_connection_does_not_own_active_instance(monkeypatch):
     """@brief 已有实例必须只附着，不能误标为本次启动。"""
-    active = object()
+    active = SimpleNamespace(GetProcessID=lambda: 10, RevisionNumber=lambda: "34.1.1")
+    monkeypatch.setattr(sw_delivery, "solidworks_processes", lambda: {10: 2026})
+    monkeypatch.setattr(sw_delivery, "_LaunchGuard", nullcontext)
 
     class FakeClient:
         @staticmethod
@@ -277,9 +281,11 @@ def test_comtypes_connection_does_not_own_active_instance():
     assert error is None
 
 
-def test_comtypes_connection_owns_only_fallback_created_instance():
+def test_comtypes_connection_owns_only_fallback_created_instance(monkeypatch):
     """@brief 无活动实例时才允许创建并取得退出所有权。"""
-    created = object()
+    created = SimpleNamespace(GetProcessID=lambda: 11, RevisionNumber=lambda: "34.1.1")
+    monkeypatch.setattr(sw_delivery, "solidworks_processes", lambda: {})
+    monkeypatch.setattr(sw_delivery, "_LaunchGuard", nullcontext)
 
     class FakeClient:
         @staticmethod

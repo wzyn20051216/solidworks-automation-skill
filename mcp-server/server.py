@@ -1302,7 +1302,7 @@ def _tool_error(exc: Exception, response_format: ResponseFormat = ResponseFormat
     if code:
         payload["error_code"] = str(code)
         payload["retryable"] = False
-        if str(code) in {"SW_DOCUMENT_BUDGET", "SW_DOCUMENT_STATE_UNAVAILABLE", "SW_INSTANCE_NOT_READY", "SW_PROCESS_STATE_UNAVAILABLE", "SW_VERSION_MISMATCH"}:
+        if str(code) in {"SW_DOCUMENT_BUDGET", "SW_DOCUMENT_STATE_UNAVAILABLE", "SW_INSTANCE_NOT_READY", "SW_PROCESS_STATE_UNAVAILABLE", "SW_VERSION_MISMATCH", "SW_INSTANCE_MISMATCH", "SW_PACK_AND_GO_TIMEOUT", "SW_PACK_AND_GO_WORKER_PROTOCOL"}:
             payload["status"] = "blocked"
     return _result(payload, response_format)
 
