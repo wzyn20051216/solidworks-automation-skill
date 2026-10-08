@@ -14,6 +14,15 @@ def test_nice_ceiling_uses_readable_axis_limits():
     assert _nice_ceiling(797) == 1000
 
 
+def _parse_svg(svg: str):
+    """@brief 解析前拒绝 DTD 与实体定义并限制输入大小，符合不可信 XML 输入防护。"""
+    if "<!DOCTYPE" in svg or "<!ENTITY" in svg:
+        raise AssertionError("SVG 输出不应包含 DTD 或实体定义")
+    if len(svg) > 1_000_000:
+        raise AssertionError("SVG 输出超出预期大小上限")
+    return ElementTree.fromstring(svg)
+
+
 def test_render_svg_is_valid_and_contains_no_stargazer_identity():
     """@brief SVG 只展示时间与累计数量，不包含用户身份。"""
     timestamps = [
@@ -22,7 +31,7 @@ def test_render_svg_is_valid_and_contains_no_stargazer_identity():
     ]
 
     svg = render_svg("owner/repo", timestamps, 2)
-    root = ElementTree.fromstring(svg)
+    root = _parse_svg(svg)
 
     assert root.tag.endswith("svg")
     assert "owner/repo" in svg
