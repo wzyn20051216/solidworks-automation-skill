@@ -26,7 +26,7 @@ def _load_baseline() -> dict:
 def test_baseline_file_present():
     baseline = _load_baseline()
     assert baseline["schema_version"] == "2.0"
-    assert baseline["baseline_version"] == "2"
+    assert baseline["baseline_version"] == "3"
     assert baseline["workflow_count"] == 10
     assert baseline["scenario_count"] == 37
     assert "nominal_metrics" in baseline

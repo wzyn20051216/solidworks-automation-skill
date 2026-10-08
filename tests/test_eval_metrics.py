@@ -45,7 +45,7 @@ def _record(
 
 def test_scenario_category_mapping():
     assert scenario_category("happy") == "nominal"
-    assert scenario_category("warning") == "nominal"
+    assert scenario_category("warning") == "guardrail"
     assert scenario_category("transient_recovery") == "recovery"
     assert scenario_category("backend_fallback") == "recovery"
     assert scenario_category("verification_failure") == "fault_injection"

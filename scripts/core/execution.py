@@ -36,6 +36,24 @@ from .trace import emit
 from .verification import verify
 
 
+def normalize_tool_payload(raw: Mapping[str, Any]) -> dict[str, Any]:
+    """@brief 校验显式执行事实；保留历史结果字段，不将失败标记渲染成成功。
+    @param raw 既有工具或 Handler 的结构化结果。
+    @return 兼容原字段的结果；失败时附加稳定错误码和失败字段。
+    """
+    payload = dict(raw)
+    flags = ["success", "saved", "exported", "rebuild_ok"]
+    if payload.get("dry_run") is not True:
+        flags.extend(("feature_created", "motor_feature_created", "component_added", "mate_created"))
+    failed = [name for name in flags if payload.get(name) is False]
+    if failed:
+        payload.update(status="error", success=False,
+                       error_code=payload.get("error_code") or "TOOL_OPERATION_FAILED",
+                       failed_fields=failed)
+        payload.setdefault("message", "必要执行步骤失败: " + ", ".join(failed))
+    return payload
+
+
 def _extract_message(raw: Any) -> str:
     """@brief 从 handler 结果提取简短 message（不复制完整 result）。"""
     if isinstance(raw, Mapping):
@@ -144,6 +162,7 @@ def execute_with_core(
     capability_facade: Any = None,
     max_retries: int | None = None,
     trace_dir: Any = None,
+    defer_completion: bool = False,
 ) -> ExecutionAssessment:
     """@brief 串起 State + Handler + Verification + Recovery + Trace，返回评估结果。
 
@@ -203,17 +222,30 @@ def execute_with_core(
             step_id=step_id,
         )
     else:
+        payload = normalize_tool_payload(raw_result) if isinstance(raw_result, Mapping) else None
+        failed = raw_result is None or raw_result is False or (
+            payload is not None and (payload.get("success") is False or
+            str(payload.get("status", "")).lower() in {"error", "fail", "failed", "blocked", "unavailable"})
+        )
         execution_result = ExecutionResult(
-            success=True,
+            success=not failed,
             message=_extract_message(raw_result),
             outputs=_extract_outputs(raw_result),
-            error_code=_extract_error_code(raw_result),
+            error_code=_extract_error_code(payload or {}) or ("TOOL_RESULT_UNAVAILABLE" if failed else None),
         )
-        _trace("tool.succeeded", trace_dir, run_id=run_id, step_id=step_id, capability_id=capability_id,
+        if failed:
+            step.transition(StepStatus.FAILED)
+            run.transition(RunStatus.FAILED)
+            step.error_code = execution_result.error_code
+            recovery_decision = decide(execution_result=execution_result.to_dict(),
+                operation_id=operation_id, capability_id=capability_id,
+                capability_facade=capability_facade, max_retries=max_retries,
+                trace_dir=trace_dir, run_id=run_id, step_id=step_id)
+        _trace("tool.failed" if failed else "tool.succeeded", trace_dir, run_id=run_id, step_id=step_id, capability_id=capability_id,
                message=execution_result.message)
 
     verification_result: VerificationResult | None = None
-    if requires_review and exception is None:
+    if requires_review and execution_result.success:
         run.transition(RunStatus.VERIFYING)
         step.transition(StepStatus.VERIFYING)
         verification_result = verify(
@@ -240,10 +272,11 @@ def execute_with_core(
                 run_id=run_id,
                 step_id=step_id,
             )
-        elif verification_result.status == VerificationStatus.BLOCKED:
+        elif verification_result.status != VerificationStatus.PASS or verification_result.manual_review_required:
             step.transition(StepStatus.BLOCKED)
             run.transition(RunStatus.BLOCKED)
             recovery_decision = decide(
+                error_kind=ErrorKind.USER_ACTION_REQUIRED if verification_result.manual_review_required else None,
                 verification_result=verification_result.to_dict(),
                 operation_id=operation_id,
                 capability_id=capability_id,
@@ -253,12 +286,13 @@ def execute_with_core(
                 run_id=run_id,
                 step_id=step_id,
             )
-        else:  # PASS / WARN
+        else:  # 仅明确 PASS 且无需人工复核，才可以完成。
             step.transition(StepStatus.SUCCESS)
             run.transition(RunStatus.COMPLETED)
-    elif exception is None:
+    elif execution_result.success:
         step.transition(StepStatus.SUCCESS)
-        run.transition(RunStatus.COMPLETED)
+        if not defer_completion:
+            run.transition(RunStatus.COMPLETED)
 
     # 仅在完整链模式（requires_review）下补 run 终态事件；Worker 模式由 Worker 自身写终态。
     if requires_review:
@@ -283,4 +317,4 @@ def execute_with_core(
     )
 
 
-__all__ = ["ExecutionAssessment", "execute_with_core"]
+__all__ = ["ExecutionAssessment", "execute_with_core", "normalize_tool_payload"]

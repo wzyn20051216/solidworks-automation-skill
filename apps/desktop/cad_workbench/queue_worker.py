@@ -1132,10 +1132,16 @@ def _execute_handler_with_core(handler: JobHandler, kind: str, job: dict[str, An
         capability_id=_primary_capability(job),
         requires_review=False,
         trace_dir=path.parent,
+        defer_completion=True,
     )
     job["executionAssessment"] = assessment.to_dict()
     if assessment.exception is not None:
         raise assessment.exception
+    if not assessment.execution_result.success:
+        message = assessment.execution_result.message or assessment.execution_result.error_code or "Handler 执行失败"
+        if isinstance(assessment.raw_result, dict) and assessment.raw_result.get("status") == "blocked":
+            raise JobBlocked(message)
+        raise RuntimeError(message)
     return assessment.raw_result
 
 
@@ -1155,6 +1161,10 @@ def _record_verification_assessment(path: Path, job: dict[str, Any], review: dic
         run_id=run_id,
     )
     job["verificationAssessment"] = verification.to_dict()
+    if verification.status.value == "FAIL":
+        review["status"] = "fail"
+    elif verification.status.value in {"WARN", "BLOCKED"} or verification.manual_review_required:
+        review["status"] = "warning"
     decision = decide(
         verification_result=verification.to_dict(),
         capability_id=capability_id,
@@ -1273,6 +1283,13 @@ def process_job(
         set_job_state(job, "failed", 100, str(error))
         append_event(path.parent, job, "run.failed", str(error))
 
+    assessment = job.get("executionAssessment")
+    if isinstance(assessment, dict):
+        # Queue 负责调度；Core 终态必须在既有 Review 与领域证据结束后记录。
+        verification = job.get("verificationAssessment") or {}
+        completed = job.get("status") == "passed" and verification.get("status") == "PASS" and not verification.get("manual_review_required")
+        assessment["status"] = "completed" if completed else "failed" if job.get("status") == "failed" else "blocked"
+        assessment["step"]["status"] = "success" if completed else assessment["status"]
     write_job(path, job)
     return job
 

@@ -93,7 +93,7 @@ def test_reviewer_pass_completed():
     assert assessment.step.status == StepStatus.SUCCESS
 
 
-def test_reviewer_warn_completed_no_recovery():
+def test_reviewer_warn_requires_manual_review():
     assessment = execute_with_core(
         handler=_handler({"message": "ok"}),
         handler_arg={},
@@ -102,8 +102,8 @@ def test_reviewer_warn_completed_no_recovery():
         reviewer=lambda: {"status": "warning"},
     )
     assert assessment.verification_result.status == VerificationStatus.WARN
-    assert assessment.run_context.status == RunStatus.COMPLETED
-    assert assessment.recovery_decision is None  # WARN 不触发 recovery
+    assert assessment.run_context.status == RunStatus.BLOCKED
+    assert assessment.recovery_decision.decision == "user_action_required"
 
 
 def test_reviewer_fail_not_success():

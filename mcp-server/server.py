@@ -42,6 +42,7 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from scripts.sw_preflight import missing_com_dependencies, solidworks_installed  # noqa: E402
+from scripts.core.execution import normalize_tool_payload  # noqa: E402
 
 
 pythoncom = None
@@ -1250,6 +1251,7 @@ def _set_component_fixed(asm_model, component, fixed: bool = True) -> bool:
 
 def _result(payload: Dict[str, Any], response_format: ResponseFormat) -> str:
     """Format a tool response as JSON or Markdown."""
+    payload = normalize_tool_payload(payload)
     if response_format == ResponseFormat.JSON:
         return json.dumps(payload, ensure_ascii=False, indent=2)
     lines = [f"# {payload.get('status', 'result')}"]
@@ -1938,10 +1940,11 @@ def solidworks_create_basic_part(params: SolidWorksCreateBasicPartInput) -> str:
         save_ok = None
         if params.output_path:
             save_ok = save_document(model, params.output_path)
-        model.ForceRebuild3(False)
+        rebuild_ok = bool(model.ForceRebuild3(False))
         return {
             "status": "ok",
             "shape": params.shape.value,
+            "rebuild_ok": rebuild_ok,
             "feature_created": feature is not None,
             "feature_name": get_com_member(feature, "Name") if feature else None,
             "appearance_ok": appearance_ok,

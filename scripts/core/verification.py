@@ -296,6 +296,8 @@ def verify(
             for item in result.get(key) or []:
                 if isinstance(item, Mapping):
                     checks.append(dict(item))
+    if checks:
+        status = aggregate_statuses((status, aggregate_checks(checks)))
 
     merged_artifacts = _dedup_artifacts(
         [*(artifacts or [])]
