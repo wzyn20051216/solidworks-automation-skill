@@ -8,7 +8,7 @@ from __future__ import annotations
 import glob
 import os
 import re
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Callable, Iterable, Mapping
 
 
@@ -209,11 +209,11 @@ def _common_candidates(product: str) -> list[Path]:
         Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Autodesk" / "AutoCAD 2024" / exe,
     ]
     for drive in ("D:", "E:"):
-        root = Path(drive)
+        root = PureWindowsPath(drive + "\\")
         if product == "solidworks":
             candidates.extend([
-                root / "Solidworks" / "SOLIDWORKS" / exe,
-                root / "SOLIDWORKS Corp" / "SOLIDWORKS" / exe,
+                Path(root / "Solidworks" / "SOLIDWORKS" / exe),
+                Path(root / "SOLIDWORKS Corp" / "SOLIDWORKS" / exe),
             ])
             for pattern in (
                 f"{drive}/Solidworks*/SOLIDWORKS*/{exe}",
@@ -222,7 +222,7 @@ def _common_candidates(product: str) -> list[Path]:
             ):
                 candidates.extend(Path(p) for p in glob.glob(pattern))
         else:
-            candidates.extend([root / "AutoCAD 2024" / exe, root / "Autodesk" / "AutoCAD 2024" / exe])
+            candidates.extend([Path(root / "AutoCAD 2024" / exe), Path(root / "Autodesk" / "AutoCAD 2024" / exe)])
             for pattern in (f"{drive}/AutoCAD*/{exe}", f"{drive}/Autodesk/AutoCAD*/{exe}"):
                 candidates.extend(Path(p) for p in glob.glob(pattern))
     return candidates

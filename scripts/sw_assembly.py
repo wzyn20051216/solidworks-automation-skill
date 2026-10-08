@@ -716,33 +716,14 @@ def replace_component(asm_model, old_component_name, new_part_path):
 def get_interference_detection(asm_model):
     """运行干涉检查并返回可审计报告。"""
     try:
-        interference = asm_model.InterferenceDetection
-        interference.TreatSubAssembliesAsComponents = False
-        interference.TreatCoincidenceAsInterference = False
-        interference.Done()
-        count = int(safe_get_com_member(interference, "GetInterferenceCount") or 0)
-        items = []
-        for index in range(count):
-            try:
-                item = interference.GetInterference(index)
-                items.append({
-                    "index": index,
-                    "name": safe_get_com_member(item, "Name"),
-                    "volume": safe_get_com_member(item, "Volume"),
-                })
-            except Exception as exc:
-                items.append({"index": index, "error": str(exc)})
-        return {
-            "status": "pass" if count == 0 else "warn",
-            "interference_count": count,
-            "items": items,
-            "manual_review_required": count > 0,
-        }
-    except Exception as exc:
-        return {
-            "status": "blocked",
-            "interference_count": None,
-            "items": [],
-            "manual_review_required": True,
-            "error": str(exc),
-        }
+        from .sw_measure import inspect_interference
+    except ImportError:
+        from sw_measure import inspect_interference
+    result = inspect_interference(asm_model)
+    # 保留旧入口的 SI 体积字段；计算和失败处理共享同一实现。
+    for item in result["items"]:
+        value = item.get("volume_mm3")
+        item["volume"] = value / 1e9 if value is not None else None
+    if result["errors"]:
+        result["error"] = "; ".join(result["errors"])
+    return result

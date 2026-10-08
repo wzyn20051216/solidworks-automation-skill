@@ -4,7 +4,7 @@ SolidWorks 测量与自检工具。
 面向机械设计工程师最常用的三类自检证据：
 1. 质量属性（质量、体积、表面积、质心、惯性矩）
 2. 包围盒（含轴向尺寸，用于判断零件能否放进箱体/托盘）
-3. 装配体干涉检查（把已有的 InterferenceDetection 封装成可审计结果）
+3. 装配体干涉检查（把 InterferenceDetectionManager 封装成可审计结果）
 
 设计约束：所有函数都返回结构化字典而非抛裸异常，便于 MCP 层把失败原因和
 "下一步该怎么做"一起交给用户；但连接类错误仍然向上抛，由 MCP 层统一包装。
@@ -279,52 +279,57 @@ def inspect_interference(asm_model, treat_subassemblies_as_components=False,
     }
 
     try:
-        interference = get_com_member(asm_model, "InterferenceDetection")
+        asm_model.ClearSelection2(True)
+        interference = get_com_member(asm_model, "InterferenceDetectionManager")
     except Exception as exc:
         result["errors"].append(f"无法获取干涉检查对象: {exc}")
         return result
 
     if interference is None:
-        result["errors"].append("InterferenceDetection 返回空对象；请确认活动文档是装配体。")
+        result["errors"].append("InterferenceDetectionManager 返回空对象；请确认活动文档是装配体。")
         return result
 
     try:
         interference.TreatSubAssembliesAsComponents = bool(treat_subassemblies_as_components)
         interference.TreatCoincidenceAsInterference = bool(treat_coincidence_as_interference)
-        interference.Done()
-    except Exception as exc:
-        result["errors"].append(f"配置或执行干涉检查失败: {exc}")
-        return result
-
-    try:
-        count = int(_safe_member(interference, "GetInterferenceCount", default=0) or 0)
-    except Exception as exc:
-        result["errors"].append(f"读取干涉数量失败: {exc}")
-        return result
-
-    items = []
-    for index in range(count):
-        entry = {"index": index}
-        try:
-            item = interference.GetInterference(index)
-        except Exception as exc:
-            entry["error"] = str(exc)
+        interference.IgnoreHiddenBodies = False
+        interference.ShowIgnoredInterferences = True
+        interference.IncludeMultibodyPartInterferences = False
+        result["options"].update(ignore_hidden_bodies=False,
+                                 show_ignored_interferences=True,
+                                 include_multibody_part_interferences=False)
+        # GetInterferences 执行计算；Done 只在读取结果后释放管理器。
+        raw_items = get_com_member(interference, "GetInterferences")
+        detected = list(raw_items) if raw_items is not None else []
+        count = int(get_com_member(interference, "GetInterferenceCount"))
+        if count < 0 or count != len(detected):
+            raise RuntimeError(f"干涉数量与数组不一致: {count} != {len(detected)}")
+        items = []
+        for index, item in enumerate(detected):
+            entry = {"index": index, "name": None}
+            if include_volume:
+                volume_m3 = float(get_com_member(item, "Volume"))
+                if not math.isfinite(volume_m3) or volume_m3 < 0:
+                    raise RuntimeError(f"无效干涉体积: {volume_m3}")
+                entry["volume_mm3"] = _round(volume_m3 * (_MM_PER_M**3), 6)
+            components = get_com_member(item, "Components")
+            entry["components"] = [
+                {"name": get_com_member(component, "Name2"),
+                 "path": get_com_member(component, "GetPathName")}
+                for component in (components if components is not None else [])
+            ]
             items.append(entry)
-            continue
-        entry["name"] = _safe_member(item, "Name")
-        if include_volume:
-            volume_m3 = _safe_member(item, "Volume")
-            entry["volume_mm3"] = _round(float(volume_m3) * (_MM_PER_M**3), 6) if volume_m3 is not None else None
-        components = _safe_member(item, "GetComponents")
-        if components:
-            names = []
-            for component in components if isinstance(components, (list, tuple)) else [components]:
-                name = _safe_member(component, "Name2")
-                path = _safe_member(component, "GetPathName")
-                if name or path:
-                    names.append({"name": name, "path": path})
-            entry["components"] = names
-        items.append(entry)
+    except Exception as exc:
+        result["errors"].append(f"配置、计算或读取干涉失败: {exc}")
+        return result
+    finally:
+        try:
+            interference.Done()
+        except Exception as exc:
+            result["errors"].append(f"结束干涉检查失败: {exc}")
+
+    if result["errors"]:
+        return result
 
     volumes = [item.get("volume_mm3") for item in items if item.get("volume_mm3") is not None]
     if count == 0:
