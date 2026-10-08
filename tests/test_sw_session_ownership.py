@@ -7,8 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import sw_connect
-import sw_session
+from scripts import sw_connect, sw_session
 
 
 class App:
@@ -102,4 +101,18 @@ def test_budget_blocks_creation_without_closing_user_documents(monkeypatch):
     app.docs = [SimpleNamespace(GetTitle=lambda: "用户零件")]
     with pytest.raises(sw_connect.SolidWorksConnectionError, match="SW_DOCUMENT_BUDGET"):
         sw_connect.new_document(app, template_path="fixture.prtdot", max_documents=1)
+    assert app.closed == []
+
+
+def test_unreadable_document_list_blocks_creation_without_guessing_empty():
+    """@brief COM 清单读取失败时，禁止把用户文档误判为空并继续创建。"""
+    app = App()
+    created = []
+    app.NewDocument = lambda *args: created.append(args)
+    def unavailable():
+        raise RuntimeError("文档清单暂不可读")
+    app.GetDocuments = unavailable
+    with pytest.raises(sw_connect.SolidWorksConnectionError, match="SW_DOCUMENT_STATE_UNAVAILABLE"):
+        sw_connect.new_document(app, template_path="fixture.prtdot")
+    assert created == []
     assert app.closed == []

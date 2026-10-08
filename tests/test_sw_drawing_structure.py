@@ -18,6 +18,18 @@ from scripts.sw_drawing import (
 from scripts.sw_review import review_drawing_layout
 
 
+class TypedPositionView:
+    """@brief 模拟 COM setter 解封 SAFEARRAY，而 getter 返回坐标序列。"""
+    @property
+    def Position(self):
+        return getattr(self, "_position", None)
+
+    @Position.setter
+    def Position(self, value):
+        decoded = getattr(value, "value", value)
+        self._position = tuple(decoded) if decoded is not None else None
+
+
 class FakeDimension:
     Name = "D1"
     Type = 2
@@ -638,7 +650,7 @@ def test_layout_uses_dynamic_scale_for_oversized_model():
 
 def test_create_adaptive_views_uses_planned_positions_and_scale():
     """@brief COM 封装必须逐个创建视图并应用相同比例。"""
-    class View:
+    class View(TypedPositionView):
         ScaleRatio = None
 
     class Drawing:
@@ -664,7 +676,7 @@ def test_create_adaptive_views_uses_planned_positions_and_scale():
 
 def test_create_adaptive_views_falls_back_to_native_third_angle_and_maps_orientation():
     """@brief 单视图 API 静默失败时必须按真实方向映射原生三视图。"""
-    class View:
+    class View(TypedPositionView):
         def __init__(self, orientation):
             self.orientation = orientation
             self.Name = f"Drawing View {orientation}"
@@ -718,7 +730,7 @@ def test_create_adaptive_views_falls_back_to_native_third_angle_and_maps_orienta
 def test_create_adaptive_first_angle_views_repositions_native_third_angle_fallback():
     """@brief SW 缺少第一角 API 时仍按第一角 DrawingSpec 回读并重排三视图。"""
 
-    class View:
+    class View(TypedPositionView):
         def __init__(self, orientation):
             self.orientation = orientation
             self.Name = f"Drawing View {orientation}"
@@ -772,7 +784,7 @@ def test_create_adaptive_first_angle_views_repositions_native_third_angle_fallba
 def test_create_adaptive_views_refines_spacing_from_native_outlines():
     """@brief 实际投影包围盒大于模型估算时，必须二次排布并消除视图重叠。"""
 
-    class View:
+    class View(TypedPositionView):
         def __init__(self, orientation, width, height):
             self.orientation = orientation
             self.Name = f"Drawing View {orientation}"

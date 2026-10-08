@@ -14,6 +14,8 @@ except ImportError:
 def _unit(vector):
     """@brief 检查并归一化方向；方向不是长度参数。"""
     values = tuple(float(value) for value in vector)
+    if len(values) != 3:
+        raise ValueError("阵列方向必须有三个分量")
     length = math.sqrt(sum(value * value for value in values))
     if not all(math.isfinite(value) for value in values) or length < 1e-12:
         raise ValueError("阵列方向必须是非零有限向量")

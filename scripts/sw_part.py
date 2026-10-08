@@ -742,7 +742,7 @@ def extrude_boss(model, sketch_name, depth, direction=True, merge=True):
         model: IModelDoc2
         sketch_name: 草图名称（如 "Sketch1"）
         depth: 拉伸深度（米）
-        direction: True=正方向
+        direction: True=反转默认方向；凸台默认沿草图法向
         merge: True=合并结果
     """
     _ensure_sketch_selected(model, sketch_name)
@@ -781,8 +781,8 @@ def extrude_cut(model, sketch_name, depth, direction=True, flip=False):
         model: IModelDoc2
         sketch_name: 草图名称
         depth: 切除深度（米），0 表示完全贯穿
-        direction: True=正方向
-        flip: True=翻转切除方向
+        direction: True=反转默认方向；切除默认逆草图法向
+        flip: True=切除轮廓外侧，False=切除轮廓内侧
     """
     _ensure_sketch_selected(model, sketch_name)
     if depth == 0:

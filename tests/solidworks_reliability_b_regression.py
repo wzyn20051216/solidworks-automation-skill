@@ -5,7 +5,6 @@ import math
 from pathlib import Path
 import sys
 
-import psutil
 import pythoncom
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +16,7 @@ from scripts.sw_sketch_quality import fully_define_sketch, inspect_model_sketche
 from scripts.sw_measure import collect_mass_properties
 from scripts.sw_review import collect_geometry_measurements
 from scripts.sw_session import SolidWorksSession
+from scripts.sw_process import solidworks_processes
 
 
 def hole_layout(model):
@@ -33,8 +33,8 @@ def hole_layout(model):
 
 def main(output):
     """@brief 与解析体积对照，并验证实际尺寸可修改且没有批量 Fix。"""
-    prior = {p.pid for p in psutil.process_iter(["name"]) if (p.info["name"] or "").lower() == "sldworks.exe"}
-    if prior:
+    prior = solidworks_processes()
+    if prior is None or prior:
         raise RuntimeError("真机回归需要空闲的独立 SolidWorks 实例")
     output.mkdir(parents=True, exist_ok=False)
     report = {"status": "failed", "cases": [], "cleanup": {}}

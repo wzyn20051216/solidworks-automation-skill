@@ -70,6 +70,12 @@ class _LaunchGuard:
             import ctypes
 
             kernel32 = ctypes.windll.kernel32
+            from ctypes import wintypes
+            kernel32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+            kernel32.CreateMutexW.restype = wintypes.HANDLE
+            kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+            kernel32.ReleaseMutex.argtypes = [wintypes.HANDLE]
+            kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
             self.handle = kernel32.CreateMutexW(None, False, self.name)
             if not self.handle:
                 raise SolidWorksConnectionError("SW_MUTEX", "locking", "无法创建 SolidWorks 启动互斥锁")
@@ -261,6 +267,7 @@ def connect_solidworks(version=None, wait_seconds=5, visible=True, return_metada
     prog_id = _prog_id_for_version(version)
     sw = None
     launched_here = False
+    dispatched = False
 
     # 启动和附着共享同一把互斥锁，避免多个 worker 同时拉起实例。
     with _LaunchGuard():
@@ -270,6 +277,8 @@ def connect_solidworks(version=None, wait_seconds=5, visible=True, return_metada
             print(f"已连接到运行中的 SolidWorks 实例（ProgID: {prog_id}）")
         except Exception as attach_error:
             try:
+                if before is None:
+                    raise SolidWorksConnectionError("SW_PROCESS_STATE_UNAVAILABLE", "attach", "无法读取 CAD 进程状态，已阻止不确定的启动")
                 if before and (version is None or any(year is None or year == int(version) for year in before.values())):
                     # ROT 尚未注册时等待已有实例，禁止重复 Dispatch 启动同版本。
                     deadline = time.monotonic() + max(.1, float(wait_seconds))
@@ -283,16 +292,17 @@ def connect_solidworks(version=None, wait_seconds=5, visible=True, return_metada
                         raise SolidWorksConnectionError("SW_INSTANCE_NOT_READY", "attach", "已有实例尚不可连接，已阻止重复启动")
                 if sw is None:
                     sw = win32com_client.Dispatch(prog_id)
+                    dispatched = True
                     try:
                         pid = int(get_com_member(sw, "GetProcessID"))
-                        launched_here = before is not None and pid not in before
+                        launched_here = before is not None and pid > 0 and pid not in before
                     except Exception:
                         launched_here = False
                 try:
                     sw.Visible = visible
                 except Exception:
                     pass
-                print(f"启动了新的 SolidWorks 实例（ProgID: {prog_id}）")
+                print(f"已连接 SolidWorks（ProgID: {prog_id}）")
                 _wait_until_ready(sw, wait_seconds)
             except SolidWorksConnectionError:
                 close_owned_solidworks(sw, launched_here)
@@ -304,6 +314,9 @@ def connect_solidworks(version=None, wait_seconds=5, visible=True, return_metada
                 ) from launch_error
 
         _wait_until_ready(sw, wait_seconds)
+        if dispatched and before is not None:
+            pid = int(get_com_member(sw, "GetProcessID"))
+            launched_here = pid > 0 and pid not in before
         actual = get_sw_version(sw)
         if version is not None and actual["year"] != int(version):
             close_owned_solidworks(sw, launched_here)
@@ -407,7 +420,7 @@ def ensure_default_templates(sw):
     return templates
 
 
-def snapshot_open_documents(sw):
+def snapshot_open_documents(sw, *, strict=False):
     """
     快照当前已打开的文档标题集合。
 
@@ -418,12 +431,16 @@ def snapshot_open_documents(sw):
     titles = set()
     try:
         documents = get_com_member(sw, "GetDocuments")
-    except Exception:
+    except Exception as error:
+        if strict:
+            raise SolidWorksConnectionError("SW_DOCUMENT_STATE_UNAVAILABLE", "documents", "无法读取打开文档清单，已阻止新建") from error
         return titles
     for document in documents or ():
         try:
             titles.add(str(get_com_member(document, "GetTitle")))
-        except Exception:
+        except Exception as error:
+            if strict:
+                raise SolidWorksConnectionError("SW_DOCUMENT_STATE_UNAVAILABLE", "documents", "无法确认已有文档身份，已阻止新建") from error
             continue
     return titles
 
@@ -473,7 +490,7 @@ def new_document(sw, doc_type="part", template_path=None, *, max_documents=None)
     else:
         template_path = _expand_path(template_path)
 
-    preexisting_titles = snapshot_open_documents(sw)
+    preexisting_titles = snapshot_open_documents(sw, strict=True)
     budget = int(max_documents if max_documents is not None else os.environ.get("SW_MAX_DOCUMENTS", "8"))
     if budget < 1 or len(preexisting_titles) >= budget:
         raise SolidWorksConnectionError("SW_DOCUMENT_BUDGET", "new_document", f"打开文档数已达预算 {budget}；请保存并关闭本轮文档")

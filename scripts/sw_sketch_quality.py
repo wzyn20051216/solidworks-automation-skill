@@ -88,5 +88,17 @@ def inspect_model_sketches(model):
         seen.add(name)
         record = inspect_sketch(get_com_member(feature, "GetSpecificFeature2"))
         record["name"] = name
+        try:
+            owner = get_com_member(feature, "GetOwnerFeature")
+            children = list(get_com_member(feature, "GetChildren") or [])
+            consumers = [owner] if owner is not None else children
+            record["consumed_by"] = [str(get_com_member(item, "Name")) for item in consumers
+                if str(get_com_member(item, "GetTypeName2")) not in {"ProfileFeature", "3DProfileFeature", "RefAxis", "RefPlane", "RefPoint"}]
+            record["dangling"] = not bool(record["consumed_by"])
+        except Exception as error:
+            record["dangling"] = None
+            record["errors"].append(str(error))
+        if record["dangling"] is not False:
+            record["status"] = "review_required"
         records.append(record)
     return {"status": "pass" if records and all(item["status"] == "pass" for item in records) else "review_required", "sketches": records}

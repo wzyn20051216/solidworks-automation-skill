@@ -44,6 +44,24 @@ def test_dry_run_and_optional_unsaved_result_keep_compatibility():
     assert normalize_tool_payload(payload) == payload
 
 
+def test_handler_manual_review_cannot_be_bypassed_by_caller():
+    """@brief Tool 声明的人工复核不会因 requires_review 默认值而消失。"""
+    result = execute_with_core(handler=lambda _: {"status": "review_required", "manualReviewRequired": True},
+        run_id="manual", reviewer_result={"status": "pass"})
+    assert result.run_context.status.value == "blocked"
+
+
+def test_registry_review_cannot_be_disabled_by_caller():
+    """@brief 能力真源要求复核时，默认参数不能绕过门禁。"""
+    result = execute_with_core(handler=lambda _: {"status": "ok"}, run_id="registry",
+        operation_id="solidworks_standard_automation", requires_review=False)
+    assert result.run_context.status.value == "blocked"
+
+
+def test_invalid_boolean_is_unverified_instead_of_truthy():
+    assert normalize_tool_payload({"status": "ok", "success": "false"})["status"] == "blocked"
+
+
 def test_mcp_json_and_markdown_expose_failure():
     """@brief 不同格式都从同一个事实判定产生失败状态。"""
     import server

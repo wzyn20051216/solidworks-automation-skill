@@ -101,7 +101,7 @@ Verification Adapter 只做「把检查结果翻译成统一语言」：
 - **`reviewer_result` 优先于 `reviewer`**，避免同一 Review 事实重复执行。
 
 核心规则：**Tool / Handler 返回 success ≠ 任务成功**。需要 Review 的能力只有 Verification
-PASS 后才允许最终完成；FAIL / BLOCKED 禁止进入 success。
+PASS 且 `manual_review_required=false` 后才允许最终完成；WARN / FAIL / BLOCKED 和待人工复核结果均不能进入 completed。结构化执行结果的必要布尔标记为 false 时直接失败，类型不明确或关键证据为 null 时 blocked；顶层 PASS 也不能覆盖 required check 的 FAIL。
 
 ## 7. Recovery Decision（`recovery.py`）
 
@@ -134,13 +134,13 @@ Recovery 不允许绕过 Policy Gate。
 
 ## 9. Worker Integration（最小侵入）
 
-`queue_worker.process_job` 的改动极小（全 V2 仅 +58/−1）：
+`queue_worker.process_job` 继续复用现有 Handler 与 Review Gate：
 
 ```
 Job → Policy / Approval（仍在 Execution Core 之前）
     → Execution Core 包裹 Existing Handler
     → Existing Reviewer Gate（仍只发生一次）
-    → Verification Adapter + Recovery Decision（sidecar，不改终态）
+    → Verification Adapter + Recovery Decision（复核结果进入既有 Gate）
     → 既有终态映射（passed / review_required / failed / blocked / cancelled）
 ```
 
@@ -149,6 +149,7 @@ Job → Policy / Approval（仍在 Execution Core 之前）
 - Existing Handler 仍是唯一真实执行实现；
 - Queue / Worker / Reviewer / Artifact Ledger 均未重写；
 - 新增 `executionAssessment` / `verificationAssessment` / `recoveryDecision` 为 optional sidecar。
+- Worker 调用 Core 时延迟完成，等既有 Review Gate 结束后统一 Queue 与 Core 的终态，避免 Core 先 completed、Queue 后 failed。
 
 ## 10. Capability Gap
 
@@ -171,7 +172,7 @@ references → official API / SDK → alternate backend → minimal implementati
 
 ## 12. Compatibility
 
-- Skill 使用方式、MCP Tool Name / Schema、CLI 命令、CAD Studio Queue 状态语义全部不变；
+- Skill 使用方式、原有 60 个 MCP Tool Name / Input Schema、CLI 命令和 Queue Schema 保持兼容；新增只读产物工具与可选 HTTP 传输；
 - `capabilities.yaml` 仍唯一真源，`golden-workflows.yaml` 向后兼容；
 - 新增字段全部 additive / optional；
-- 全 V2 对既有文件的修改仅一处：`queue_worker.py`（+58/−1）。
+- 2026-10-08 的方案 B 修复执行事实、草图/阵列和资源生命周期；验收范围为 SolidWorks 2026，详见 [`scheme-b-reliability.md`](scheme-b-reliability.md)。

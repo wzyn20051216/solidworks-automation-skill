@@ -34,6 +34,7 @@ from .state import (
 )
 from .trace import emit
 from .verification import verify
+from .capability import requires_review as registry_requires_review
 
 
 def normalize_tool_payload(raw: Mapping[str, Any]) -> dict[str, Any]:
@@ -46,11 +47,17 @@ def normalize_tool_payload(raw: Mapping[str, Any]) -> dict[str, Any]:
     if payload.get("dry_run") is not True:
         flags.extend(("feature_created", "motor_feature_created", "component_added", "mate_created"))
     failed = [name for name in flags if payload.get(name) is False]
+    uncertain = [name for name in flags if name in payload and payload[name] is not None and not isinstance(payload[name], bool)]
+    uncertain.extend(name for name in ("feature_created", "rebuild_ok") if name in payload and payload[name] is None)
+    if payload.get("output_path") and "saved" in payload and payload["saved"] is None:
+        uncertain.append("saved")
     if failed:
         payload.update(status="error", success=False,
                        error_code=payload.get("error_code") or "TOOL_OPERATION_FAILED",
                        failed_fields=failed)
         payload.setdefault("message", "必要执行步骤失败: " + ", ".join(failed))
+    elif uncertain:
+        payload.update(status="blocked", success=False, error_code="TOOL_RESULT_UNVERIFIED", unverified_fields=uncertain)
     return payload
 
 
@@ -170,6 +177,9 @@ def execute_with_core(
     :param reviewer: 可选零参 callable；requires_review 时若未提供 reviewer_result 才调用。
     :param reviewer_result: 既有 Review 结果（dict/list）；提供时不重复调用 reviewer。
     """
+    if operation_id or capability_id:
+        required = registry_requires_review(operation_id=operation_id, capability_id=capability_id)
+        requires_review = requires_review or required is not False
     step_id = step_id or f"{run_id}:step0"
     run = RunContext(run_id=run_id, goal="", trace_id=run_id)
     step = StepRecord(
@@ -234,8 +244,9 @@ def execute_with_core(
             error_code=_extract_error_code(payload or {}) or ("TOOL_RESULT_UNAVAILABLE" if failed else None),
         )
         if failed:
-            step.transition(StepStatus.FAILED)
-            run.transition(RunStatus.FAILED)
+            blocked = payload is not None and payload.get("status") == "blocked"
+            step.transition(StepStatus.BLOCKED if blocked else StepStatus.FAILED)
+            run.transition(RunStatus.BLOCKED if blocked else RunStatus.FAILED)
             step.error_code = execution_result.error_code
             recovery_decision = decide(execution_result=execution_result.to_dict(),
                 operation_id=operation_id, capability_id=capability_id,
@@ -245,7 +256,9 @@ def execute_with_core(
                message=execution_result.message)
 
     verification_result: VerificationResult | None = None
-    if requires_review and execution_result.success:
+    manual_required = isinstance(raw_result, Mapping) and bool(raw_result.get("manual_review_required") or raw_result.get("manualReviewRequired"))
+    requires_review = requires_review or manual_required or (isinstance(raw_result, Mapping) and raw_result.get("status") == "review_required")
+    if requires_review and execution_result.success and not defer_completion:
         run.transition(RunStatus.VERIFYING)
         step.transition(StepStatus.VERIFYING)
         verification_result = verify(
@@ -259,6 +272,7 @@ def execute_with_core(
             step_id=step_id,
         )
         step.verification = verification_result
+        verification_result.manual_review_required |= manual_required
         if verification_result.status == VerificationStatus.FAIL:
             step.transition(StepStatus.FAILED)
             run.transition(RunStatus.FAILED)

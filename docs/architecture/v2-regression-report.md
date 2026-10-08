@@ -1,5 +1,7 @@
 # V2 Regression Report & Reliability Baseline
 
+> 此文保留 Phase 7/7.5 的历史记录。2026-10-08 后使用基线 v3：nominal 10/10，warning 阻断等待人工复核；当前验证结果见 [`scheme-b-reliability.md`](scheme-b-reliability.md)。
+
 > 阶段：Phase 7（Full Regression + Baseline Freeze）+ Phase 7.5（Evaluation Semantics Correction）
 > 结论：V2 未造成任何回归；Eval 口径已修正（Nominal/Robustness/Safety 分离）；Baseline 已按修正后口径冻结。
 

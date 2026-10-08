@@ -44,7 +44,7 @@ class SolidWorksSession:
         初始化并连接 SolidWorks。
 
         参数:
-            version: SolidWorks 年份，例如 2024；None 表示自动连接默认 ProgID。
+            version: SolidWorks 年份，当前验收目标为 2026；None 表示自动连接默认 ProgID。
             wait_seconds: 新启动实例后的等待秒数。
             visible: 新启动实例是否显示窗口。
         """

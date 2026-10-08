@@ -10,7 +10,7 @@ metadata: { "openclaw": { "homepage": "https://github.com/wzyn20051216/solidwork
 
 ### 环境要求
 
-- Windows 系统；原生 SolidWorks 格式需要 SolidWorks，开放格式无头写入不要求安装 CAD 软件
+- Windows 系统；原生 SolidWorks 操作以 SolidWorks 2026 为支持与验收目标，开放格式无头写入不要求安装 CAD 软件
 - Python 3.10+；原生 Windows CAD 自动化另需 `pywin32` / `comtypes`
 - MCP/工具化调用需要 `mcp` / `pydantic`
 - 工程图最终交付审查需要 `PyMuPDF`；它从 SolidWorks 导出 PDF 回读实际尺寸文字边界，已包含在 `requirements.txt`
@@ -70,20 +70,29 @@ python -m pip install -r SKILL_DIR\requirements-mesh.txt
 import sys; sys.path.insert(0, r"SKILL_DIR/scripts")
 from sw_connect import mm
 from sw_part import sketch, sketch_circle, extrude_boss
+from sw_sketch_quality import fully_define_sketch
 from sw_session import SolidWorksSession
 
-session = SolidWorksSession()
-model = session.new_part()
+with SolidWorksSession(version=2026) as session:
+    model = session.new_part()
 
-with sketch(model, "Front Plane") as sketch_name:
-    sketch_circle(model, 0, 0, mm(25))
+    with sketch(model, "Front Plane") as sketch_name:
+        sketch_circle(model, 0, 0, mm(25))
+        fully_define_sketch(model)
 
-extrude_boss(model, sketch_name, mm(50))
-session.save(model, r"C:\temp\cylinder.sldprt")
-session.export(model, r"C:\temp\cylinder.step")
+    if extrude_boss(model, sketch_name, mm(50)) is None:
+        raise RuntimeError("拉伸失败")
+    if not session.save(model, r"C:\temp\cylinder.sldprt"):
+        raise RuntimeError("保存失败")
+    if not session.export(model, r"C:\temp\cylinder.step"):
+        raise RuntimeError("导出失败")
 ```
 
 > 将 `SKILL_DIR` 替换为此技能的实际安装路径。
+
+模型交付要回读草图的约束状态、尺寸与关系，禁止批量 Fix 代替设计参数；保存重开后验证草图被目标特征消费、关键尺寸可改且孔位保持正确。基础圆/矩形可用 `fully_define_sketch()`；复杂草图应明确设计尺寸和关系，再用 `inspect_model_sketches()` 验收，缺证据时保留人工复核。
+
+会话上下文只清理本轮登记的文档和确认归属的空实例；达到文档预算时先处理本轮文件。执行标记失败、重建失败、未知检查结果或人工复核尚未完成时，不得宣称任务完成。远程 MCP 通过 `artifact_refs` 取回 PNG 或原始文件并核对 SHA-256，规则见 `mcp-server/README.md`。
 
 ## 核心工作流
 
@@ -116,7 +125,7 @@ session.export(model, r"C:\temp\cylinder.step")
 | OBJ/STL 高还原网格参考导入 | `scripts/sw_import_mesh_reference.py` | `references/mesh-reference-import.md` |
 | 结果自审查 | `scripts/sw_review.py` | `references/review.md` |
 | 语义实体引用 | `scripts/sw_entity_reference.py` | 逐步替代 Face1/Edge1 和屏幕坐标 |
-| DFM 制造风险复核 | `scripts/dfm_review.py`、`scripts/dfm_profiles.py`、`scripts/cad_studio.py check-dfm` | 供应商 profile、B-Rep 证据、机加工、钣金、激光切割和 3D 打印的结构化规则检查 |
+| DFM 制造风险复核 | `scripts/dfm_review.py`、`scripts/dfm_profiles.py`、`scripts/cad_studio.py check-dfm` | 供应商 profile、B-Rep 证据、机加工、钣金、激光切割、3D 打印和注塑声明型规则检查 |
 | Routing 中性复核与前置 | `scripts/routing_review.py`、`scripts/cad_studio.py check-routing`、`scripts/cad_studio.py routing-preflight` | 端点、分段、长度、弯曲半径、碰撞/间隙、支撑、Routing BOM；原生写入必须等加载项/许可证证据 |
 | FEA 前置、输入与受限求解 | `scripts/fea_analysis.py`、`scripts/fea_convergence.py`、`scripts/cad_studio.py fea-preflight/prepare-fea/run-fea/run-fea-convergence` | CalculiX 2.23 已验证线性/非线性静力、塑性、面接触、最终步 COPEN/CPRESS/CSLIP 与线性/非线性网格收敛；全部仍需工程复核 |
 | 复杂曲面与模具 | `scripts/advanced_geometry.py`、`scripts/advanced_geometry_ocp.py`、`scripts/advanced_surface_ocp.py`、`scripts/cad_studio.py review-advanced-geometry/create-ocp-loft/create-ocp-surface` | 直纹/平滑 Loft、受限 Sweep/Knit/Thicken 可写并重开 B-Rep；G1/G2 和曲率半径只返回离散采样证据 |

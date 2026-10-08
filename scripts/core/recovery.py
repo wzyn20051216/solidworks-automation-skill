@@ -44,6 +44,7 @@ class ErrorKind(str, Enum):
 # 的真实字段）。key 统一小写；未收录的 error_code 不在此猜测，继续走更低优先级层。
 _ERROR_CODE_KIND: dict[str, ErrorKind] = {
     "sw_document_budget": ErrorKind.USER_ACTION_REQUIRED,
+    "sw_process_state_unavailable": ErrorKind.USER_ACTION_REQUIRED,
     "sw_instance_not_ready": ErrorKind.USER_ACTION_REQUIRED,
     "sw_version_mismatch": ErrorKind.USER_ACTION_REQUIRED,
     # TRANSIENT
@@ -304,6 +305,9 @@ def classify_error(
             return kind
 
     if exception is not None:
+        code = str(getattr(exception, "code", "") or "").lower()
+        if code in _ERROR_CODE_KIND:
+            return _ERROR_CODE_KIND[code]
         return _classify_exception(exception)
 
     if message:

@@ -27,10 +27,10 @@ Eval 场景必须按**口径**拆分，绝不能把故意失败的 Scenario 与�
 
 | category | scenario types | 用途 |
 |---|---|---|
-| `nominal` | happy、warning | 正常业务，用于 first-pass target 比较 |
+| `nominal` | happy | 正常业务，用于 first-pass target 比较 |
 | `recovery` | transient_recovery、backend_fallback | 失败后脚本化恢复 |
 | `fault_injection` | verification_failure、reviewer_blocked、retry_exhausted | 故意注入故障，验证检测能力 |
-| `guardrail` | policy_block、user_action_required、capability_gap | 验证门禁/阻断正确性 |
+| `guardrail` | warning、policy_block、user_action_required、capability_gap | 验证门禁/人工复核阻断正确性 |
 
 ## 4. Metrics 定义
 
@@ -99,8 +99,9 @@ Phase 6 的旧算法把 37 个场景（10 happy + 10 verification_failure + 10 t
   假成功候选，被 Verification 正确拦截；旧算法把它算成「假成功发生率」而非「泄漏率」，
   实际 escaped（泄漏）为 **0%**。
 
-修正后：`nominal_first_pass = 100%`（11/11）→ 与 90% target 比较 → **PASS**；
+当前基线 v3：warning 归入人工复核 guardrail，不能宣称任务完成。`nominal_first_pass = 100%`（10/10）→ 与 90% target 比较 → **PASS**；
 `escaped_false_completion = 0%` → 无假成功泄漏。
+37 场景的原始完成比例为 21/37（56.8%），只供诊断；此前 11/11 和 59.5% 是将 warning 计入成功的历史口径。
 
 ## 7. deterministic fixture 设计
 

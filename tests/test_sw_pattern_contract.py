@@ -9,7 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "scripts"), str(ROOT / "tests")]
 from fakes import FakeEdge
-import sw_pattern
+from scripts import sw_pattern
 
 
 class Manager:

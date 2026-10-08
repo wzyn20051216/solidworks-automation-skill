@@ -39,7 +39,13 @@ model.Extension.SelectByID2("前视基准面", "PLANE", 0, 0, 0, False, 0, None,
 model.SketchAddConstraints("sgHORIZONTAL")
 ```
 
-常用约束类型：`sgFIXED`, `sgHORIZONTAL`, `sgVERTICAL`, `sgCOLINEAR`, `sgPARALLEL`, `sgPERPENDICULAR`, `sgTANGENT`, `sgCONCENTRIC`, `sgEQUAL`, `sgSYMMETRIC`, `sgMIDPOINT`, `sgCOINCIDENT`
+常用约束类型：`sgHORIZONTAL`, `sgVERTICAL`, `sgCOLINEAR`, `sgPARALLEL`, `sgPERPENDICULAR`, `sgTANGENT`, `sgCONCENTRIC`, `sgEQUAL`, `sgSYMMETRIC`, `sgMIDPOINT`, `sgCOINCIDENT`。`sgFIXED` 只用于明确固定参考的场景，不得批量使用以伪造参数化草图的完全定义。
+
+坐标只定义初始几何位置，不等同于驱动尺寸和几何关系。圆/矩形基础草图可在编辑态调用 `sw_sketch_quality.fully_define_sketch(model)`；该方法用实际原点补充尺寸与关系，并回读约束状态、尺寸数量和 Fix 数量。复杂草图优先人工定义设计参数，再调用 `inspect_model_sketches(model)` 检查；没有尺寸、悬空或证据不足均需要复核。
+
+### 原生阵列
+
+`sw_part.linear_pattern()` 委托 `sw_pattern`，选择精确母特征及与方向向量平行的真实直边，并使用 20 参数 `FeatureLinearPattern4`。方向向量无量纲，间距仍以米传入；选择失败立即停止。圆周阵列使用明确的轴名称/实体，不能把 `InsertAxis2` 当成 FeatureManager 成员。SolidWorks 2026 真机已验证保存重开后改变厚度、孔数与孔中心位置保持不变。
 
 ### 草图选择稳定策略
 

@@ -10,6 +10,7 @@ import argparse
 import copy
 import hashlib
 import json
+import math
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,8 +22,9 @@ except ImportError:  # pragma: no cover - 兼容直接执行 scripts/dfm_review.
     from dfm_profiles import DfmProfileError, load_profiles, merge_profiles
 
 
-DFM_PROCESSES = {"machining", "sheet_metal", "laser_cutting", "3d_printing"}
+DFM_PROCESSES = {"machining", "sheet_metal", "laser_cutting", "3d_printing", "injection_molding"}
 PROCESS_ALIASES = {
+    "injection_molding": "injection_molding", "injection": "injection_molding", "注塑": "injection_molding",
     "auto": "auto",
     "cnc": "machining",
     "machining": "machining",
@@ -44,6 +46,7 @@ PROCESS_ALIASES = {
 UNIT_TO_MM = {"mm": 1.0, "cm": 10.0, "m": 1000.0, "inch": 25.4, "in": 25.4}
 FEATURE_LENGTH_FIELDS = {"length", "width", "height", "x", "y", "z", "radius", "diameter", "depth"}
 MANUFACTURING_LENGTH_FIELDS = {
+    "ribThickness", "maxWallThickness", "ejectorWaterClearance", "minimumEjectorWaterClearance",
     "wallThickness",
     "minimumWallThickness",
     "minimumDrillDiameter",
@@ -404,7 +407,7 @@ def _critical_missing(document: dict[str, Any], manufacturing: dict[str, Any], p
     missing: list[str] = []
     if not _material(document, manufacturing):
         missing.append("metadata.manufacturing.material")
-    if process in {"machining", "sheet_metal", "laser_cutting", "3d_printing"} and _number(manufacturing.get("wallThickness")) is None:
+    if process in DFM_PROCESSES and _number(manufacturing.get("wallThickness")) is None:
         missing.append("metadata.manufacturing.wallThickness")
     if process == "sheet_metal":
         if _number(manufacturing.get("bendRadius")) is None:
@@ -634,6 +637,60 @@ def _fits_envelope(size: list[float], capacity: list[float]) -> bool:
     return all(model <= machine for model, machine in zip(sorted(size), sorted(capacity)))
 
 
+def _injection_molding_checks(document, manufacturing, brep_evidence=None):
+    """@brief 声明型注塑筛查；不凭固定通用阈值声称可制造。
+    @param manufacturing 已归一化为毫米的制造声明与生效约束。
+    @return 复用既有 DFM Check；未声明约束或几何时仍需人工复核。
+    """
+    checks = _common_checks(document, manufacturing, brep_evidence)
+    def declared_number(value):
+        """@brief 倒扣数/拔模角允许零；NaN、无限值和布尔值不是工程证据。"""
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            number = float(value)
+            return number if math.isfinite(number) else None
+        except (TypeError, ValueError):
+            return None
+    wall = declared_number(manufacturing.get("wallThickness"))
+    if wall is None or wall <= 0:
+        checks.append(_check("injection_wall_positive", "fail", "critical", "注塑主壁厚必须是正数。"))
+
+    def compare(identifier, value, limit, minimum, label):
+        if value is None or limit is None:
+            checks.append(_check(identifier, "warning", "high", label + "缺少声明或明确工艺阈值，无法复核。"))
+            return
+        passed = value >= 0 and math.isfinite(value) and (value >= limit if minimum else value <= limit)
+        checks.append(_check(identifier, "pass" if passed and limit > 0 else "fail", "critical",
+            label + ("满足声明工艺约束。" if passed and limit > 0 else "未满足声明工艺约束。"), value=value, limit=limit, evidenceSource="declared_metadata"))
+
+    compare("injection_draft_angle", declared_number(manufacturing.get("draftAngleDeg")),
+        declared_number(manufacturing.get("minimumDraftAngleDeg")), True, "拔模角")
+    rib = declared_number(manufacturing.get("ribThickness"))
+    compare("injection_rib_wall_ratio", rib / wall if rib is not None and wall and wall > 0 else None,
+        declared_number(manufacturing.get("maximumRibWallRatio")), False, "筋厚/主壁厚比例")
+    maximum_wall = declared_number(manufacturing.get("maxWallThickness"))
+    compare("injection_wall_uniformity", maximum_wall / wall if maximum_wall is not None and wall and wall > 0 else None,
+        declared_number(manufacturing.get("maximumWallThicknessVariation")), False, "最大壁厚变化")
+    # 带 Mm 后缀的历史字段明确是毫米；无后缀字段按 document.units 归一。
+    clearance = declared_number(manufacturing.get("ejectorWaterClearanceMm"))
+    if clearance is None:
+        clearance = declared_number(manufacturing.get("ejectorWaterClearance"))
+    compare("injection_ejector_water_clearance", clearance,
+        declared_number(manufacturing.get("minimumEjectorWaterClearance")), True, "顶针与水路间距")
+    undercuts = declared_number(manufacturing.get("undercutCount"))
+    if undercuts is None:
+        checks.append(_check("injection_undercut_side_action", "warning", "high", "未声明倒扣数量及侧向抽芯方案。"))
+    elif undercuts < 0 or int(undercuts) != undercuts or (undercuts > 0 and manufacturing.get("sideActionDeclared") is not True):
+        checks.append(_check("injection_undercut_side_action", "fail", "critical", "倒扣数量无效或没有明确侧向抽芯方案。"))
+    else:
+        checks.append(_check("injection_undercut_side_action", "pass", "high", "倒扣数量与方案已有声明，真实脱模可行性仍需工程复核。"))
+    gate = manufacturing.get("gateOnCosmeticFace")
+    checks.append(_check("injection_gate_location", "pass" if gate is False else "warning", "high",
+        "声明浇口避开外观面。" if gate is False else "浇口与外观面的关系需人工确认。"))
+    return checks
+
+
 def _profile_checks(
     document: dict[str, Any],
     manufacturing: dict[str, Any],
@@ -660,6 +717,7 @@ def _profile_checks(
 
     bounds = _bounds(document, brep_evidence)
     envelope_key = {
+        "injection_molding": "maximumEnvelope",
         "machining": "workEnvelope",
         "sheet_metal": "formingEnvelope",
         "laser_cutting": "workEnvelope",
@@ -1009,6 +1067,14 @@ def build_dfm_report(
         return report
 
     manufacturing_for_checks = dict(manufacturing)
+    for name, minimum in (("minimumDraftAngleDeg", True), ("maximumRibWallRatio", False),
+                          ("maximumWallThicknessVariation", False), ("minimumEjectorWaterClearance", True)):
+        supplied = _number(manufacturing_for_checks.get(name))
+        if supplied is not None and not math.isfinite(supplied):
+            supplied = None
+        limit = effective_limits.get(name)
+        if limit is not None:
+            manufacturing_for_checks[name] = limit if supplied is None else (max(supplied, limit) if minimum else min(supplied, limit))
     if effective_limits.get("minimumWallThickness") is not None:
         current = _number(manufacturing_for_checks.get("minimumWallThickness")) or 0
         manufacturing_for_checks["minimumWallThickness"] = max(current, effective_limits["minimumWallThickness"])
@@ -1023,6 +1089,9 @@ def build_dfm_report(
         report["checks"] = _laser_checks(document, manufacturing_for_checks, brep)
     elif normalized_process == "3d_printing":
         report["checks"] = _printing_checks(document, manufacturing_for_checks, brep)
+    elif normalized_process == "injection_molding":
+        report["checks"] = _injection_molding_checks(document, manufacturing_for_checks, brep)
+        report["limitations"].append("注塑检查基于声明元数据，不自动识别真实拔模、倒扣或模流；阈值来自明确工艺/供应商约束。")
     report["checks"].extend(_profile_checks(document, manufacturing, normalized_process, effective_limits, brep))
     report["reviewFindings"] = [
         item for item in report["checks"] if item.get("status") in {"warning", "fail"}

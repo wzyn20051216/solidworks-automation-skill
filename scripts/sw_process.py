@@ -32,6 +32,8 @@ def solidworks_processes():
     entry.dwSize = ctypes.sizeof(Entry)
     try:
         valid = api.Process32FirstW(snapshot, ctypes.byref(entry))
+        if not valid:
+            return None
         while valid:
             if entry.name.casefold() == "sldworks.exe":
                 year = None

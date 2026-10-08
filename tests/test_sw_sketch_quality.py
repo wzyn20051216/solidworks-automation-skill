@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from sw_sketch_quality import fully_define_sketch, inspect_sketch
+from scripts.sw_sketch_quality import fully_define_sketch, inspect_sketch
 
 
 def sketch_fixture(status=3, fix=False):
