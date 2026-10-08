@@ -10,6 +10,7 @@ import argparse
 import copy
 import hashlib
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -1076,7 +1077,14 @@ def main(argv: list[str] | None = None) -> int:
         profiles=args.profile,
         brep_evidence=args.brep_evidence,
     )
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+    text = json.dumps(result, ensure_ascii=False, indent=2)
+    encoding = getattr(sys.stdout, "encoding", None)
+    if encoding:
+        try:
+            text.encode(encoding)
+        except UnicodeEncodeError:
+            text = json.dumps(result, ensure_ascii=True, indent=2)
+    sys.stdout.write(text + "\n")
     return 1 if result.get("status") in {"blocked", "failed"} else 0
 
 
