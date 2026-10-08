@@ -24,6 +24,7 @@ from sw_drawing import (  # noqa: E402
     export_sheet_to_pdf,
     inspect_drawing_structure,
     insert_dimensions,
+    first_center_mark,
     plan_standard_view_layout,
     setup_current_sheet_as_a3,
 )
@@ -67,7 +68,7 @@ def _remove_front_center_marks(drawing, created_views) -> int:
     empty_select_data = create_empty_dispatch_variant()
     removed = 0
     for _ in range(100):
-        center_mark = get_com_member(front_view, "GetFirstCenterMark2")
+        center_mark = first_center_mark(front_view)
         if center_mark is None:
             break
         selected = bool(get_com_member(center_mark, "Select", False, empty_select_data))
@@ -79,7 +80,7 @@ def _remove_front_center_marks(drawing, created_views) -> int:
         get_com_member(drawing, "EditDelete")
         get_com_member(drawing, "ForceRebuild3", False)
         removed += 1
-    if get_com_member(front_view, "GetFirstCenterMark2") is not None:
+    if first_center_mark(front_view) is not None:
         raise RuntimeError("删除默认中心标记后回读仍非空")
     return removed
 
