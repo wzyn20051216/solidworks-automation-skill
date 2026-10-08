@@ -94,8 +94,6 @@ def sw_connect():
         yield module
 
 
-from scripts import sw_part
-
 class FakeFeature:
     """Mock SolidWorks Feature."""
     Name = ""
@@ -123,7 +121,9 @@ class FakeModel:
 @pytest.fixture
 def cut_model(monkeypatch):
     """Fake model with FeatureCut4 call recording and sketch selection bypassed."""
+    # 仅切除测试加载 Windows 后端，纯 core/eval 测试无需导入 COM。
+    from scripts import sw_part
+
     model = FakeModel()
     monkeypatch.setattr(sw_part, "_ensure_sketch_selected", lambda *args: None)
     return model
-

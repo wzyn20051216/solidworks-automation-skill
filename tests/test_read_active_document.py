@@ -18,7 +18,7 @@ def test_returns_doc_when_active_doc_present(sw_connect):
     """
     class MockSW:
         ActiveDoc = "mock_document"
-    
+
     result = sw_connect._read_active_document(MockSW())
     assert result == "mock_document"
 
@@ -30,7 +30,7 @@ def test_returns_none_when_active_doc_missing(sw_connect):
     """
     class MockSW:
         pass  # No ActiveDoc attribute
-    
+
     result = sw_connect._read_active_document(MockSW())
     assert result is None
 
@@ -39,7 +39,7 @@ def test_returns_none_on_non_attribute_error(sw_connect):
     """
     Case (c): Accessing ActiveDoc raises a non-AttributeError exception.
     Should return None, not propagate the exception.
-    
+
     This is the critical regression test: the original contract swallowed
     ALL exceptions, not just AttributeError. The fix must preserve this.
     """
@@ -47,7 +47,7 @@ def test_returns_none_on_non_attribute_error(sw_connect):
         @property
         def ActiveDoc(self):
             raise RuntimeError("COM server not ready")
-    
+
     result = sw_connect._read_active_document(MockSW())
     assert result is None
 
@@ -60,11 +60,11 @@ def test_returns_none_when_active_doc_raises_com_error(sw_connect):
     class MockCOMError(Exception):
         """Simulates pywin32 com_error without requiring pywin32."""
         pass
-    
+
     class MockSW:
         @property
         def ActiveDoc(self):
             raise MockCOMError("COM object disconnected")
-    
+
     result = sw_connect._read_active_document(MockSW())
     assert result is None
