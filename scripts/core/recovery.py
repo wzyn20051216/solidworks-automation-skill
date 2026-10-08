@@ -43,6 +43,9 @@ class ErrorKind(str, Enum):
 # 已确认的历史 error_code → ErrorKind（全部来自仓库现有 Reviewer / Router / Worker
 # 的真实字段）。key 统一小写；未收录的 error_code 不在此猜测，继续走更低优先级层。
 _ERROR_CODE_KIND: dict[str, ErrorKind] = {
+    "sw_document_budget": ErrorKind.USER_ACTION_REQUIRED,
+    "sw_instance_not_ready": ErrorKind.USER_ACTION_REQUIRED,
+    "sw_version_mismatch": ErrorKind.USER_ACTION_REQUIRED,
     # TRANSIENT
     "occt_timeout": ErrorKind.TRANSIENT,
     "drawing_pdf_text_parse_failed": ErrorKind.TRANSIENT,
