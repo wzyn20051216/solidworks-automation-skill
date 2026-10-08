@@ -874,7 +874,7 @@ def build_review_report(model, output_dir, basename="review", views=None, expect
     output_dir = _expand_path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    get_com_member(model, "ForceRebuild3", False)
+    rebuild_ok = bool(get_com_member(model, "ForceRebuild3", False))
     zoom_to_fit(model)
 
     views = views or ("isometric", "front", "top", "right")
@@ -883,8 +883,16 @@ def build_review_report(model, output_dir, basename="review", views=None, expect
     expected = [_file_info(path) for path in (expected_outputs or [])]
     summary = collect_model_summary(model)
     geometry = collect_geometry_measurements(model)
+    sketch_quality = None
+    if summary.get("type") == 1:
+        try:
+            from .sw_sketch_quality import inspect_model_sketches
+        except ImportError:
+            from sw_sketch_quality import inspect_model_sketches
+        sketch_quality = inspect_model_sketches(model)
 
     checks = {
+        "rebuild_succeeded": rebuild_ok,
         "model_available": model is not None,
         "previews_created": all(item["exists"] and item["size_bytes"] > 0 for item in previews),
         "previews_not_blank": all(not item["likely_blank"] for item in previews),
@@ -903,6 +911,7 @@ def build_review_report(model, output_dir, basename="review", views=None, expect
     report = {
         "model": summary,
         "cad_spec": geometry,
+        "sketch_quality": sketch_quality,
         "previews": previews,
         "expected_outputs": expected,
         "checks": checks,
@@ -938,6 +947,12 @@ def evaluate_review_report(report):
         score -= penalty
         if severity == "fail":
             hard_fail = True
+
+    if checks.get("rebuild_succeeded") is False:
+        add_issue("rebuild_failed", "fail", "模型重建失败，无法确认交付状态。", "修复特征错误后重新重建与审查。", 40)
+    quality = report.get("sketch_quality")
+    if quality and quality.get("status") != "pass":
+        add_issue("sketch_quality_review_required", "warn", "建模草图的约束或驱动尺寸未通过回读。", "检查草图约束、Fix 与设计参数后重新验收。", 10)
 
     if not checks.get("model_available"):
         add_issue(

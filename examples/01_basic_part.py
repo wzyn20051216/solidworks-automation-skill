@@ -1,38 +1,29 @@
-"""
-示例 1: 创建基本零件
-演示如何创建一个简单的圆柱体零件
-"""
+"""@brief 创建有真实驱动尺寸的圆柱，保存并复核后清理本轮文档。"""
 import sys
-sys.path.insert(0, r"../scripts")
+from pathlib import Path
 
-from sw_connect import connect_solidworks, mm, new_document, save_document
-from sw_part import start_sketch, sketch_circle, end_sketch, extrude_boss
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts.sw_connect import mm
+from scripts.sw_session import SolidWorksSession
+from scripts.sw_part import sketch, sketch_circle, extrude_boss
+from scripts.sw_sketch_quality import fully_define_sketch, inspect_model_sketches
+
 
 def main():
-    # 连接 SolidWorks
-    print("连接 SolidWorks...")
-    sw, _ = connect_solidworks()
+    """@brief 以原点为圆心生成可编辑的基础零件。"""
+    with SolidWorksSession() as session:
+        model = session.new_part()
+        with sketch(model, "Front Plane") as ref:
+            sketch_circle(model, 0, 0, mm(25))
+            fully_define_sketch(model)
+        if extrude_boss(model, ref, mm(50)) is None:
+            raise RuntimeError("圆柱拉伸失败")
+        path = Path.home() / "cad-output" / "cylinder.sldprt"
+        if not session.save(model, str(path)):
+            raise RuntimeError("保存失败")
+        print({"output": str(path), "sketch_quality": inspect_model_sketches(model)})
 
-    # 创建新零件
-    print("创建新零件...")
-    model = new_document(sw, "part")
-
-    # 在前视基准面上绘制圆
-    print("绘制草图...")
-    start_sketch(model, "Front Plane")
-    sketch_circle(model, 0, 0, mm(25))  # 半径 25mm
-    end_sketch(model)
-
-    # 拉伸 50mm
-    print("拉伸特征...")
-    extrude_boss(model, "Sketch1", mm(50))
-
-    # 保存文件
-    output_path = r"C:\temp\cylinder.sldprt"
-    print(f"保存零件到: {output_path}")
-    save_document(model, output_path)
-
-    print("完成!")
 
 if __name__ == "__main__":
     main()

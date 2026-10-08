@@ -1933,6 +1933,8 @@ def solidworks_create_basic_part(params: SolidWorksCreateBasicPartInput) -> str:
                 sketch_rectangle(model, 0.0, 0.0, mm(params.width_mm), mm(params.height_mm))
             else:
                 raise ValueError(f"Unsupported shape: {params.shape}")
+            from scripts.sw_sketch_quality import fully_define_sketch
+            sketch_quality = fully_define_sketch(model)
         feature = extrude_boss(model, sketch_name, mm(params.depth_mm))
         appearance_ok = None
         if params.color:
@@ -1944,6 +1946,7 @@ def solidworks_create_basic_part(params: SolidWorksCreateBasicPartInput) -> str:
         return {
             "status": "ok",
             "shape": params.shape.value,
+            "sketch_quality": sketch_quality,
             "rebuild_ok": rebuild_ok,
             "feature_created": feature is not None,
             "feature_name": get_com_member(feature, "Name") if feature else None,
