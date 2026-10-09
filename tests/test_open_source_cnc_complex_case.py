@@ -31,19 +31,24 @@ def test_pinned_manifest_contains_commit_hash_and_attribution() -> None:
     assert case["advanced_operation"]["widths_mm"] == [0.2, 0.4]
 
 
-def test_cached_source_is_verified_without_network(tmp_path) -> None:
+def test_cached_source_is_verified_without_network(tmp_path, monkeypatch) -> None:
     """@brief 已缓存源文件也必须逐字节校验 SHA-256。"""
     content = b"ISO-10303-21; pinned fixture"
     destination = tmp_path / "fixture.step"
     destination.write_bytes(content)
     case = {
-        "download_url": "https://invalid.example/fixture.step",
+        "download_url": "https://raw.githubusercontent.com/owner/repo/" + "a" * 40 + "/fixture.step",
         "sha256": hashlib.sha256(content).hexdigest(),
         "commit": "a" * 40,
         "license": "CC BY 3.0",
         "attribution": "fixture",
     }
 
+    def reject_network(*args, **kwargs):
+        """@brief 缓存路径不得请求网络，即使清单来源合法。"""
+        pytest.fail("读取有效缓存时意外请求网络")
+
+    monkeypatch.setattr(MODULE, "read_https_response", reject_network)
     evidence = MODULE.fetch_pinned_source(case, destination)
 
     assert evidence["source"] == "cache"

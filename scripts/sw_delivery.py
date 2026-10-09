@@ -7,6 +7,8 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -14,11 +16,13 @@ import pywintypes
 from win32com.client import gencache
 
 try:
-    from .sw_connect import get_com_member
+    from .sw_connect import get_com_member, get_sw_version, _LaunchGuard, SolidWorksConnectionError, close_owned_solidworks
+    from .sw_process import solidworks_processes
     from .sw_document_data import read_custom_property
     from .sw_preflight import import_com_dependencies
 except ImportError:
-    from sw_connect import get_com_member
+    from sw_connect import get_com_member, get_sw_version, _LaunchGuard, SolidWorksConnectionError, close_owned_solidworks
+    from sw_process import solidworks_processes
     from sw_document_data import read_custom_property
     from sw_preflight import import_com_dependencies
 
@@ -728,6 +732,24 @@ def _get_pack_and_go(extension):
         except Exception as exc:
             errors.append(f"noarg-invoketypes: {exc}")
 
+        # SW2024 SP5 的 IDispatch::Invoke 实现要求以 by-ref dispatch 出参携带
+        # IPackAndGo (comtypes 走 vtable 无此限制)；返回值本身为空。
+        if dispid is not None:
+            output = _VARIANT(pythoncom.VT_BYREF | pythoncom.VT_DISPATCH, None)
+            try:
+                ole_object.Invoke(
+                    dispid,
+                    0,
+                    pythoncom.DISPATCH_METHOD | pythoncom.DISPATCH_PROPERTYGET,
+                    1,
+                    output,
+                )
+                package = _coerce_dispatch(output.value)
+                if package is not None:
+                    return package
+            except Exception as exc:
+                errors.append(f"byref-dispatch-out: {exc}")
+
     # 仅保留给旧版异常包装器的兼容路径；当前官方类型库不是 by-ref 签名。
     output = _VARIANT(pythoncom.VT_BYREF | pythoncom.VT_DISPATCH, None)
     member = getattr(extension, "GetPackAndGo", None)
@@ -781,17 +803,8 @@ def _comtypes_module():
     """@brief 加载 SolidWorks comtypes 早绑定模块。"""
     import comtypes.client
 
-    detected = _active_solidworks_major()
-    candidates = [detected] if detected is not None else []
-    candidates.extend(major for major in range(40, 19, -1) if major != detected)
-    errors = []
-    for major in candidates:
-        try:
-            return comtypes.client.GetModule((SLDWORKS_TYPELIB_ID, major, 0))
-        except Exception as exc:
-            errors.append(f"{major}: {exc}")
-    detail = "; ".join(errors[:3]) or "未发现注册版本"
-    raise RuntimeError(f"无法加载 SolidWorks comtypes 类型库: {detail}")
+    # 当前回退只验收 2026，不能在未知 ROT 状态时猜测其它主版本类型库。
+    return comtypes.client.GetModule((SLDWORKS_TYPELIB_ID, 34, 0))
 
 
 def _extract_comtypes_model(value):
@@ -835,19 +848,46 @@ def _comtypes_active_model(sw, source_path: str):
     return document
 
 
-def _connect_comtypes_solidworks(client, progids: list[str]):
+def _connect_comtypes_solidworks(client, progids: list[str], *, expected_pid=None):
     """@brief 优先附着活动实例，返回应用对象、所有权标记和最后错误。"""
+    def identity(app):
+        """@brief 核对真实 PID/版本，不能用构造器返回值推断归属。"""
+        try:
+            pid = int(get_com_member(app, "GetProcessID"))
+            version = get_sw_version(app)
+        except Exception as error:
+            raise SolidWorksConnectionError("SW_PROCESS_STATE_UNAVAILABLE", "pack_and_go", "无法确认回退实例身份") from error
+        if pid <= 0 or version["year"] != 2026:
+            raise SolidWorksConnectionError("SW_VERSION_MISMATCH", "pack_and_go", "Pack and Go 回退只验收 SolidWorks 2026")
+        if expected_pid is not None and pid != int(expected_pid):
+            raise SolidWorksConnectionError("SW_INSTANCE_MISMATCH", "pack_and_go", "回退连接到了其他 CAD 实例")
+        return pid
+
     last_error = None
-    for progid in progids:
-        try:
-            return client.GetActiveObject(progid), False, last_error
-        except Exception as exc:
-            last_error = exc
-    for progid in progids:
-        try:
-            return client.CreateObject(progid), True, last_error
-        except Exception as exc:
-            last_error = exc
+    with _LaunchGuard():
+        before = solidworks_processes()
+        for progid in progids:
+            try:
+                app = client.GetActiveObject(progid)
+                identity(app)
+                return app, False, last_error
+            except SolidWorksConnectionError:
+                raise
+            except Exception as exc:
+                last_error = exc
+        if before is None:
+            raise SolidWorksConnectionError("SW_PROCESS_STATE_UNAVAILABLE", "pack_and_go", "进程清单不可读，已阻止不确定的构造")
+        if expected_pid is not None and int(expected_pid) not in before:
+            raise SolidWorksConnectionError("SW_INSTANCE_NOT_READY", "pack_and_go", "父实例已不可确认，已阻止回退启动")
+        for progid in progids:
+            try:
+                app = client.CreateObject(progid)
+                pid = identity(app)
+                return app, pid not in before, last_error
+            except SolidWorksConnectionError:
+                raise
+            except Exception as exc:
+                last_error = exc
     return None, False, last_error
 
 
@@ -863,6 +903,68 @@ def _comtypes_pack_and_go(
     flatten: bool,
     dependencies: list[str] | None = None,
 ) -> dict[str, Any]:
+    """@brief 进程隔离地执行 comtypes 兜底 Pack and Go。
+
+    隔离 Python COM 封送与输出；RPC_E_DISCONNECTED 也可能由误退出共享 CAD
+    服务引起，因此子进程仍须绑定父 PID，不能把进程隔离当成实例归属证据。
+    """
+    # 父进程只读确认身份；子进程必须附着到同一 2026 实例，不能自行拉起替代实例。
+    expected_pid = _pack_parent_pid()
+    payload = {
+        "expected_pid": expected_pid,
+        "source_path": source_path,
+        "target": str(target),
+        "existing_files": {key: list(value) if value is not None else None for key, value in existing_files.items()},
+        "include_drawings": include_drawings,
+        "include_simulation_results": include_simulation_results,
+        "include_toolbox_components": include_toolbox_components,
+        "include_suppressed": include_suppressed,
+        "flatten": flatten,
+        "dependencies": dependencies,
+    }
+    worker_script = Path(__file__).resolve().parent / "sw_delivery_comtypes_worker.py"
+    try:
+        completed = subprocess.run(
+            [sys.executable, str(worker_script)],
+            input=json.dumps(payload, ensure_ascii=True),
+            capture_output=True, text=True, encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"},
+            timeout=120, cwd=str(Path(__file__).resolve().parent.parent),
+        )
+    except subprocess.TimeoutExpired as error:
+        raise SolidWorksConnectionError("SW_PACK_AND_GO_TIMEOUT", "pack_and_go", "回退已超时，CAD 输出状态需人工确认；禁止自动重试或覆盖") from error
+    stdout = (completed.stdout or "").strip()
+    try:
+        if len(stdout) > 8 * 1024 * 1024:
+            raise ValueError("回退输出过大")
+        decoded = json.loads(stdout)
+        if not isinstance(decoded, dict):
+            raise ValueError("回退结果必须是 JSON 对象")
+    except Exception as exc:
+        raise SolidWorksConnectionError("SW_PACK_AND_GO_WORKER_PROTOCOL", "pack_and_go", "回退输出不是完整的 JSON 结果") from exc
+    if "error" in decoded:
+        if decoded.get("code"):
+            raise SolidWorksConnectionError(str(decoded["code"]), "pack_and_go", str(decoded["error"]))
+        raise RuntimeError(f"comtypes worker 内部失败: {decoded['error']}")
+    result = decoded.get("result")
+    if completed.returncode != 0 or not isinstance(result, dict) or result.get("process_id") != expected_pid:
+        raise SolidWorksConnectionError("SW_PACK_AND_GO_WORKER_PROTOCOL", "pack_and_go", "回退结果与父实例身份不一致")
+    return result
+
+
+def _comtypes_pack_and_go_impl(
+    source_path: str,
+    target: Path,
+    existing_files: dict[str, tuple[int, int] | None],
+    *,
+    include_drawings: bool,
+    include_simulation_results: bool,
+    include_toolbox_components: bool,
+    include_suppressed: bool,
+    flatten: bool,
+    dependencies: list[str] | None = None,
+    expected_pid=None,
+) -> dict[str, Any]:
     """@brief 使用 comtypes 早绑定兜底执行 SolidWorks 原生 Pack and Go。"""
     import comtypes.client
 
@@ -871,21 +973,34 @@ def _comtypes_pack_and_go(
     major = _active_solidworks_major()
     progids = [f"SldWorks.Application.{major}"] if major is not None else []
     progids.append("SldWorks.Application")
-    sw, started_here, last_error = _connect_comtypes_solidworks(comtypes.client, progids)
+    sw, started_here, last_error = _connect_comtypes_solidworks(comtypes.client, progids, expected_pid=expected_pid)
     if sw is None:
         raise RuntimeError(f"comtypes 无法创建 SolidWorks 应用: {last_error}")
-
+    pid = int(get_com_member(sw, "GetProcessID"))
+    before = _comtypes_documents(sw)
+    source_resolved = Path(source_path).resolve()
+    before_paths = [str(get_com_member(item, "GetPathName") or "") for item in before]
+    opened_here = source_resolved not in {Path(path).resolve() for path in before_paths if path}
+    if expected_pid is not None and opened_here:
+        raise SolidWorksConnectionError("SW_DOCUMENT_STATE_UNAVAILABLE", "pack_and_go", "父实例的目标文档不在回读清单中，已阻止不确定的打开/关闭")
+    if opened_here and len(before) >= int(os.environ.get("SW_MAX_DOCUMENTS", "8")):
+        raise SolidWorksConnectionError("SW_DOCUMENT_BUDGET", "pack_and_go", "回退打开文档将超过预算")
     document = None
+    result = None
     try:
         document_type = SW_DOC_TYPES.get(Path(source_path).suffix.casefold())
         if document_type is None:
             raise ValueError(f"Pack and Go 不支持的文档类型: {source_path}")
         # 强制加载完整模型并覆盖轻量化默认设置，否则 Pack and Go 只会看到顶层文档。
-        open_result = sw.OpenDoc6(str(source_path), document_type, 1 | 16 | 64 | 512, "")
+        open_result = sw.OpenDoc6(str(source_path), document_type, 1 | 16 | 64 | 512 | (2 if opened_here else 0), "")
         try:
             document = _extract_comtypes_model(open_result)
         except RuntimeError:
             document = _comtypes_active_model(sw, source_path)
+        if Path(str(document.GetPathName())).resolve() != source_resolved:
+            raise SolidWorksConnectionError("SW_DOCUMENT_STATE_UNAVAILABLE", "pack_and_go", "回退返回的文档不是指定源文件")
+        # 2026 的 Pack and Go 清单取决于活动文档；已打开文件的 OpenDoc6 不会自动激活。
+        sw.ActivateDoc3(str(document.GetTitle()), False, 0)
         extension = document.Extension.QueryInterface(SldWorks.IModelDocExtension)
         if document_type == 2:
             try:
@@ -914,25 +1029,58 @@ def _comtypes_pack_and_go(
 
         status_codes = _status_codes(extension.SavePackAndGo(package))
         outputs = _collect_new_outputs(target, existing_files)
-        return {
+        result = {
             "backend": "comtypes",
+            "process_id": pid,
+            "started_by_cad_studio": started_here,
+            "opened_document_here": opened_here,
             "document_count": document_count,
             "status_codes": status_codes,
             "outputs": outputs,
             "produced_count": len(outputs),
             "enumeration_missing": enumeration_missing,
         }
+        return result
     finally:
-        if started_here:
-            if document is not None:
-                try:
-                    sw.CloseDoc(str(document.GetTitle()))
-                except Exception:
-                    pass
-            try:
-                sw.ExitApp()
-            except Exception:
-                pass
+        if opened_here and document is not None:
+            if int(get_com_member(sw, "GetProcessID")) != pid or Path(str(document.GetPathName())).resolve() != source_resolved:
+                raise SolidWorksConnectionError("SW_INSTANCE_MISMATCH", "pack_and_go", "清理前文档或实例身份改变，已阻止关闭")
+            sw.CloseDoc(str(document.GetTitle()))
+            if result is not None:
+                result["closed_owned_document"] = True
+        if started_here and not _comtypes_documents(sw):
+            close_owned_solidworks(sw, True, pid)
+
+
+def _comtypes_documents(sw):
+    """@brief 回读实际文档对象；无法回读时禁止猜测空实例。"""
+    try:
+        # comtypes 对 VT_ARRAY|VT_DISPATCH 的解包不完整。复用已验证的 pywin32
+        # 只读清单，写操作仍在子进程里使用 comtypes，不改变父进程库状态。
+        try:
+            observer = win32com_client.GetActiveObject("SldWorks.Application")
+        except Exception:
+            observer = win32com_client.Dispatch("SldWorks.Application.34")
+        if int(get_com_member(observer, "GetProcessID")) != int(get_com_member(sw, "GetProcessID")):
+            raise ValueError("清单观察器不是当前回退实例")
+        return list(get_com_member(observer, "GetDocuments") or [])
+    except Exception as error:
+        raise SolidWorksConnectionError("SW_DOCUMENT_STATE_UNAVAILABLE", "pack_and_go", f"回退无法回读文档清单: {type(error).__name__}: {error}") from error
+
+
+def _pack_parent_pid():
+    """@brief 优先使用 ROT 身份；隐藏实例未注册 ROT 时要求唯一明确的 2026 PID。"""
+    for progid in ("SldWorks.Application.34", "SldWorks.Application"):
+        try:
+            active = win32com_client.GetActiveObject(progid)
+            if get_sw_version(active)["year"] == 2026:
+                return int(get_com_member(active, "GetProcessID"))
+        except Exception:
+            continue
+    processes = solidworks_processes()
+    if processes is None or len(processes) != 1 or next(iter(processes.values())) != 2026:
+        raise SolidWorksConnectionError("SW_PROCESS_STATE_UNAVAILABLE", "pack_and_go", "无法唯一确认父实例 PID，已阻止回退")
+    return next(iter(processes))
 
 
 def pack_and_go(
@@ -1004,6 +1152,9 @@ def pack_and_go(
                 dependencies=required_dependencies,
             )
         except Exception as comtypes_exc:
+            if isinstance(comtypes_exc, SolidWorksConnectionError):
+                # 超时/未知身份可能留下进行中的 CAD 操作，禁止另起暂存覆盖这次交付。
+                raise
             fallback_errors.append(f"comtypes: {comtypes_exc}")
             native_error = str(comtypes_exc)
             result = {

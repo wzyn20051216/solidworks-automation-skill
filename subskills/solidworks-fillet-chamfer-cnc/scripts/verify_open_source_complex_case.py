@@ -9,6 +9,8 @@ import sys
 import urllib.request
 from pathlib import Path
 from typing import Any
+import re
+from urllib.parse import unquote
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -20,9 +22,12 @@ from sw_connect import get_com_member, mm  # noqa: E402
 from sw_export import export_to_step  # noqa: E402
 from sw_review import run_review  # noqa: E402
 from sw_session import SolidWorksSession  # noqa: E402
+from http_boundary import validate_https_url, read_https_response  # noqa: E402
 
 
 DEFAULT_CASE = SUBSKILL_ROOT / "examples" / "open_source_corner_bracket_case.json"
+ALLOWED_DOWNLOAD_HOSTS = frozenset({"raw.githubusercontent.com"})
+MAX_SOURCE_BYTES = 64 * 1024 * 1024
 SW_SOLID_BODY = 0
 SW_DISPLAY_ORIGINS = 6
 SW_DISPLAY_REFERENCE_TRIAD = 205
@@ -30,9 +35,19 @@ SW_CHAMFER_DISTANCE_DISTANCE = 2
 SW_CHAMFER_TANGENT_PROPAGATION = 4
 
 
+def _validate_download_url(url: str) -> None:
+    """@brief 下载源仅允许 https 且主机在白名单内，阻断案例清单被篡改后的任意源请求。"""
+    validate_https_url(url, "raw.githubusercontent.com")
+
+
 def load_case(path: Path) -> dict[str, Any]:
     """@brief 读取并校验固定来源案例清单。"""
     payload = json.loads(path.read_text(encoding="utf-8"))
+    return _validate_case_payload(payload)
+
+
+def _validate_case_payload(payload):
+    """@brief 固定提交必须位于 URL 的 revision 段，查询字符串不能充当提交锁定。"""
     required = ("download_url", "sha256", "commit", "license", "attribution")
     missing = [name for name in required if not payload.get(name)]
     if missing:
@@ -40,30 +55,44 @@ def load_case(path: Path) -> dict[str, Any]:
     digest = str(payload["sha256"]).lower()
     if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
         raise ValueError("案例 sha256 必须为 64 位十六进制")
-    if str(payload["commit"]) not in str(payload["download_url"]):
-        raise ValueError("案例下载 URL 必须固定到声明的 commit")
+    _validate_download_url(str(payload["download_url"]))
+    parts = validate_https_url(str(payload["download_url"]), "raw.githubusercontent.com")
+    segments = unquote(parts.path).split("/")
+    commit = str(payload["commit"])
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", commit) or len(segments) < 5 or segments[3].lower() != commit.lower():
+        raise ValueError("案例下载 URL 的 revision 段必须是声明的完整 commit SHA")
+    if any(segment in {"", ".", ".."} or "\\" in segment for segment in segments[1:]):
+        raise ValueError("案例路径包含不允许的分段")
+    if payload.get("source_path") and "/".join(segments[4:]) != payload["source_path"]:
+        raise ValueError("案例下载路径与 source_path 声明不一致")
     return payload
 
 
 def fetch_pinned_source(case: dict[str, Any], destination: Path) -> dict[str, Any]:
-    """@brief 下载固定提交版本并在落盘后验证 SHA-256。"""
+    """@brief 固定来源有界读取，验证 SHA-256 后才写入新缓存。"""
+    _validate_case_payload(case)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
-        content = destination.read_bytes()
+        with destination.open("rb") as stream:
+            content = stream.read(MAX_SOURCE_BYTES + 1)
+        if len(content) > MAX_SOURCE_BYTES:
+            raise ValueError("缓存案例超过读取上限")
         source = "cache"
     else:
         request = urllib.request.Request(
             str(case["download_url"]),
             headers={"User-Agent": "CAD-Studio-open-source-regression/1.0"},
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
-            content = response.read()
-        destination.write_bytes(content)
+        content = read_https_response(request, allowed_host="raw.githubusercontent.com", max_bytes=MAX_SOURCE_BYTES)
         source = "network"
     digest = hashlib.sha256(content).hexdigest()
     expected = str(case["sha256"]).lower()
     if digest != expected:
         raise RuntimeError(f"开源案例哈希不匹配: expected={expected}, actual={digest}")
+    if source == "network":
+        # 核对后才落盘，且不能覆盖并发出现的已有文件。
+        with destination.open("xb") as stream:
+            stream.write(content)
     return {"path": str(destination.resolve()), "bytes": len(content), "sha256": digest, "source": source}
 
 

@@ -631,6 +631,35 @@ def save_review_previews(model, output_dir, basename="review", views=None):
     ]
 
 
+def _feature_health(feature):
+    """@brief 回读 GetErrorCode2 的警告标记；未知证据不解释成致命错误。"""
+    result = {"error_code": None, "is_warning": None, "health_status": "unknown"}
+    try:
+        method = getattr(feature, "GetErrorCode2", None)
+        if method is None:
+            code = int(get_com_member(feature, "GetErrorCode"))
+            result.update(error_code=code, health_status="healthy" if code == 0 else "unknown")
+            return result
+        warning = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_BOOL, False)
+        try:
+            value = method(warning)
+            is_warning = bool(warning.value)
+        except TypeError:
+            value = method()
+            is_warning = None
+        if isinstance(value, (tuple, list)):
+            code, is_warning = value
+            is_warning = None if is_warning is None else bool(is_warning)
+        else:
+            code = value
+        code = int(code)
+        result.update(error_code=code, is_warning=is_warning,
+            health_status="healthy" if code == 0 else "warning" if is_warning is True else "error" if is_warning is False else "unknown")
+    except Exception as error:
+        result["health_error"] = str(error)
+    return result
+
+
 def collect_model_summary(model):
     """
     收集基础模型摘要。
@@ -646,6 +675,7 @@ def collect_model_summary(model):
             features.append({
                 "name": get_com_member(feature, "Name"),
                 "type": get_com_member(feature, "GetTypeName2"),
+                **_feature_health(feature),
             })
             feature = get_com_member(feature, "GetNextFeature")
     except Exception as exc:
@@ -657,6 +687,9 @@ def collect_model_summary(model):
         "type": get_com_member(model, "GetType"),
         "feature_count": len(features),
         "features": features,
+        "faulty_features": [item for item in features if item["health_status"] == "error"],
+        "warning_features": [item for item in features if item["health_status"] == "warning"],
+        "unknown_feature_health": [item for item in features if item["health_status"] == "unknown"],
     }
     if feature_error:
         summary["feature_error"] = feature_error
@@ -787,6 +820,10 @@ def collect_geometry_measurements(model):
         "cylindrical_faces": [],
         "errors": [],
     }
+    document_type = get_com_member(model, "GetType", default=None)
+    if document_type not in (None, 1):
+        measurements.update(unsupported_doc_type=document_type, hole_count=0, hole_groups=[])
+        return measurements
     try:
         box = list(get_com_member(model, "GetPartBox", True) or [])
         if len(box) >= 6:
@@ -883,6 +920,22 @@ def build_review_report(model, output_dir, basename="review", views=None, expect
     expected = [_file_info(path) for path in (expected_outputs or [])]
     summary = collect_model_summary(model)
     geometry = collect_geometry_measurements(model)
+    interference = None
+    drawing_structure = None
+    drawing_layout = None
+    if summary.get("type") == 2:
+        try:
+            from .sw_assembly import get_interference_detection
+        except ImportError:
+            from sw_assembly import get_interference_detection
+        interference = get_interference_detection(model)
+    elif summary.get("type") == 3:
+        try:
+            from .sw_drawing import inspect_drawing_structure
+        except ImportError:
+            from sw_drawing import inspect_drawing_structure
+        drawing_structure = inspect_drawing_structure(model)
+        drawing_layout = review_drawing_layout(drawing_structure)
     sketch_quality = None
     if summary.get("type") == 1:
         try:
@@ -900,6 +953,7 @@ def build_review_report(model, output_dir, basename="review", views=None, expect
         "feature_summary_available": "feature_error" not in summary,
         "geometry_measurements_available": geometry.get("envelope_mm") is not None,
         "geometry_measurements_error_free": not geometry.get("errors"),
+        "feature_errors_absent": not summary.get("faulty_features"),
     }
 
     review_notes = [
@@ -912,6 +966,9 @@ def build_review_report(model, output_dir, basename="review", views=None, expect
         "model": summary,
         "cad_spec": geometry,
         "sketch_quality": sketch_quality,
+        "interference": interference,
+        "drawing_structure": drawing_structure,
+        "drawing_layout": drawing_layout,
         "previews": previews,
         "expected_outputs": expected,
         "checks": checks,
@@ -950,6 +1007,36 @@ def evaluate_review_report(report):
 
     if checks.get("rebuild_succeeded") is False:
         add_issue("rebuild_failed", "fail", "模型重建失败，无法确认交付状态。", "修复特征错误后重新重建与审查。", 40)
+    summary = report.get("model") or {}
+    if summary.get("faulty_features"):
+        add_issue("feature_errors_present", "fail", "特征树包含已确认的错误特征。", "修复报告列出的特征后重建。", 35)
+    if summary.get("warning_features") or summary.get("unknown_feature_health"):
+        add_issue("feature_health_review_required", "warn", "特征存在警告或无法取得完整错误证据。", "复核特征错误/警告明细。", 8)
+    envelope = (report.get("cad_spec") or {}).get("envelope_mm")
+    if summary.get("type") == 1 and envelope:
+        try:
+            values = [float(envelope[name]) for name in ("length", "width", "height")]
+            valid = all(math.isfinite(value) and value >= 0 for value in values)
+            valid = valid and any(value > 1e-6 for value in values)
+        except (KeyError, TypeError, ValueError):
+            valid = False
+        if not valid:
+            add_issue("degenerate_envelope", "fail", "零件包络退化或不是有限尺寸。", "确认真实实体存在。", 35)
+    interference = report.get("interference")
+    if interference:
+        if interference.get("status") == "blocked":
+            add_issue("interference_check_blocked", "warn", "装配体干涉证据读取失败。", "检查完整加载与 CAD 状态。", 8)
+        elif interference.get("interference_count"):
+            add_issue("interference_detected", "warn", "装配体存在干涉，体积与组件详见明细。", "确认是否为有意过盈，否则修复配合。", 20)
+    structure = report.get("drawing_structure")
+    if structure is not None:
+        if structure.get("error_code") == "DRAWING_VIEWS_MISSING" or (structure.get("status") in {"pass", "ok"} and not structure.get("views")):
+            add_issue("drawing_views_missing", "fail", "工程图没有可用视图。", "创建并复核工程图视图。", 35)
+        elif structure.get("status") == "blocked":
+            add_issue("drawing_structure_blocked", "warn", "工程图结构证据无法读取。", "复核工程图结构。", 8)
+    layout = report.get("drawing_layout")
+    if layout and layout.get("status") not in {"pass", "ok"}:
+        add_issue("drawing_layout_review_required", "warn", "工程图布局仍需复核。", "检查布局明细与最终 PDF。", 8)
     quality = report.get("sketch_quality")
     if quality and quality.get("status") != "pass":
         add_issue("sketch_quality_review_required", "warn", "建模草图的约束或驱动尺寸未通过回读。", "检查草图约束、Fix 与设计参数后重新验收。", 10)

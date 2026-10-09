@@ -10,11 +10,17 @@ import sys
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 from html import escape
 from pathlib import Path
+try:
+    from .http_boundary import validate_https_url, read_https_response
+except ImportError:
+    from http_boundary import validate_https_url, read_https_response
 
 
 GRAPHQL_URL = "https://api.github.com/graphql"
+ALLOWED_GRAPHQL_HOSTS = frozenset({"api.github.com"})
 QUERY = """
 query($owner: String!, $name: String!, $cursor: String) {
   repository(owner: $owner, name: $name) {
@@ -28,8 +34,16 @@ query($owner: String!, $name: String!, $cursor: String) {
 """
 
 
+def _validate_graphql_url(url: str) -> None:
+    """@brief GraphQL 端点仅允许 https 且主机在白名单内，防止请求被改指向任意源。"""
+    parts = validate_https_url(url, "api.github.com")
+    if parts.path != "/graphql":
+        raise ValueError("GraphQL 请求路径必须为 /graphql")
+
+
 def _graphql(token: str, variables: dict) -> dict:
     """@brief 调用 GitHub GraphQL API，并将服务端错误转成明确异常。"""
+    _validate_graphql_url(GRAPHQL_URL)
     payload = json.dumps({"query": QUERY, "variables": variables}).encode("utf-8")
     request = urllib.request.Request(
         GRAPHQL_URL,
@@ -42,10 +56,9 @@ def _graphql(token: str, variables: dict) -> dict:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            result = json.loads(response.read().decode("utf-8"))
+        result = json.loads(read_https_response(request, allowed_host="api.github.com", max_bytes=4 * 1024 * 1024).decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
+        detail = exc.read(4096).decode("utf-8", errors="replace")
         raise RuntimeError(f"GitHub GraphQL 请求失败: HTTP {exc.code}: {detail}") from exc
     if result.get("errors"):
         raise RuntimeError(f"GitHub GraphQL 返回错误: {result['errors']}")

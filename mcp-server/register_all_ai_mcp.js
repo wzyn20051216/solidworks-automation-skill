@@ -99,6 +99,9 @@ function run(command, args, options = {}) {
     cwd: options.cwd || process.cwd(),
     encoding: 'utf8',
     shell: useShell,
+    windowsHide: true,
+    input: options.input,
+    timeout: options.timeout || 60000,
     stdio: options.quiet ? 'pipe' : 'inherit',
   });
 
@@ -135,22 +138,29 @@ function resolvePython(candidate) {
     if (seen.has(command)) continue;
     seen.add(command);
 
-    const args = command === 'py'
-      ? ['-3', '-c', 'import sys; print(sys.executable)']
-      : ['-c', 'import sys; print(sys.executable)'];
-    const result = run(command, args, { quiet: true });
+    const args = command === 'py' ? ['-3', '-'] : ['-'];
+    const result = run(command, args, {
+      quiet: true, shell: false, timeout: 5000,
+      input: 'import sys\nif sys.version_info < (3, 10): raise SystemExit(2)\nprint(sys.executable)\n',
+    });
     if (result.status === 0) {
       const executable = result.stdout.trim();
       return executable || command;
     }
   }
 
-  throw new Error('Python was not found. Install Python 3.8+ and retry.');
+  throw new Error('Python 3.10+ was not found. Install it or specify --python.');
 }
 
 function ensureServerReady(options, pythonCommand) {
   if (!fs.existsSync(options.server)) {
     throw new Error(`MCP server not found: ${options.server}`);
+  }
+  const root = fs.realpathSync(__dirname);
+  const serverPath = fs.realpathSync(options.server);
+  const relative = path.relative(root, serverPath);
+  if (relative.startsWith('..' + path.sep) || relative === '..' || path.isAbsolute(relative)) {
+    throw new Error('MCP server path must stay inside the registered skill directory.');
   }
 
   const requirementsPath = path.join(path.dirname(options.server), 'requirements.txt');
@@ -159,14 +169,14 @@ function ensureServerReady(options, pythonCommand) {
       throw new Error(`Requirements file not found: ${requirementsPath}`);
     }
     console.log('Installing Python dependencies...');
-    const pip = run(pythonCommand, ['-m', 'pip', 'install', '-r', requirementsPath]);
+    const pip = run(pythonCommand, ['-m', 'pip', 'install', '-r', requirementsPath], { shell: false, timeout: 300000 });
     if (pip.status !== 0) {
       throw new Error('Failed to install Python dependencies.');
     }
   }
 
   console.log('Checking MCP server syntax...');
-  const check = run(pythonCommand, ['-m', 'py_compile', options.server]);
+  const check = run(pythonCommand, ['-m', 'py_compile', options.server], { shell: false });
   if (check.status !== 0) {
     throw new Error('MCP server syntax check failed.');
   }
@@ -329,9 +339,12 @@ function main() {
   }
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(`ERROR: ${error.message}`);
-  process.exit(1);
+module.exports = { run, resolvePython, ensureServerReady };
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    console.error(`ERROR: ${error.message}`);
+    process.exit(1);
+  }
 }

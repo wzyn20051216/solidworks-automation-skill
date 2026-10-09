@@ -1272,8 +1272,42 @@ fn is_queue_metadata_path(path: &Path) -> bool {
     )
 }
 
+/// @brief 固定运行时与四种 Agent 的命令名，覆盖现有 PATH 回退。
+fn supported_program_name(program: &str) -> bool {
+    matches!(
+        program,
+        "python"
+            | "py"
+            | "node"
+            | "node.exe"
+            | "codex"
+            | "codex.exe"
+            | "claude"
+            | "claude.exe"
+            | "gemini"
+            | "gemini.exe"
+            | "opencode"
+            | "opencode.exe"
+    )
+}
+
 fn command_exists(program: &str, args: &[&str]) -> bool {
-    let mut command = Command::new(program);
+    // CWE-78: 只把白名单程序名落到子进程入口（调用方全部传字面量）。
+    let mut command = match program {
+        "python" => Command::new("python"),
+        "py" => Command::new("py"),
+        "node" => Command::new("node"),
+        "node.exe" => Command::new("node.exe"),
+        "codex" => Command::new("codex"),
+        "codex.exe" => Command::new("codex.exe"),
+        "claude" => Command::new("claude"),
+        "claude.exe" => Command::new("claude.exe"),
+        "gemini" => Command::new("gemini"),
+        "gemini.exe" => Command::new("gemini.exe"),
+        "opencode" => Command::new("opencode"),
+        "opencode.exe" => Command::new("opencode.exe"),
+        _ => return false,
+    };
     command.args(args).arg("--version");
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
@@ -1328,7 +1362,31 @@ fn detected_skill_root(app: &AppHandle, requested: Option<&str>) -> Result<PathB
 }
 
 fn command_summary_with_prefix(command: &(String, Vec<String>), args: &[&str]) -> Value {
-    let mut process = Command::new(&command.0);
+    // CWE-78: 子进程仅接受白名单命令名，或无 ".." 穿越段的绝对路径可执行文件
+    // （local_agent_command 各构造分支只产出这两类来源）。
+    // 路径来自 local_agent_command 的已安装入口或用户显式 *_BIN 配置，
+    // 不接受任务数据作为程序；绝对路径本身不是来源认证，还要验证真实文件。
+    if !(supported_program_name(command.0.as_str())
+        || (Path::new(&command.0).is_absolute()
+            && Path::new(&command.0).is_file()
+            && !Path::new(&command.0)
+                .components()
+                .any(|component| matches!(component, std::path::Component::ParentDir))))
+    {
+        return json!({
+            "ok": false,
+            "message": format!("拒绝不受信任的外部程序: {}", command.0)
+        });
+    }
+    let program = if supported_program_name(command.0.as_str()) {
+        PathBuf::from(&command.0)
+    } else {
+        match fs::canonicalize(&command.0) {
+            Ok(path) => path,
+            Err(error) => return json!({"ok":false,"message":error.to_string()}),
+        }
+    };
+    let mut process = Command::new(program);
     process.args(&command.1).args(args);
     #[cfg(windows)]
     process.creation_flags(CREATE_NO_WINDOW);
@@ -1681,7 +1739,20 @@ fn detect_autocad() -> Option<PathBuf> {
 
 /// @brief 调用 Skill 的统一环境诊断，非零退出码仍允许读取结构化修复建议。
 fn collect_doctor_report(program: &str, args: &[String], skill_root: &Path) -> Value {
-    let mut doctor = Command::new(program);
+    // CWE-78: 只把白名单程序名落到子进程入口（调用方传入 python_command 结果）。
+    let mut doctor = match program {
+        "python" => Command::new("python"),
+        "py" => Command::new("py"),
+        other => {
+            return json!({
+                "schemaVersion": "1.0",
+                "summary": { "status": "error" },
+                "checks": [],
+                "remediations": [],
+                "error": format!("拒绝不受信任的 Python 程序: {other}")
+            });
+        }
+    };
     doctor
         .args(args)
         .current_dir(skill_root)
@@ -1720,7 +1791,12 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
         .unwrap_or_default();
     let (python, solidworks, doctor) = match python_command() {
         Ok((program, args)) => {
-            let mut preflight = Command::new(&program);
+            // CWE-78: 只把白名单程序名落到子进程入口（python_command 只返回 "python"/"py"）。
+            let mut preflight = match program.as_str() {
+                "python" => Command::new("python"),
+                "py" => Command::new("py"),
+                other => return Err(format!("拒绝不受信任的 Python 程序: {other}")),
+            };
             preflight
                 .args(&args)
                 .current_dir(&skill_root)
@@ -2501,7 +2577,12 @@ fn start_worker(
     let _ = fs::remove_file(queue.join("worker_health.json"));
     let repo_path = detected_skill_root(&app, Some(&repo_path))?;
     let (python, python_args) = python_command()?;
-    let mut command = Command::new(python);
+    // CWE-78: 只把白名单程序名落到子进程入口（python_command 只返回 "python"/"py"）。
+    let mut command = match python.as_str() {
+        "python" => Command::new("python"),
+        "py" => Command::new("py"),
+        other => return Err(format!("拒绝不受信任的 Python 程序: {other}")),
+    };
     command.args(python_args);
     command
         .current_dir(repo_path)
@@ -2775,6 +2856,35 @@ fn read_queue_log_tail(app: AppHandle, id: String) -> Result<Value, String> {
     }))
 }
 
+/// @brief 读取 CC Switch 根目录内的固定文件名；拒绝越界与 ".." 穿越段（CWE-22）。
+fn cc_switch_file_path(root: &Path, file_name: &str) -> Result<PathBuf, String> {
+    if !matches!(file_name, "config.json" | "settings.json" | "cc-switch.db") {
+        return Err("CC Switch 文件名不在固定清单中".into());
+    }
+    // 根目录可以是用户配置的链接；根内文件必须留在该根的真实位置内。
+    let canonical_root = fs::canonicalize(root).map_err(|error| error.to_string())?;
+    let target = fs::canonicalize(root.join(file_name)).map_err(|error| error.to_string())?;
+    if !target.starts_with(&canonical_root) || !target.is_file() {
+        return Err("CC Switch 配置链接指向根目录之外或不是普通文件".into());
+    }
+    Ok(target)
+}
+
+/// @brief JSON 配置有界读取，SQLite 同样复用真实文件边界。
+fn read_cc_switch_file(root: &Path, file_name: &str) -> Result<String, String> {
+    use std::io::Read;
+    let target = cc_switch_file_path(root, file_name)?;
+    let file = fs::File::open(target).map_err(|error| error.to_string())?;
+    let mut raw = String::new();
+    file.take(4 * 1024 * 1024 + 1)
+        .read_to_string(&mut raw)
+        .map_err(|error| error.to_string())?;
+    if raw.len() > 4 * 1024 * 1024 {
+        return Err("CC Switch JSON 超过 4 MiB".into());
+    }
+    Ok(raw)
+}
+
 #[tauri::command]
 fn sync_cc_switch_config() -> Result<Value, String> {
     let home = std::env::var("USERPROFILE")
@@ -2785,6 +2895,7 @@ fn sync_cc_switch_config() -> Result<Value, String> {
     let config_path = root.join("config.json");
     let settings_path = root.join("settings.json");
     if database_path.exists() {
+        let database_path = cc_switch_file_path(&root, "cc-switch.db")?;
         let connection = Connection::open_with_flags(
             &database_path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -2804,7 +2915,7 @@ fn sync_cc_switch_config() -> Result<Value, String> {
                 .and_then(Value::as_str)
                 .unwrap_or("")
         };
-        let settings = fs::read_to_string(&settings_path)
+        let settings = read_cc_switch_file(&root, "settings.json")
             .ok()
             .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
             .unwrap_or(Value::Null);
@@ -2840,9 +2951,9 @@ fn sync_cc_switch_config() -> Result<Value, String> {
         );
     }
 
-    let config_raw = fs::read_to_string(&config_path).map_err(|error| error.to_string())?;
+    let config_raw = read_cc_switch_file(&root, "config.json")?;
     let config = serde_json::from_str::<Value>(&config_raw).map_err(|error| error.to_string())?;
-    let settings = fs::read_to_string(&settings_path)
+    let settings = read_cc_switch_file(&root, "settings.json")
         .ok()
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
         .unwrap_or(Value::Null);
@@ -3212,13 +3323,11 @@ mod tests {
                 );",
             )
             .expect("cc switch schema");
+        // 明确的假凭据用于验证输出不泄漏，保留可读夹具。
         connection
             .execute(
                 "INSERT INTO providers VALUES (?1, 'codex', '工作路由', ?2, '', 'custom', '', 1, 0)",
-                params![
-                    "route-1",
-                    r#"{"auth":{"OPENAI_API_KEY":"secret-must-not-leak"},"config":"model = \"gpt-5.5\""}"#
-                ],
+                params!["route-1", r#"{"auth":{"OPENAI_API_KEY":"secret-must-not-leak"},"config":"model = \"gpt-5.5\""}"#],
             )
             .expect("codex provider");
         connection
@@ -3356,3 +3465,6 @@ mod tests {
         assert!(payload.contains("D:/deliveries/model.step"));
     }
 }
+
+#[cfg(test)]
+mod runtime_boundary_tests;

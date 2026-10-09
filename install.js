@@ -2,15 +2,11 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const os = require('os');
 
 const SKILL_NAME = 'solidworks-automation';
 const REPO_URL = 'https://github.com/wzyn20051216/solidworks-automation-skill.git';
-
-function shellQuote(value) {
-  return `"${String(value).replace(/"/g, '\\"')}"`;
-}
 
 // 检测所有存在的 skills 目录
 function getAllSkillsDirs() {
@@ -49,7 +45,7 @@ function installToDir(skillsDir) {
   if (fs.existsSync(targetDir)) {
     console.log('⚠️  Skill 已存在，正在更新...');
     try {
-      execSync('git pull', { cwd: targetDir, stdio: 'inherit' });
+      execFileSync('git', ['pull'], { cwd: targetDir, stdio: 'inherit' });
       console.log('✅ 更新成功！');
       return true;
     } catch (error) {
@@ -58,10 +54,10 @@ function installToDir(skillsDir) {
     }
   }
 
-  // 克隆仓库
+  // 克隆仓库(数组参数形式, 不经 shell, 避免路径拼接注入)
   try {
     console.log('📦 正在下载...');
-    execSync(`git clone ${REPO_URL} "${targetDir}"`, { stdio: 'inherit' });
+    execFileSync('git', ['clone', REPO_URL, targetDir], { stdio: 'inherit' });
     console.log('✅ 安装成功！');
   return true;
   } catch (error) {
@@ -104,10 +100,10 @@ function registerMcpForAiClients(installedDirs) {
 
   console.log('\n🔌 正在自动注册 MCP 到常见 AI 客户端...');
   try {
-    execSync(`node ${shellQuote(registerScript)} --install-dependencies`, { stdio: 'inherit' });
+    execFileSync('node', [registerScript, '--install-dependencies'], { stdio: 'inherit' });
   } catch (error) {
     console.log('⚠️  MCP 自动注册未完全成功，可稍后手动执行:');
-    console.log(`  node ${shellQuote(registerScript)} --install-dependencies`);
+    console.log(`  node "${registerScript}" --install-dependencies`);
   }
 }
 
@@ -130,7 +126,7 @@ function install() {
   if (successCount > 0) {
     console.log('\n📦 安装 Python 基础依赖...');
     try {
-      execSync('pip install "pywin32>=305" "comtypes>=1.2.0"', { stdio: 'inherit' });
+      execFileSync('pip', ['install', 'pywin32>=305', 'comtypes>=1.2.0'], { stdio: 'inherit' });
     } catch (error) {
       console.log('⚠️  请手动安装依赖: pip install "pywin32>=305" "comtypes>=1.2.0"');
     }
