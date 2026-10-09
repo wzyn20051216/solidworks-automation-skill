@@ -69,7 +69,7 @@ def _validate_case_payload(payload):
 
 
 def fetch_pinned_source(case: dict[str, Any], destination: Path) -> dict[str, Any]:
-    """@brief 下载固定提交版本并在落盘后验证 SHA-256。"""
+    """@brief 固定来源有界读取，验证 SHA-256 后才写入新缓存。"""
     _validate_case_payload(case)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
