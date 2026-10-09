@@ -1366,12 +1366,12 @@ fn command_summary_with_prefix(command: &(String, Vec<String>), args: &[&str]) -
     // （local_agent_command 各构造分支只产出这两类来源）。
     // 路径来自 local_agent_command 的已安装入口或用户显式 *_BIN 配置，
     // 不接受任务数据作为程序；绝对路径本身不是来源认证，还要验证真实文件。
-    if !supported_program_name(command.0.as_str())
-        && !(Path::new(&command.0).is_absolute()
+    if !(supported_program_name(command.0.as_str())
+        || (Path::new(&command.0).is_absolute()
             && Path::new(&command.0).is_file()
             && !Path::new(&command.0)
                 .components()
-                .any(|component| matches!(component, std::path::Component::ParentDir)))
+                .any(|component| matches!(component, std::path::Component::ParentDir))))
     {
         return json!({
             "ok": false,
