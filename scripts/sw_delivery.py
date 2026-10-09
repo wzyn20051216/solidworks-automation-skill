@@ -938,6 +938,8 @@ def _comtypes_pack_and_go(
         if len(stdout) > 8 * 1024 * 1024:
             raise ValueError("回退输出过大")
         decoded = json.loads(stdout)
+        if not isinstance(decoded, dict):
+            raise ValueError("回退结果必须是 JSON 对象")
     except Exception as exc:
         raise SolidWorksConnectionError("SW_PACK_AND_GO_WORKER_PROTOCOL", "pack_and_go", "回退输出不是完整的 JSON 结果") from exc
     if "error" in decoded:

@@ -78,7 +78,7 @@ def test_timeout_cannot_be_reported_as_native_success(monkeypatch, tmp_path):
         worker_call(monkeypatch, tmp_path, timeout)
 
 
-@pytest.mark.parametrize("output", ['logs\n{"result": {}}', '{"result":{"process_id":8}}'])
+@pytest.mark.parametrize("output", ['logs\n{"result": {}}', '{"result":{"process_id":8}}', '[]', 'null', '"error"'])
 def test_unverified_stdout_and_identity_are_blocked(monkeypatch, tmp_path, output):
     with pytest.raises(SolidWorksConnectionError, match="SW_PACK_AND_GO_WORKER_PROTOCOL"):
         worker_call(monkeypatch, tmp_path, lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout=output))
