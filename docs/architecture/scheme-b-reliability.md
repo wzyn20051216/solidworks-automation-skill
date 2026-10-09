@@ -53,4 +53,4 @@ python tests/solidworks_reliability_b_regression.py --output C:\cad-test\reliabi
 - 注塑仍为 `pilot` 声明型规则筛查；未自动识别完整 B-Rep 拔模/倒扣，未接入模流，规则通过也需工程复核。阈值由用户/工艺/供应商明确声明，不充当材料通用认证值。
 - HTTP 验收使用本机服务和远端 Host 头及真实 MCP 客户端，未验证跨机器网络、防火墙、TLS 代理；输入上传、并发 CAD 写入不在本次范围。
 - 大文件分块逐次校验内容，适合交付读取；本次没有实现大文件上传或断点上传。
-- 综合 PR #23 的独立 comtypes Pack and Go 回退与打开错误分类尚未合入；其提交与当前主分支有冲突，需独立适配与验证，不能用本次常规 Session 的验收代替。
+- 2026-10-08 后续按有效增量适配 #23/#24/#25，补回退进程归属、独立 Pack and Go、健康度、加载诊断、下载与桌面边界；该后续验收见 [`remaining-pr-increments.md`](remaining-pr-increments.md)。
