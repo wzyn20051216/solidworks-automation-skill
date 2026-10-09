@@ -7,6 +7,10 @@ import os
 import tempfile
 import time
 from pathlib import Path
+try:
+    from .sw_file_load import SolidWorksDocumentOpenError, classify_sw_file_load_errors, classify_sw_file_load_warnings
+except ImportError:
+    from sw_file_load import SolidWorksDocumentOpenError, classify_sw_file_load_errors, classify_sw_file_load_warnings
 
 try:
     from .sw_preflight import ensure_solidworks_installed, import_com_dependencies
@@ -615,9 +619,9 @@ def open_document(sw, file_path, read_only=False, silent=False, raise_on_error=F
     if model:
         print(f"已打开: {file_path}")
     else:
-        message = f"打开失败, 错误码: {errors.value}, 警告码: {warnings.value}"
+        message = f"打开失败, 错误码: {errors.value} ({classify_sw_file_load_errors(errors.value)}), 警告码: {warnings.value} ({classify_sw_file_load_warnings(warnings.value)})"
         if raise_on_error:
-            raise RuntimeError(message)
+            raise SolidWorksDocumentOpenError(message, errors.value, warnings.value)
         print(message)
     return model
 
