@@ -19,6 +19,18 @@
 
 该案例用于证明“代码驱动 SolidWorks → 原生工程图 → 结构化证据”的完整链路，不代表无人值守制造放行；最终图框、尺寸链、孔表和制造语义仍需工程师目视复核。
 
+## 极端案例：非标钻孔台面板自动出图（GD&T）
+
+`scripts/drilling_panel_gdt.py` 针对「一块布满孔的非标自动化台面板从 3D 自动出图到 SLDDRW」：
+
+- **孔位规整**：按（孔径, 孔型）分组，聚类识别栅格/线性/离散阵列与节距、行列数、规整度。
+- **基准自动推测**：按 3-2-1 推出基准角与 A（主平面）| B | C（两正交基准边），识别定位销对为基准孔候选。
+- **GD&T 自动给出**：位置度 `⌖ ⌀t Ⓜ | A | B | C`（间隙孔 MMC，定位销 RFS 从严）+ 基准 A 平面度，
+  并生成孔表与从基准原点的坐标标注。
+
+分析/规划为纯函数、离线单测，生成的 `drawing_spec` 已通过本子技能 schema 校验；把 GD&T/孔表/坐标
+真正落到 SLDDRW 仍为 pilot，须真机与工程复核。详见 [`references/drilling-panel-gdt.md`](references/drilling-panel-gdt.md)。
+
 ## 输入
 
 使用 `schemas/drawing_spec.schema.json` 描述：

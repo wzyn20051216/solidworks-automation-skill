@@ -173,6 +173,9 @@ claude mcp add --scope user solidworks -- python C:\path\to\solidworks-automatio
 | `cadstudio_read_artifact` | 按交付 ID 返回 PNG 预览或有界二进制块，校验已有 Ledger 的 SHA-256 | 否 |
 | `cadstudio_check_dfm` | 对 NeutralCadDocument 执行机加工、钣金、激光切割、3D 打印或注塑声明型 DFM 检查；缺关键输入返回 blocked，规则通过仍需人工复核 | 否 |
 | `cadstudio_check_routing` | 校验中性 Routing 端点、分段、长度、弯曲半径、碰撞/间隙、支撑和 Routing BOM | 否 |
+| `cadstudio_check_drc` | 对 NeutralCadDocument 执行设计规则检查（设计审计）：几何健全性、孔位规则、齿轮/弹簧/链轮标准件合理性、装配约束、工程图完整性，按严重度聚合；可用声明式 Profile（阈值/停用规则/数据驱动自定义规则）配置与补充，代理可从自然语言生成，不执行任何代码；制造性仍走 `cadstudio_check_dfm` | 否 |
+| `cadstudio_list_drc_rules` | 列出内置 DRC 规则（含实测孔间腹板/螺纹啮合-板厚、关系型 GD&T 基准/孔表/BOM 一致性）、默认阈值、条款出处与自定义规则 schema | 否 |
+| `cadstudio_list_drc_rule_packs` | 列出内置行业规则包（机加工支架/注塑外壳/钣金面板/钻孔面板），供 cadstudio_check_drc 的 rule_packs 叠加 | 否 |
 | `cadstudio_routing_preflight` | 探测 SOLIDWORKS Routing 类型库、加载项注册和许可证证据；缺证据返回 blocked | 否 |
 | `solidworks_addin_host_status` | 只读检查 C# Add-in 程序集、HKCU/HKLM 注册层级、进程内 UI/事件诊断和阻塞码 | 否 |
 | `cadstudio_fea_preflight` | 探测 CalculiX/Elmer 求解器，不执行任意命令 | 否 |
@@ -316,16 +319,65 @@ claude mcp add --scope user solidworks -- python C:\path\to\solidworks-automatio
 }
 ```
 
+## 设计规则检查（DRC / 设计审计）示例
+
+DRC 面向 harness 通过 MCP 使用，用于**设计意图层**审计，与 `cadstudio_check_dfm`（制造性）分工。
+
+推荐两步：先列出可配置项，再用**自然语言生成声明式 Profile** 运行检查。
+
+第一步——`cadstudio_list_drc_rules`（无参数，只读）返回内置规则、默认阈值和自定义规则 schema。
+
+第二步——`cadstudio_check_drc`，把用户的自然语言设计规范翻译成 `profiles`（内联对象）后传入：
+
+> 用户：“螺纹孔到边缘至少 2 倍孔径、壁厚不低于 1.5mm、弹簧指数控制在 5 到 10、孔径小于 3mm 要报警”
+
+```json
+{
+  "input_path": "C:\\work\\bracket.cadstudio.json",
+  "output_path": "C:\\work\\out\\bracket_drc.json",
+  "profiles": [
+    {
+      "schema": "cadstudio.drc-profile",
+      "thresholds": {
+        "holeEdgeDistanceRatio": 2.0,
+        "minWallThicknessMm": 1.5,
+        "springIndexMin": 5.0,
+        "springIndexMax": 10.0
+      },
+      "disabledRules": [],
+      "customRules": [
+        {"id": "CUST-SMALL-HOLE", "appliesTo": "hole", "field": "diameter", "operator": "lt", "value": 3.0, "severity": "warning", "message": "孔径小于3mm，注意钻头刚性"}
+      ]
+    }
+  ]
+}
+```
+
+- `profiles` 是**纯声明式数据**：`thresholds` 覆盖内置规则阈值，`disabledRules` 停用规则，
+  `customRules` 补充数据驱动的新规则（`appliesTo` ∈ hole/feature/standard_part/document，
+  `operator` ∈ lt/lte/gt/gte/eq/ne）。Server 只做数据校验，**绝不执行 Profile 中的字符串为代码或路径**。
+- 也可用 `profile_paths` 传入 Profile 文件路径，与内联 `profiles` 合并；`rule_packs` 叠加行业规则包
+  （先用 `cadstudio_list_drc_rule_packs` 查可用包）。
+- **审计工作流**：传 `baseline_path`（上一版报告）得 new/fixed/persisting 增量 diff；传 `waivers`
+  （每条含 fingerprint 或 ruleId + reason + owner，可选 expiresOn）+ `as_of_date` 让已签署的 finding
+  退出门禁。报告 `status` 是门禁状态（忽略 waiver）、`rawStatus` 是原始状态、`riskScore` 是加权风险、
+  每条 finding 带 `fingerprint` 与标准条款出处。
+- 内置规则覆盖几何健全性、孔位（边距/间距/**实测孔间腹板**/**螺纹啮合-板厚**）、齿轮/弹簧/链轮标准件、
+  装配干涉/欠约束、工程图完整性、**关系型**（GD&T 基准存在/孔表覆盖/BOM 一致性）。始终 `reviewRequired=true`，
+  写出版本化 JSON 并附 SHA-256。详见 [`references/design-rule-check.md`](../references/design-rule-check.md)。
+
 ## 设计原则
 
 - 不开放任意 Python/VBA 执行工具，避免 MCP 客户端直接执行不受控脚本。
+- DRC/DFM Profile 均为声明式数据，Server 只校验不执行其中的路径或代码。
 - CAD Studio 无头/门禁工具使用 `cadstudio_` 前缀，SolidWorks 原生工具使用 `solidworks_` 前缀，避免与其他 MCP server 冲突。
 - 所有 COM 操作串行执行，降低 SolidWorks 桌面会话崩溃概率。
 - 错误返回包含建议动作，方便 LLM 自行纠错。
 
 ## 已知限制
 
-- MCP 已覆盖基础盒体/圆柱、复杂孔槽、添加组件、常用 Mate、固定/浮动、外观、导出、审查、旋转马达、Motion 结果门禁，以及 DFM/Routing/FEA/复杂几何的受控入口。
+- MCP 已覆盖基础盒体/圆柱、复杂孔槽、添加组件、常用 Mate、固定/浮动、外观、导出、审查、旋转马达、Motion 结果门禁，以及 DFM/DRC/Routing/FEA/复杂几何的受控入口。
+- DRC 只审查中性文档已提供的证据，缺失截面按 info 跳过不代表合格；从活动 SolidWorks 模型抽取快照为 pilot，需真机验证。
 - 受限封闭直纹 Loft 可生成并重开真实 STEP/BREP；平滑 Loft、扫描、自由曲面、G1/G2 和模具仍只开放结构化计划门禁。
 - SolidWorks Motion / Simulation 许可证差异可能影响计算能力；缺少合法加载项或授权时返回 `blocked`，不尝试绕过。
 

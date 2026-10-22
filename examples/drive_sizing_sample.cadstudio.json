@@ -1,0 +1,23 @@
+{
+  "documentId": "drive-sizing-demo",
+  "units": "mm",
+  "features": [],
+  "metadata": {
+    "drives": [
+      {
+        "id": "X轴丝杠",
+        "load": {"mass_kg": 50, "incline_deg": 0, "friction_coeff": 0.1},
+        "motion": {"distance_mm": 500, "max_speed_mm_s": 500, "accel_mm_s2": 2000, "dwell_s": 0.5, "round_trip": true},
+        "transmission": {"type": "lead_screw", "lead_mm": 10, "efficiency": 0.9, "screw_diameter_mm": 20, "screw_length_mm": 600},
+        "motor": {"peak_torque_nm": 1.5, "rated_torque_nm": 0.64, "rated_speed_rpm": 3000, "max_speed_rpm": 5000, "rotor_inertia_kgcm2": 0.5}
+      },
+      {
+        "id": "Z轴丝杠(垂直，未声明抱闸)",
+        "load": {"mass_kg": 20, "incline_deg": 90, "friction_coeff": 0.05},
+        "motion": {"distance_mm": 200, "max_speed_mm_s": 300, "accel_mm_s2": 1500, "dwell_s": 0.3, "round_trip": true},
+        "transmission": {"type": "lead_screw", "lead_mm": 5, "efficiency": 0.9},
+        "motor": {"peak_torque_nm": 1.0, "rated_torque_nm": 0.32, "rated_speed_rpm": 3000, "max_speed_rpm": 5000, "rotor_inertia_kgcm2": 0.2}
+      }
+    ]
+  }
+}

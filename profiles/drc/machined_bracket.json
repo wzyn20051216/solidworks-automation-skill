@@ -1,0 +1,16 @@
+{
+  "schema": "cadstudio.drc-profile",
+  "id": "machined-bracket",
+  "description": "机加工支架：壁厚≥1.5、孔边距≥1.5×半径、孔间腹板≥3、螺纹啮合≥1.5×公称；小孔与深孔报警。",
+  "thresholds": {
+    "minWallThicknessMm": 1.5,
+    "holeEdgeDistanceRatio": 1.5,
+    "holeEdgeDistanceMinMm": 2.0,
+    "ligamentMinMm": 3.0,
+    "threadEngagementRatio": 1.5
+  },
+  "disabledRules": [],
+  "customRules": [
+    {"id": "MB-SMALL-HOLE", "category": "holes", "appliesTo": "hole", "field": "diameter", "operator": "lt", "value": 3.0, "severity": "warning", "message": "孔径小于3mm，注意钻头刚性与排屑"}
+  ]
+}

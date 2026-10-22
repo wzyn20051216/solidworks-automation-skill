@@ -154,6 +154,18 @@ def main(argv: list[str] | None = None) -> int:
     routing.add_argument("--input", type=Path, required=True, help="Routing 中性 JSON 输入")
     routing.add_argument("--output", type=Path, required=True, help="不覆盖旧文件的 Routing report JSON 输出")
     sub.add_parser("routing-preflight")
+    drc = sub.add_parser("check-drc")
+    drc.add_argument("--input", type=Path, required=True, help="NeutralCadDocument .cadstudio.json")
+    drc.add_argument("--output", type=Path, required=True, help="不覆盖旧文件的 DRC report JSON 输出")
+    drc.add_argument("--profile", action="append", default=[], help="可重复指定 DRC Profile JSON，用于配置阈值/停用规则/补充声明式自定义规则")
+    drc.add_argument("--rule-pack", action="append", default=[], help="行业规则包名，可重复：machined_bracket/injection_shell/sheet_metal_panel/drilling_panel")
+    drc.add_argument("--baseline", type=Path, help="上一版 DRC 报告 JSON，用于 new/fixed/persisting 增量 diff")
+    drc.add_argument("--waivers", type=Path, help="让步单 JSON 数组文件（fingerprint 或 ruleId + reason + owner，可选 expiresOn）")
+    drc.add_argument("--as-of", help="让步单过期判定的当前日期 ISO")
+    drc.add_argument("--fail-on-regression", action="store_true", help="回归门禁：相对 --baseline 风险分变差或新增 critical 即非零退出")
+    drc.add_argument("--regression-tolerance", type=float, default=0.0, help="回归门禁允许的风险分上升容差")
+    sub.add_parser("list-drc-rules")
+    sub.add_parser("list-drc-rule-packs")
     fea_preflight = sub.add_parser("fea-preflight")
     fea_preflight.add_argument("--solver", choices=("auto", "calculix", "elmer"), default="auto")
     fea_prepare = sub.add_parser("prepare-fea")
@@ -247,6 +259,36 @@ def main(argv: list[str] | None = None) -> int:
         result = review_routing_file(args.input, args.output)
         _print_json(result)
         return 1 if result.get("status") in {"blocked", "failed"} else 0
+    if args.command == "check-drc":
+        import json as _json
+
+        from design_rule_check import write_drc_report
+
+        waivers = _json.loads(Path(args.waivers).read_text(encoding="utf-8")) if args.waivers else None
+        result = write_drc_report(
+            args.input,
+            args.output,
+            profiles=args.profile or None,
+            rule_packs=args.rule_pack or None,
+            baseline=args.baseline,
+            waivers=waivers,
+            as_of_date=args.as_of,
+            regression_gate=args.fail_on_regression,
+            regression_tolerance=args.regression_tolerance,
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        gate_failed = isinstance(result.get("regressionGate"), dict) and not result["regressionGate"].get("passed", True)
+        return 1 if result.get("status") in {"blocked", "fail"} or gate_failed else 0
+    if args.command == "list-drc-rules":
+        from design_rule_check import list_rules
+
+        print(json.dumps(list_rules(), ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "list-drc-rule-packs":
+        from design_rule_profiles import list_rule_packs
+
+        print(json.dumps({"rulePacks": list_rule_packs()}, ensure_ascii=False, indent=2))
+        return 0
     if args.command == "routing-preflight":
         from routing_review import probe_solidworks_routing
 

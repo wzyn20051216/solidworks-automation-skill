@@ -1,0 +1,16 @@
+{
+  "schema": "cadstudio.drc-profile",
+  "id": "drilling-panel",
+  "description": "非标钻孔台面板：孔边距≥2×半径、孔间距≥2×大孔半径、孔间腹板≥3、螺纹啮合≥1.5×公称。",
+  "thresholds": {
+    "holeEdgeDistanceRatio": 2.0,
+    "holeEdgeDistanceMinMm": 3.0,
+    "holeSpacingRatio": 2.0,
+    "ligamentMinMm": 3.0,
+    "threadEngagementRatio": 1.5
+  },
+  "disabledRules": [],
+  "customRules": [
+    {"id": "DP-SMALL-HOLE", "category": "holes", "appliesTo": "hole", "field": "diameter", "operator": "lt", "value": 3.0, "severity": "warning", "message": "孔径小于3mm，钻孔面板注意钻头刚性"}
+  ]
+}

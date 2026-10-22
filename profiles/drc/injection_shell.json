@@ -1,0 +1,14 @@
+{
+  "schema": "cadstudio.drc-profile",
+  "id": "injection-shell",
+  "description": "注塑外壳：均匀壁厚≥1.0、最小特征≥0.8；避免过小孔导致熔接痕/顶针困难。",
+  "thresholds": {
+    "minWallThicknessMm": 1.0,
+    "minFeatureSizeMm": 0.8,
+    "holeEdgeDistanceRatio": 1.0
+  },
+  "disabledRules": [],
+  "customRules": [
+    {"id": "IS-TINY-HOLE", "category": "holes", "appliesTo": "hole", "field": "diameter", "operator": "lt", "value": 1.5, "severity": "warning", "message": "注塑孔径小于1.5mm，型芯细弱易断"}
+  ]
+}

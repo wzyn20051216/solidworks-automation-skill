@@ -425,6 +425,55 @@ class CadStudioRoutingReviewInput(BaseInput):
         return value
 
 
+class CadStudioDrcCheckInput(BaseInput):
+    """Input for NeutralCadDocument design rule check (DRC)."""
+
+    input_path: str = Field(..., min_length=1, description="Absolute .cadstudio.json NeutralCadDocument path.")
+    output_path: str = Field(..., min_length=1, description="Absolute JSON report path; existing files are versioned instead of overwritten.")
+    profiles: list[dict[str, Any]] = Field(
+        default_factory=list,
+        max_length=8,
+        description="Optional inline declarative DRC profiles (schema cadstudio.drc-profile): thresholds, disabledRules, and data-driven customRules. Build these from the user's natural language to configure or extend the checker; no code is executed.",
+    )
+    profile_paths: list[str] = Field(default_factory=list, max_length=8, description="Optional DRC profile JSON file paths, merged with inline profiles.")
+    rule_packs: list[str] = Field(default_factory=list, max_length=8, description="Industry rule pack names to layer on (machined_bracket, injection_shell, sheet_metal_panel, drilling_panel).")
+    baseline_path: Optional[str] = Field(default=None, description="Optional prior DRC report JSON for new/fixed/persisting diff.")
+    waivers: list[dict[str, Any]] = Field(default_factory=list, max_length=256, description="Waivers (fingerprint or ruleId + reason + owner, optional expiresOn) to exclude accepted findings from the gate.")
+    as_of_date: Optional[str] = Field(default=None, description="ISO date used to expire waivers, e.g. 2026-09-08.")
+    regression_gate: bool = Field(default=False, description="Regression gate (needs baseline_path): reject when the candidate raises the weighted risk score or introduces a new critical finding. Result in report.regressionGate.")
+    regression_tolerance: float = Field(default=0.0, ge=0.0, description="Allowed risk-score increase for the regression gate.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+    @field_validator("input_path")
+    @classmethod
+    def input_path_must_exist(cls, value: str) -> str:
+        path = Path(os.path.expandvars(value)).expanduser()
+        if path.suffix.lower() != ".json" or not path.is_file():
+            raise ValueError(f"DRC input must be an existing .cadstudio.json file: {value}")
+        return value
+
+    @field_validator("output_path")
+    @classmethod
+    def output_path_must_be_json(cls, value: str) -> str:
+        if Path(os.path.expandvars(value)).expanduser().suffix.lower() != ".json":
+            raise ValueError(f"Output must be a JSON report path: {value}")
+        return value
+
+    @field_validator("profile_paths")
+    @classmethod
+    def profile_paths_must_exist(cls, values: list[str]) -> list[str]:
+        missing = [value for value in values if not Path(os.path.expandvars(value)).expanduser().is_file()]
+        if missing:
+            raise ValueError("DRC profile files do not exist: " + ", ".join(missing[:5]))
+        return values
+
+
+class CadStudioDrcRulesInput(BaseInput):
+    """Input for listing built-in DRC rules and default thresholds."""
+
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+
 class CadStudioRoutingPreflightInput(BaseInput):
     """Input for SolidWorks Routing preflight."""
 
@@ -1458,6 +1507,98 @@ def cadstudio_check_dfm(params: CadStudioDfmReviewInput) -> str:
         profile_paths = [Path(os.path.expandvars(value)).expanduser().resolve() for value in params.profile_paths]
         brep_evidence = Path(os.path.expandvars(params.brep_evidence_path)).expanduser().resolve() if params.brep_evidence_path else None
         return write_dfm_report(input_path, output_path, process=params.process, profiles=profile_paths, brep_evidence=brep_evidence)
+
+    return _run_locked(op, params.response_format, load_automation=False)
+
+
+@mcp.tool(
+    name="cadstudio_check_drc",
+    title="Design Rule Check (Design Audit)",
+    annotations={
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": False,
+    },
+)
+def cadstudio_check_drc(params: CadStudioDrcCheckInput) -> str:
+    """Run a design rule check / design audit on a NeutralCadDocument.
+
+    Checks geometry sanity, hole rules, standard-part (gear/spring/sprocket) sanity, assembly
+    constraints, and drawing completeness, aggregated by severity. Configure or extend it with
+    declarative profiles built from the user's natural language (thresholds, disabled rules, and
+    data-driven custom rules); no code is executed. Manufacturing DFM stays in cadstudio_check_dfm.
+    """
+
+    def op():
+        from scripts.design_rule_check import write_drc_report
+
+        input_path = Path(os.path.expandvars(params.input_path)).expanduser().resolve()
+        output_path = Path(os.path.expandvars(params.output_path)).expanduser().resolve()
+        profiles: list[Any] = list(params.profiles)
+        profiles.extend(Path(os.path.expandvars(value)).expanduser().resolve() for value in params.profile_paths)
+        baseline = Path(os.path.expandvars(params.baseline_path)).expanduser().resolve() if params.baseline_path else None
+        return write_drc_report(
+            input_path,
+            output_path,
+            profiles=profiles or None,
+            rule_packs=params.rule_packs or None,
+            baseline=baseline,
+            waivers=params.waivers or None,
+            as_of_date=params.as_of_date,
+            regression_gate=params.regression_gate,
+            regression_tolerance=params.regression_tolerance,
+        )
+
+    return _run_locked(op, params.response_format, load_automation=False)
+
+
+@mcp.tool(
+    name="cadstudio_list_drc_rules",
+    title="List Design Rule Check Rules",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+def cadstudio_list_drc_rules(params: CadStudioDrcRulesInput) -> str:
+    """List built-in DRC rules, default thresholds, and the custom-rule schema.
+
+    Call this first to learn what can be configured, then translate the user's natural-language
+    design rules into a cadstudio.drc-profile and pass it to cadstudio_check_drc.
+    """
+
+    def op():
+        from scripts.design_rule_check import list_rules
+
+        return list_rules()
+
+    return _run_locked(op, params.response_format, load_automation=False)
+
+
+@mcp.tool(
+    name="cadstudio_list_drc_rule_packs",
+    title="List Design Rule Check Industry Packs",
+    annotations={
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+def cadstudio_list_drc_rule_packs(params: CadStudioDrcRulesInput) -> str:
+    """List built-in industry DRC rule packs (machined bracket, injection shell, sheet metal panel, drilling panel).
+
+    Layer one or more onto cadstudio_check_drc via its rule_packs argument, optionally with an inline
+    profile that overrides thresholds or adds custom rules from the user's natural language.
+    """
+
+    def op():
+        from scripts.design_rule_profiles import list_rule_packs
+
+        return {"rulePacks": list_rule_packs()}
 
     return _run_locked(op, params.response_format, load_automation=False)
 

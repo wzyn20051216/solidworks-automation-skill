@@ -1,0 +1,10 @@
+{
+  "type": "roller_sprocket",
+  "description": "ANSI #40 滚子链链轮：节距 12.7、滚子 7.92、17 齿，厚 6mm，中心孔 φ20。简化齿形，可视化/打印级。",
+  "cli": "python subskills/solidworks-standard-parts/scripts/create_roller_sprocket.py --chain-pitch 12.7 --roller-diameter 7.92 --teeth 17 --thickness 6 --bore 20",
+  "expected_geometry_mm": {
+    "pitch_diameter": 69.1158,
+    "outside_diameter": 75.5591,
+    "root_diameter": 61.1958
+  }
+}
