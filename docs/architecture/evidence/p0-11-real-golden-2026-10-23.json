@@ -1,0 +1,192 @@
+{
+  "date": "2026-10-23",
+  "phase": "P0-1.1",
+  "branch": "test/p0-real-golden-mounting-bracket-2026",
+  "base_sha": "f9d6efbecf297bcdfffc451de81ba3a7bdea6a0d",
+  "phase_start_sha": "13e22ca5244b808d04fde2a51346c800aa8a52d1",
+  "task_status": "blocked",
+  "acceptance_status": "passed",
+  "real_command_exit_code": 0,
+  "strict_control_acceptance": "failed",
+  "metrics": {
+    "run_count": 5,
+    "geometry_success_count": 5,
+    "expected_gate_correct_count": 5,
+    "task_completion_count": 0,
+    "test_acceptance_count": 5,
+    "false_completion_count": 0,
+    "cleanup_success_count": 5
+  },
+  "runs": [
+    {
+      "run": "run-01",
+      "pid": 39596,
+      "task_status": "blocked",
+      "acceptance_status": "passed",
+      "manual_review_required": true,
+      "core_scope": "terminal_adaptation_only",
+      "source_sha": "6e8903cdea3cdf36b0e4fe15e55779cdc663ac39",
+      "version": {
+        "revision": "34.1.1",
+        "year": 2026,
+        "major": 34
+      },
+      "volume_mm3": 94460.6196,
+      "step_volume_mm3": 94460.6196,
+      "review_score": 100,
+      "core_verification_status": "PASS",
+      "recovery": "user_action_required",
+      "cleanup": {
+        "status": "pass",
+        "owned_pid": 39596,
+        "errors": [],
+        "remaining_documents": 0,
+        "exit_requested": true,
+        "processes_after": {}
+      },
+      "verified_sha256_count": 17,
+      "report": "output\\p0-11-real-five-01\\run-01\\report.json",
+      "report_sha256": "db541c05ef93e5fb1e3a6f61f84b99f0136c5e809b49e38fa956c30e6ca160c8",
+      "sha256_manifest_hash": "4233cc8836a581ceb9d6cb6030aa6abc83af6c4a1b8b860c26d59969af7476dc"
+    },
+    {
+      "run": "run-02",
+      "pid": 46956,
+      "task_status": "blocked",
+      "acceptance_status": "passed",
+      "manual_review_required": true,
+      "core_scope": "terminal_adaptation_only",
+      "source_sha": "6e8903cdea3cdf36b0e4fe15e55779cdc663ac39",
+      "version": {
+        "revision": "34.1.1",
+        "year": 2026,
+        "major": 34
+      },
+      "volume_mm3": 94460.6196,
+      "step_volume_mm3": 94460.6196,
+      "review_score": 100,
+      "core_verification_status": "PASS",
+      "recovery": "user_action_required",
+      "cleanup": {
+        "status": "pass",
+        "owned_pid": 46956,
+        "errors": [],
+        "remaining_documents": 0,
+        "exit_requested": true,
+        "processes_after": {}
+      },
+      "verified_sha256_count": 17,
+      "report": "output\\p0-11-real-five-01\\run-02\\report.json",
+      "report_sha256": "9d19252e39ad775fcfa0fe405dbf357a78a8d1a9eb97021e26d437e8758a5fb0",
+      "sha256_manifest_hash": "f1366e50c9dc8f2a7dc6cd2e7da44fe682ed24a121280cff57378f88741d4ecb"
+    },
+    {
+      "run": "run-03",
+      "pid": 41440,
+      "task_status": "blocked",
+      "acceptance_status": "passed",
+      "manual_review_required": true,
+      "core_scope": "terminal_adaptation_only",
+      "source_sha": "6e8903cdea3cdf36b0e4fe15e55779cdc663ac39",
+      "version": {
+        "revision": "34.1.1",
+        "year": 2026,
+        "major": 34
+      },
+      "volume_mm3": 94460.6196,
+      "step_volume_mm3": 94460.6196,
+      "review_score": 100,
+      "core_verification_status": "PASS",
+      "recovery": "user_action_required",
+      "cleanup": {
+        "status": "pass",
+        "owned_pid": 41440,
+        "errors": [],
+        "remaining_documents": 0,
+        "exit_requested": true,
+        "processes_after": {}
+      },
+      "verified_sha256_count": 17,
+      "report": "output\\p0-11-real-five-01\\run-03\\report.json",
+      "report_sha256": "fa3e8a9ba49f1657178fc3872be71f55f87439071258fd8a8b9ba85e124a5b9c",
+      "sha256_manifest_hash": "928ad88abcc4ac97d599d18c3f3f893213e7bf30aef42df88076b9f56f8035a2"
+    },
+    {
+      "run": "run-04",
+      "pid": 22712,
+      "task_status": "blocked",
+      "acceptance_status": "passed",
+      "manual_review_required": true,
+      "core_scope": "terminal_adaptation_only",
+      "source_sha": "6e8903cdea3cdf36b0e4fe15e55779cdc663ac39",
+      "version": {
+        "revision": "34.1.1",
+        "year": 2026,
+        "major": 34
+      },
+      "volume_mm3": 94460.6196,
+      "step_volume_mm3": 94460.6196,
+      "review_score": 100,
+      "core_verification_status": "PASS",
+      "recovery": "user_action_required",
+      "cleanup": {
+        "status": "pass",
+        "owned_pid": 22712,
+        "errors": [],
+        "remaining_documents": 0,
+        "exit_requested": true,
+        "processes_after": {}
+      },
+      "verified_sha256_count": 17,
+      "report": "output\\p0-11-real-five-01\\run-04\\report.json",
+      "report_sha256": "4c82aac599c7e995cdf674b458b985f699e5c1abd4dbdf27f1f96e001511bd03",
+      "sha256_manifest_hash": "8c73f88d072fd130f2ea5f1fa46428e5c44c244bce1b919ffdf1b5bcbc602bd8"
+    },
+    {
+      "run": "run-05",
+      "pid": 20972,
+      "task_status": "blocked",
+      "acceptance_status": "passed",
+      "manual_review_required": true,
+      "core_scope": "terminal_adaptation_only",
+      "source_sha": "6e8903cdea3cdf36b0e4fe15e55779cdc663ac39",
+      "version": {
+        "revision": "34.1.1",
+        "year": 2026,
+        "major": 34
+      },
+      "volume_mm3": 94460.6196,
+      "step_volume_mm3": 94460.6196,
+      "review_score": 100,
+      "core_verification_status": "PASS",
+      "recovery": "user_action_required",
+      "cleanup": {
+        "status": "pass",
+        "owned_pid": 20972,
+        "errors": [],
+        "remaining_documents": 0,
+        "exit_requested": true,
+        "processes_after": {}
+      },
+      "verified_sha256_count": 17,
+      "report": "output\\p0-11-real-five-01\\run-05\\report.json",
+      "report_sha256": "1ecc2fdedefa044414ae5302f605283e347ba300f83e94166c2e1b8c02bbddbb",
+      "sha256_manifest_hash": "d33e4633cb3cdfc38c5d761ed48074f6c556ab809d8f20bcf3c60d8a65f92eef"
+    }
+  ],
+  "verified_sha256_total": 85,
+  "offline": {
+    "passed": 942,
+    "skipped": 1,
+    "deterministic_mock_scenarios": 37,
+    "escaped_false_completion_rate": 0.0,
+    "skip_reason": "桌面内嵌 Skill 尚未生成，发布包检查按既有规则跳过。"
+  },
+  "core_scope": "terminal_adaptation_only",
+  "unverified": [
+    "真实 CAD 逐步由 Core 调度",
+    "无人复核自动审查策略",
+    "远程自托管 CAD Runner"
+  ],
+  "pr": "https://github.com/wzyn20051216/solidworks-automation-skill/pull/39"
+}

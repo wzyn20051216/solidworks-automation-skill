@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "target_first_pass_rate": 0.90,
   "workflows": [
-    {"id": "mounting_bracket", "name": "安装板与支架", "capabilities": ["part_and_features", "holes_and_finishing", "export_delivery"], "required_inputs": ["外形尺寸", "板厚", "孔规格", "孔定位", "材料"], "required_artifacts": ["sldprt", "step", "preview", "review_report"]},
+    {"id": "mounting_bracket", "name": "安装板与支架", "capabilities": ["part_and_features", "holes_and_finishing", "export_delivery"], "required_inputs": ["外形尺寸", "板厚", "孔规格", "孔定位", "材料"], "required_artifacts": ["sldprt", "step", "preview", "review_report"], "real_acceptance_2026": {"size_mm": [120, 80, 10], "hole_diameter_mm": 7, "hole_centers_mm": [[-48, -28], [-48, 28], [48, -28], [48, 28]], "material": "6061-T6", "length_tolerance_mm": 0.01, "volume_tolerance_mm3": 0.05}},
     {"id": "enclosure", "name": "设备外壳", "capabilities": ["part_and_features", "holes_and_finishing", "export_delivery"], "required_inputs": ["包络尺寸", "壁厚", "接口开孔", "装配间隙", "制造工艺"], "required_artifacts": ["sldprt", "step", "stl", "preview", "review_report"]},
     {"id": "holes_slots_threads", "name": "孔槽螺纹", "capabilities": ["holes_and_finishing"], "required_inputs": ["孔槽规格", "数量", "基准", "中心距", "深度"], "required_artifacts": ["sldprt", "geometry_evidence", "review_report"]},
     {"id": "modify_existing_part", "name": "修改已有零件", "capabilities": ["part_and_features", "geometry_and_delivery_review"], "required_inputs": ["源文件", "修改范围", "保留特征", "输出版本"], "required_artifacts": ["sldprt", "before_after_preview", "review_report"]},

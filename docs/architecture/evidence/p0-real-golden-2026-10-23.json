@@ -1,0 +1,212 @@
+{
+  "date": "2026-10-23",
+  "base_sha": "f9d6efbecf297bcdfffc451de81ba3a7bdea6a0d",
+  "branch": "test/p0-real-golden-mounting-bracket-2026",
+  "status": "BLOCKED",
+  "completed_runs": 0,
+  "geometry_delivery_passed_runs": 5,
+  "blocked_runs": 5,
+  "blocking_reason": "通用 Review 固定 manual_review_required=True；未取消人工审查要求。",
+  "offline": {
+    "pytest": {
+      "passed": 900,
+      "skipped": 1,
+      "log": "output/p0-offline/pytest-final-full.log",
+      "skip_reason": "尚未生成桌面内嵌 Skill，发布包检查按既有规则跳过。"
+    },
+    "deterministic_mock_eval": {
+      "scenarios": 37,
+      "expected_outcomes_correct": true,
+      "escaped_false_completion_rate": 0.0,
+      "report": "output/p0-offline/eval/eval_report.json"
+    }
+  },
+  "runs": [
+    {
+      "run": "run-01",
+      "status": "blocked",
+      "geometry_and_delivery": "pass",
+      "pid": 47484,
+      "source_sha": "0f27516082f9df132cb42d43a2f5f9ea33b47471",
+      "version": {
+        "revision": "34.1.1",
+        "year": 2026,
+        "major": 34
+      },
+      "volume_mm3": 94460.6196,
+      "step_volume_mm3": 94460.6196,
+      "material": {
+        "name": "6061-T6 (SS)",
+        "database": "solidworks materials"
+      },
+      "density_kg_m3": 2700.0,
+      "review_score": 100,
+      "manual_review_required": true,
+      "cleanup": {
+        "status": "pass",
+        "owned_pid": 47484,
+        "errors": [],
+        "remaining_documents": 0,
+        "exit_requested": true,
+        "processes_after": {}
+      },
+      "verified_sha256_count": 17,
+      "report": "output\\p0-final-five-01\\run-01\\report.json",
+      "report_sha256": "a9bd6fc3cc06d5289859a8c7d579660a0c7da2972b19a497ab09e1bc46490757",
+      "sha256_manifest_hash": "49b3c15674f1b2f85ac6c6aad4c63eb1a081dcd2066cefd5d5309601b4a07f4f",
+      "native_sha256": "13cf3dcbac3ee16bbf89e9b4d6d9e5eae6c0ae4fb3d9c9618927ca6abf64f1db",
+      "step_sha256": "10e4a2499611e1e5811018ddc8822cb5fd60e179f77fee3ed93d7ba130ae46bd"
+    },
+    {
+      "run": "run-02",
+      "status": "blocked",
+      "geometry_and_delivery": "pass",
+      "pid": 14168,
+      "source_sha": "0f27516082f9df132cb42d43a2f5f9ea33b47471",
+      "version": {
+        "revision": "34.1.1",
+        "year": 2026,
+        "major": 34
+      },
+      "volume_mm3": 94460.6196,
+      "step_volume_mm3": 94460.6196,
+      "material": {
+        "name": "6061-T6 (SS)",
+        "database": "solidworks materials"
+      },
+      "density_kg_m3": 2700.0,
+      "review_score": 100,
+      "manual_review_required": true,
+      "cleanup": {
+        "status": "pass",
+        "owned_pid": 14168,
+        "errors": [],
+        "remaining_documents": 0,
+        "exit_requested": true,
+        "processes_after": {}
+      },
+      "verified_sha256_count": 17,
+      "report": "output\\p0-final-five-01\\run-02\\report.json",
+      "report_sha256": "6d850ba3f37f06c91c269653db637a89fcbdff0b316863feb310abcfc23340c9",
+      "sha256_manifest_hash": "a5a78d3bede6dcf8158df5917eee8ead704a7d4b71d52e490a5edd5066bee69b",
+      "native_sha256": "ba1e54074758f0a36966fba177432817ee84d23790f0e8a4217ddcb3254a8b13",
+      "step_sha256": "c0bc33b2b0df027fe61a22040c132777b0a3fc1ca6d473135c802123e39883b6"
+    },
+    {
+      "run": "run-03",
+      "status": "blocked",
+      "geometry_and_delivery": "pass",
+      "pid": 19516,
+      "source_sha": "0f27516082f9df132cb42d43a2f5f9ea33b47471",
+      "version": {
+        "revision": "34.1.1",
+        "year": 2026,
+        "major": 34
+      },
+      "volume_mm3": 94460.6196,
+      "step_volume_mm3": 94460.6196,
+      "material": {
+        "name": "6061-T6 (SS)",
+        "database": "solidworks materials"
+      },
+      "density_kg_m3": 2700.0,
+      "review_score": 100,
+      "manual_review_required": true,
+      "cleanup": {
+        "status": "pass",
+        "owned_pid": 19516,
+        "errors": [],
+        "remaining_documents": 0,
+        "exit_requested": true,
+        "processes_after": {}
+      },
+      "verified_sha256_count": 17,
+      "report": "output\\p0-final-five-01\\run-03\\report.json",
+      "report_sha256": "748b012bdbf229613229ca894185bb52ddab8d558a88885b8c5d7ab1b5bf8af1",
+      "sha256_manifest_hash": "87e4b129a5b6eedcc1e26d7247ea3a5d9f253a8184603ccd900d7947d1515481",
+      "native_sha256": "c19bd2ec23cf466e377d95ac2201726005aebe892005fcef4cb6e126988dd739",
+      "step_sha256": "cf2960327267e47c3e1cbe2597d1ae389aead7ec06b38d66d84787c492385958"
+    },
+    {
+      "run": "run-04",
+      "status": "blocked",
+      "geometry_and_delivery": "pass",
+      "pid": 29352,
+      "source_sha": "0f27516082f9df132cb42d43a2f5f9ea33b47471",
+      "version": {
+        "revision": "34.1.1",
+        "year": 2026,
+        "major": 34
+      },
+      "volume_mm3": 94460.6196,
+      "step_volume_mm3": 94460.6196,
+      "material": {
+        "name": "6061-T6 (SS)",
+        "database": "solidworks materials"
+      },
+      "density_kg_m3": 2700.0,
+      "review_score": 100,
+      "manual_review_required": true,
+      "cleanup": {
+        "status": "pass",
+        "owned_pid": 29352,
+        "errors": [],
+        "remaining_documents": 0,
+        "exit_requested": true,
+        "processes_after": {}
+      },
+      "verified_sha256_count": 17,
+      "report": "output\\p0-final-five-01\\run-04\\report.json",
+      "report_sha256": "4317e2836b1146e335c897fda77dee7ddac3b685dfde115f70bfc71a1d16568e",
+      "sha256_manifest_hash": "c4192b2041b6f8467a0d01a18bf54ed4c418fb4def05bdeadc95381e6b05631c",
+      "native_sha256": "911af2c3e82451b518e9cb9a0752e554a2f67f0ed3d754f81c814ddb7d098640",
+      "step_sha256": "32816ee9b4b098334c29cee883460fe2b4705a383b23bd98d5ea8a40c42f8acd"
+    },
+    {
+      "run": "run-05",
+      "status": "blocked",
+      "geometry_and_delivery": "pass",
+      "pid": 40840,
+      "source_sha": "0f27516082f9df132cb42d43a2f5f9ea33b47471",
+      "version": {
+        "revision": "34.1.1",
+        "year": 2026,
+        "major": 34
+      },
+      "volume_mm3": 94460.6196,
+      "step_volume_mm3": 94460.6196,
+      "material": {
+        "name": "6061-T6 (SS)",
+        "database": "solidworks materials"
+      },
+      "density_kg_m3": 2700.0,
+      "review_score": 100,
+      "manual_review_required": true,
+      "cleanup": {
+        "status": "pass",
+        "owned_pid": 40840,
+        "errors": [],
+        "remaining_documents": 0,
+        "exit_requested": true,
+        "processes_after": {}
+      },
+      "verified_sha256_count": 17,
+      "report": "output\\p0-final-five-01\\run-05\\report.json",
+      "report_sha256": "ee924b7a8897c73f46a4c4ca81c9bd23f17453d97f1d8db7a4e1669f7f1ff501",
+      "sha256_manifest_hash": "f37a664dc6f1d6b6e7ebdc3215c5a8dd10ab4d45574bdb2d06dc03a1e5cf7615",
+      "native_sha256": "51e655c14f9932253703e7b77dfa8e7bc792865aaa7f53fbd4880828eba72701",
+      "step_sha256": "7364b0471d2321856148667465027624ba4a707c89bb63984761411687dde80e"
+    }
+  ],
+  "verified_sha256_total": 85,
+  "failures_preserved": [
+    "output/p0-probe-01/run-01/report.json",
+    "output/p0-probe-02/run-01/report.json"
+  ],
+  "unverified": [
+    "无人复核的 completed 交付",
+    "GitHub 自托管 CAD Runner 实际运行",
+    "其它 SolidWorks 版本和其它零件规格"
+  ],
+  "pr": "https://github.com/wzyn20051216/solidworks-automation-skill/pull/39"
+}

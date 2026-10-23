@@ -1,0 +1,339 @@
+{
+  "date": "2026-10-23",
+  "phase": "P0-1.2",
+  "branch": "test/p0-real-golden-mounting-bracket-2026",
+  "base_sha": "f9d6efbecf297bcdfffc451de81ba3a7bdea6a0d",
+  "phase_start_sha": "b2dbd38f6405466ab5e0cc331bd4cb9c8ca39104",
+  "real_source_sha": "bbdda7c00f077f58baeffe97e075666b078dfe7e",
+  "readiness": "BLOCKED",
+  "recommend_merge": false,
+  "task_status": "blocked",
+  "acceptance_status": "passed",
+  "manual_review_required": true,
+  "backend": "real-solidworks-2026",
+  "mock": false,
+  "real_command_exit_code": 0,
+  "strict_control_acceptance": "failed",
+  "metrics": {
+    "run_count": 5,
+    "geometry_success_count": 5,
+    "expected_gate_correct_count": 5,
+    "task_completion_count": 0,
+    "test_acceptance_count": 5,
+    "false_completion_count": 0,
+    "cleanup_success_count": 5
+  },
+  "runs": [
+    {
+      "run": "run-01",
+      "pid": 48492,
+      "process_created_at": "2026-10-23T09:46:13.052000+00:00",
+      "trace_run_id": "golden_4d96cd05987c43e4bd07b1bf937f4062",
+      "task_status": "blocked",
+      "acceptance_status": "passed",
+      "manual_review_required": true,
+      "core_scope": "terminal_adaptation_only",
+      "source_sha": "bbdda7c00f077f58baeffe97e075666b078dfe7e",
+      "version": {
+        "revision": "34.1.1",
+        "year": 2026,
+        "major": 34
+      },
+      "volume_mm3": 94460.6196,
+      "step_volume_mm3": 94460.6196,
+      "review_score": 100,
+      "runtime_config": {
+        "part_template": null,
+        "material_database": "E:\\SolidWroks2026\\SOLIDWORKS\\lang\\english\\sldmaterials\\solidworks materials.sldmat",
+        "connect_timeout_seconds": 60,
+        "cleanup_timeout_seconds": 30
+      },
+      "resolved_part_template": {
+        "path": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2026\\templates\\gb_part.prtdot",
+        "sha256": "8cfb85c297adeec4ac01861a51fccb20a68a415997659f08a99c1d5e26292bff"
+      },
+      "resolved_material_database": "E:\\SolidWroks2026\\SOLIDWORKS\\lang\\english\\sldmaterials\\solidworks materials.sldmat",
+      "material_database_sha256": "636ef75ffb10e8abf7529c910a50dc2cb0d73ce5112c9721e7e4de1824cf57c5",
+      "core_verification_status": "PASS",
+      "recovery": "user_action_required",
+      "cleanup": {
+        "status": "pass",
+        "owned_pid": 48492,
+        "errors": [],
+        "remaining_documents": 0,
+        "exit_requested": true,
+        "processes_after": {}
+      },
+      "verified_sha256_count": 19,
+      "report": "output\\p0-12-real-five-01\\run-01\\report.json",
+      "report_sha256": "abccaed84ffe7c4c3c7754c34122697b540371fd0b81064bdf9a7d44d761e3bc",
+      "sha256_manifest_hash": "381f357bfe515cfdf6419f815c2ed887eaff3e5e06888456664e7bd26bad5eca"
+    },
+    {
+      "run": "run-02",
+      "pid": 12520,
+      "process_created_at": "2026-10-23T09:47:59.899000+00:00",
+      "trace_run_id": "golden_b4b5f8ae04c14888a30c70f62de78842",
+      "task_status": "blocked",
+      "acceptance_status": "passed",
+      "manual_review_required": true,
+      "core_scope": "terminal_adaptation_only",
+      "source_sha": "bbdda7c00f077f58baeffe97e075666b078dfe7e",
+      "version": {
+        "revision": "34.1.1",
+        "year": 2026,
+        "major": 34
+      },
+      "volume_mm3": 94460.6196,
+      "step_volume_mm3": 94460.6196,
+      "review_score": 100,
+      "runtime_config": {
+        "part_template": null,
+        "material_database": "E:\\SolidWroks2026\\SOLIDWORKS\\lang\\english\\sldmaterials\\solidworks materials.sldmat",
+        "connect_timeout_seconds": 60,
+        "cleanup_timeout_seconds": 30
+      },
+      "resolved_part_template": {
+        "path": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2026\\templates\\gb_part.prtdot",
+        "sha256": "8cfb85c297adeec4ac01861a51fccb20a68a415997659f08a99c1d5e26292bff"
+      },
+      "resolved_material_database": "E:\\SolidWroks2026\\SOLIDWORKS\\lang\\english\\sldmaterials\\solidworks materials.sldmat",
+      "material_database_sha256": "636ef75ffb10e8abf7529c910a50dc2cb0d73ce5112c9721e7e4de1824cf57c5",
+      "core_verification_status": "PASS",
+      "recovery": "user_action_required",
+      "cleanup": {
+        "status": "pass",
+        "owned_pid": 12520,
+        "errors": [],
+        "remaining_documents": 0,
+        "exit_requested": true,
+        "processes_after": {}
+      },
+      "verified_sha256_count": 19,
+      "report": "output\\p0-12-real-five-01\\run-02\\report.json",
+      "report_sha256": "b1c566e8a87f109afab45d527051a0cb2a6d7f0b2a9f7d5918f204a39b35b3b3",
+      "sha256_manifest_hash": "ec2fe0e0b9476294f6817667cd3712555069e5b2218f2e38c12a9279059d65a9"
+    },
+    {
+      "run": "run-03",
+      "pid": 43636,
+      "process_created_at": "2026-10-23T09:49:28.642000+00:00",
+      "trace_run_id": "golden_4263eb953d8942c484daa8804111715e",
+      "task_status": "blocked",
+      "acceptance_status": "passed",
+      "manual_review_required": true,
+      "core_scope": "terminal_adaptation_only",
+      "source_sha": "bbdda7c00f077f58baeffe97e075666b078dfe7e",
+      "version": {
+        "revision": "34.1.1",
+        "year": 2026,
+        "major": 34
+      },
+      "volume_mm3": 94460.6196,
+      "step_volume_mm3": 94460.6196,
+      "review_score": 100,
+      "runtime_config": {
+        "part_template": null,
+        "material_database": "E:\\SolidWroks2026\\SOLIDWORKS\\lang\\english\\sldmaterials\\solidworks materials.sldmat",
+        "connect_timeout_seconds": 60,
+        "cleanup_timeout_seconds": 30
+      },
+      "resolved_part_template": {
+        "path": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2026\\templates\\gb_part.prtdot",
+        "sha256": "8cfb85c297adeec4ac01861a51fccb20a68a415997659f08a99c1d5e26292bff"
+      },
+      "resolved_material_database": "E:\\SolidWroks2026\\SOLIDWORKS\\lang\\english\\sldmaterials\\solidworks materials.sldmat",
+      "material_database_sha256": "636ef75ffb10e8abf7529c910a50dc2cb0d73ce5112c9721e7e4de1824cf57c5",
+      "core_verification_status": "PASS",
+      "recovery": "user_action_required",
+      "cleanup": {
+        "status": "pass",
+        "owned_pid": 43636,
+        "errors": [],
+        "remaining_documents": 0,
+        "exit_requested": true,
+        "processes_after": {}
+      },
+      "verified_sha256_count": 19,
+      "report": "output\\p0-12-real-five-01\\run-03\\report.json",
+      "report_sha256": "13cf178a7fb144af72060c994a4f665c43d23207e5c369de7befe2381c5d71ef",
+      "sha256_manifest_hash": "86d8295f2b44cd3c9188beb4d69be50e079279057b2e26f343af5912bbae4711"
+    },
+    {
+      "run": "run-04",
+      "pid": 47668,
+      "process_created_at": "2026-10-23T09:51:07.966000+00:00",
+      "trace_run_id": "golden_84b5a1f0e4d7409aaba73bde53b70f21",
+      "task_status": "blocked",
+      "acceptance_status": "passed",
+      "manual_review_required": true,
+      "core_scope": "terminal_adaptation_only",
+      "source_sha": "bbdda7c00f077f58baeffe97e075666b078dfe7e",
+      "version": {
+        "revision": "34.1.1",
+        "year": 2026,
+        "major": 34
+      },
+      "volume_mm3": 94460.6196,
+      "step_volume_mm3": 94460.6196,
+      "review_score": 100,
+      "runtime_config": {
+        "part_template": null,
+        "material_database": "E:\\SolidWroks2026\\SOLIDWORKS\\lang\\english\\sldmaterials\\solidworks materials.sldmat",
+        "connect_timeout_seconds": 60,
+        "cleanup_timeout_seconds": 30
+      },
+      "resolved_part_template": {
+        "path": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2026\\templates\\gb_part.prtdot",
+        "sha256": "8cfb85c297adeec4ac01861a51fccb20a68a415997659f08a99c1d5e26292bff"
+      },
+      "resolved_material_database": "E:\\SolidWroks2026\\SOLIDWORKS\\lang\\english\\sldmaterials\\solidworks materials.sldmat",
+      "material_database_sha256": "636ef75ffb10e8abf7529c910a50dc2cb0d73ce5112c9721e7e4de1824cf57c5",
+      "core_verification_status": "PASS",
+      "recovery": "user_action_required",
+      "cleanup": {
+        "status": "pass",
+        "owned_pid": 47668,
+        "errors": [],
+        "remaining_documents": 0,
+        "exit_requested": true,
+        "processes_after": {}
+      },
+      "verified_sha256_count": 19,
+      "report": "output\\p0-12-real-five-01\\run-04\\report.json",
+      "report_sha256": "aae35ddd004384f8596d3734fe383af1f0074f830236efebde5fe563efa8c3cd",
+      "sha256_manifest_hash": "11cb76056de01f2f439857d4551fddbe5d8d30f890bd2b1b5831a894c176d634"
+    },
+    {
+      "run": "run-05",
+      "pid": 49280,
+      "process_created_at": "2026-10-23T09:52:40.291000+00:00",
+      "trace_run_id": "golden_1dea0f422c814687befaf2a9635b5898",
+      "task_status": "blocked",
+      "acceptance_status": "passed",
+      "manual_review_required": true,
+      "core_scope": "terminal_adaptation_only",
+      "source_sha": "bbdda7c00f077f58baeffe97e075666b078dfe7e",
+      "version": {
+        "revision": "34.1.1",
+        "year": 2026,
+        "major": 34
+      },
+      "volume_mm3": 94460.6196,
+      "step_volume_mm3": 94460.6196,
+      "review_score": 100,
+      "runtime_config": {
+        "part_template": null,
+        "material_database": "E:\\SolidWroks2026\\SOLIDWORKS\\lang\\english\\sldmaterials\\solidworks materials.sldmat",
+        "connect_timeout_seconds": 60,
+        "cleanup_timeout_seconds": 30
+      },
+      "resolved_part_template": {
+        "path": "C:\\ProgramData\\SolidWorks\\SOLIDWORKS 2026\\templates\\gb_part.prtdot",
+        "sha256": "8cfb85c297adeec4ac01861a51fccb20a68a415997659f08a99c1d5e26292bff"
+      },
+      "resolved_material_database": "E:\\SolidWroks2026\\SOLIDWORKS\\lang\\english\\sldmaterials\\solidworks materials.sldmat",
+      "material_database_sha256": "636ef75ffb10e8abf7529c910a50dc2cb0d73ce5112c9721e7e4de1824cf57c5",
+      "core_verification_status": "PASS",
+      "recovery": "user_action_required",
+      "cleanup": {
+        "status": "pass",
+        "owned_pid": 49280,
+        "errors": [],
+        "remaining_documents": 0,
+        "exit_requested": true,
+        "processes_after": {}
+      },
+      "verified_sha256_count": 19,
+      "report": "output\\p0-12-real-five-01\\run-05\\report.json",
+      "report_sha256": "c1476825067895daec4a756441ddfeb949b4e777a23759fa2d40528b58c170bf",
+      "sha256_manifest_hash": "cfc947a7a47cc2dcc166367823c11dc4510c53e5264d96d01fef5890b76b315c"
+    }
+  ],
+  "verified_sha256_total": 95,
+  "offline": {
+    "passed": 963,
+    "skipped": 1,
+    "ci_policy_tests_passed": 26,
+    "deterministic_mock_scenarios": 37,
+    "escaped_false_completion_rate": 0.0,
+    "actionlint": "PASS",
+    "skip_reason": "桌面内嵌 Skill 尚未生成，既有发布包检查跳过。"
+  },
+  "core_scope": "terminal_adaptation_only",
+  "github_settings_audit": {
+    "observed_at": "2026-10-23T09:52:20.010502+00:00",
+    "audit_mode": "read_only_settings_snapshot",
+    "remote_ci_executed": false,
+    "repository_owner_type": "User",
+    "audit_secret_configured": false,
+    "policy": {
+      "status": "blocked",
+      "checks": {
+        "trusted_repository": true,
+        "manual_branch_only": true,
+        "protected_immutable_source": true,
+        "reviewed_ruleset": false,
+        "authorized_actor_and_rerunner": true,
+        "protected_environment_exists": false,
+        "independent_human_review": false,
+        "protected_deployment_branches": false,
+        "idle_windows_cad_runner": false
+      },
+      "blocking_reasons": [
+        "reviewed_ruleset",
+        "protected_environment_exists",
+        "independent_human_review",
+        "protected_deployment_branches",
+        "idle_windows_cad_runner"
+      ],
+      "scope": "workflow_admission_only",
+      "safety_acceptance_complete": false,
+      "manual_conditions": [
+        "禁止管理员绕过 Environment 审批",
+        "Runner 只允许可信工作流访问并与日常桌面隔离"
+      ]
+    },
+    "readiness": "BLOCKED"
+  },
+  "failures_and_fixes": [
+    {
+      "failure": "新增配置阻断测试最初失败：success=False 将前置 BLOCKED 归为 failed",
+      "fix": "仅对前置 blocked 不传 success 字段，保留 Core 生产语义；新增回归通过",
+      "source": "开发测试控制台，未启动 CAD"
+    },
+    {
+      "failure": "首次全量 6 failed / 956 passed / 1 skipped：Windows 父 UTF-8、子 GBK 不一致",
+      "fix": "运行环境与 CI 设置 PYTHONUTF8=1，最终全量通过",
+      "log": "output/p0-12-offline/pytest-full.log"
+    },
+    {
+      "failure": "首次 actionlint 未识别自定义 CAD Runner 标签",
+      "fix": "新增项目 actionlint 配置声明 CAD 标签，最终 PASS",
+      "log": "output/p0-12-offline/actionlint.log"
+    },
+    {
+      "failure": "人工辅助进程查询误用不存在的 sw_api 模块",
+      "fix": "改用实际 scripts.sw_process；未启动或关闭 CAD",
+      "source": "执行控制台"
+    }
+  ],
+  "real_failed_runs": 0,
+  "manual_configuration_required": [
+    "受保护分支 ruleset 至少一人审批并限制 bypass",
+    "创建 cad-validation：独立审批、禁止自行审批、只允许受保护分支、关闭管理员绕过",
+    "只读 CAD_CI_AUDIT_TOKEN",
+    "专用隔离 Windows CAD Runner",
+    "跨工作流 Runner 访问限制/隔离方案及外部贡献者审批",
+    "实际受控远程 CI 与拒绝路径验收"
+  ],
+  "unverified": [
+    "远程自托管 CAD CI",
+    "Environment 管理员绕过开关与跨工作流隔离",
+    "真实 CAD 逐步由 Core 调度",
+    "无人复核自动审查策略",
+    "COM 单次调用永久挂起恢复",
+    "其它 SolidWorks 版本或非英文材料条目"
+  ],
+  "pr": "https://github.com/wzyn20051216/solidworks-automation-skill/pull/39"
+}

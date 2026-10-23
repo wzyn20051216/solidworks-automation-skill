@@ -1,0 +1,4 @@
+# 自托管 CAD Runner 的项目标签；不改变 Runner 注册或访问权限。
+self-hosted-runner:
+  labels:
+    - CAD
