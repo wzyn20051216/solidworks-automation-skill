@@ -1,0 +1,14 @@
+{
+  "documentId": "fastener-stack-demo",
+  "units": "mm",
+  "features": [
+    {"id": "C1", "type": "hole", "parameters": {"diameter": 6.6, "thread": "M6", "counterbore": {"diameter": 9.0, "depth": 5.0, "side": "back"}, "matingSide": "back", "headType": "socket_cap", "fastenerGroup": "top-cover"}},
+    {"id": "C2", "type": "hole", "parameters": {"diameter": 6.6, "thread": "M6", "counterbore": {"diameter": 11.0, "depth": 6.5, "side": "front"}, "matingSide": "back", "headType": "socket_cap", "fastenerGroup": "top-cover"}}
+  ],
+  "metadata": {
+    "plate": {"widthMm": 120, "heightMm": 80, "thicknessMm": 20},
+    "fastenerStacks": [
+      {"id": "S1", "holeId": "C1", "protrudes": true, "matingHasRelief": false, "gapMm": 0.0}
+    ]
+  }
+}

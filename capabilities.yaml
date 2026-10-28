@@ -183,6 +183,17 @@
       "requires": ["SolidWorks Routing 加载项", "有效许可证"],
       "review_required": true,
       "notes": ["缺少加载项或许可证时，切换语言无效，必须 blocked"]
+    },
+    {
+      "id": "drawing_dotnet_generation",
+      "label": "工程图自动出图（.NET C# PIA 优先）",
+      "capability_ids": ["drawings_and_bom", "drawing_dimension_insertion"],
+      "candidates": [
+        {"backend": "solidworks-csharp-pia", "semantics": "exact_automation", "priority": 10},
+        {"backend": "solidworks-com-pywin32", "semantics": "exact_automation", "priority": 20}
+      ],
+      "review_required": true,
+      "notes": ["出图封送重（IView/IDisplayDimension/InsertDatumTag2/InsertGtol/IHoleTable 多 out/ref/枚举），优先 C# PIA 强类型执行器 dotnet/CadStudio.SolidWorks.Drawing；Python 只产 drawing_spec/分析/review，经 Python launcher scripts/sw_drawing_dotnet.py 调度。Python COM 为回退。"]
     }
   ],
   "capabilities": [
@@ -478,26 +489,7 @@
       "allowed_modes": ["interactive", "reviewed"]
     },
     {
-      "id": "native_round_sweeps",
-      "label": "原生圆截面路径与机械导入",
-      "level": "pilot",
-      "backends": [
-        "solidworks-csharp-pia"
-      ],
-      "verified_versions": ["SOLIDWORKS 2026 SP4.1", "SOLIDWORKS 2026 SP01.1"],
-      "dependencies": [
-        "python",
-        "SOLIDWORKS PIA"
-      ],
-      "limitations": [
-        "严格 Bezier/直线路径与矩形拉伸；不是 SOLIDWORKS Routing。",
-        "只支持空零件构建和固定唯一组件替换；失败可能留下未保存特征，需要审查。",
-        "真实 CAD 验证及电缆工艺确认是交付前提。"
-      ],
-      "allowed_modes": [
-        "interactive",
-        "reviewed"
-      ]
+
     }
   ]
 }

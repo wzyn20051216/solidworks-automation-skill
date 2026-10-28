@@ -7,12 +7,14 @@ scripts:
   - scripts/drawing_spec.py
   - scripts/drawing_workflow.py
   - scripts/drawing_review.py
+  - scripts/drilling_panel_gdt.py
 schemas:
   - schemas/drawing_spec.schema.json
 references:
   - references/drawing.md
   - references/review.md
   - references/api-lookup.md
+  - references/drilling-panel-gdt.md
 depends_on:
   - solidworks-automation
 related:

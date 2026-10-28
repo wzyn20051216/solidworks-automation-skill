@@ -1,0 +1,316 @@
+{
+  "documentId": "drilling-panel-demo",
+  "units": "mm",
+  "features": [
+    {
+      "id": "G00",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 25,
+        "y": 25,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G01",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 75,
+        "y": 25,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G02",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 125,
+        "y": 25,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G03",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 175,
+        "y": 25,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G04",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 225,
+        "y": 25,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G10",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 25,
+        "y": 65,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G11",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 75,
+        "y": 65,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G12",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 125,
+        "y": 65,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G13",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 175,
+        "y": 65,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G14",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 225,
+        "y": 65,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G20",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 25,
+        "y": 105,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G21",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 75,
+        "y": 105,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G22",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 125,
+        "y": 105,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G23",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 175,
+        "y": 105,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G24",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 225,
+        "y": 105,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G30",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 25,
+        "y": 145,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G31",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 75,
+        "y": 145,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G32",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 125,
+        "y": 145,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G33",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 175,
+        "y": 145,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "G34",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 225,
+        "y": 145,
+        "holeKind": "tapped",
+        "thread": "M6"
+      }
+    },
+    {
+      "id": "L0",
+      "type": "hole",
+      "parameters": {
+        "diameter": 9.0,
+        "x": 25,
+        "y": 180,
+        "holeKind": "clearance"
+      }
+    },
+    {
+      "id": "L1",
+      "type": "hole",
+      "parameters": {
+        "diameter": 9.0,
+        "x": 75,
+        "y": 180,
+        "holeKind": "clearance"
+      }
+    },
+    {
+      "id": "L2",
+      "type": "hole",
+      "parameters": {
+        "diameter": 9.0,
+        "x": 125,
+        "y": 180,
+        "holeKind": "clearance"
+      }
+    },
+    {
+      "id": "L3",
+      "type": "hole",
+      "parameters": {
+        "diameter": 9.0,
+        "x": 175,
+        "y": 180,
+        "holeKind": "clearance"
+      }
+    },
+    {
+      "id": "L4",
+      "type": "hole",
+      "parameters": {
+        "diameter": 9.0,
+        "x": 225,
+        "y": 180,
+        "holeKind": "clearance"
+      }
+    },
+    {
+      "id": "L5",
+      "type": "hole",
+      "parameters": {
+        "diameter": 9.0,
+        "x": 275,
+        "y": 180,
+        "holeKind": "clearance"
+      }
+    },
+    {
+      "id": "D1",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 10,
+        "y": 10,
+        "holeKind": "dowel"
+      }
+    },
+    {
+      "id": "D2",
+      "type": "hole",
+      "parameters": {
+        "diameter": 6.0,
+        "x": 290,
+        "y": 10,
+        "holeKind": "dowel"
+      }
+    }
+  ],
+  "metadata": {
+    "plate": {
+      "widthMm": 300,
+      "heightMm": 200,
+      "thicknessMm": 25
+    },
+    "design": {
+      "minWallThicknessMm": 8.0
+    }
+  }
+}

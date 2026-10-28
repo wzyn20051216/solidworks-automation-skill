@@ -1,0 +1,11 @@
+{
+  "type": "spur_gear",
+  "description": "模数 2、20 齿、压力角 20 度的标准渐开线直齿轮，齿宽 15mm，中心孔 φ10。",
+  "cli": "python subskills/solidworks-standard-parts/scripts/create_spur_gear.py --module 2 --teeth 20 --pressure-angle 20 --face-width 15 --bore 10",
+  "expected_geometry_mm": {
+    "pitch_diameter": 40.0,
+    "base_diameter": 37.5877,
+    "addendum_diameter": 44.0,
+    "root_diameter": 35.0
+  }
+}

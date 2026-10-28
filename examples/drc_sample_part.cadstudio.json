@@ -1,0 +1,18 @@
+{
+  "documentId": "drc-sample-plate",
+  "units": "mm",
+  "features": [
+    {"id": "H1", "type": "hole", "parameters": {"diameter": 6.6, "x": 0, "y": 0, "edgeDistance": 2.0, "thread": "M6", "threadNominal": 6, "threadEngagement": 9}},
+    {"id": "H2", "type": "hole", "parameters": {"diameter": 6.6, "x": 30, "y": 0, "edgeDistance": 2.0}}
+  ],
+  "metadata": {
+    "design": {"minWallThicknessMm": 2.5},
+    "assembly": {"componentCount": 4, "mateCount": 6, "interferences": []},
+    "drawing": {"requiredDimensionsMissing": [], "dimensionsWithoutTolerance": 2}
+  },
+  "standardParts": [
+    {"id": "G1", "type": "spur_gear", "teeth": 20, "is_pointed": false, "profile_shift_coeff": 0, "pitch_diameter_mm": 40.0},
+    {"id": "S1", "type": "compression_spring", "spring_index": 8.0, "solid_length_mm": 24.0, "free_length_mm": 60.0},
+    {"id": "K1", "type": "roller_sprocket", "teeth": 17}
+  ]
+}

@@ -224,6 +224,12 @@ Artifacts + Evidence
 | Surface / Mold | 受限 Loft/Sweep/Thicken、模具计划 | `pilot` |
 | AutoCAD | DWG/DXF 二维绘图、图层/标注/预览 | `verified` / `pilot` / `blocked` |
 | Open-format | OCCT 无头写入 STEP/BREP/STL/OBJ/GLB 等 | `verified` |
+| Design Audit (DRC) | 设计规则检查：几何/孔位/标准件/装配/图纸/沉头朝向，审计工作流（指纹·基线 diff·让步单·风险分·条款出处），声明式 Profile 可由自然语言配置 | `pilot` |
+| Drilling Panel | 非标钻孔面板：孔位规整、3-2-1 基准推测、GB/T 位置度/平面度 GD&T、孔表+坐标标注，生成 drawing_spec | `pilot` |
+| Standard Parts | 渐开线直齿轮 / 压缩弹簧 / 滚子链链轮参数化生成（几何纯函数离线单测） | `pilot` |
+| Drawing Backend | Python 规划 + .NET C# PIA 落图（路由 C# 优先、Python COM 兜底） | `pilot` |
+| Drive Sizing | 电机扭矩核验（丝杠/皮带：峰值·RMS 转矩、转速、惯量比、垂直轴抱闸），并入 DRC 的 `DRC-DRV-*`；设计变更回归门禁 | `pilot` |
+| Utilities | 尺寸公差批量抽取→CSV、按属性批量改名（dry-run + 参照安全 Pack and Go） | `pilot` |
 
 状态等级（`capabilities.yaml` 定义）：
 
@@ -268,6 +274,11 @@ Artifacts + Evidence
 | Architecture | [`docs/architecture/execution-core.md`](docs/architecture/execution-core.md) |
 | Reliability Eval | [`docs/architecture/v2-evaluation.md`](docs/architecture/v2-evaluation.md) |
 | Capability Matrix | [`capabilities.yaml`](capabilities.yaml) |
+| Design Audit (DRC) | [`references/design-rule-check.md`](references/design-rule-check.md) |
+| Drilling Panel GD&T | [`subskills/solidworks-engineering-drawing/references/drilling-panel-gdt.md`](subskills/solidworks-engineering-drawing/references/drilling-panel-gdt.md) |
+| .NET Drawing Executor | [`references/drawing-dotnet-executor.md`](references/drawing-dotnet-executor.md) |
+| Drive Sizing | [`references/drive-sizing.md`](references/drive-sizing.md) |
+| Roadmap | [`docs/ROADMAP.md`](docs/ROADMAP.md) |
 | Subskills | [`SUBSKILLS.md`](SUBSKILLS.md) |
 | API / Backend | [`references/`](references/) |
 | Troubleshooting | [`references/troubleshooting.md`](references/troubleshooting.md) |
@@ -276,7 +287,7 @@ Artifacts + Evidence
 
 ## Roadmap & Contributing
 
-**Roadmap**：更广的真机验证 · 更可靠的能力路由 · 更好的 CAD Studio 可观测性 · 更多 verified 子技能 · 社区贡献工作流。
+**Roadmap**（详见 [`docs/ROADMAP.md`](docs/ROADMAP.md)：原理演示类 skill、电机扭矩 / 气缸选型核验等）：更广的真机验证 · 更可靠的能力路由 · 更好的 CAD Studio 可观测性 · 更多 verified 子技能 · 社区贡献工作流。
 
 **Contributing**：新增能力时，先查 `capabilities.yaml`，优先复用现有 backend，新增 tests + evidence，不要把未验证 capability 标为 `verified`。详见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 

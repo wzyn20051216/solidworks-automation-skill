@@ -12,6 +12,7 @@
 | `solidworks-fillet-chamfer-cnc` | stable | CNC 安装座、参数/碰撞预检、语义选边、有界尺寸降级、孔槽和圆角口袋 | `subskills/solidworks-fillet-chamfer-cnc/SKILL.md` |
 | `solidworks-threaded-holes` | stable | M3-M12 螺纹孔、攻丝底孔、孔口倒角、螺纹属性和 STEP 输出 | `subskills/solidworks-threaded-holes/SKILL.md` |
 | `solidworks-engineering-drawing` | pilot | GB/T 第一角零件图/装配图、尺寸链、孔表、BOM、PDF/BMP 证据和制造交付审视 | `subskills/solidworks-engineering-drawing/SKILL.md` |
+| `solidworks-standard-parts` | pilot | 渐开线直齿轮、圆柱压缩弹簧、滚子链链轮参数化生成，几何纯函数离线可验证 | `subskills/solidworks-standard-parts/SKILL.md` |
 | `autocad-automation` | stable | AutoCAD DWG/DXF 二维绘图、线稿矢量化、图层/文字/标注处理、导出和图纸自检 | `subskills/autocad-automation/SKILL.md` |
 
 ## 推荐路由
@@ -97,6 +98,7 @@ subskills/autocad-automation/SKILL.md
 - “按 GB/T、第一角投影出图”
 - “补齐尺寸链、孔表、BOM、标题栏”
 - “审查工程图是否能交付制造”
+- “非标钻孔台面板/布满孔的面板从 3D 自动出图”“孔位自动规整、基准自动推测、GD&T 自动给出”（用 `scripts/drilling_panel_gdt.py`）
 
 使用：
 
@@ -105,6 +107,24 @@ subskills/solidworks-engineering-drawing/SKILL.md
 ```
 
 该子技能可以被根技能、VibeCAD、孔槽/CNC 子技能或工程编排器按需连接；其他子技能不需要反向依赖它。
+
+### solidworks-standard-parts
+
+用户说：
+
+- “生成一个齿轮 / M2 20 齿直齿轮”
+- “画一根压缩弹簧 / 弹簧宏”
+- “做一个 ANSI #40 链轮 / 链轮宏”
+- “按模数齿数 / 线径中径 / 链节距出标准件”
+
+使用：
+
+```text
+subskills/solidworks-standard-parts/SKILL.md
+```
+
+几何量（分度圆、弹簧指数、链轮节圆等）由纯函数 `scripts/standard_parts_geometry.py` 保证并离线单测；
+真实 SolidWorks 特征落盘、啮合精度和端圈工艺为 pilot，须真机与工程复核。
 
 注意：普通“照图画 CAD”的最终版只保留原图矢量化线条，不保留手工猜测的外围轮廓、五官椭圆、Logo 三角线、水波线、替代文字或图内审查说明。
 

@@ -1,0 +1,13 @@
+{
+  "schema": "cadstudio.drc-profile",
+  "id": "sheet-metal-panel",
+  "description": "钣金面板：料厚≥0.8、孔边距≥2×半径、孔间腹板≥2；避免近边孔翻边开裂。",
+  "thresholds": {
+    "minWallThicknessMm": 0.8,
+    "holeEdgeDistanceRatio": 2.0,
+    "holeEdgeDistanceMinMm": 2.0,
+    "ligamentMinMm": 2.0
+  },
+  "disabledRules": [],
+  "customRules": []
+}

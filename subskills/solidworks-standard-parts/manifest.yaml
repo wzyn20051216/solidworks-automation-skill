@@ -1,0 +1,21 @@
+name: solidworks-standard-parts
+title: SolidWorks Standard Parts
+status: pilot
+summary: 参数化生成标准机械零件——渐开线直齿轮、圆柱压缩弹簧、滚子链链轮，几何纯函数离线可验证。
+entrypoint: SKILL.md
+scripts:
+  - scripts/create_spur_gear.py
+  - scripts/create_compression_spring.py
+  - scripts/create_roller_sprocket.py
+  - scripts/_common.py
+references:
+  - references/standard-parts-lessons.md
+examples:
+  - examples/spur_gear_m2_z20.json
+  - examples/compression_spring_d3_D24.json
+  - examples/roller_sprocket_p12_z17.json
+depends_on:
+  - solidworks-automation
+related:
+  - solidworks-vibecad
+  - solidworks-engineering-drawing

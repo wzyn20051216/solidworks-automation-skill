@@ -64,6 +64,8 @@ CAD Studio 门禁工具：
 - `cadstudio_build_dxf_preview_scene`
 - `cadstudio_check_dfm`
 - `cadstudio_check_routing`
+- `cadstudio_check_drc`
+- `cadstudio_list_drc_rules`
 - `cadstudio_routing_preflight`
 - `cadstudio_fea_preflight`
 - `cadstudio_prepare_fea`

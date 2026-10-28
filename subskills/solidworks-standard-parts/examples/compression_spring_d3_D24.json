@@ -1,0 +1,12 @@
+{
+  "type": "compression_spring",
+  "description": "线径 3、中径 24、自由长 60、8 圈、闭合磨平端的圆柱压缩弹簧，弹簧钢 G=79300 MPa。",
+  "cli": "python subskills/solidworks-standard-parts/scripts/create_compression_spring.py --wire-diameter 3 --mean-diameter 24 --free-length 60 --total-coils 8 --end-type closed_ground --shear-modulus 79300",
+  "expected_geometry": {
+    "spring_index": 8.0,
+    "active_coils": 6.0,
+    "solid_length_mm": 24.0,
+    "pitch_mm": 9.0,
+    "spring_rate_n_per_mm": 9.6802
+  }
+}
