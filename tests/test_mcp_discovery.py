@@ -154,7 +154,7 @@ def test_health_check_with_start_requires_approval(tmp_path):
 
 
 @pytest.mark.parametrize("name", [
-    "cadstudio_check_dfm", "cadstudio_check_routing",
+    "cadstudio_check_dfm", "cadstudio_check_drc", "cadstudio_check_routing",
     "cadstudio_review_advanced_geometry", "solidworks_inspect_drawing",
 ])
 def test_report_writing_tools_require_approval(tmp_path, name):
@@ -400,7 +400,7 @@ def test_full_mode_hides_discovery_entries_and_search_mode_hides_tools(tmp_path)
                          ledger=ApprovalLedger(tmp_path / "b"))
     names = {tool.name for tool in full_gate.list_tools()}
     assert names.isdisjoint(DISCOVERY_TOOLS)
-    assert len(names) == 67
+    assert len(names) == 69
 
 
 def test_describe_preserves_original_input_and_output_schema(tmp_path):
@@ -451,6 +451,47 @@ def test_stdio_search_mode_exposes_three_entries_and_blocks_writes(tmp_path):
         assert "需要人工批准" in blocked.content[0].text
 
     asyncio.run(_with_session(_stdio_env(tmp_path, "search"), handler))
+
+
+def test_stdio_design_audit_is_discoverable_and_respects_approval(tmp_path):
+    """通过真实网关发现 DRC；严格模式禁止未经批准的报告写入。"""
+    source = tmp_path / "part.json"
+    source.write_text(json.dumps({"documentId": "demo", "units": "mm", "features": []}), encoding="utf-8")
+    output = tmp_path / "report.json"
+
+    async def handler(session):
+        found = await session.call_tool("sw_search_tools", {"query": "设计规则审计 DRC"})
+        names = [item["name"] for item in json.loads(found.content[0].text)["results"]]
+        assert "cadstudio_check_drc" in names
+        listed = await session.call_tool("sw_call_tool", {"name": "cadstudio_list_drc_rules", "arguments": {}})
+        assert not listed.isError
+        assert json.loads(listed.content[0].text)["rulePacks"]
+        result = await session.call_tool("sw_call_tool", {"name": "cadstudio_check_drc", "arguments": {"params": {
+            "input_path": str(source), "output_path": str(output)
+        }}})
+        assert result.isError and "需要人工批准" in result.content[0].text
+        assert not output.exists()
+
+    asyncio.run(_with_session(_stdio_env(tmp_path, "search"), handler))
+
+
+def test_stdio_design_audit_creates_versioned_reports_in_task_mode(tmp_path):
+    source = tmp_path / "part.json"
+    source.write_text(json.dumps({"documentId": "demo", "units": "mm", "features": []}), encoding="utf-8")
+    output = tmp_path / "report.json"
+    output.write_text("existing", encoding="utf-8")
+
+    async def handler(session):
+        result = await session.call_tool("sw_call_tool", {"name": "cadstudio_check_drc", "arguments": {"params": {
+            "input_path": str(source), "output_path": str(output), "rule_packs": ["machined_bracket"]
+        }}})
+        assert not result.isError
+        report = json.loads(result.content[0].text)
+        assert report["status"] == "review_required"
+        assert output.read_text(encoding="utf-8") == "existing"
+        assert Path(report["reportPath"]).is_file()
+
+    asyncio.run(_with_session({**_stdio_env(tmp_path, "search"), "SW_MCP_APPROVAL": "task"}, handler))
 
 
 def test_stdio_versioned_api_lookup_is_discoverable_and_offline(tmp_path):
@@ -567,7 +608,7 @@ def test_stdio_full_mode_keeps_legacy_surface(tmp_path):
     async def handler(session):
         listed = await session.list_tools()
         names = {tool.name for tool in listed.tools}
-        assert len(names) == 67
+        assert len(names) == 69
         assert names.isdisjoint(DISCOVERY_TOOLS)
         assert "solidworks_save_document" in names
 

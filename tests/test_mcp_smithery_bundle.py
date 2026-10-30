@@ -23,13 +23,13 @@ def test_tool_cards_match_search_and_full_surfaces():
     search = {card["name"] for card in collect_tool_cards(ROOT, "search")}
     full = {card["name"] for card in collect_tool_cards(ROOT, "full")}
     assert search == {"sw_search_tools", "sw_describe_tool", "sw_call_tool"}
-    assert len(full) == 67
+    assert len(full) == 69
     assert search.isdisjoint(full)
     with pytest.raises(ValueError):
         collect_tool_cards(ROOT, "unknown")
 
 
-@pytest.mark.parametrize("mode,expected", [("search", 3), ("full", 67)])
+@pytest.mark.parametrize("mode,expected", [("search", 3), ("full", 69)])
 def test_bundle_manifest_matches_selected_runtime(tmp_path, monkeypatch, mode, expected):
     source = tmp_path / "source.mcpb"
     target = tmp_path / "output.mcpb"

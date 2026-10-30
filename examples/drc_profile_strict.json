@@ -1,0 +1,15 @@
+{
+  "schema": "cadstudio.drc-profile",
+  "id": "strict-machined-bracket",
+  "description": "示例：机加工支架的严格设计规则——壁厚≥1.5mm、孔到边≥2倍孔径、弹簧指数5-10，并补充小孔报警。",
+  "thresholds": {
+    "minWallThicknessMm": 1.5,
+    "holeEdgeDistanceRatio": 2.0,
+    "springIndexMin": 5.0,
+    "springIndexMax": 10.0
+  },
+  "disabledRules": [],
+  "customRules": [
+    {"id": "CUST-SMALL-HOLE", "appliesTo": "hole", "field": "diameter", "operator": "lt", "value": 3.0, "severity": "warning", "message": "孔径小于3mm，注意钻头刚性与排屑"}
+  ]
+}

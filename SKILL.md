@@ -37,6 +37,10 @@ python SKILL_DIR/scripts/cad_studio.py doctor
 
 - CAD Studio 与 Skill/CLI/MCP 是平级入口，共用 Automation Job、NeutralCadDocument、Preview Manifest、Evidence Graph 和能力清单。
 - 检测不到 SolidWorks/AutoCAD 时，只阻断 `SLDPRT/SLDASM/SLDDRW/DWG` 等原生格式；开放格式任务优先路由到 `headless_open_format_writing`。
+- 需要设计规则审查或丝杠/皮带电机扭矩初筛时，读取 `references/design-rule-check.md` 和 `references/drive-sizing.md`，以用户提供或经验证采集的中性文档为输入；缺失证据标为 `review_required`，结果必须由工程师复核。
+- 需要识别钻孔面板孔位或规划图纸候选时，读取 `subskills/solidworks-engineering-drawing/references/drilling-panel-gdt.md`；孔型、基准和公差不得凭几何猜定，候选规格不得冒充已验证工程图。
+- 要提取已保存模型的已显示尺寸公差时，使用 `scripts/sw_tolerance_extract.py`；它只读当前配置，结果不覆盖隐藏尺寸或其他配置，角度、装配和图纸读取仍需验证。
+- 需要按属性批量改名时，先用 `scripts/sw_file_rename.py` 生成只读预览；该入口不会执行改名，涉及引用的实际改名需单独验证。
 - 无头写入使用 `scripts/headless_cad_writer.py`；OCCT/OCP 隔离进程真实写入 STEP、IGES、BREP、STL、OBJ、GLB，二维后端写入 DXF、SVG、PDF、PNG，并生成几何与 SHA-256 证据。
 - DXF 交付会额外生成 `preview_scene`；已有 DXF 可通过 `python scripts/cad_studio.py preview-dxf --input drawing.dxf --output drawing.scene.json` 或 MCP `cadstudio_build_dxf_preview_scene` 转成受限 PreviewScene。该命令只读白名单实体并拒绝覆盖旧文件。
 - OCCT 当前覆盖盒体、圆柱、布尔合并、圆柱孔切除、直纹/受限平滑 Loft、直线/单圆弧 Sweep、闭壳 Knit 和开放面 Thicken；复杂路径、自交偏置或缺少 OCP 运行时时保持 `blocked`。禁止通过改扩展名或空文件伪造支持。

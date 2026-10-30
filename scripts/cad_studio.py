@@ -150,6 +150,14 @@ def main(argv: list[str] | None = None) -> int:
     dfm.add_argument("--process", default="auto", help="machining/sheet_metal/laser_cutting/3d_printing/injection_molding；auto 时读取文档 metadata")
     dfm.add_argument("--profile", action="append", default=[], help="可重复指定 DFM Profile JSON，按供应商能力交集合并")
     dfm.add_argument("--brep-evidence", type=Path, help="可选 SolidWorks/OCCT B-Rep 证据 JSON")
+    drc = sub.add_parser("check-drc", help="对中性文档执行设计规则检查")
+    drc.add_argument("--input", type=Path, required=True)
+    drc.add_argument("--output", type=Path, required=True)
+    drc.add_argument("--profile", action="append", default=[])
+    drc.add_argument("--rule-pack", action="append", default=[])
+    drc.add_argument("--baseline", type=Path)
+    drc.add_argument("--fail-on-regression", action="store_true")
+    sub.add_parser("list-drc-rules", help="列出设计审计规则和规则包")
     routing = sub.add_parser("check-routing")
     routing.add_argument("--input", type=Path, required=True, help="Routing 中性 JSON 输入")
     routing.add_argument("--output", type=Path, required=True, help="不覆盖旧文件的 Routing report JSON 输出")
@@ -241,6 +249,20 @@ def main(argv: list[str] | None = None) -> int:
         result = write_dfm_report(args.input, args.output, process=args.process, profiles=args.profile, brep_evidence=args.brep_evidence)
         _print_json(result)
         return 1 if result.get("status") in {"blocked", "failed"} else 0
+    if args.command == "list-drc-rules":
+        from design_rule_check import list_rules
+        from design_rule_profiles import list_rule_packs
+        _print_json({**list_rules(), "rulePacks": list_rule_packs()})
+        return 0
+    if args.command == "check-drc":
+        from design_rule_check import write_drc_report
+        result = write_drc_report(args.input, args.output, profiles=args.profile,
+                                  rule_packs=args.rule_pack, baseline=args.baseline,
+                                  regression_gate=args.fail_on_regression)
+        _print_json(result)
+        if result.get("status") in {"blocked", "fail"} or result.get("regressionGate", {}).get("passed") is False:
+            return 1
+        return 2 if result.get("status") == "review_required" else 0
     if args.command == "check-routing":
         from routing_review import review_routing_file
 

@@ -25,6 +25,7 @@ class Effect(str, Enum):
 
 _READ: frozenset[str] = frozenset({
     "cadstudio_resolve_backend",
+    "cadstudio_list_drc_rules",
     "cadstudio_routing_preflight",
     "cadstudio_fea_preflight",
     "cadstudio_read_artifact",
@@ -46,6 +47,7 @@ _READ: frozenset[str] = frozenset({
 _WRITE: frozenset[str] = frozenset({
     "solidworks_connect",
     "cadstudio_check_dfm",
+    "cadstudio_check_drc",
     "cadstudio_check_routing",
     "cadstudio_review_advanced_geometry",
     "solidworks_inspect_drawing",
@@ -104,6 +106,7 @@ _NOTES: dict[str, str] = {
     "solidworks_health_check": "start_solidworks=true 时会启动或连接 SolidWorks，需审批。",
     "solidworks_lookup_api": "默认查询官方文档并按需配置依赖；直读失败且无缓存时使用匿名 Parallel，仅发送公开 API 标识及版本；offline=true 或 auto_install=false 可禁止安装。",
     "cadstudio_check_dfm": "会将检查报告写入输出路径。",
+    "cadstudio_check_drc": "会将设计规则检查报告写入输出路径。",
     "cadstudio_check_routing": "会将检查报告写入输出路径。",
     "cadstudio_review_advanced_geometry": "会将预检报告写入输出路径。",
     "solidworks_inspect_drawing": "会生成工程图预览和报告。",

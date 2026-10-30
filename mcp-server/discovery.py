@@ -70,6 +70,7 @@ _CONCEPTS: tuple[tuple[str, ...], ...] = (
     ("运行有限元", "跑有限元", "求解", "fea run", "run fea"),
     ("收敛", "convergence"),
     ("制造性检查", "可制造性", "制造性", "制造检查", "加工", "machining", "dfm"),
+    ("设计规则", "设计审计", "设计检查", "电机选型", "扭矩核验", "design audit", "design rules", "motor sizing", "drc"),
     ("高级几何", "曲面审查", "advanced geometry"),
     ("放样", "loft"),
     ("曲面", "加厚", "knit", "thicken", "surface"),

@@ -187,6 +187,46 @@
   ],
   "capabilities": [
     {
+      "id": "property_rename_preview",
+      "label": "基于文件属性的批量改名预览",
+      "level": "pilot",
+      "backends": ["solidworks-com", "local-filesystem"],
+      "verified_versions": ["2026"],
+      "dependencies": ["SolidWorks", "pywin32"],
+      "limitations": ["只生成计划，不执行文件重命名或更新外部引用", "SW2026 SP1.1 单零件文件级属性已验证；多配置、装配与图纸引用需后续验证"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "displayed_dimension_tolerance_extraction",
+      "label": "已显示尺寸公差只读提取",
+      "level": "pilot",
+      "backends": ["solidworks-com", "local-filesystem"],
+      "verified_versions": ["2026"],
+      "dependencies": ["SolidWorks", "pywin32"],
+      "limitations": ["仅 SW2026 SP1.1 零件线性尺寸和双向公差经过真机核对；角度、装配、图纸及其他版本仍需验证", "只遍历当前配置的已显示尺寸，不能声称覆盖隐藏尺寸和其他配置；输出必须人工复核"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "drilling_panel_analysis",
+      "label": "钻孔面板孔位与基准候选分析",
+      "level": "pilot",
+      "backends": ["solidworks-com", "local-agent"],
+      "verified_versions": ["2026"],
+      "dependencies": ["python"],
+      "limitations": ["只验证过 SW2026 SP1.1 四孔矩形板；基准、孔型和公差由工程师确认", "候选规格不等于生成工程图，复杂面板和实际 GD&T/孔表落图未验证"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
+      "id": "design_rule_audit",
+      "label": "中性文档设计规则与电机选型初筛",
+      "level": "pilot",
+      "backends": ["local-agent", "local-filesystem"],
+      "verified_versions": [],
+      "dependencies": ["python"],
+      "limitations": ["只检查提供的中性文档证据，缺失证据必须复核；电机选型不替代厂商计算及工程签署", "规则与阈值需按实际工况复核，不得将此报告作为无人值守交付依据"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
       "id": "requirements_planning",
       "label": "需求分析与工程规划",
       "level": "verified",

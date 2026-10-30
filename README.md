@@ -228,7 +228,7 @@ Artifacts + Evidence
 
 原生 SolidWorks 操作当前以 **2026** 为支持与验收目标。方案 B 保留现有执行架构，修复失败状态、原生阵列、草图可编辑性和文档归属，并提供可选 HTTP 与可验证的产物取回。
 
-**完整模式暴露 67 个命名工具；默认发现模式只暴露 3 个检索入口**（`sw_search_tools` /
+**完整模式暴露 69 个命名工具；默认发现模式只暴露 3 个检索入口**（`sw_search_tools` /
 `sw_describe_tool` / `sw_call_tool`）。原有命名工具保持兼容；发现模式
 按需检索；写操作经过策略检查，审批行为与信任边界取决于配置。模式切换、审批与回滚见
 [`mcp-server/README.md`](mcp-server/README.md)。
@@ -244,6 +244,10 @@ Artifacts + Evidence
 | Drawing | GB/T 工程图、尺寸链、孔表、BOM | `verified` + `pilot` |
 | Export | STEP / STL / IGES / PDF / DXF / DWG | `verified` |
 | Motion | 运动算例、旋转马达、结果门禁 | `pilot` |
+| Design Audit | 中性文档设计规则、基线对比、丝杠/皮带电机扭矩初筛 | `pilot` |
+| Drilling Panel | 面板孔位识别、基准及图纸规格候选 | `pilot` |
+| Tolerances | 已显示尺寸公差只读提取，CSV 输出 | `pilot` |
+| Rename Preview | 按文件属性生成改名预览，不修改模型或引用 | `pilot` |
 | FEA | CalculiX 线性/非线性求解编排与审计 | `pilot` |
 | DFM / Routing | 制造复核、路由复核 | `pilot` |
 | Surface / Mold | 受限 Loft/Sweep/Thicken、模具计划 | `pilot` |
@@ -295,6 +299,10 @@ Artifacts + Evidence
 | Capability Matrix | [`capabilities.yaml`](capabilities.yaml) |
 | Subskills | [`SUBSKILLS.md`](SUBSKILLS.md) |
 | API / Backend | [`references/`](references/) |
+| Design audit / drive sizing | [`references/design-rule-check.md`](references/design-rule-check.md) · [`references/drive-sizing.md`](references/drive-sizing.md) |
+| Drilling panel analysis | [`subskills/solidworks-engineering-drawing/references/drilling-panel-gdt.md`](subskills/solidworks-engineering-drawing/references/drilling-panel-gdt.md) |
+| Tolerance extraction | [`references/tolerance-extraction.md`](references/tolerance-extraction.md) |
+| Rename preview | [`references/rename-preview.md`](references/rename-preview.md) |
 | Troubleshooting | [`references/troubleshooting.md`](references/troubleshooting.md) |
 
 ---

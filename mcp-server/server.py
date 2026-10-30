@@ -375,6 +375,25 @@ class CadStudioDxfPreviewInput(BaseInput):
         return value
 
 
+class CadStudioDrcReviewInput(BaseInput):
+    """中性文档设计规则检查；报告会写入新文件。"""
+
+    input_path: str = Field(..., min_length=1, description="Existing NeutralCadDocument JSON file.")
+    output_path: str = Field(..., min_length=1, description="JSON report path; existing files are never overwritten.")
+    profile_paths: list[str] = Field(default_factory=list, max_length=8)
+    rule_packs: list[str] = Field(default_factory=list, max_length=8)
+    baseline_path: Optional[str] = Field(default=None, description="Optional prior DRC report JSON.")
+    regression_gate: bool = Field(default=False, description="Compare findings to the supplied baseline.")
+    response_format: ResponseFormat = Field(default=ResponseFormat.JSON)
+
+    @field_validator("input_path", "output_path")
+    @classmethod
+    def json_path(cls, value: str) -> str:
+        if Path(os.path.expandvars(value)).expanduser().suffix.lower() != ".json":
+            raise ValueError("Path must refer to a JSON file")
+        return value
+
+
 class CadStudioDfmReviewInput(BaseInput):
     """Input for NeutralCadDocument DFM review."""
 
@@ -1465,6 +1484,41 @@ def cadstudio_build_dxf_preview_scene(params: CadStudioDxfPreviewInput) -> str:
         }
 
     return _run_locked(op, params.response_format, load_automation=False)
+
+
+@mcp.tool(
+    name="cadstudio_check_drc",
+    title="Review Neutral CAD Design Rules",
+    annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+)
+def cadstudio_check_drc(params: CadStudioDrcReviewInput) -> str:
+    """Check supplied design evidence; missing evidence requires review. Writes a versioned JSON report."""
+    def op():
+        from scripts.design_rule_check import write_drc_report
+
+        def path(value: str) -> Path:
+            return Path(os.path.expandvars(value)).expanduser().resolve()
+
+        return write_drc_report(path(params.input_path), path(params.output_path),
+                                profiles=[path(value) for value in params.profile_paths],
+                                rule_packs=params.rule_packs,
+                                baseline=path(params.baseline_path) if params.baseline_path else None,
+                                regression_gate=params.regression_gate)
+    return _run_locked(op, params.response_format, load_automation=False)
+
+
+@mcp.tool(
+    name="cadstudio_list_drc_rules",
+    title="List Design Audit Rules",
+    annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+)
+def cadstudio_list_drc_rules() -> str:
+    """List design audit rules and available declarative rule packs."""
+    def op():
+        from scripts.design_rule_check import list_rules
+        from scripts.design_rule_profiles import list_rule_packs
+        return {**list_rules(), "rulePacks": list_rule_packs()}
+    return _run_locked(op, ResponseFormat.JSON, load_automation=False)
 
 
 @mcp.tool(

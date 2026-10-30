@@ -25,6 +25,7 @@ RUNTIME_ROOTS = (
     "dotnet",
     "examples",
     "mcp-server",
+    "profiles/drc",
     "references",
     "scripts",
     "subskills",
