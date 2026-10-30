@@ -32,7 +32,7 @@ from .agent_contracts import (
     validate_codex_job,
 )
 from .agent_providers import AgentProvider, build_provider_command, parse_provider_result, resolve_provider
-from .artifact_ledger import sha256_file, write_artifact_ledger
+from .artifact_ledger import DELIVERY_FILE_EXTENSIONS, sha256_file, write_artifact_ledger
 from .core import CN_TZ, now_iso
 from .engineering_orchestrator import (
     build_engineering_plan,
@@ -54,7 +54,6 @@ TERMINAL_STATES = {"passed", "review_required", "failed", "cancelled", "blocked"
 NON_EXECUTABLE_STATES = {"approval_required", *TERMINAL_STATES}
 DEFAULT_CODEX_TIMEOUT_SECONDS = 1800
 DEFAULT_LEASE_SECONDS = 900
-CAD_ARTIFACT_EXTENSIONS = {".sldprt", ".sldasm", ".step", ".stp", ".stl", ".dwg", ".dxf", ".pdf", ".iges", ".igs"}
 PROVIDER_VERIFICATION_FILE = "provider_verifications.json"
 _ACTIVE_LOCKS: dict[Path, BinaryIO] = {}
 _ACTIVE_LOCKS_GUARD = threading.Lock()
@@ -758,30 +757,74 @@ def run_dfm_review_job(job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _snapshot_cad_artifacts(roots: list[Path], limit: int = 10000) -> dict[str, dict[str, Any]]:
-    """@brief 记录执行前 CAD 文件元数据，用于证明交付物在本轮新增或发生变化。"""
-    snapshot: dict[str, dict[str, Any]] = {}
+def _snapshot_cad_artifacts(roots: list[Path], limit: int = 10000) -> dict[str, Any]:
+    """@brief 记录执行前交付文件 hash，并明确扫描是否完整。"""
+    entries: dict[str, dict[str, Any]] = {}
+    errors: list[str] = []
+    complete = True
+    truncated = False
     visited: set[Path] = set()
+    canonical_roots: list[Path] = []
     for root in roots:
-        if root in visited or not root.exists():
+        try:
+            canonical_roots.append(Path(root).expanduser().resolve())
+        except (OSError, RuntimeError, ValueError) as error:
+            complete = False
+            errors.append(f"基线根目录无法规范化: {root}: {error}")
+
+    for root in canonical_roots:
+        if root in visited:
             continue
         visited.add(root)
-        candidates = [root] if root.is_file() else root.rglob("*")
         try:
-            for candidate in candidates:
-                if len(snapshot) >= limit:
-                    return snapshot
-                if not candidate.is_file() or candidate.suffix.lower() not in CAD_ARTIFACT_EXTENSIONS:
-                    continue
-                stat = candidate.stat()
-                snapshot[str(candidate.resolve())] = {
-                    "sizeBytes": stat.st_size,
-                    "mtimeNs": stat.st_mtime_ns,
-                    "sha256": sha256_file(candidate),
-                }
-        except OSError:
-            continue
-    return snapshot
+            if not root.exists():
+                continue
+            candidates = [root] if root.is_file() else root.rglob("*")
+            iterator = iter(candidates)
+            while True:
+                try:
+                    candidate = next(iterator)
+                except StopIteration:
+                    break
+                except OSError as error:
+                    complete = False
+                    errors.append(f"目录扫描中断: {root}: {error}")
+                    break
+                try:
+                    if not candidate.is_file() or candidate.suffix.lower() not in DELIVERY_FILE_EXTENSIONS:
+                        continue
+                    resolved = candidate.resolve(strict=True)
+                    # 只对仍位于允许根目录内的实际文件建立基线。
+                    if not _path_in_roots(resolved, canonical_roots):
+                        continue
+                    if len(entries) >= limit:
+                        complete = False
+                        truncated = True
+                        break
+                    stat = resolved.stat()
+                    key = os.path.normcase(os.path.normpath(str(resolved)))
+                    entries[key] = {
+                        "sizeBytes": stat.st_size,
+                        "mtimeNs": stat.st_mtime_ns,
+                        "sha256": sha256_file(resolved),
+                    }
+                except (OSError, RuntimeError, ValueError) as error:
+                    complete = False
+                    errors.append(f"基线文件无法读取: {candidate}: {error}")
+            if truncated:
+                break
+        except OSError as error:
+            complete = False
+            errors.append(f"基线根目录无法扫描: {root}: {error}")
+
+    return {
+        "schemaVersion": "2.0",
+        "entries": entries,
+        "complete": complete,
+        "truncated": truncated,
+        "scannedCount": len(entries),
+        "errors": errors[:50],
+    }
 
 
 def _validate_codex_result(value: Any) -> dict[str, Any]:

@@ -9,9 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from .agent_contracts import safe_job_id
+from .artifact_ledger import DELIVERY_FILE_EXTENSIONS, artifact_requires_current_run_proof
 from .core import now_iso
 
-KNOWN_FORMAT_EXTENSIONS = {".step", ".stp", ".stl", ".dxf", ".pdf", ".dwg", ".sldprt", ".sldasm"}
+KNOWN_FORMAT_EXTENSIONS = DELIVERY_FILE_EXTENSIONS
 DIMENSION_TRIPLE_PATTERN = re.compile(
     r"(?<![\d.])(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)\s*[xX×]\s*(\d+(?:\.\d+)?)\s*(?:mm|毫米)?",
     re.IGNORECASE,
@@ -108,8 +109,12 @@ def validate_known_format(kind: str, path: Path) -> dict[str, Any] | None:
             "message": f"DWG 文件{'包含' if valid else '缺少'} AutoCAD AC10 版本头: {path}",
         }
 
-    if extension in {".sldprt", ".sldasm"}:
-        label = "SLDASM" if extension == ".sldasm" else "SLDPRT"
+    if extension in {".sldprt", ".sldasm", ".slddrw"}:
+        label = {
+            ".sldprt": "SLDPRT",
+            ".sldasm": "SLDASM",
+            ".slddrw": "SLDDRW",
+        }[extension]
         return {
             "id": check_id,
             "severity": "P1",
@@ -310,6 +315,8 @@ def evaluate_ledger(ledger: dict[str, Any]) -> dict[str, Any]:
     ]
     checks.extend(_spec_conformance_checks(ledger, delivery_artifacts))
 
+    executor = str(ledger.get("executor") or "mock")
+    production_executor = executor != "mock"
     verification = ledger.get("verification") if isinstance(ledger.get("verification"), list) else []
     if ledger.get("executor") == "codex" and not verification:
         checks.append(
@@ -346,49 +353,120 @@ def evaluate_ledger(ledger: dict[str, Any]) -> dict[str, Any]:
         )
 
     expected_output = str(ledger.get("expectedOutput") or "")
+    expected_output_upper = expected_output.upper()
     expected_groups: list[tuple[str, set[str]]] = []
     format_groups = [
         ("SLDPRT", {".sldprt"}),
         ("SLDASM", {".sldasm"}),
+        ("SLDDRW", {".slddrw"}),
         ("STEP", {".step", ".stp"}),
+        ("IGES", {".iges", ".igs"}),
+        ("BREP", {".brep"}),
         ("STL", {".stl"}),
+        ("OBJ", {".obj"}),
+        ("GLB", {".glb"}),
+        ("GLTF", {".gltf"}),
         ("DWG", {".dwg"}),
         ("DXF", {".dxf"}),
         ("PDF", {".pdf"}),
+        ("PNG", {".png"}),
+        ("SVG", {".svg"}),
     ]
     for label, extensions in format_groups:
-        if label in expected_output:
+        if label in expected_output_upper:
             expected_groups.append((label, extensions))
 
+    freshness_artifacts = [
+        artifact
+        for artifact in delivery_artifacts
+        if artifact_requires_current_run_proof(artifact)
+    ]
+    if production_executor and (freshness_artifacts or expected_groups or ledger.get("localCadAutomation") is True):
+        stale = [
+            artifact for artifact in freshness_artifacts
+            if artifact.get("producedThisRun") is False
+        ]
+        unknown = [
+            artifact for artifact in freshness_artifacts
+            if artifact.get("producedThisRun") is not True
+            and artifact.get("producedThisRun") is not False
+        ]
+        if stale:
+            stale_paths = "；".join(str(item.get("path")) for item in stale)
+            checks.append({
+                "id": "artifact-current-run",
+                "severity": "P0",
+                "status": "fail",
+                "message": f"发现本轮未变化或复用的交付文件: {stale_paths}",
+            })
+        elif unknown or not freshness_artifacts:
+            unknown_paths = "；".join(str(item.get("path")) for item in unknown)
+            checks.append({
+                "id": "artifact-current-run",
+                "severity": "P1",
+                "status": "warning",
+                "message": (
+                    f"无法确认以下文件是否由本轮生成，需要人工复核: {unknown_paths}"
+                    if unknown_paths
+                    else "缺少可核验的本轮交付文件基线，需要人工复核。"
+                ),
+            })
+        else:
+            checks.append({
+                "id": "artifact-current-run",
+                "severity": "P2",
+                "status": "pass",
+                "message": "全部交付文件均已确认由本轮新增或修改。",
+            })
+
     for label, expected_extensions in expected_groups:
-        matching = []
+        candidates = []
         for artifact in delivery_artifacts:
             if Path(str(artifact.get("path") or "")).suffix.lower() not in expected_extensions:
                 continue
             if artifact.get("exists") is not True:
                 continue
-            if ledger.get("executor") == "codex" and artifact.get("producedThisRun") is not True:
-                continue
-            matching.append(artifact)
+            candidates.append(artifact)
+        matching = [
+            artifact for artifact in candidates
+            if not production_executor or artifact.get("producedThisRun") is True
+        ]
+        stale_candidates = [
+            artifact for artifact in candidates
+            if production_executor and artifact.get("producedThisRun") is False
+        ]
+        unknown_candidates = [
+            artifact for artifact in candidates
+            if production_executor
+            and artifact.get("producedThisRun") is not True
+            and artifact.get("producedThisRun") is not False
+        ]
+        if matching:
+            check_status = "pass"
+            severity = "P0"
+            message = f"已找到本轮生成的 {label} 交付物，共 {len(matching)} 个。"
+        elif unknown_candidates and not stale_candidates:
+            check_status = "warning"
+            severity = "P1"
+            message = f"存在 {label} 文件，但无法确认是否由本轮生成，需要人工复核。"
+        else:
+            check_status = "fail"
+            severity = "P0"
+            message = f"期望输出包含 {label}，但没有找到本轮生成的对应文件；AI JSON 回执或旧文件不能代替交付物。"
         checks.append(
             {
                 "id": f"expected-cad-deliverable-{label.lower()}",
-                "severity": "P0",
-                "status": "pass" if matching else "fail",
-                "message": (
-                    f"已找到本轮生成的 {label} 交付物，共 {len(matching)} 个。"
-                    if matching
-                    else f"期望输出包含 {label}，但没有找到本轮生成的对应文件；AI JSON 回执或旧文件不能代替交付物。"
-                ),
+                "severity": severity,
+                "status": check_status,
+                "message": message,
             }
         )
-    cad_extensions = {extensions for _, group in format_groups for extensions in group}
     current_run_cad = [
         artifact
         for artifact in delivery_artifacts
-        if Path(str(artifact.get("path") or "")).suffix.lower() in cad_extensions
+        if Path(str(artifact.get("path") or "")).suffix.lower() in DELIVERY_FILE_EXTENSIONS
         and artifact.get("exists") is True
-        and (ledger.get("executor") != "codex" or artifact.get("producedThisRun") is True)
+        and (not production_executor or artifact.get("producedThisRun") is True)
     ]
     target = str(ledger.get("target") or "")
     expects_non_cad = "调研报告" in expected_output or "Skills" in target or "规范" in target

@@ -1,5 +1,23 @@
 import type { ArtifactRecord, AutomationJob } from "../types";
 
+export const deliveryFileExtensions = new Set([
+  ".sldprt", ".sldasm", ".slddrw",
+  ".step", ".stp", ".iges", ".igs", ".brep",
+  ".stl", ".obj", ".glb", ".gltf",
+  ".dxf", ".dwg", ".pdf", ".png", ".svg",
+]);
+
+const currentRunProofExemptKinds = new Set([
+  "agent_output", "codex_output", "engineering_plan", "preview_manifest",
+]);
+
+export function artifactRequiresCurrentRunProof(artifact: ArtifactRecord) {
+  const kind = (artifact.kind ?? "").toLowerCase();
+  if (currentRunProofExemptKinds.has(kind)) return false;
+  const match = (artifact.path ?? "").toLowerCase().match(/\.[^.\\/]+$/);
+  return Boolean(match && deliveryFileExtensions.has(match[0]));
+}
+
 export function fileNameFromPath(path?: string) {
   if (!path) return "未命名文件";
   return path.split(/[\\/]/).pop() || path;
@@ -48,24 +66,28 @@ export function formatBytes(value?: number) {
 export function artifactStatusLabel(artifact: ArtifactRecord) {
   if (artifact.exists === false) return "缺失";
   if (artifact.isDirectory) return "目录";
-  if (artifact.exists) return "已生成";
+  if (artifact.producedThisRun === true) return "本轮生成";
+  if (artifact.producedThisRun === false) return "非本轮文件";
+  if (artifact.exists) return "新鲜度未确认";
   return "待确认";
 }
 
 export function deliveryFormatStatus(format: string, job: AutomationJob | undefined, artifacts: ArtifactRecord[]) {
   if (format === "复核报告") return job?.reviewGatePath ? "ready" : job ? "missing" : "optional";
   if (format === "DFM 报告") {
-    const ready = artifacts.some((artifact) => artifact.kind?.toLowerCase().includes("dfm") && artifact.exists !== false && artifact.producedThisRun !== false);
+    const ready = artifacts.some((artifact) => artifact.kind?.toLowerCase().includes("dfm") && artifact.exists !== false && artifact.producedThisRun === true);
     return ready ? "ready" : job?.dfmEvidence ? "missing" : "optional";
   }
   const extensionMap: Record<string, string[]> = {
     STEP: [".step", ".stp"], STL: [".stl"], SLDPRT: [".sldprt"], SLDASM: [".sldasm"],
-    DWG: [".dwg"], DXF: [".dxf"], PDF: [".pdf"], PNG: [".png"],
+    SLDDRW: [".slddrw"], IGES: [".iges", ".igs"], BREP: [".brep"], OBJ: [".obj"],
+    GLB: [".glb"], GLTF: [".gltf"], DWG: [".dwg"], DXF: [".dxf"],
+    PDF: [".pdf"], PNG: [".png"], SVG: [".svg"],
   };
   const extensions = extensionMap[format] ?? [];
   const ready = artifacts.some((artifact) => {
     const path = artifact.path?.toLowerCase() ?? "";
-    return artifact.exists !== false && artifact.producedThisRun !== false && extensions.some((extension) => path.endsWith(extension));
+    return artifact.exists !== false && artifact.producedThisRun === true && extensions.some((extension) => path.endsWith(extension));
   });
   if (ready) return "ready";
   return (job?.expectedOutput ?? "").toUpperCase().includes(format) ? "missing" : "optional";
@@ -86,14 +108,14 @@ export function collectJobArtifacts(job?: AutomationJob): ArtifactRecord[] {
       sourceArtifact: source?.path,
       previewManifest: job.previewManifest,
       exists: true,
-      producedThisRun: job.schemaVersion !== "1.0",
+      producedThisRun: source?.producedThisRun ?? null,
     });
   }
   for (const artifact of job.artifacts ?? []) if (artifact?.path) items.push(artifact);
   if (job.result?.outputPath) {
     pushArtifact("codex_output", job.result.outputPath, {
       exists: true,
-      producedThisRun: job.schemaVersion === "1.0" ? false : undefined,
+      producedThisRun: null,
     });
   }
   const outputs = job.result?.outputs;
