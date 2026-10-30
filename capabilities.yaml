@@ -187,6 +187,16 @@
   ],
   "capabilities": [
     {
+      "id": "approximate_roller_sprocket",
+      "label": "近似滚子链链轮实体",
+      "level": "pilot",
+      "backends": ["solidworks-com"],
+      "verified_versions": ["2026"],
+      "dependencies": ["SolidWorks", "pywin32"],
+      "limitations": ["仅 SW2026 SP1.1 的单个 17 齿示例验证过实体、轴孔、体积与重开", "齿廓为折线近似，未验证链条啮合、强度或标准；草图未完全参数化与约束，必须人工复核"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
       "id": "property_rename_preview",
       "label": "基于文件属性的批量改名预览",
       "level": "pilot",

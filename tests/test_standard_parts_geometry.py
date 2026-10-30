@@ -116,5 +116,29 @@ def test_roller_sprocket_rejects_bad_inputs():
         geo.roller_sprocket_profile(12.7, 7.92, 17, bore_diameter_mm=100.0)  # 孔比齿根圆大
 
 
+@pytest.mark.parametrize("teeth", [6, 7, 17, 40])
+@pytest.mark.parametrize("roller_ratio", [0.1, 0.5, 0.95, 0.99])
+@pytest.mark.parametrize("samples", [3, 8])
+def test_sprocket_profile_has_no_crossing_segments(teeth, roller_ratio, samples):
+    points = geo.roller_sprocket_profile(10, 10 * roller_ratio, teeth, seat_samples=samples).profile_xy_mm
+    def cross(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    for i, a in enumerate(points):
+        b = points[(i + 1) % len(points)]
+        for j in range(i + 2, len(points)):
+            if i == 0 and j == len(points) - 1:
+                continue
+            c, d = points[j], points[(j + 1) % len(points)]
+            assert not (cross(a, b, c) * cross(a, b, d) < 0 and cross(c, d, a) * cross(c, d, b) < 0)
+
+
+def test_bore_must_fit_actual_profile_not_only_nominal_root():
+    geometry = geo.roller_sprocket_profile(12.7, 7.92, 17)
+    assert geometry.profile_min_diameter_mm < geometry.root_diameter_mm
+    assert geometry.profile_min_diameter_mm == pytest.approx(geometry.pitch_diameter_mm - 2 * geometry.seating_radius_mm)
+    with pytest.raises(ValueError, match="实际最小直径"):
+        geo.roller_sprocket_profile(12.7, 7.92, 17, bore_diameter_mm=(geometry.profile_min_diameter_mm + geometry.root_diameter_mm) / 2)
+
+
 def test_involute_function():
     assert geo.involute(math.radians(20.0)) == pytest.approx(math.tan(math.radians(20.0)) - math.radians(20.0))

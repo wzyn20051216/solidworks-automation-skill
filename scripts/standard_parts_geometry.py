@@ -299,7 +299,7 @@ def compression_spring_helix(
 
 
 # ---------------------------------------------------------------------------
-# 滚子链链轮（ANSI/ISO 简化齿形）
+# 滚子链链轮（非标准的简化齿形）
 # ---------------------------------------------------------------------------
 
 
@@ -315,6 +315,7 @@ class RollerSprocketGeometry:
     root_diameter_mm: float
     seating_radius_mm: float
     bore_diameter_mm: float
+    profile_min_diameter_mm: float
     profile_xy_mm: list[tuple[float, float]] = field(default_factory=list)
 
 
@@ -335,13 +336,13 @@ def roller_sprocket_profile(
     @param seat_samples 每个滚子座圆弧采样点数。
     @return RollerSprocketGeometry；profile_xy_mm 逆时针闭合。
 
-    采用 ANSI B29.1 常用近似：
+    采用简化的近似尺寸，不声称符合任何链轮标准：
       节圆直径 PD = P / sin(pi/N)
       齿顶圆直径 OD = P*(0.6 + cot(pi/N))
       滚子座半径 Rs = 0.505*Dr
-      齿根圆直径 RD = PD - Dr
+      名义齿根圆直径 RD = PD - Dr；离散轮廓的实际最小直径另行计算
     滚子座（凹弧）位于每个节点，齿顶位于相邻节点之间，齿廓侧面用直线近似连接。
-    该齿形用于生成可视化/打印级链轮；精确啮合齿形仍需人工按标准复核。
+    该齿形仅供几何和外观验证，未经啮合、强度或制造验证。
     """
     n = _integer("teeth", teeth, 6, 300)
     p = _positive("chain_pitch", chain_pitch_mm)
@@ -372,13 +373,26 @@ def roller_sprocket_profile(
         seat_span = math.pi  # 半圆座
         base_dir = seat_angle + math.pi  # 指向轴心方向
         for s in range(seats + 1):
-            arc = base_dir - seat_span / 2.0 + seat_span * s / seats
+            # 座弧从当前节圆节点的后一侧走到前一侧，才能按全轮廓逆时针拼接。
+            arc = base_dir + seat_span / 2.0 - seat_span * s / seats
             px = seat_center[0] + seat_radius * math.cos(arc)
             py = seat_center[1] + seat_radius * math.sin(arc)
             points.append((px, py))
         # 齿顶点：相邻节点之间。
         tip_angle = 2.0 * math.pi * (i + 0.5) / n
         points.append(_polar_to_xy(r_out, tip_angle))
+
+    # 逐线段求到原点的最近距离；仅检查名义齿根圆会容许轴孔与实际轮廓相交。
+    min_radius = math.inf
+    for a, b in zip(points, points[1:] + points[:1]):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        length_squared = dx * dx + dy * dy
+        if length_squared <= 0.0:
+            raise ValueError("链轮轮廓包含零长度线段")
+        t = max(0.0, min(1.0, -(a[0] * dx + a[1] * dy) / length_squared))
+        min_radius = min(min_radius, math.hypot(a[0] + t * dx, a[1] + t * dy))
+    if bore >= 2.0 * min_radius:
+        raise ValueError("中心孔直径必须小于离散齿廓的实际最小直径")
 
     return RollerSprocketGeometry(
         chain_pitch_mm=p,
@@ -389,6 +403,7 @@ def roller_sprocket_profile(
         root_diameter_mm=rd,
         seating_radius_mm=seat_radius,
         bore_diameter_mm=bore,
+        profile_min_diameter_mm=2.0 * min_radius,
         profile_xy_mm=points,
     )
 
