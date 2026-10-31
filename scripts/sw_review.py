@@ -38,7 +38,7 @@ STANDARD_VIEWS = {
 
 
 _PDF_DIMENSION_TEXT = re.compile(
-    r"(?:^\s*\d+(?:[.,]\d+)?\s*$|[Ø⌀Rr]\s*\d|\bM\d|\d+(?:[.,]\d+)?\s*(?:mm|°|deg)\b|\d+(?:[.,]\d+)?\s*[±]\s*\d)",
+    r"(?:^\s*\d+(?:[.,]\d+)?\s*$|^\s*\d+\s*[x×]\s*[Ø⌀]?\s*\d+(?:[.,]\d+)?\s*$|[Ø⌀Rr]\s*\d|\bM\d|\d+(?:[.,]\d+)?\s*(?:mm|°|deg)\b|\d+(?:[.,]\d+)?\s*[±]\s*\d)",
     re.IGNORECASE,
 )
 

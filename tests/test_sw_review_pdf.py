@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.sw_review import _import_pdf_parser, inspect_pdf_text_layout
+from scripts.sw_review import _import_pdf_parser, _PDF_DIMENSION_TEXT, inspect_pdf_text_layout
 from scripts.sw_drawing_review import review_drawing_artifacts
 
 
@@ -27,6 +27,31 @@ def test_pdf_vector_text_boxes_are_extracted_without_claiming_com_native(tmp_pat
     assert report["text_span_count"] == 1
     assert report["numeric_text_span_count"] == 1
     assert report["pages"][0]["textSpans"][0]["bboxPt"][2] > report["pages"][0]["textSpans"][0]["bboxPt"][0]
+
+
+def test_pdf_repeated_hole_dimension_is_recognised_when_diameter_is_vector(tmp_path: Path) -> None:
+    """直径符号可能以矢量图元输出，文字层只剩 4X 10。"""
+    fitz = _import_pdf_parser()
+    target = tmp_path / "hole-dimension.pdf"
+    document = fitz.open()
+    page = document.new_page(width=300, height=200)
+    page.insert_text((50, 80), "4X 10", fontsize=12)
+    page.insert_text((50, 120), "4X bracket", fontsize=12)
+    document.save(target)
+    document.close()
+    spans = inspect_pdf_text_layout(target)["pages"][0]["textSpans"]
+    assert next(item for item in spans if item["text"] == "4X 10")["dimensionCandidate"] is True
+    assert next(item for item in spans if item["text"] == "4X bracket")["dimensionCandidate"] is False
+
+
+@pytest.mark.parametrize("text", ["4X 10", "4x10", "4×Ø10", " 4 X 10.5 "])
+def test_repeated_hole_text_variants_are_dimension_candidates(text):
+    assert _PDF_DIMENSION_TEXT.search(text)
+
+
+@pytest.mark.parametrize("text", ["4X bracket", "PART 4X 10", "4X 10 PART"])
+def test_repeated_hole_text_does_not_match_unrelated_text(text):
+    assert not _PDF_DIMENSION_TEXT.search(text)
 
 
 def test_pdf_overlapping_vector_text_is_reported(tmp_path: Path) -> None:
