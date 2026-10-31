@@ -59,6 +59,8 @@ def test_compression_spring_metrics_and_rate():
     assert s.solid_length_mm == pytest.approx(24.0)
     assert s.outer_diameter_mm == pytest.approx(27.0)
     assert s.pitch_mm == pytest.approx(60.0 / 8.0)
+    assert any("中心线轴向行程" in item for item in s.limitations)
+    assert any("不生成" in item for item in s.limitations)
     expected_rate = 79300.0 * 3.0**4 / (8.0 * 24.0**3 * 6.0)
     assert s.spring_rate_n_per_mm == pytest.approx(expected_rate)
     # 螺旋线沿 +Z 单调递增且首点在 z=0，末点在自由长度。
@@ -86,6 +88,8 @@ def test_compression_spring_rejects_bad_inputs():
         geo.compression_spring_helix(3.0, 24.0, 60.0, 1.0)  # 有效圈数非正
     with pytest.raises(ValueError):
         geo.compression_spring_helix(0.01, 24.0, 1000.0, 500.0, samples_per_coil=360)
+    with pytest.raises(ValueError):
+        geo.compression_spring_helix(3, 24, 60, 8, right_handed="false")
 
 
 def test_geometry_rejects_non_integer_and_unbounded_sampling():

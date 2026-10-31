@@ -42,6 +42,7 @@ python SKILL_DIR/scripts/cad_studio.py doctor
 - 要提取已保存模型的已显示尺寸公差时，使用 `scripts/sw_tolerance_extract.py`；它只读当前配置，结果不覆盖隐藏尺寸或其他配置，角度、装配和图纸读取仍需验证。
 - 需要按属性批量改名时，先用 `scripts/sw_file_rename.py` 生成只读预览；对于引用检查为空的单配置、单实体零件，可以用 `scripts/sw_rename_copy.py` 复制到新目录并重开核验。源文件与外部引用不改，装配和图纸的引用安全改名仍未实现；详见 `references/rename-preview.md`。
 - 需要链轮外观或几何演示时，读取 `references/sprocket.md` 并使用 `scripts/sw_sprocket.py` 在新建空零件中创建近似实体；此模型未验证链条啮合或制造要求，不能作为生产级标准链轮。
+- 需要开放端等螺距圆线弹簧实体时，读取 `references/spring.md` 并使用 `scripts/sw_spring.py`；输入高度是螺旋中心线轴向行程而非实体自由高度，材料、端部和工程性能必须复核。
 - 无头写入使用 `scripts/headless_cad_writer.py`；OCCT/OCP 隔离进程真实写入 STEP、IGES、BREP、STL、OBJ、GLB，二维后端写入 DXF、SVG、PDF、PNG，并生成几何与 SHA-256 证据。
 - DXF 交付会额外生成 `preview_scene`；已有 DXF 可通过 `python scripts/cad_studio.py preview-dxf --input drawing.dxf --output drawing.scene.json` 或 MCP `cadstudio_build_dxf_preview_scene` 转成受限 PreviewScene。该命令只读白名单实体并拒绝覆盖旧文件。
 - OCCT 当前覆盖盒体、圆柱、布尔合并、圆柱孔切除、直纹/受限平滑 Loft、直线/单圆弧 Sweep、闭壳 Knit 和开放面 Thicken；复杂路径、自交偏置或缺少 OCP 运行时时保持 `blocked`。禁止通过改扩展名或空文件伪造支持。
