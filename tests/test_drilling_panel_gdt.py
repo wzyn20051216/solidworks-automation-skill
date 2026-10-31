@@ -27,6 +27,11 @@ def _load_module():
 dpg = _load_module()
 
 
+def _explicit_test_profile():
+    return {"positionToleranceMm": 0.2, "dowelPositionToleranceMm": 0.05, "flatnessMm": 0.05,
+            "materialCondition": "M", "datumRefs": ["A", "B", "C"]}
+
+
 def _panel_holes():
     H = dpg.Hole
     holes = [H(f"G{r}{c}", 25 + c * 50, 25 + r * 40, 6.0, "tapped") for r in range(4) for c in range(5)]
@@ -79,7 +84,7 @@ def test_gdt_generation_position_and_flatness():
     holes = _panel_holes()
     patterns = dpg.detect_hole_patterns(holes)
     datums = dpg.infer_datums(holes, {"widthMm": 300, "heightMm": 200})
-    frames = dpg.generate_gdt(patterns, datums, dpg.default_gdt_profile())
+    frames = dpg.generate_gdt(patterns, datums, _explicit_test_profile())
     symbols = {f.symbol for f in frames}
     assert "flatness" in symbols and "position" in symbols
     flat = next(f for f in frames if f.symbol == "flatness")
@@ -94,7 +99,7 @@ def test_gdt_profile_override():
     holes = _panel_holes()
     patterns = dpg.detect_hole_patterns(holes)
     datums = dpg.infer_datums(holes, {"widthMm": 300, "heightMm": 200})
-    frames = dpg.generate_gdt(patterns, datums, {**dpg.default_gdt_profile(), "positionToleranceMm": 0.1})
+    frames = dpg.generate_gdt(patterns, datums, {**_explicit_test_profile(), "positionToleranceMm": 0.1})
     clearance_pos = [f for f in frames if f.symbol == "position" and f.material_condition == "M"]
     assert all(f.tolerance_mm == pytest.approx(0.1) for f in clearance_pos)
 
@@ -107,7 +112,9 @@ def test_gdt_requires_explicit_tolerances_and_does_not_guess_hole_type():
     assert dpg.generate_gdt(patterns, datums) == []
     with pytest.raises(ValueError):
         dpg.generate_gdt(patterns, datums, {"positionToleranceMm": 0.1})
-    result = dpg.generate_gdt(patterns, datums, dpg.default_gdt_profile())
+    with pytest.raises(ValueError, match="示例公差"):
+        dpg.generate_gdt(patterns, datums, dpg.default_gdt_profile())
+    result = dpg.generate_gdt(patterns, datums, _explicit_test_profile())
     assert all(frame.material_condition is None for frame in result if frame.symbol == "position")
 
 
@@ -140,7 +147,7 @@ def test_hole_table_and_ordinates():
 
 def test_build_drawing_spec_structure():
     holes = _panel_holes()
-    analysis = dpg.analyze_drilling_panel(holes, plate={"widthMm": 300, "heightMm": 200}, profile=dpg.default_gdt_profile())
+    analysis = dpg.analyze_drilling_panel(holes, plate={"widthMm": 300, "heightMm": 200}, profile=_explicit_test_profile())
     spec = dpg.build_drawing_spec(analysis, source_model="panel.SLDPRT", thickness_mm=25)
     assert spec["standard"] == "GB_T"
     assert spec["paperSize"] in {"A4", "A3", "A2", "A1", "A0"}
@@ -226,10 +233,55 @@ def test_adapter_plate_from_part_box():
     assert plate["originXMm"] == 0.0 and plate["originYMm"] == 0.0
 
 
-def test_adapter_plate_fallback_from_holes_when_no_box():
+def test_adapter_does_not_invent_plate_from_holes_when_no_box():
     res = dpg.holes_from_geometry_measurements(_measurements())
-    assert any("外扩" in w for w in res["warnings"])
-    assert res["plate"]["thicknessMm"] == 25.0  # 厚度仍来自包围盒最薄方向
+    assert res["plate"] is None
+    assert any("不能推定" in w for w in res["warnings"])
+    with pytest.raises(ValueError, match="板尺寸证据"):
+        dpg.analyze_drilling_panel(res["holes"], plate=res["plate"])
+
+
+@pytest.mark.parametrize("plate", [None, {}, {"widthMm": -1, "heightMm": 10},
+                                   {"widthMm": 10, "heightMm": float("nan")},
+                                   {"widthMm": 10, "heightMm": 10, "originXMm": float("nan")}])
+def test_datum_rejects_missing_or_invalid_board_evidence(plate):
+    with pytest.raises(ValueError):
+        dpg.infer_datums(_panel_holes(), plate)
+
+
+def test_approximate_board_box_is_recorded_in_analysis():
+    res = dpg.holes_from_geometry_measurements(_measurements(), part_box_mm=[0, 0, 0, 300, 200, 25])
+    assert res["plate"]["boundsApproximate"] is True
+    assert any("近似包围盒" in w for w in res["warnings"])
+    analysis = dpg.analyze_drilling_panel(res["holes"], plate=res["plate"])
+    assert any("近似包围盒" in item for item in analysis["limitations"])
+
+
+def test_invalid_box_is_not_used_for_board_dimensions():
+    res = dpg.holes_from_geometry_measurements(_measurements(), part_box_mm=[0, 0, 0, -1, 200, 25])
+    assert res["plate"] is None
+    assert any("无效" in item for item in res["warnings"])
+
+
+def test_model_analysis_blocks_missing_thickness_even_if_box_flag_is_set(monkeypatch):
+    snapshot = {"holes": [dpg.Hole("H1", 2, 2, 1)], "plateBoxAvailable": True,
+                "measurementErrors": [], "plate": {"widthMm": 10, "heightMm": 10}}
+    monkeypatch.setattr(dpg, "snapshot_holes_from_model", lambda *_args, **_kwargs: snapshot)
+    result = dpg.analyze_model(object())
+    assert result["status"] == "blocked" and "板厚" in result["reason"]
+
+
+def test_model_analysis_reports_invalid_geometry_as_blocked(monkeypatch):
+    def invalid(*_args, **_kwargs):
+        raise ValueError("缺少包围盒")
+    monkeypatch.setattr(dpg, "snapshot_holes_from_model", invalid)
+    result = dpg.analyze_model(object())
+    assert result["status"] == "blocked" and "缺少包围盒" in result["reason"]
+
+
+def test_unspecified_plate_origin_is_explicitly_marked_as_assumption():
+    analysis = dpg.analyze_drilling_panel(_panel_holes(), plate={"widthMm": 300, "heightMm": 200})
+    assert any("未提供板原点" in item for item in analysis["limitations"])
 
 
 def test_adapter_end_to_end_to_grid():

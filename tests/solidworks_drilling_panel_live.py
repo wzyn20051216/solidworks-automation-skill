@@ -108,6 +108,8 @@ def main():
         candidate = panel.analyze_model(model)
         if candidate["status"] != "review_required" or candidate["analysis"]["gdt"]:
             raise AssertionError("候选分析错误地声明通过或猜测公差")
+        if not any("近似包围盒" in text for text in candidate["analysis"]["limitations"]):
+            raise AssertionError("未标明 GetPartBox 的近似边界限制")
         if Path(candidate["drawingSpec"]["sourceModel"]).resolve() != model_path.resolve():
             raise AssertionError("候选规格引用了错误的模型")
         document = {
