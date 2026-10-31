@@ -53,6 +53,7 @@ python tests/solidworks_golden_workflow.py --case mounting_bracket --output outp
 | `solidworks_spur_gear_regression.py` | 渐开线直齿轮实体 | — | 1–3 min |
 | `solidworks_sprocket_live.py` | 近似链轮实体、轴孔与重开；草图约束需复核 | `python tests/solidworks_sprocket_live.py` | 1–3 min |
 | `solidworks_rename_copy_live.py` | 属性预览、两个独立零件副本和打开文档保护 | `python tests/solidworks_rename_copy_live.py` | 1–3 min |
+| `solidworks_nested_mate_probe.py` / `solidworks_assembly_copy_live.py` | 两层装配及重合配合的引用替换、受限执行器和缺失依赖阻断 | 先运行 `python tests/solidworks_nested_mate_probe.py`，再将其输出的测试源顶层装配路径传给 `python tests/solidworks_assembly_copy_live.py --root <path>` | 2–5 min |
 | `solidworks_spring_live.py` | 开放端弹簧实体、旋向回读、极值尺寸与重开 | `python tests/solidworks_spring_live.py` | 1–3 min |
 | `solidworks_weldment_regression.py` | 焊件与切割清单 | — | 2–5 min |
 | `solidworks_week3_delivery_regression.py` | 第 3 周交付链路（多能力串联） | — | 5–15 min |

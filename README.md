@@ -247,7 +247,7 @@ Artifacts + Evidence
 | Design Audit | 中性文档设计规则、基线对比、丝杠/皮带电机扭矩初筛 | `pilot` |
 | Drilling Panel | 面板孔位识别、基准及图纸规格候选 | `pilot` |
 | Tolerances | 已显示尺寸公差只读提取，CSV 输出 | `pilot` |
-| Rename Preview / Copy | 属性改名预览；受限独立零件复制到新名称 | `pilot` |
+| Rename Preview / Copy | 属性改名预览；受限独立零件和单配置嵌套装配复制到新名称 | `pilot` |
 | Sprocket | 近似链轮几何演示实体，非生产齿形 | `pilot` |
 | Spring | 开放端等螺距圆线弹簧实体 | `pilot` |
 | FEA | CalculiX 线性/非线性求解编排与审计 | `pilot` |

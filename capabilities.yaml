@@ -207,6 +207,16 @@
       "allowed_modes": ["interactive", "reviewed"]
     },
     {
+      "id": "assembly_rename_copy",
+      "label": "装配体改名副本",
+      "level": "pilot",
+      "backends": ["solidworks-com", "local-filesystem"],
+      "verified_versions": ["2026"],
+      "dependencies": ["SolidWorks", "pywin32"],
+      "limitations": ["仅单配置、完全解析组件及无外部引用的单实体非 Toolbox 零件；SW2026 已验证一组两层装配及一个重合配合", "仅在新目录创建副本，不修改源文件或更新外部使用位置；图纸、多配置、虚拟和压缩组件不支持，必须人工复核"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
       "id": "standalone_part_rename_copy",
       "label": "独立零件改名副本",
       "level": "pilot",
