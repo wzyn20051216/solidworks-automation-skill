@@ -187,6 +187,16 @@
   ],
   "capabilities": [
     {
+      "id": "open_helical_spring",
+      "label": "开放端等螺距弹簧实体",
+      "level": "pilot",
+      "backends": ["solidworks-com"],
+      "verified_versions": ["2026"],
+      "dependencies": ["SolidWorks", "pywin32"],
+      "limitations": ["仅 SW2026 SP1.1 两组尺寸和方向示例已验证", "开放端未并紧或磨平；中心线高度不等于实体自由高度；材料、刚度、强度、疲劳和制造要求需复核"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
       "id": "approximate_roller_sprocket",
       "label": "近似滚子链链轮实体",
       "level": "pilot",

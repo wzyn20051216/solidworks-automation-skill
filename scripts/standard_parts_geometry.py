@@ -207,6 +207,7 @@ class CompressionSpringGeometry:
     right_handed: bool
     spring_rate_n_per_mm: float | None
     helix_xyz_mm: list[tuple[float, float, float]] = field(default_factory=list)
+    limitations: list[str] = field(default_factory=list)
 
 
 def compression_spring_helix(
@@ -224,16 +225,16 @@ def compression_spring_helix(
 
     @param wire_diameter_mm 线径 d。
     @param mean_diameter_mm 中径 D（螺旋中心线直径）。
-    @param free_length_mm 自由长度 L。
+    @param free_length_mm 历史字段名；实际表示螺旋中心线轴向行程，不是实体自由高度。
     @param total_coils 总圈数 Nt。
-    @param end_type closed_ground / closed / open，决定有效圈数与实体长度。
+    @param end_type closed_ground / closed / open，只用于近似估算有效圈数与压并高度，不会生成对应端部。
     @param right_handed 右旋为 True。
     @param shear_modulus_mpa 剪切模量 G（MPa），提供则计算刚度。
     @param samples_per_coil 每圈采样点数。
     @return CompressionSpringGeometry；helix_xyz_mm 沿 +Z 递增。
 
-    实体长度按端型近似：closed_ground=Nt*d，closed=(Nt+1)*d，open=(Nt+1)*d。
-    有效圈数：closed/closed_ground 取 Nt-2，open 取 Nt。
+    压并高度和有效圈数仅为理想化估算；中心线始终等螺距，未模拟并紧或磨平。
+    刚度也仅为理想线性估算，不能据此判断制造性能。
     """
     d = _positive("wire_diameter", wire_diameter_mm)
     mean_d = _positive("mean_diameter", mean_diameter_mm)
@@ -244,6 +245,8 @@ def compression_spring_helix(
         raise ValueError("end_type 必须为 closed_ground、closed 或 open")
     if mean_d <= d:
         raise ValueError("中径必须大于线径")
+    if not isinstance(right_handed, bool):
+        raise ValueError("right_handed 必须为布尔值")
 
     if end == "closed_ground":
         active = nt - 2.0
@@ -295,6 +298,9 @@ def compression_spring_helix(
         right_handed=bool(right_handed),
         spring_rate_n_per_mm=rate,
         helix_xyz_mm=points,
+        limitations=["free_length_mm 为中心线轴向行程，不是实体自由高度",
+                     "中心线为等螺距，end_type 不生成并紧或磨平端圈",
+                     "压并高度和刚度仅为理想化估算，不用于制造验收"],
     )
 
 
