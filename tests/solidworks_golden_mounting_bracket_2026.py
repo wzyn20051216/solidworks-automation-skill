@@ -316,7 +316,15 @@ def write_evidence_bundle(output, report):
     write_artifact_ledger(output, {"id": output.name, "runId": report.get("trace_run_id", output.name), "executor": "solidworks-com-pywin32",
                                   "status": report["task_status"], "cwd": str(output)},
                           {"artifacts": [{"kind": p.suffix.lstrip("."), "path": str(p)} for p in files],
-                           "artifactBaseline": {}, "verification": [report["execution_core"]]})
+                           "artifactBaseline": {
+                               "schemaVersion": "2.0",
+                               "entries": {},
+                               "complete": True,
+                               "truncated": False,
+                               "scannedCount": 0,
+                               "errors": [],
+                           },
+                           "verification": [report["execution_core"]]})
     files.append(ledger_path)
     write_json(output / "sha256.json", [{"path": p.relative_to(output).as_posix(), "size_bytes": p.stat().st_size,
                                         "sha256": sha256_file(p)} for p in sorted(files)])

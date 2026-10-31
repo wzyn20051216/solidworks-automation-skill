@@ -125,7 +125,7 @@ export type ArtifactRecord = {
   isDirectory?: boolean;
   sizeBytes?: number;
   sha256?: string;
-  producedThisRun?: boolean;
+  producedThisRun?: boolean | null;
 };
 export type ReviewCheck = { id?: string; severity?: string; status?: "pass" | "warning" | "fail" | string; message?: string };
 export type DomainEvidence = {

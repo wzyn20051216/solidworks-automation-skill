@@ -350,7 +350,19 @@
     "artifacts": {
       "type": "array",
       "items": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "kind": { "type": "string" },
+          "path": { "type": "string" },
+          "exists": { "type": "boolean" },
+          "isDirectory": { "type": "boolean" },
+          "sizeBytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string" },
+          "producedThisRun": {
+            "type": ["boolean", "null"]
+          }
+        },
+        "additionalProperties": true
       }
     }
   }

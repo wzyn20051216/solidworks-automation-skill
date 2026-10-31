@@ -1,4 +1,4 @@
-import { artifactGroup, collectJobArtifacts, fileNameFromPath } from "./artifacts";
+import { artifactGroup, artifactRequiresCurrentRunProof, collectJobArtifacts, fileNameFromPath } from "./artifacts";
 import type { ArtifactRecord, AutomationJob, BackendDiagnostic, JobRunSnapshot } from "../types";
 
 export type DeliveryDisposition = "idle" | "active" | "ready" | "review_required" | "blocked" | "failed" | "incomplete";
@@ -73,10 +73,15 @@ function artifactMatchesRequirement(artifact: ArtifactRecord, requirement: strin
 export function assessDelivery(job?: AutomationJob): DeliveryAssessment {
   if (!job) return { disposition: "idle", title: "等待任务结果", summary: "任务执行后将在这里形成交付判定。", issues: [], readyArtifacts: 0, currentArtifacts: 0 };
   const artifacts = collectJobArtifacts(job);
-  const readyArtifacts = artifacts.filter((item) => item.exists !== false && item.producedThisRun !== false);
+  const readyArtifacts = artifacts.filter((item) => item.exists === true && item.producedThisRun === true);
   const issues: string[] = [];
   const staleOrMissing = artifacts.filter((item) => item.exists === false || item.producedThisRun === false);
+  const staleFiles = artifacts.filter((item) => item.exists === true && item.producedThisRun === false);
+  const unknownFreshness = artifacts.filter((item) =>
+    artifactRequiresCurrentRunProof(item) && item.exists === true && item.producedThisRun == null,
+  );
   if (staleOrMissing.length) issues.push(`${staleOrMissing.length} 个产物缺失或不是本轮生成`);
+  if (unknownFreshness.length) issues.push(`${unknownFreshness.length} 个产物无法确认是否由本轮生成`);
   for (const requirement of job.requiredArtifacts ?? []) {
     if (!readyArtifacts.some((artifact) => artifactMatchesRequirement(artifact, requirement))) issues.push(`缺少要求产物：${requirement}`);
   }
@@ -99,6 +104,12 @@ export function assessDelivery(job?: AutomationJob): DeliveryAssessment {
   }
   if (job.status === "cancelled") {
     return { disposition: "incomplete", title: "任务已取消", summary: "本轮执行已取消，现有文件不能自动作为最终交付。", issues: uniqueIssues, readyArtifacts: readyArtifacts.length, currentArtifacts: artifacts.length };
+  }
+  if (staleFiles.length) {
+    return { disposition: "failed", title: "交付文件不是本轮生成", summary: "旧文件不能作为本轮结果，请重新生成并使用新的版本目录或文件名。", issues: uniqueIssues, readyArtifacts: readyArtifacts.length, currentArtifacts: artifacts.length };
+  }
+  if (unknownFreshness.length) {
+    return { disposition: "review_required", title: "交付物新鲜度未确认", summary: "无法证明文件由本轮生成，需要检查交付账本和运行记录。", issues: uniqueIssues, readyArtifacts: readyArtifacts.length, currentArtifacts: artifacts.length };
   }
   if ((requiresArtifacts(job) && readyArtifacts.length === 0) || uniqueIssues.some((issue) => issue.startsWith("缺少要求产物"))) {
     return { disposition: "incomplete", title: "交付证据不完整", summary: "任务已结束，但本轮要求的文件或账本尚未齐全。", issues: uniqueIssues.length ? uniqueIssues : ["没有可确认的本轮 CAD 产物"], readyArtifacts: readyArtifacts.length, currentArtifacts: artifacts.length };
