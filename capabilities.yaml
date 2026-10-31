@@ -197,6 +197,16 @@
       "allowed_modes": ["interactive", "reviewed"]
     },
     {
+      "id": "standalone_part_rename_copy",
+      "label": "独立零件改名副本",
+      "level": "pilot",
+      "backends": ["solidworks-com", "local-filesystem"],
+      "verified_versions": ["2026"],
+      "dependencies": ["SolidWorks", "pywin32"],
+      "limitations": ["仅支持引用检查为空的单配置、单实体 SLDPRT；SW2026 SP1.1 两零件示例已验证", "只复制到新目录，保留源文件，不更新其他文件引用；检查不能证明不存在所有潜在引用"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
       "id": "property_rename_preview",
       "label": "基于文件属性的批量改名预览",
       "level": "pilot",

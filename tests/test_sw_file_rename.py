@@ -37,7 +37,7 @@ def test_rejects_non_declarative_templates(template):
 
 
 def test_collection_never_closes_preexisting_user_document(tmp_path, monkeypatch):
-    for name in ("already.SLDPRT", "owned.SLDPRT"):
+    for name in ("already.SLDPRT", "owned.SLDPRT", "~$already.SLDPRT"):
         (tmp_path / name).write_text("test")
     preexisting, owned = object(), object()
     closed = []

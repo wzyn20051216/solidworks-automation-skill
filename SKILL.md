@@ -40,7 +40,7 @@ python SKILL_DIR/scripts/cad_studio.py doctor
 - 需要设计规则审查或丝杠/皮带电机扭矩初筛时，读取 `references/design-rule-check.md` 和 `references/drive-sizing.md`，以用户提供或经验证采集的中性文档为输入；缺失证据标为 `review_required`，结果必须由工程师复核。
 - 需要识别钻孔面板孔位或规划图纸候选时，读取 `subskills/solidworks-engineering-drawing/references/drilling-panel-gdt.md`；孔型、基准和公差不得凭几何猜定，候选规格不得冒充已验证工程图。
 - 要提取已保存模型的已显示尺寸公差时，使用 `scripts/sw_tolerance_extract.py`；它只读当前配置，结果不覆盖隐藏尺寸或其他配置，角度、装配和图纸读取仍需验证。
-- 需要按属性批量改名时，先用 `scripts/sw_file_rename.py` 生成只读预览；该入口不会执行改名，涉及引用的实际改名需单独验证。
+- 需要按属性批量改名时，先用 `scripts/sw_file_rename.py` 生成只读预览；对于引用检查为空的单配置、单实体零件，可以用 `scripts/sw_rename_copy.py` 复制到新目录并重开核验。源文件与外部引用不改，装配和图纸的引用安全改名仍未实现；详见 `references/rename-preview.md`。
 - 需要链轮外观或几何演示时，读取 `references/sprocket.md` 并使用 `scripts/sw_sprocket.py` 在新建空零件中创建近似实体；此模型未验证链条啮合或制造要求，不能作为生产级标准链轮。
 - 无头写入使用 `scripts/headless_cad_writer.py`；OCCT/OCP 隔离进程真实写入 STEP、IGES、BREP、STL、OBJ、GLB，二维后端写入 DXF、SVG、PDF、PNG，并生成几何与 SHA-256 证据。
 - DXF 交付会额外生成 `preview_scene`；已有 DXF 可通过 `python scripts/cad_studio.py preview-dxf --input drawing.dxf --output drawing.scene.json` 或 MCP `cadstudio_build_dxf_preview_scene` 转成受限 PreviewScene。该命令只读白名单实体并拒绝覆盖旧文件。

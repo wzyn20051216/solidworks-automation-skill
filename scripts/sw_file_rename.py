@@ -82,7 +82,7 @@ def collect_entries(session: Any, folder: str | Path, properties: Sequence[str])
     root = Path(folder).expanduser().resolve()
     if not root.is_dir():
         raise ValueError("输入目录不存在")
-    files = sorted((p for p in root.iterdir() if p.is_file() and not p.is_symlink()
+    files = sorted((p for p in root.iterdir() if not p.name.startswith("~$") and p.is_file() and not p.is_symlink()
                     and p.suffix.casefold() in NATIVE_EXTENSIONS), key=lambda p: p.name.casefold())
     if len(files) > 2000:
         raise ValueError("文件数量超过 2000，请拆分预览")
