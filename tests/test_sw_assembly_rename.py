@@ -22,6 +22,17 @@ def test_accepts_two_level_explicit_mapping(tmp_path):
     assert root.read_bytes() == b"test"
 
 
+def test_rejects_distinct_source_paths_with_same_name(tmp_path):
+    root, plan = _plan(tmp_path)
+    alternate = tmp_path / "other"
+    alternate.mkdir()
+    duplicate = alternate / "PART.SLDPRT"
+    duplicate.write_bytes(b"different part")
+    plan.append({"source": str(duplicate), "new_name": "other.sldprt", "status": "planned"})
+    with pytest.raises(ValueError, match="源文件名称重复"):
+        prepare_assembly_plan(root, plan)
+
+
 @pytest.mark.parametrize("change", ["missing_root", "duplicate_source", "duplicate_target", "cross_type", "path_escape", "original_name", "blocked"])
 def test_rejects_unsafe_plans(tmp_path, change):
     root, plan = _plan(tmp_path)

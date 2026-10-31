@@ -53,6 +53,8 @@ def prepare_assembly_plan(root: str | Path, plans: Sequence[Mapping[str, Any]]) 
         key, target_key = str(source_path).casefold(), name.casefold()
         if key in sources or target_key in targets:
             raise ValueError("源文件或目标名称重复")
+        if source_path.name.casefold() in original_names:
+            raise ValueError("源文件名称重复，SolidWorks 可能错误复用同名文档")
         sources.add(key)
         targets.add(target_key)
         original_names.add(source_path.name.casefold())

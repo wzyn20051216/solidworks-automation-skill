@@ -12,13 +12,13 @@ python scripts/sw_file_rename.py C:\work\parts --template "{图号}_{名称}" --
 
 ## 创建装配体改名副本（SolidWorks 2026 试点）
 
-`scripts/sw_assembly_rename.py` 将根装配体和引用闭包中的文件复制到一个全新目录，在关闭的副本上更新引用；不会修改源文件，也不会更新源文件在其他文档中的引用。输入 `plans` 必须包含根装配体及其所有直接和间接依赖，每个条目提供 `source`、`new_name` 和 `status`。目标文件名必须全部不同，且不能与任何源文件同名。
+`scripts/sw_assembly_rename.py` 将根装配体和引用闭包中的文件复制到一个全新目录，在关闭的副本上更新引用；不会修改源文件，也不会更新源文件在其他文档中的引用。输入 `plans` 必须包含根装配体及其所有直接和间接依赖，每个条目提供 `source`、`new_name` 和 `status`。源文件名必须全部不同；目标文件名也必须全部不同，且不能与任何源文件同名。
 
 ```powershell
 python scripts/sw_assembly_rename.py --root C:\work\top.sldasm --plan C:\work\rename-plan.json --output-dir C:\work\new-assembly-copy
 ```
 
-试点仅支持单配置装配体、完全解析且非虚拟组件，以及没有外部引用的单配置、单实体非 Toolbox 零件。图纸、压缩组件、多配置和 Toolbox 均不支持。执行器检查引用闭包、文件哈希、组件路径和变换、零件几何与配合健康；失败时保留输出目录和 `assembly-copy-manifest.json`，不要将不完整副本当作成功结果。成功仍标记 `review_required`，需在目标项目中核查设计意图和相关外部文档。
+试点仅支持单配置装配体、完全解析且非虚拟组件，以及没有外部引用的单配置、单实体非 Toolbox 零件。图纸、压缩组件、多配置和 Toolbox 均不支持。执行器检查引用闭包、文件哈希、组件路径和变换、零件几何与配合健康；它尚未逐一验证配合引用的具体几何实体，因此健康状态一致不等于配合语义已全部核验。失败时保留输出目录和 `assembly-copy-manifest.json`，不要将不完整副本当作成功结果。成功仍标记 `review_required`，需在目标项目中核查设计意图和相关外部文档。
 
 ## 把独立零件复制为新名称
 
