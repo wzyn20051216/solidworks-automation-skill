@@ -275,6 +275,9 @@ def test_inspect_drawing_structure_reads_professional_annotation_entities():
             return "A"
 
     class Gtol(AnnotationEntity):
+        def GetFormat(self):
+            return 1
+
         def GetFrameCount(self):
             return 1
 
@@ -282,11 +285,11 @@ def test_inspect_drawing_structure_reads_professional_annotation_entities():
             return "A"
 
         def GetFrameSymbols3(self, index):
-            assert index == 0
+            assert index == 1
             return ["POSITION"]
 
         def GetFrameValues(self, index):
-            assert index == 0
+            assert index == 1
             return ["0.1", "A"]
 
     class SurfaceFinish(AnnotationEntity):

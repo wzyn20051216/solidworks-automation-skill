@@ -3,6 +3,7 @@ SolidWorks 工程图操作工具
 """
 import math
 import re
+import xml.etree.ElementTree as ET
 from fractions import Fraction
 from pathlib import Path
 
@@ -1425,6 +1426,39 @@ def _view_center_marks(view):
     return _as_sequence(_safe_member(view, "GetCenterMarks", default=[]))
 
 
+def _gtol_frame_records(owner, frame_count):
+    """回读 2022+ XML 或旧格式框；框序号从 1 开始。"""
+    records = []
+    format_type = _safe_member(owner, "GetFormat", default=None)
+    for index in range(1, frame_count + 1):
+        if format_type == 2:
+            frame = _safe_member(owner, "GetFrame", index, default=None)
+            xml = _safe_member(frame, "GetSymbolXml", default="") if frame else ""
+            item = {"index": index, "symbols": [], "values": []}
+            if isinstance(xml, str) and xml and len(xml) <= 65536 and "<!" not in xml:
+                try:
+                    root = ET.fromstring(xml)
+                    if root.tag == "GtolFrame":
+                        item["xml"] = xml
+                        item["symbols"] = [node.text for node in root.findall("./ToleranceSymbol") if node.text]
+                        item["values"] = [node.text for node in root.findall("./ToleranceRangeInfo/PrimaryToleranceValue") if node.text]
+                        item["values"] += [node.text for node in root.findall(".//DatumLetter") if node.text]
+                    else:
+                        item["xml_error"] = "invalid_xml"
+                except ET.ParseError:
+                    item["xml_error"] = "invalid_xml"
+            elif xml:
+                item["xml_error"] = "invalid_xml"
+            records.append(item)
+        elif format_type == 1:
+            records.append({"index": index,
+                            "symbols": _as_sequence(_safe_member(owner, "GetFrameSymbols3", index, default=[])),
+                            "values": _as_sequence(_safe_member(owner, "GetFrameValues", index, default=[]))})
+        else:
+            records.append({"index": index, "symbols": [], "values": [], "error": "unknown_gtol_format"})
+    return records
+
+
 def _collect_view_professional_annotations(view, view_record):
     """@brief 使用 SW2026 Interop 已反射确认的 IView 回读接口收集专业标注。"""
     result = {
@@ -1457,14 +1491,7 @@ def _collect_view_professional_annotations(view, view_record):
             frame_count = 0
         frame_count = frame_count if 0 <= frame_count <= 100 else 0
         record["datum_identifier"] = str(_safe_member(owner, "GetDatumIdentifier", default="") or "")
-        record["frames"] = [
-            {
-                "index": index,
-                "symbols": _as_sequence(_safe_member(owner, "GetFrameSymbols3", index, default=[])),
-                "values": _as_sequence(_safe_member(owner, "GetFrameValues", index, default=[])),
-            }
-            for index in range(frame_count)
-        ]
+        record["frames"] = _gtol_frame_records(owner, frame_count)
         result["geometric_tolerances"].append(record)
     for owner in _as_sequence(_safe_member(view, "GetSFSymbols", default=[])):
         record = _professional_annotation_record(owner, "surface_finish", view_record)
