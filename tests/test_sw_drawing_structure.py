@@ -32,7 +32,7 @@ class TypedPositionView:
 
 class FakeDimension:
     Name = "D1"
-    Type = 2
+    Type2 = 2
 
     def GetText(self, _index):
         return "25"
@@ -79,6 +79,28 @@ class FakeDrawing:
 
     def GetCurrentSheet(self):
         return FakeSheet()
+
+
+@pytest.mark.parametrize("sign", [-1, 1])
+def test_standard_view_mapping_accepts_both_projection_sides(sign):
+    from scripts.sw_drawing import _MODULE
+
+    class View:
+        def __init__(self, name, position, base=None):
+            self.Name, self.Position, self.base = name, position, base
+
+        def GetOrientationName(self):
+            return "*前视" if self.Name == "front" else ""
+
+        def GetBaseView(self):
+            return self.base
+
+    front = View("front", (.24, .19))
+    top = View("top", (.24, .19 + sign * .105), front)
+    right = View("right", (.24 + sign * .1, .19), front)
+    mapping, _, method = _MODULE._map_native_standard_views([front, top, right])
+    assert mapping == {"front": front, "top": top, "right": right}
+    assert method == "base_and_position"
 
 
 def test_auto_arrange_dimensions_calls_official_api_per_view():
@@ -144,6 +166,7 @@ def test_auto_arrange_dimensions_calls_official_api_per_view():
 
 def test_inspect_drawing_structure_reports_views_dimensions_and_template():
     result = inspect_drawing_structure(FakeDrawing())
+    assert result["dimensions"][0]["type"] == 2  # IDisplayDimension.Type2
     assert result["status"] == "pass"
     assert result["view_count"] == 1
     assert result["dimension_count"] == 1
@@ -675,6 +698,28 @@ def test_create_adaptive_views_uses_planned_positions_and_scale():
     assert result["view_count"] == 3
     assert [call[1] for call in drawing.calls] == ["*Front", "*Top", "*Right"]
     assert all(view.ScaleRatio == tuple(layout["scale_ratio"]) for view in drawing.views)
+
+
+def test_view_scale_is_detached_from_automatic_sheet_scale_before_setting():
+    from scripts.sw_drawing import _MODULE
+
+    class View(TypedPositionView):
+        UseSheetScale = 1
+        UseParentScale = True
+
+        @property
+        def ScaleRatio(self):
+            return (2, 1) if self.UseSheetScale else self.ratio
+
+        @ScaleRatio.setter
+        def ScaleRatio(self, ratio):
+            if not self.UseSheetScale:
+                self.ratio = tuple(getattr(ratio, "value", ratio))
+
+    view = View()
+    _MODULE._apply_view_layout(view, {"name": "*Front", "center": [.2, .2]}, 1, 1)
+    assert view.UseSheetScale == 0 and view.UseParentScale is False
+    assert view.ScaleRatio == (1, 1)
 
 
 def test_create_adaptive_views_falls_back_to_native_third_angle_and_maps_orientation():

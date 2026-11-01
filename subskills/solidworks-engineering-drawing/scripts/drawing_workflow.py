@@ -531,9 +531,17 @@ def _apply_view_layout(view, item, numerator, denominator) -> dict:
     center = [float(item["center"][0]), float(item["center"][1])]
     if hasattr(view, "UseParentScale"):
         view.UseParentScale = False
+    if hasattr(view, "UseSheetScale"):
+        view.UseSheetScale = 0  # swView 使用独立比例，避免首次保存时模板自动比例改变视图。
     if hasattr(view, "PositionLocked"):
         view.PositionLocked = False
     view.ScaleRatio = (int(numerator), int(denominator))
+    actual_scale = _as_sequence(_safe_member(view, "ScaleRatio", default=[]))
+    if actual_scale != [int(numerator), int(denominator)]:
+        view.ScaleRatio = VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, [float(numerator), float(denominator)])
+        actual_scale = _as_sequence(_safe_member(view, "ScaleRatio", default=[]))
+    if len(actual_scale) != 2 or abs(actual_scale[0] / actual_scale[1] - numerator / denominator) > 1e-8:
+        raise RuntimeError("标准视图实际比例与计划不一致")
     position = VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, center)
     method = getattr(view, "SetViewPosition", None)
     if method is not None:
@@ -686,7 +694,7 @@ def _collect_drawing_views(drawing_model):
 
 
 def _map_native_standard_views(views):
-    """@brief 依据方向名、基准视图关系和原始位置映射第三角三视图。"""
+    """@brief 依据方向名及与主视图的轴对齐关系识别第一角/第三角三视图。"""
     by_orientation = {}
     diagnostics = []
     for view in views:
@@ -710,12 +718,15 @@ def _map_native_standard_views(views):
     positioned = [item for item in positioned if item[1] is not None]
     if len(positioned) >= 3:
         base_candidates = [item for item in positioned if item[2] is None]
-        front = min(base_candidates or positioned, key=lambda item: item[1][0] + item[1][1])
+        known_front = by_orientation.get("front")
+        front = next((item for item in positioned if item[0] is known_front), None)
+        front = front or min(base_candidates or positioned, key=lambda item: item[1][0] + item[1][1])
         remaining = [item for item in positioned if item[0] is not front[0]]
-        top = max(remaining, key=lambda item: item[1][1] - front[1][1])
-        right_candidates = [item for item in remaining if item[0] is not top[0]]
-        if right_candidates:
-            right = max(right_candidates, key=lambda item: item[1][0] - front[1][0])
+        # 第一角俯视图在下、右视图在左；不能以最大 y/x 判定方向。
+        tops = [item for item in remaining if abs(item[1][0] - front[1][0]) <= 1e-5 and abs(item[1][1] - front[1][1]) > 1e-5]
+        rights = [item for item in remaining if abs(item[1][1] - front[1][1]) <= 1e-5 and abs(item[1][0] - front[1][0]) > 1e-5]
+        if len(tops) == len(rights) == 1:
+            top, right = tops[0], rights[0]
             return {"front": front[0], "top": top[0], "right": right[0]}, diagnostics, "base_and_position"
     return by_orientation, diagnostics, "unresolved"
 
@@ -1389,6 +1400,9 @@ def _annotation_text_parts(annotation_owner):
 
 def _professional_annotation_record(owner, kind, view_record):
     """@brief 构造带所属视图、文字和边界的专业标注证据。"""
+    annotation = _safe_member(owner, "GetAnnotation")
+    annotation_name = str(_safe_member(annotation, "GetName", default="") or "")
+    from scripts.sw_drawing_native import describe_target
     return {
         "kind": kind,
         "sheet": view_record["sheet"],
@@ -1396,6 +1410,9 @@ def _professional_annotation_record(owner, kind, view_record):
         "semantic_view": view_record.get("semantic_view") or "",
         "text_parts": _annotation_text_parts(owner),
         "box": _annotation_box(owner),
+        "id": annotation_name.removeprefix("CAD_ANN__") if annotation_name.startswith("CAD_ANN__") else None,
+        "position_m": _safe_member(annotation, "GetPosition"),
+        "target": describe_target(owner),
     }
 
 
@@ -1482,6 +1499,7 @@ def _collect_view_professional_annotations(view, view_record):
     for owner in _as_sequence(_safe_member(view, "GetDatumTags", default=[])):
         record = _professional_annotation_record(owner, "datum", view_record)
         record["label"] = str(_safe_member(owner, "GetLabel", default="") or "")
+        record["display_style"] = _safe_member(owner, "GetDisplayStyle")
         result["datum_tags"].append(record)
     for owner in _as_sequence(_safe_member(view, "GetGTols", default=[])):
         record = _professional_annotation_record(owner, "geometric_tolerance", view_record)
@@ -1559,7 +1577,7 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
                         or _safe_member(dimension, "GetNameForSelection", default="")
                         or _safe_member(_safe_member(dimension, "GetDimension"), "FullName", default="")
                     ),
-                    "type": _safe_member(dimension, "Type", default=None),
+                    "type": _safe_member(dimension, "Type2", default=None),
                     "text": _safe_member(dimension, "GetText", 0, default=""),
                     "box": native_box or estimated_box_evidence.get("box"),
                     "box_source": "native" if native_box else estimated_box_evidence.get("source"),
@@ -1573,6 +1591,15 @@ def inspect_drawing_structure(drawing_model, *, paper_size_hint=None, title_bloc
                     "is_hole_callout": bool(_safe_member(dimension, "IsHoleCallout", default=False)),
                     "hole_callout_variables": _as_sequence(_safe_member(dimension, "GetHoleCalloutVariables", default=[])),
                 }
+                from scripts.sw_drawing_native import dimension_binding
+                native_annotation = _safe_member(dimension, "GetAnnotation")
+                dimension_record.update(dimension_binding(_safe_member(native_annotation, "GetName", default=""), dimension_record["type"]))
+                native_dimension = _safe_member(dimension, "GetDimension2", 0)
+                system_value = _safe_member(native_dimension, "SystemValue")
+                dimension_record["value_mm"] = float(system_value) * 1000 if isinstance(system_value, (int, float)) and dimension_record["type"] != 3 else None
+                dimension_record["value_degrees"] = math.degrees(system_value) if isinstance(system_value, (int, float)) and dimension_record["type"] == 3 else None
+                dimension_record["basic"] = _safe_member(_safe_member(native_dimension, "Tolerance"), "Type") == 1
+                dimension_record["prefix"] = _safe_member(dimension, "GetText", 1, default="")
                 dimensions.append(dimension_record)
                 if dimension_record["is_hole_callout"]:
                     professional_annotations["hole_callouts"].append({
@@ -1904,37 +1931,28 @@ def validate_generic_drawing_generation(spec) -> dict:
             "views": unsupported_views,
             "message": "通用生成器尚不能创建请求的辅助、轴测、剖视或局部视图。",
         })
-    configured_views = [name for name in ("front", "top", "right") if views.get(name)]
+    from scripts.sw_drawing_native import validate_native_requests, _position
+    configured_views = [name for name in ("front", "top", "right") if views.get(name)
+                        and (set(views[name]) != {"positionMm"} or not _position(views[name]["positionMm"]))]
     if configured_views:
         issues.append({
             "code": "DRAWING_VIEW_OPTIONS_UNSUPPORTED",
             "path": "views",
             "views": configured_views,
-            "message": "通用生成器尚不能执行标准视图对象内的名称、方向或位置选项。",
+            "message": "标准视图对象仅支持显式 positionMm，尚不支持自定义名称或方向。",
         })
-    if spec.get("requiredDimensions"):
-        issues.append({
-            "code": "DRAWING_REQUIRED_DIMENSIONS_UNSUPPORTED",
-            "path": "requiredDimensions",
-            "message": "通用生成器只能导入模型尺寸，不能可靠创建并绑定指定 ID、视图和语义的尺寸。",
-        })
-    if spec.get("holeRequirements"):
-        issues.append({
-            "code": "DRAWING_HOLE_REQUIREMENTS_UNSUPPORTED",
-            "path": "holeRequirements",
-            "message": "通用生成器尚不能创建孔标注或孔表；请使用专项脚本并回读证据。",
-        })
+    issues.extend(validate_native_requests(spec))
     professional_annotations = dict(spec.get("professionalAnnotations") or {})
     unsupported_professional_fields = sorted(
         name for name, values in professional_annotations.items()
-        if name != "centerMarks" and values
+        if name not in {"centerMarks", "datums", "geometricTolerances"} and values
     )
     if unsupported_professional_fields:
         issues.append({
             "code": "DRAWING_PROFESSIONAL_ANNOTATIONS_UNSUPPORTED",
             "path": "professionalAnnotations",
             "fields": unsupported_professional_fields,
-            "message": "通用生成器目前只支持已回读验证的自动中心标记；其余专业标注仍须使用专项脚本。",
+            "message": "通用生成器支持中心标记、原生基准和 GD&T；请求的其他专业标注仍须使用专项脚本。",
         })
     title_fields = sorted(set((spec.get("titleBlock") or {})) - {"required", "format"})
     if title_fields:
@@ -1959,11 +1977,21 @@ def validate_generic_drawing_generation(spec) -> dict:
     }
 
 
-def generate_drawing_from_spec(drawing_model, spec, source_model_path, template_candidates=None) -> dict:
+def generate_drawing_from_spec(drawing_model, spec, source_model_path, template_candidates=None, *, sw_app=None, initial_save_path=None, evidence_context=None) -> dict:
     """@brief 按已校验 DrawingSpec 创建标准工程图结构和制造标注入口。"""
     capability = validate_generic_drawing_generation(spec)
     if capability["status"] != "pass":
         return capability
+    native_requested = any((spec.get("professionalAnnotations") or {}).get(key) for key in ("datums", "geometricTolerances")) or bool(spec.get("requiredDimensions"))
+    if native_requested:
+        from scripts.drawing_spec import validate_drawing_spec
+        validation = validate_drawing_spec(spec)
+        if validation["status"] == "blocked":
+            return validation
+        revision = str(_safe_member(sw_app, "RevisionNumber", default="") or "")
+        if revision.split(".")[0] != "34" or initial_save_path is None or evidence_context is None:
+            return {"status": "blocked", "stage": "capability_preflight", "error_code": "DRAWING_NATIVE_CONTEXT_REQUIRED",
+                    "message": "原生 GD&T/指定尺寸必须通过 SW2026 受控出图包入口执行，以完成初次保存和持久关联核验。", "manual_review_required": True}
     paper_size = str(spec.get("paperSize", "A3")).upper()
     projection = str(spec.get("projection", "first_angle")).lower()
     model_size_mm = spec.get("modelSizeMm")
@@ -1991,12 +2019,40 @@ def generate_drawing_from_spec(drawing_model, spec, source_model_path, template_
         paper_size=paper_size,
         projection=projection,
         requested_scale=spec.get("scale"),
+        gap_m=0.055 if spec.get("requiredDimensions") else 0.018,
     )
     if layout.get("status") != "pass":
         return {"status": "blocked", "stage": "layout", "sheetSetup": sheet_setup, "layout": layout, "error_code": layout.get("error_code"), "manual_review_required": True}
     views = create_adaptive_standard_views(drawing_model, str(source_model_path), layout)
     if views.get("status") != "pass":
         return {"status": "failed", "stage": "views", "sheetSetup": sheet_setup, "layout": layout, "views": views, "error_code": views.get("error_code"), "manual_review_required": True}
+    from scripts.sw_drawing_native import map_views, create_dimensions, create_professional_annotations
+    view_objects = map_views(drawing_model, views) if native_requested or any(spec.get("views", {}).get(key) for key in ("front", "top", "right")) else {}
+    for key, view in view_objects.items():
+        if (spec.get("views", {}).get(key) or {}).get("positionMm"):
+            position = [value / 1000 for value in spec["views"][key]["positionMm"]]
+            view.Position = VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, position)
+            if any(abs(actual - intended) > 1e-7 for actual, intended in zip(get_com_member(view, "Position")[:2], position)):
+                raise RuntimeError("标准视图位置设置未生效")
+            for records in (layout["views"], views["views"]):
+                for record in records:
+                    if _normalise_orientation(record["name"]) == key:
+                        record.update(center=position, actual_center=position, explicit_position=True)
+    if native_requested:
+        sheet = get_com_member(drawing_model, "GetCurrentSheet")
+        numerator, denominator = layout["scale_ratio"]
+        if not get_com_member(sheet, "SetScale", float(numerator), float(denominator), False, False):
+            raise RuntimeError("图纸比例设置失败")
+        properties = get_com_member(sheet, "GetProperties2")
+        if len(properties) != 8 or abs(properties[2] / properties[3] - layout["scale"]) > 1e-8:
+            raise RuntimeError("图纸比例回读与计划不一致")
+    if initial_save_path is not None:
+        try:
+            from scripts.sw_connect import save_document
+            if not save_document(drawing_model, str(initial_save_path)):
+                raise RuntimeError("工程图初次保存失败")
+        except Exception as error:
+            return {"status": "failed", "stage": "initial_save", "error_code": "DRAWING_INITIAL_SAVE_FAILED", "message": str(error), "manual_review_required": True}
     professional_annotations = dict(spec.get("professionalAnnotations") or {})
     center_marks = auto_insert_center_marks(drawing_model, professional_annotations.get("centerMarks"))
     if center_marks.get("status") == "failed":
@@ -2012,8 +2068,15 @@ def generate_drawing_from_spec(drawing_model, spec, source_model_path, template_
             "retryable": bool(center_marks.get("retryable")),
             "manual_review_required": True,
         }
-    dimension_result = insert_dimensions(drawing_model) if spec.get("requiredDimensions") or spec.get("insertModelDimensions", True) else False
-    arrangement = auto_arrange_drawing_dimensions(drawing_model) if dimension_result else {"status": "review_required", "error_code": "DRAWING_DIMENSIONS_NOT_REQUESTED"}
+    dimensions = create_dimensions(drawing_model, spec["requiredDimensions"], view_objects) if spec.get("requiredDimensions") else {}
+    dimension_result = bool(dimensions) or (insert_dimensions(drawing_model) if spec.get("insertModelDimensions", True) else False)
+    arrangement = {"status": "pass", "method": "explicit_positions"} if dimensions else auto_arrange_drawing_dimensions(drawing_model) if dimension_result else {"status": "review_required", "error_code": "DRAWING_DIMENSIONS_NOT_REQUESTED"}
+    native_records = []
+    if any(professional_annotations.get(key) for key in ("datums", "geometricTolerances")):
+        paper = PAPER_SIZES[paper_size]
+        native_records = create_professional_annotations(drawing_model, professional_annotations, views, sw_app, dimensions, (paper["width_m"], paper["height_m"]))
+    if evidence_context is not None:
+        evidence_context.update(dimensions=dimensions, native_records=native_records)
     bom_spec = spec.get("bom") or {}
     bom_requested = bool(bom_spec.get("required")) or spec.get("documentType") == "assembly"
     bom_result = {"requested": bom_requested, "created": False, "status": "not_requested"}
@@ -2064,3 +2127,9 @@ def generate_drawing_from_spec(drawing_model, spec, source_model_path, template_
         "manual_review_required": True,
         "error_code": None if status == "pass" else "DRAWING_GENERATION_REVIEW_REQUIRED",
     }
+
+
+def generate_drawing_package(spec_source, output_dir, drawing_filename="drawing.slddrw", *, overwrite=False):
+    """完整受控入口；CLI、Skill 和现有 MCP 出图工具共用。"""
+    from scripts.sw_drawing_package import generate_package
+    return generate_package(spec_source, output_dir, drawing_filename, overwrite=overwrite)

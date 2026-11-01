@@ -26,7 +26,7 @@ def load_drawing_spec(source: str | Path | Mapping[str, Any]) -> dict[str, Any]:
     if path.suffix.lower() != ".json" or not path.is_file():
         raise ValueError(f"DrawingSpec 必须是现有 JSON 文件: {path}")
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as exc:
         raise ValueError(f"DrawingSpec JSON 无效: {exc}") from exc
     if not isinstance(payload, dict):
@@ -58,6 +58,7 @@ def validate_drawing_spec(source: str | Path | Mapping[str, Any]) -> dict[str, A
     """@brief 校验工程图规格并返回可追溯的阻断/通过报告。"""
     try:
         spec = load_drawing_spec(source)
+        json.dumps(spec, allow_nan=False)
     except ValueError as exc:
         return {"status": "blocked", "schema_version": SCHEMA_VERSION, "issues": [_issue("DRAWING_SPEC_INVALID", str(exc))]}
 
@@ -110,6 +111,10 @@ def validate_drawing_spec(source: str | Path | Mapping[str, Any]) -> dict[str, A
                            "right": "right", "rightview": "right", "右视": "right"}
     professional_annotations = spec.get("professionalAnnotations") or {}
     center_mark_specs = professional_annotations.get("centerMarks", []) if isinstance(professional_annotations, dict) else []
+    executable = any("target" in item or "targets" in item for item in spec.get("requiredDimensions") or [] if isinstance(item, dict)) or any("target" in item for key in ("datums", "geometricTolerances") for item in professional_annotations.get(key) or [] if isinstance(item, dict))
+    if executable and not issues:
+        from scripts.sw_drawing_native import validate_native_requests
+        issues.extend({**item, "severity": "error"} for item in validate_native_requests(spec))
     for index, item in enumerate(center_mark_specs or []):
         if not isinstance(item, dict):
             continue
