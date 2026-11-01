@@ -303,6 +303,7 @@ Artifacts + Evidence
 | API / Backend | [`references/`](references/) |
 | Design audit / drive sizing | [`references/design-rule-check.md`](references/design-rule-check.md) · [`references/drive-sizing.md`](references/drive-sizing.md) |
 | Drilling panel analysis | [`subskills/solidworks-engineering-drawing/references/drilling-panel-gdt.md`](subskills/solidworks-engineering-drawing/references/drilling-panel-gdt.md) |
+| Native GD&T drawing copy (SW2026 pilot) | [`subskills/solidworks-engineering-drawing/references/native-gdt.md`](subskills/solidworks-engineering-drawing/references/native-gdt.md) |
 | Tolerance extraction | [`references/tolerance-extraction.md`](references/tolerance-extraction.md) |
 | Rename preview | [`references/rename-preview.md`](references/rename-preview.md) |
 | Approximate sprocket | [`references/sprocket.md`](references/sprocket.md) |

@@ -87,7 +87,7 @@ def _snapshot(model) -> dict[str, Any]:
     return {"volume_mm3": volume, "size_mm": dimensions, "solid_bodies": len(bodies)}
 
 
-def _open_checked(session, path: Path):
+def _open_checked(session, path: Path, *, read_only=True):
     """避免 SolidWorks 因同名已打开文档复用错误对象。"""
     requested = path.resolve()
     for document in session._documents():
@@ -98,7 +98,7 @@ def _open_checked(session, path: Path):
                       or (not existing and title.casefold() == path.stem.casefold()))
         if same_title and (not existing or Path(existing).resolve() != requested):
             raise ValueError("已打开其他同名文档，无法安全确认文件身份")
-    model = session.open(str(path), read_only=True, silent=True)
+    model = session.open(str(path), read_only=read_only, silent=True)
     try:
         actual = str(get_com_member(model, "GetPathName") or "")
         matches = bool(actual) and Path(actual).resolve() == requested

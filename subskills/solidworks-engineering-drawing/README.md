@@ -40,6 +40,9 @@
 
 ## 兼容入口
 
+已有图纸的 SW2026 原生基准和 GD&T 写入使用独立的[图纸副本流程](references/native-gdt.md)，
+支持精确目标、14 种单框符号和受限材料条件，并重开核对持久关联。该入口保持 `pilot/review_required`。
+
 历史调用仍可使用根路径：
 
 ```python

@@ -128,6 +128,7 @@ def check_json_files():
         ROOT / "apps/desktop/cad_workbench/schemas/advanced_geometry.schema.json",
         ROOT / "subskills/solidworks-vibecad/schemas/design_plan.schema.json",
         ROOT / "subskills/solidworks-engineering-drawing/schemas/drawing_spec.schema.json",
+        ROOT / "subskills/solidworks-engineering-drawing/schemas/gdt_copy_spec.schema.json",
     ]
     for path in targets:
         json.loads(path.read_text(encoding="utf-8"))

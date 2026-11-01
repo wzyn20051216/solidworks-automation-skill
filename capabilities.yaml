@@ -385,7 +385,7 @@
       "verified_versions": ["2024", "2026"],
       "dependencies": ["SolidWorks 或 AutoCAD"],
       "mcp_tools": ["solidworks_generate_drawing", "solidworks_review_drawing", "solidworks_inspect_drawing"],
-      "limitations": ["工程图生成与审视已抽离到 solidworks-engineering-drawing 子技能；SW2026 已验证三视图、6 个真实尺寸实体、PDF 和非空 BMP", "IAnnotation 不提供尺寸文字原生包围盒，只能用锚点/字体保守估算并人工目视复核", "图框、标题栏、尺寸链、孔表和 GB/T 风格必须人工目视复核", "钣金缺少可靠展开证据时返回 blocked/pilot"],
+      "limitations": ["工程图生成与审视已抽离到 solidworks-engineering-drawing 子技能；SW2026 已验证三视图、真实尺寸实体、PDF 和非空 BMP", "SW2026 原生 GD&T 副本入口仅支持单页单零件横向 A3 毫米图纸；14 种单框符号和受限材料条件，保持 review_required；通用 DrawingSpec 自由文字 GD&T 仍阻断", "尺寸文字使用最终 PDF 矢量文字框；新增基准、公差框、引线和制造语义仍需目视复核", "图框、标题栏、尺寸链、孔表和 GB/T 风格必须人工目视复核", "钣金缺少可靠展开证据时返回 blocked/pilot"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {

@@ -39,6 +39,7 @@ metadata: { "openclaw": { "os": ["win32"], "requires": { "anyBins": ["python", "
 - 通用 MCP 生成器当前只可靠执行空配置的 `front/top/right` 三视图、显式且可容纳的比例、模型尺寸导入、注释和模板化 BOM。轴测、剖视、局部视图、指定 ID 尺寸、孔标注/孔表、标题栏业务字段和钣金专用选项必须在修改文档前返回 `DRAWING_SPEC_CAPABILITY_UNSUPPORTED`，由专项脚本执行。
 - 审查器按尺寸 ID/视图/种类/数值、孔规格/数量/位置、真实 BOM 类型/数据行/配置及标题栏字段回读做结构化核验；模板候选、任意表格或模糊子串不能作为通过证据。
 - `professionalAnnotations` 可声明中心标记、中心线、孔标注、基准、GD&T、表面粗糙度和焊接符号。审查器只接受 SolidWorks 专用实体回读；普通 Note 文字不能替代。
+- 已有单页、单零件、横向 A3 毫米图纸可走 [`references/native-gdt.md`](references/native-gdt.md) 的 SW2026 原生 GD&T 副本入口：先只读列出精确目标，再按结构化计划写入基准和单框公差。支持 14 种符号及受限材料条件，保存重开核对标注/目标持久身份、XML、样式和位置，导出 PDF/BMP 并检查源哈希。结果保持 `review_required`，不代替工程公差设计；通用 DrawingSpec 的旧自由文字 GD&T 仍被前置阻断。
 - 通用生成器已支持 `centerMarks` 自动写入：每项必须声明 `id`、标准视图、期望总数和 `targets`（`holes`/`fillets`/`slots`），并通过 `GetFirstCenterMark2/GetNext` 实体回读。SW2026 真机确认新建工程图需首次保存后再插入；未保存状态下 API 可能返回 `True` 但实体暂不可回读，封装会保持失败。其余专业标注仍保持能力阻断。
 - 跨版本真机矩阵使用 `python tests/solidworks_drawing_version_matrix.py --years 2024 2025 2026`。脚本只启动已注册的精确版本 ProgID，并核对实际回读年份；未安装版本记为 `unavailable`，不得用默认 ProgID 的结果顶替。
 - 钣金工程图只有在本机存在可靠展开图证据时继续；缺证据返回 `blocked`，不宣称无人值守完成。

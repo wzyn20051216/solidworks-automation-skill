@@ -198,12 +198,9 @@ sheet.SetTemplateName(formatPath)  # .slddrt 文件路径
 ## 导出 PDF
 
 ```python
-sw = model.GetSldWorksObject()
-pdf_data = sw.GetExportFileData(1)  # swExportPDFData
-sheet_names = drawing.GetSheetNames()
-pdf_data.SetSheets(0, sheet_names)  # 0=指定图纸
+from scripts.sw_drawing import export_sheet_to_pdf
 
-errors = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-warnings = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)
-model.Extension.SaveAs("output.pdf", 0, 1, pdf_data, errors, warnings)
+# 从受控会话取得真实应用对象；SW2026 不依赖 ModelDoc2.GetSldWorksObject。
+if not export_sheet_to_pdf(drawing, "output.pdf", sw_app=session.sw):
+    raise RuntimeError("PDF 导出失败")
 ```

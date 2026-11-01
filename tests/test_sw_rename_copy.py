@@ -97,18 +97,20 @@ def test_unexpected_source_change_stops_with_evidence(tmp_path, source, monkeypa
     assert not result["outputs"] and Path(result["manifest"]).exists()
 
 
-def test_same_named_open_document_is_not_closed_or_reused(tmp_path, source):
+@pytest.mark.parametrize("read_only", [True, False])
+def test_same_named_open_document_is_not_closed_or_reused(tmp_path, source, read_only):
     other = tmp_path / "other"
     other.mkdir()
     doc = SimpleNamespace(GetTitle=lambda: "source.sldprt", GetPathName=lambda: str(other / "source.sldprt"))
     session = FakeSession()
     session._owned_documents.append(doc)
     with pytest.raises(ValueError, match="同名"):
-        tool._open_checked(session, source)
+        tool._open_checked(session, source, read_only=read_only)
     assert session._owned_documents == [doc]
 
 
-def test_unknown_returned_document_is_disowned_without_closing(source):
+@pytest.mark.parametrize("read_only", [True, False])
+def test_unknown_returned_document_is_disowned_without_closing(source, read_only):
     session = FakeSession()
     unknown = SimpleNamespace(GetPathName=lambda: "")
     def open_unknown(*_args, **_kwargs):
@@ -116,8 +118,23 @@ def test_unknown_returned_document_is_disowned_without_closing(source):
         return unknown
     session.open = open_unknown
     with pytest.raises(RuntimeError, match="路径不一致"):
-        tool._open_checked(session, source)
+        tool._open_checked(session, source, read_only=read_only)
     assert session._owned_documents == []
+
+
+def test_checked_writable_open_keeps_identity_check(source):
+    session = FakeSession()
+    flags = []
+    normal_open = session.open
+
+    def open_recording(path, **kwargs):
+        flags.append(kwargs)
+        return normal_open(path, **kwargs)
+
+    session.open = open_recording
+    model = tool._open_checked(session, source, read_only=False)
+    assert flags == [{"read_only": False, "silent": True}]
+    assert model.GetPathName() == str(source)
 
 
 @pytest.mark.parametrize("dirty,deps,bodies", [(True, (), [1]), (False, ("external", "ref.sldprt"), [1]), (False, None, [1]), (False, (), [])])

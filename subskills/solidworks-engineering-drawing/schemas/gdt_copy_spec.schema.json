@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SolidWorks 2026 原生 GD&T 图纸副本计划",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "sourceSha256", "sheet", "paperSize", "datums", "geometricTolerances"],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "sourceSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sheet": {"type": "string", "minLength": 1, "maxLength": 256},
+    "paperSize": {"const": "A3"},
+    "datums": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/datum"}},
+    "geometricTolerances": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/gtol"}}
+  },
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "label": {"type": "string", "pattern": "^[A-Z]{1,2}$"},
+    "point": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}},
+    "position": {"type": "array", "minItems": 2, "maxItems": 2, "prefixItems": [{"type": "number", "minimum": 0, "maximum": 420}, {"type": "number", "minimum": 0, "maximum": 297}]},
+    "target": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["kind", "startMm", "endMm"], "properties": {
+          "kind": {"const": "line"}, "startMm": {"$ref": "#/$defs/point"}, "endMm": {"$ref": "#/$defs/point"}
+        }},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "centerMm", "radiusMm"], "properties": {
+          "kind": {"const": "circle"}, "centerMm": {"$ref": "#/$defs/point"}, "radiusMm": {"type": "number", "exclusiveMinimum": 0}
+        }},
+        {"type": "object", "additionalProperties": false, "required": ["kind", "name", "systemValue"], "properties": {
+          "kind": {"const": "dimension"}, "name": {"type": "string", "minLength": 1, "maxLength": 512}, "systemValue": {"type": "number"}
+        }}
+      ]
+    },
+    "datum": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "view", "label", "positionMm", "displayStyle", "target"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"}, "view": {"$ref": "#/$defs/id"}, "label": {"$ref": "#/$defs/label"},
+        "positionMm": {"$ref": "#/$defs/position"}, "displayStyle": {"enum": ["square", "round_gb"]}, "target": {"$ref": "#/$defs/target"}
+      }
+    },
+    "gtol": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "view", "characteristic", "tolerance", "diameter", "datums", "target"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"}, "view": {"$ref": "#/$defs/id"},
+        "characteristic": {"enum": ["straightness", "flatness", "circularity", "cylindricity", "line_profile", "surface_profile", "parallelism", "perpendicularity", "angularity", "position", "concentricity", "symmetry", "circular_runout", "total_runout"]},
+        "tolerance": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+        "diameter": {"type": "boolean"}, "datums": {"type": "array", "maxItems": 3, "uniqueItems": true, "items": {"$ref": "#/$defs/label"}},
+        "materialCondition": {"enum": [null, "M", "L", "S"]}, "positionMm": {"$ref": "#/$defs/position"}, "target": {"$ref": "#/$defs/target"}
+      }
+    }
+  }
+}
