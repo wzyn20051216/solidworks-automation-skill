@@ -3,7 +3,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from scripts.sw_gdt_annotation import build_frame_xml, _check_position, _confirm_attachment, _set_position
+from scripts.sw_gdt_annotation import build_frame_xml, build_gtol_xmls, referenced_datums, _check_position, _confirm_attachment, _set_position
 
 
 def test_position_frame_records_explicit_value_and_datum_order():
@@ -98,3 +98,38 @@ def test_material_condition_is_structured_not_free_text(condition, node):
 def test_semantically_conflicting_options_are_rejected(kind, diameter, datums, condition):
     with pytest.raises(ValueError):
         build_frame_xml(kind, "0.02", diameter, datums, material_condition=condition)
+
+
+def test_composite_frames_keep_order_values_and_individual_datum_modifiers():
+    upper = {"characteristic": "position", "tolerance": "0.2", "diameter": True,
+             "datums": [{"label": "A", "materialCondition": "M"}, {"label": "B", "materialCondition": "L"}]}
+    lower = {**upper, "tolerance": "0.1", "datums": [upper["datums"][0]], "composite": True}
+    request = {"frames": [upper, lower]}
+    xmls = [ET.fromstring(xml) for xml in build_gtol_xmls(request)]
+    assert [frame.findtext("ToleranceSymbol") for frame in xmls] == ["IGTOL-POSI", ""]
+    assert [frame.findtext("ToleranceRangeInfo/PrimaryToleranceValue") for frame in xmls] == ["0.2", "0.1"]
+    assert [node.text for node in xmls[0].findall(".//DatumMaterialCondition")] == ["MaximumMaterialCondition", "LeastMaterialCondition"]
+    assert referenced_datums(request) == {"A", "B"}
+
+
+@pytest.mark.parametrize("change", ["first_composite", "looser", "different_symbol", "datum_reorder", "duplicate", "unknown_modifier", "mixed"])
+def test_invalid_multi_frame_relationships_are_blocked(change):
+    first = {"characteristic": "position", "tolerance": "0.2", "diameter": True, "datums": ["A", "B"]}
+    second = {**first, "tolerance": "0.1", "composite": True}
+    request = {"frames": [first, second]}
+    if change == "first_composite":
+        first["composite"] = True
+    elif change == "looser":
+        second["tolerance"] = "0.3"
+    elif change == "different_symbol":
+        second["characteristic"] = "parallelism"
+    elif change == "datum_reorder":
+        second["datums"] = ["B", "A"]
+    elif change == "duplicate":
+        first["datums"] = ["A", {"label": "A"}]
+    elif change == "unknown_modifier":
+        first["datums"] = [{"label": "A", "materialCondition": "Z"}]
+    else:
+        request["tolerance"] = "0.2"
+    with pytest.raises(ValueError):
+        build_gtol_xmls(request)

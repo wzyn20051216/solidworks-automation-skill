@@ -13,7 +13,7 @@ if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.sw_connect import get_com_member
-from scripts.sw_gdt_annotation import build_frame_xml, insert_datum, insert_gtol
+from scripts.sw_gdt_annotation import build_gtol_xmls, referenced_datums, verify_gtol_frames, insert_datum, insert_gtol
 from scripts.sw_read_guard import SolidWorksReadGuard
 from scripts.sw_rename_copy import _open_checked, _sha256
 from scripts.sw_session import SolidWorksSession
@@ -77,7 +77,7 @@ def validate_plan(plan):
         if row["target"]["kind"] == "dimension":
             raise ValueError("基准当前只支持明确的边线目标")
     for row in plan["geometricTolerances"]:
-        build_frame_xml(row["characteristic"], row["tolerance"], row["diameter"], row["datums"], material_condition=row.get("materialCondition"))
+        build_gtol_xmls(row)
         if (row["target"]["kind"] == "dimension") == ("positionMm" in row):
             raise ValueError("尺寸关联公差自动定位；边线关联公差必须指定位置")
     return plan
@@ -136,13 +136,13 @@ def _same_id(extension, before, after):
     return get_com_member(extension, "IsSamePersistentID", memoryview(before), memoryview(after)) == 1
 
 
-def _resolve_plan(drawing, plan):
+def _resolve_plan(drawing, plan, *, expected_sheet_size=(.420, .297), dimensions=None):
     sheet = get_com_member(drawing, "GetCurrentSheet")
     if str(get_com_member(sheet, "GetName")) != plan["sheet"]:
         raise ValueError("计划的图纸页与当前页不一致")
     properties = get_com_member(sheet, "GetProperties2")
-    if not isinstance(properties, (list, tuple)) or len(properties) != 8 or not _near(properties[5:7], [.420, .297]):
-        raise ValueError("当前图幅不是已验证的横向 A3")
+    if not isinstance(properties, (list, tuple)) or len(properties) != 8 or not _near(properties[5:7], expected_sheet_size):
+        raise ValueError("实际图幅与计划不一致")
     units = get_com_member(drawing, "GetUnits")
     if not isinstance(units, (list, tuple)) or not units or units[0] != 0:  # swMM
         raise ValueError("此入口要求图纸使用毫米单位")
@@ -161,11 +161,49 @@ def _resolve_plan(drawing, plan):
             matching = [view for view in views if str(get_com_member(view, "Name") or "") == row["view"]]
             if len(matching) != 1:
                 raise ValueError("视图名称不唯一或不存在：" + row["view"])
-            if kind == "gtol" and not set(row["datums"]) <= available:
+            if kind == "gtol" and not referenced_datums(row) <= available:
                 raise ValueError("公差引用了不存在的基准")
-            target = resolve_target(matching[0], row["target"])
+            target_spec = row["target"]
+            if target_spec.get("kind") == "dimension" and "dimensionId" in target_spec:
+                bound = (dimensions or {}).get(target_spec["dimensionId"])
+                if not bound or bound["view"] != row["view"]:
+                    raise ValueError("公差目标尺寸不存在或属于其他视图")
+                target = bound["object"]
+            else:
+                target = resolve_target(matching[0], target_spec)
             resolved.append((kind, row, matching[0], target, _persistent_id(extension, target)))
     return resolved
+
+
+def create_annotations(drawing, resolved, app, *, name_ids=False):
+    """在调用者拥有的新文档中应用已全量解析的标注，返回保存重开所需证据。"""
+    records = []
+    extension = get_com_member(drawing, "Extension")
+    annotation_ids = []
+    for view in get_com_member(get_com_member(drawing, "GetCurrentSheet"), "GetViews") or ():
+        for collection in ("GetDatumTags", "GetGTols"):
+            for existing in get_com_member(view, collection) or ():
+                annotation_ids.append(_persistent_id(extension, get_com_member(existing, "GetAnnotation")))
+    for kind, row, view, target, target_id in resolved:
+        position = tuple(value / 1000 for value in row["positionMm"]) if "positionMm" in row else None
+        if kind == "datum":
+            obj = insert_datum(drawing, view, target, app, row["label"], position, display_style=row["displayStyle"])
+        else:
+            options = {"frames": row["frames"]} if "frames" in row else {key: row[key] for key in ("characteristic", "tolerance", "diameter", "datums", "materialCondition") if key in row}
+            obj = insert_gtol(drawing, view, target, app, **options, position=position,
+                              target_kind="dimension" if row["target"]["kind"] == "dimension" else "edge")
+        ann = get_com_member(obj, "GetAnnotation")
+        if name_ids:
+            name = "CAD_ANN__" + row["id"]
+            if not get_com_member(ann, "SetName", name) or get_com_member(ann, "GetName") != name:
+                raise RuntimeError("无法持久绑定标注 ID")
+        annotation_id = _persistent_id(extension, ann)
+        if any(_same_id(extension, previous, annotation_id) for previous in annotation_ids):
+            raise RuntimeError("写入复用了已有标注身份，副本不保存")
+        annotation_ids.append(annotation_id)
+        records.append({"kind": kind, "request": row, "object": obj, "annotation_id": annotation_id,
+                        "target_id": target_id, "position": get_com_member(ann, "GetPosition")})
+    return records
 
 
 def _verify_reopened(drawing, records):
@@ -193,9 +231,7 @@ def _verify_reopened(drawing, records):
             if get_com_member(obj, "GetLabel") != row["label"] or get_com_member(obj, "GetDisplayStyle") != (1 if row["displayStyle"] == "square" else 2):
                 raise RuntimeError("重开后基准内容不一致")
         else:
-            xml = build_frame_xml(row["characteristic"], row["tolerance"], row["diameter"], row["datums"], material_condition=row.get("materialCondition"))
-            if get_com_member(obj, "GetFrameCount") != 1 or get_com_member(get_com_member(obj, "GetFrame", 1), "GetSymbolXml") != xml:
-                raise RuntimeError("重开后公差框内容不一致")
+            verify_gtol_frames(obj, build_gtol_xmls(row))
         position = get_com_member(ann, "GetPosition")
         if not _near(position[:2], record["position"][:2]):
             raise RuntimeError(f"重开后标注位置不一致：{row['id']}，预期 {record['position'][:2]}，实际 {position[:2]}")
@@ -225,7 +261,7 @@ def annotate_copy(source, plan, output_dir):
     if output.exists() or output.is_symlink() or not output.parent.is_dir():
         raise ValueError("输出目录必须不存在，且父目录必须存在")
     report = {"status": "blocked", "reviewRequired": True, "source": str(source), "outputs": [], "error": None,
-              "limitations": ["仅 SW2026 的单页单零件 A3 图纸副本", "不求解设计公差，不证明制造或标准合规", "尺寸应事先完整，复合公差框和基准材料修饰尚未支持"]}
+              "limitations": ["仅 SW2026 的单页单零件 A3 图纸副本", "不求解设计公差，不证明制造或标准合规", "尺寸应事先完整；自动新建尺寸请使用 DrawingSpec 出图包入口"]}
     created_dir = False
     try:
         with SolidWorksReadGuard(), SolidWorksSession(version=2026, visible=True) as session:
@@ -260,28 +296,7 @@ def annotate_copy(source, plan, output_dir):
                 raise RuntimeError("副本字节与计划不一致")
             drawing = _open_checked(session, copy, read_only=False)
             resolved = _resolve_plan(drawing, plan)
-            records = []
-            extension = get_com_member(drawing, "Extension")
-            annotation_ids = []
-            for view in get_com_member(get_com_member(drawing, "GetCurrentSheet"), "GetViews") or ():
-                for collection in ("GetDatumTags", "GetGTols"):
-                    for existing in get_com_member(view, collection) or ():
-                        annotation_ids.append(_persistent_id(extension, get_com_member(existing, "GetAnnotation")))
-            for kind, row, view, target, target_id in resolved:
-                position = tuple(value / 1000 for value in row["positionMm"]) if "positionMm" in row else None
-                if kind == "datum":
-                    obj = insert_datum(drawing, view, target, session.sw, row["label"], position, display_style=row["displayStyle"])
-                else:
-                    obj = insert_gtol(drawing, view, target, session.sw, characteristic=row["characteristic"], tolerance=row["tolerance"],
-                                      diameter=row["diameter"], datums=row["datums"], position=position,
-                                      target_kind="dimension" if row["target"]["kind"] == "dimension" else "edge", material_condition=row.get("materialCondition"))
-                ann = get_com_member(obj, "GetAnnotation")
-                annotation_id = _persistent_id(extension, ann)
-                if any(_same_id(extension, previous, annotation_id) for previous in annotation_ids):
-                    raise RuntimeError("写入复用了已有标注身份，副本不保存")
-                annotation_ids.append(annotation_id)
-                records.append({"kind": kind, "request": row, "object": obj, "annotation_id": annotation_id,
-                                "target_id": target_id, "position": get_com_member(ann, "GetPosition")})
+            records = create_annotations(drawing, resolved, session.sw)
             if not get_com_member(drawing, "ForceRebuild3", False):
                 raise RuntimeError("工程图重建失败")
             if not session.save(drawing, str(copy)):
