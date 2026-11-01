@@ -150,6 +150,7 @@ def _load_automation_modules() -> None:
         "collect_geometry_measurements": review.collect_geometry_measurements,
         "validate_hole_positions": review.validate_hole_positions,
         "drawing_generate_from_spec": drawing.generate_drawing_from_spec,
+        "drawing_generate_package": drawing.generate_drawing_package,
         "drawing_export_sheet_to_pdf": drawing.export_sheet_to_pdf,
         "drawing_save_review_previews": review.save_review_previews,
         "drawing_inspect_bmp_preview": review.inspect_bmp_preview,
@@ -3347,68 +3348,10 @@ def _drawing_report_path(output_dir: Path, basename: str) -> Path:
     },
 )
 def solidworks_generate_drawing(params: SolidWorksGenerateDrawingInput) -> str:
-    """按 DrawingSpec v1 创建工程图、PDF、预览和机器审视报告。"""
+    """按 DrawingSpec 自动创建工程图、原生尺寸/基本尺寸、基准及单框/复合 GD&T，保存重开核验并导出 PDF、预览和审视报告（原生标注限 SW2026，设计公差须明确）。"""
 
     def op():
-        output_dir = Path(os.path.expandvars(params.output_dir)).expanduser().resolve()
-        drawing_path = output_dir / params.drawing_filename
-        pdf_path = drawing_path.with_suffix(".pdf")
-        report_path = output_dir / f"{drawing_path.stem}_review_report.json"
-        if not params.overwrite and any(path.exists() for path in (drawing_path, pdf_path, report_path)):
-            raise ValueError("输出文件已存在；请更换 output_dir、设置 overwrite=true，或保留旧交付物并另起运行目录")
-
-        spec_validation = drawing_validate_spec(params.spec_path)
-        if spec_validation.get("status") == "blocked":
-            return spec_validation
-        spec = spec_validation["spec"]
-        source_path = Path(os.path.expandvars(str(spec["sourceModel"]))).expanduser().resolve()
-        if not source_path.is_file():
-            raise FileNotFoundError(f"DrawingSpec.sourceModel 不存在: {source_path}")
-        sw, _active = connect_solidworks(wait_seconds=1, visible=True)
-        source_model = open_document(sw, str(source_path), read_only=False, silent=True, raise_on_error=True)
-        drawing_model = new_document(sw, "drawing")
-        generation = drawing_generate_from_spec(
-            drawing_model,
-            spec,
-            str(source_path),
-            template_candidates=spec.get("templateCandidates"),
-        )
-        if generation.get("status") in {"blocked", "failed"}:
-            return generation
-        if not save_document(drawing_model, str(drawing_path)):
-            raise RuntimeError(f"工程图保存失败: {drawing_path}")
-        pdf_ok = drawing_export_sheet_to_pdf(drawing_model, str(pdf_path), sw_app=sw)
-        previews = drawing_save_review_previews(
-            drawing_model,
-            output_dir / "previews",
-            basename=drawing_path.stem,
-            views=("front", "top", "right"),
-        )
-        preview_evidence = [drawing_inspect_bmp_preview(path) for path in previews]
-        geometry_evidence = collect_geometry_measurements(source_model) if spec.get("holeRequirements") else None
-        review = drawing_review_artifacts(
-            spec,
-            structure=generation.get("structure"),
-            pdf_path=pdf_path if pdf_ok and pdf_path.is_file() else None,
-            preview_evidence=preview_evidence,
-            model_evidence=geometry_evidence,
-        )
-        payload = {
-            "status": review.get("status", "review_required"),
-            "capability": "solidworks-engineering-drawing",
-            "sourceModel": str(source_path),
-            "outputs": {
-                "slddrw": {"path": str(drawing_path), "exists": drawing_path.is_file(), "size_bytes": drawing_path.stat().st_size if drawing_path.is_file() else 0},
-                "pdf": {"path": str(pdf_path), "exists": pdf_path.is_file(), "size_bytes": pdf_path.stat().st_size if pdf_path.is_file() else 0},
-                "previews": preview_evidence,
-            },
-            "generation": generation,
-            "review": review,
-            "manual_review_required": bool(review.get("manual_review_required", True)),
-        }
-        report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        payload["reportPath"] = str(report_path)
-        return payload
+        return drawing_generate_package(params.spec_path, params.output_dir, params.drawing_filename, overwrite=params.overwrite)
 
     return _run_locked(op, params.response_format)
 

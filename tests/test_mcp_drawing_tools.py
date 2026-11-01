@@ -43,3 +43,17 @@ def test_drawing_spec_validation_can_be_used_without_loading_com(tmp_path: Path)
     result = validate_drawing_spec(str(source))
 
     assert result["status"] == "blocked"
+
+
+def test_generate_tool_routes_to_managed_package_without_new_tool_name(tmp_path, monkeypatch):
+    source = tmp_path / "spec.json"
+    source.write_text("{}", encoding="utf-8")
+    calls = []
+    monkeypatch.setattr(server, "_run_locked", lambda operation, response_format: operation())
+    def backend(spec_path, output_dir, drawing_filename, *, overwrite):
+        calls.append((spec_path, output_dir, drawing_filename, overwrite))
+        return {"status": "review_required", "native_validation": "pass"}
+    monkeypatch.setattr(server, "drawing_generate_package", backend, raising=False)
+    result = server.solidworks_generate_drawing(server.SolidWorksGenerateDrawingInput(spec_path=str(source), output_dir=str(tmp_path / "out")))
+    assert result["native_validation"] == "pass"
+    assert len(calls) == 1

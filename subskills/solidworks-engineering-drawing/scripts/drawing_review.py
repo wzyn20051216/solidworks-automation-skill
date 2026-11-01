@@ -5,6 +5,7 @@ import copy
 import math
 import re
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -86,11 +87,18 @@ def _dimension_mismatches(requirement: Mapping[str, Any], dimension: Mapping[str
                 actual_values.append(float(dimension["value_mm"]))
             except (TypeError, ValueError):
                 pass
-        rendered_values = _extract_numbers(actual_text)
-        if rendered_values:
-            actual_values.append(rendered_values[0])
+        if dimension.get("value_mm") is None:
+            rendered_values = _extract_numbers(actual_text)
+            if rendered_values:
+                actual_values.append(rendered_values[0])
         if not any(abs(value - expected_value) <= 0.01 for value in actual_values):
             mismatches.append("valueMm")
+    if "valueDegrees" in requirement and (not isinstance(dimension.get("value_degrees"), (int, float)) or not math.isclose(dimension["value_degrees"], requirement["valueDegrees"], abs_tol=.001, rel_tol=0)):
+        mismatches.append("valueDegrees")
+    if "basic" in requirement and dimension.get("basic") is not requirement["basic"]:
+        mismatches.append("basic")
+    if "prefix" in requirement and dimension.get("prefix") != requirement["prefix"]:
+        mismatches.append("prefix")
     for field in ("tolerance", "datum"):
         if field not in requirement:
             continue
@@ -432,7 +440,38 @@ def _professional_annotation_report(spec: Mapping[str, Any], structure: Mapping[
             ]
             expected_count = int(requirement.get("count", 1))
             expected_text = str(requirement.get("text") or "")
-            if request_key in {"centerMarks", "centerLines"}:
+            if "target" in requirement and request_key in {"datums", "geometricTolerances"}:
+                from scripts.sw_drawing_native import target_matches
+                from scripts.sw_gdt_annotation import build_gtol_xmls
+                matched = []
+                for record in candidates:
+                    if record.get("id") != requirement["id"] or not target_matches(requirement["target"], record.get("target")):
+                        continue
+                    if "positionMm" in requirement:
+                        position = record.get("position_m")
+                        if not isinstance(position, (tuple, list)) or len(position) < 2 or any(not math.isclose(value, intended / 1000, abs_tol=1e-6, rel_tol=0) for value, intended in zip(position[:2], requirement["positionMm"])):
+                            continue
+                    if request_key == "datums":
+                        valid = record.get("label") == requirement["label"] and record.get("display_style") == (1 if requirement["displayStyle"] == "square" else 2)
+                    else:
+                        expected_frames = build_gtol_xmls(requirement)
+                        actual_frames = record.get("frames") or []
+                        valid = len(expected_frames) == len(actual_frames)
+                        if valid:
+                            try:
+                                for expected, frame in zip(expected_frames, actual_frames):
+                                    xml = frame.get("xml")
+                                    if not isinstance(xml, str) or len(xml) > 65536 or "<!" in xml or ET.tostring(ET.fromstring(xml)) != ET.tostring(ET.fromstring(expected)):
+                                        valid = False
+                                        break
+                            except ET.ParseError:
+                                valid = False
+                    if valid:
+                        matched.append(record)
+                # 不能把重复 ID 的多项实体截断为一次成功。
+                if len(matched) != expected_count:
+                    matched = []
+            elif request_key in {"centerMarks", "centerLines"}:
                 matched = candidates[:expected_count]
             elif request_key == "datums":
                 matched = [

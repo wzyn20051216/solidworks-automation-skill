@@ -16,37 +16,135 @@
     "id": {"type": "string", "minLength": 1, "maxLength": 128},
     "label": {"type": "string", "pattern": "^[A-Z]{1,2}$"},
     "point": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}},
-    "position": {"type": "array", "minItems": 2, "maxItems": 2, "prefixItems": [{"type": "number", "minimum": 0, "maximum": 420}, {"type": "number", "minimum": 0, "maximum": 297}]},
+    "position": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [{"type": "number", "minimum": 0, "maximum": 420}, {"type": "number", "minimum": 0, "maximum": 297}]
+    },
     "target": {
       "oneOf": [
-        {"type": "object", "additionalProperties": false, "required": ["kind", "startMm", "endMm"], "properties": {
-          "kind": {"const": "line"}, "startMm": {"$ref": "#/$defs/point"}, "endMm": {"$ref": "#/$defs/point"}
-        }},
-        {"type": "object", "additionalProperties": false, "required": ["kind", "centerMm", "radiusMm"], "properties": {
-          "kind": {"const": "circle"}, "centerMm": {"$ref": "#/$defs/point"}, "radiusMm": {"type": "number", "exclusiveMinimum": 0}
-        }},
-        {"type": "object", "additionalProperties": false, "required": ["kind", "name", "systemValue"], "properties": {
-          "kind": {"const": "dimension"}, "name": {"type": "string", "minLength": 1, "maxLength": 512}, "systemValue": {"type": "number"}
-        }}
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "startMm", "endMm"],
+          "properties": {"kind": {"const": "line"}, "startMm": {"$ref": "#/$defs/point"}, "endMm": {"$ref": "#/$defs/point"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "centerMm", "radiusMm"],
+          "properties": {"kind": {"const": "circle"}, "centerMm": {"$ref": "#/$defs/point"}, "radiusMm": {"type": "number", "exclusiveMinimum": 0}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "name", "systemValue"],
+          "properties": {"kind": {"const": "dimension"}, "name": {"type": "string", "minLength": 1, "maxLength": 512}, "systemValue": {"type": "number"}}
+        }
       ]
     },
     "datum": {
-      "type": "object", "additionalProperties": false,
+      "type": "object",
+      "additionalProperties": false,
       "required": ["id", "view", "label", "positionMm", "displayStyle", "target"],
       "properties": {
-        "id": {"$ref": "#/$defs/id"}, "view": {"$ref": "#/$defs/id"}, "label": {"$ref": "#/$defs/label"},
-        "positionMm": {"$ref": "#/$defs/position"}, "displayStyle": {"enum": ["square", "round_gb"]}, "target": {"$ref": "#/$defs/target"}
+        "id": {"$ref": "#/$defs/id"},
+        "view": {"$ref": "#/$defs/id"},
+        "label": {"$ref": "#/$defs/label"},
+        "positionMm": {"$ref": "#/$defs/position"},
+        "displayStyle": {"enum": ["square", "round_gb"]},
+        "target": {"$ref": "#/$defs/target"}
       }
     },
     "gtol": {
-      "type": "object", "additionalProperties": false,
-      "required": ["id", "view", "characteristic", "tolerance", "diameter", "datums", "target"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "view", "target"],
       "properties": {
-        "id": {"$ref": "#/$defs/id"}, "view": {"$ref": "#/$defs/id"},
-        "characteristic": {"enum": ["straightness", "flatness", "circularity", "cylindricity", "line_profile", "surface_profile", "parallelism", "perpendicularity", "angularity", "position", "concentricity", "symmetry", "circular_runout", "total_runout"]},
+        "id": {"$ref": "#/$defs/id"},
+        "view": {"$ref": "#/$defs/id"},
+        "characteristic": {
+          "enum": [
+            "straightness",
+            "flatness",
+            "circularity",
+            "cylindricity",
+            "line_profile",
+            "surface_profile",
+            "parallelism",
+            "perpendicularity",
+            "angularity",
+            "position",
+            "concentricity",
+            "symmetry",
+            "circular_runout",
+            "total_runout"
+          ]
+        },
         "tolerance": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
-        "diameter": {"type": "boolean"}, "datums": {"type": "array", "maxItems": 3, "uniqueItems": true, "items": {"$ref": "#/$defs/label"}},
-        "materialCondition": {"enum": [null, "M", "L", "S"]}, "positionMm": {"$ref": "#/$defs/position"}, "target": {"$ref": "#/$defs/target"}
+        "diameter": {"type": "boolean"},
+        "datums": {"type": "array", "maxItems": 3, "uniqueItems": true, "items": {"$ref": "#/$defs/datumReference"}},
+        "materialCondition": {"enum": [null, "M", "L", "S"]},
+        "positionMm": {"$ref": "#/$defs/position"},
+        "target": {"$ref": "#/$defs/target"},
+        "frames": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"$ref": "#/$defs/frame"}}
+      },
+      "oneOf": [
+        {"required": ["characteristic", "tolerance", "diameter", "datums"], "not": {"required": ["frames"]}},
+        {
+          "required": ["frames"],
+          "not": {
+            "anyOf": [
+              {"required": ["characteristic"]},
+              {"required": ["tolerance"]},
+              {"required": ["diameter"]},
+              {"required": ["datums"]},
+              {"required": ["materialCondition"]}
+            ]
+          }
+        }
+      ]
+    },
+    "datumReference": {
+      "oneOf": [
+        {"$ref": "#/$defs/label"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label"],
+          "properties": {"label": {"$ref": "#/$defs/label"}, "materialCondition": {"enum": [null, "M", "L", "S"]}}
+        }
+      ]
+    },
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["characteristic", "tolerance", "diameter", "datums"],
+      "properties": {
+        "characteristic": {
+          "enum": [
+            "straightness",
+            "flatness",
+            "circularity",
+            "cylindricity",
+            "line_profile",
+            "surface_profile",
+            "parallelism",
+            "perpendicularity",
+            "angularity",
+            "position",
+            "concentricity",
+            "symmetry",
+            "circular_runout",
+            "total_runout"
+          ]
+        },
+        "tolerance": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+        "diameter": {"type": "boolean"},
+        "datums": {"type": "array", "maxItems": 3, "uniqueItems": true, "items": {"$ref": "#/$defs/datumReference"}},
+        "materialCondition": {"enum": [null, "M", "L", "S"]},
+        "composite": {"type": "boolean"}
       }
     }
   }

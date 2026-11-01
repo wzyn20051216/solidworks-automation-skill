@@ -41,7 +41,10 @@
 ## 兼容入口
 
 已有图纸的 SW2026 原生基准和 GD&T 写入使用独立的[图纸副本流程](references/native-gdt.md)，
-支持精确目标、14 种单框符号和受限材料条件，并重开核对持久关联。该入口保持 `pilot/review_required`。
+支持精确目标、14 种符号、独立多框/复合框和基准 M/L/S 修饰，并重开核对持久关联。
+现有 MCP `solidworks_generate_drawing` 和 `scripts/sw_drawing_package.py` 也支持从单零件结构化规格
+自动创建尺寸、基本尺寸、基准和 GD&T，保存重开并检查 PDF/布局。原生路径限 SW2026，
+提供设计公差与精确几何目标；自由文字不猜测落图，保持 `pilot/review_required`，须目视复核。
 
 历史调用仍可使用根路径：
 

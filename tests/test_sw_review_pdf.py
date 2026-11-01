@@ -54,6 +54,16 @@ def test_repeated_hole_text_does_not_match_unrelated_text(text):
     assert not _PDF_DIMENSION_TEXT.search(text)
 
 
+@pytest.mark.parametrize("text", ["90°", "45.5°", "30 deg"])
+def test_angular_dimension_candidates_do_not_require_word_boundary_after_degree(text):
+    assert _PDF_DIMENSION_TEXT.search(text)
+
+
+@pytest.mark.parametrize("text", ["90°C", "90°angle"])
+def test_degree_inside_unrelated_unit_or_word_is_not_angular_dimension(text):
+    assert not _PDF_DIMENSION_TEXT.search(text)
+
+
 def test_pdf_overlapping_vector_text_is_reported(tmp_path: Path) -> None:
     """@brief 同页实际文字框重叠应返回稳定错误码。"""
     try:

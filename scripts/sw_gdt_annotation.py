@@ -27,7 +27,26 @@ _DIAMETER_ALLOWED = {"straightness", "position", "parallelism", "perpendicularit
 _DATUM = re.compile(r"^[A-Z]{1,2}$")
 
 
-def build_frame_xml(characteristic: str, tolerance: str, diameter: bool, datums: list[str], *, material_condition=None) -> str:
+def datum_references(datums):
+    """兼容旧字母列表，同时保留每个基准独立的材料修饰。"""
+    if not isinstance(datums, list) or len(datums) > 3:
+        raise ValueError("最多允许三个顺序基准")
+    result = []
+    for item in datums:
+        if isinstance(item, str):
+            item = {"label": item}
+        if not isinstance(item, dict) or set(item) - {"label", "materialCondition"}:
+            raise ValueError("基准必须为字母或结构化基准引用")
+        label, condition = item.get("label"), item.get("materialCondition")
+        if not isinstance(label, str) or not _DATUM.fullmatch(label) or condition not in (None, "M", "L", "S"):
+            raise ValueError("基准标识或材料修饰无效")
+        result.append({"label": label, "materialCondition": condition})
+    if len({item["label"] for item in result}) != len(result):
+        raise ValueError("同一框中的基准标识不得重复")
+    return result
+
+
+def build_frame_xml(characteristic: str, tolerance: str, diameter: bool, datums: list, *, material_condition=None, composite=False) -> str:
     """输入公差字符串以当前图纸显示单位解释；禁止猜测默认值。"""
     if not isinstance(characteristic, str) or characteristic not in _SYMBOLS:
         raise ValueError("不支持的形位公差类型")
@@ -39,13 +58,12 @@ def build_frame_xml(characteristic: str, tolerance: str, diameter: bool, datums:
         raise ValueError("公差数值无效") from error
     if not value.is_finite() or value <= 0:
         raise ValueError("公差必须大于零")
-    if not isinstance(diameter, bool) or not isinstance(datums, list) or len(datums) > 3:
+    if not isinstance(diameter, bool) or not isinstance(composite, bool):
         raise ValueError("公差带或基准输入无效")
-    if any(not isinstance(x, str) or not _DATUM.fullmatch(x) for x in datums) or len(set(datums)) != len(datums):
-        raise ValueError("基准标识必须是互不重复的一至两个大写字母")
+    references = datum_references(datums)
     if characteristic in _FORM and datums:
         raise ValueError("形状公差不能引用基准")
-    if characteristic in _DATUM_REQUIRED and not datums:
+    if characteristic in _DATUM_REQUIRED and not datums and not composite:
         raise ValueError("此公差必须显式提供基准")
     if diameter and characteristic not in _DIAMETER_ALLOWED:
         raise ValueError("此公差不支持圆柱公差带")
@@ -54,7 +72,7 @@ def build_frame_xml(characteristic: str, tolerance: str, diameter: bool, datums:
     if material_condition is not None and (characteristic not in {"position", "straightness"} or not diameter):
         raise ValueError("此入口仅对圆柱位置度和轴线直线度支持材料条件")
     root = ET.Element("GtolFrame")
-    ET.SubElement(root, "ToleranceSymbol").text = _SYMBOLS[characteristic]
+    ET.SubElement(root, "ToleranceSymbol").text = "" if composite else _SYMBOLS[characteristic]
     limits = ET.SubElement(root, "ToleranceRangeInfo")
     ET.SubElement(limits, "PrimaryToleranceValue").text = tolerance
     ET.SubElement(limits, "PrimaryRangeSymbol").text = "phi" if diameter else ""
@@ -63,9 +81,63 @@ def build_frame_xml(characteristic: str, tolerance: str, diameter: bool, datums:
         ET.SubElement(ET.SubElement(root, "MaterialCondition"), names[material_condition]).text = "true"
     for index in range(3):
         compartment = ET.SubElement(root, "DatumCompartment")
-        if index < len(datums):
-            ET.SubElement(ET.SubElement(compartment, "DatumDetail"), "DatumLetter").text = datums[index]
+        if index < len(references):
+            detail = ET.SubElement(compartment, "DatumDetail")
+            ET.SubElement(detail, "DatumLetter").text = references[index]["label"]
+            condition = references[index]["materialCondition"]
+            if condition:
+                ET.SubElement(detail, "DatumMaterialCondition").text = {"M": "MaximumMaterialCondition", "L": "LeastMaterialCondition", "S": "RegardlessToFeatureSize"}[condition]
     return ET.tostring(root, encoding="unicode", short_empty_elements=False)
+
+
+def build_gtol_xmls(request):
+    """构建有序单框、独立多框或复合框；所有层都在写入前校验。"""
+    fields = {"characteristic", "tolerance", "diameter", "datums", "materialCondition", "composite"}
+    if "frames" in request:
+        if fields & set(request):
+            raise ValueError("多框与旧单框字段不能同时提供")
+        frames = request["frames"]
+    else:
+        frames = [{key: value for key, value in request.items() if key in fields}]
+    if not isinstance(frames, list) or not 1 <= len(frames) <= 8:
+        raise ValueError("公差框必须包含 1..8 层")
+    xmls = []
+    previous = None
+    for frame in frames:
+        if not isinstance(frame, dict) or set(frame) - fields or not {"characteristic", "tolerance", "diameter", "datums"} <= set(frame):
+            raise ValueError("公差层字段不完整或包含未知字段")
+        composite = frame.get("composite", False)
+        if composite:
+            if previous is None:
+                raise ValueError("首层不能为复合后续层")
+            if frame["characteristic"] != previous["characteristic"] or frame["diameter"] != previous["diameter"]:
+                raise ValueError("复合后续层必须沿用前层特征及公差带类型")
+        xml = build_frame_xml(frame["characteristic"], frame["tolerance"], frame["diameter"], frame["datums"],
+                              material_condition=frame.get("materialCondition"), composite=composite)
+        if composite:
+            if Decimal(frame["tolerance"]) > Decimal(previous["tolerance"]):
+                raise ValueError("复合后续层公差不能大于前层")
+            old_refs, new_refs = datum_references(previous["datums"]), datum_references(frame["datums"])
+            if new_refs != old_refs[:len(new_refs)]:
+                raise ValueError("复合后续层只能按原顺序保留前层基准及修饰的前缀")
+        xmls.append(xml)
+        previous = frame
+    return xmls
+
+
+def referenced_datums(request):
+    frames = request.get("frames") or [request]
+    return {item["label"] for frame in frames for item in datum_references(frame["datums"])}
+
+
+def verify_gtol_frames(symbol, expected):
+    if get_com_member(symbol, "GetFormat") != 2 or get_com_member(symbol, "GetFrameCount") != len(expected):
+        raise RuntimeError("GTol 格式或框数不一致")
+    for index, xml in enumerate(expected, 1):
+        actual = get_com_member(get_com_member(symbol, "GetFrame", index), "GetSymbolXml")
+        if (not isinstance(actual, str) or not actual or len(actual) > 65536 or "<!" in actual
+                or ET.tostring(ET.fromstring(actual)) != ET.tostring(ET.fromstring(xml))):
+            raise RuntimeError(f"GTol 第 {index} 层内容回读不一致")
 
 
 def _select_target(drawing, view, edge):
@@ -147,9 +219,15 @@ def insert_datum(drawing, view, edge, app, label, position, *, display_style="sq
     return datum
 
 
-def insert_gtol(drawing, view, target, app, *, characteristic, tolerance, diameter, datums, position=None, target_kind="edge", material_condition=None):
+def insert_gtol(drawing, view, target, app, *, characteristic=None, tolerance=None, diameter=None, datums=None, position=None, target_kind="edge", material_condition=None, frames=None):
     """创建 2022+ XML 格式公差框；尺寸目标使用 SW 自动定位。"""
-    xml = build_frame_xml(characteristic, tolerance, diameter, datums, material_condition=material_condition)
+    if frames is not None:
+        if any(value is not None for value in (characteristic, tolerance, diameter, datums, material_condition)):
+            raise ValueError("多框与旧单框字段不能同时提供")
+        xmls = build_gtol_xmls({"frames": frames})
+    else:
+        xmls = build_gtol_xmls({"characteristic": characteristic, "tolerance": tolerance, "diameter": diameter, "datums": datums, "materialCondition": material_condition})
+    xml = xmls[0]
     if target_kind == "edge":
         x, y = _check_position(position)
         _select_target(drawing, view, target)
@@ -179,6 +257,12 @@ def insert_gtol(drawing, view, target, app, *, characteristic, tolerance, diamet
             raise RuntimeError("无法移除非预期的 GTol 占位框")
     if get_com_member(symbol, "GetFrameCount") != 1:
         raise RuntimeError("单框 GTol 出现非预期的框数量")
+    for index, next_xml in enumerate(xmls[1:], 2):
+        if not get_com_member(symbol, "AddFrame") or get_com_member(symbol, "GetFrameCount") != index:
+            raise RuntimeError("无法创建后续 GTol 层")
+        if not get_com_member(get_com_member(symbol, "GetFrame", index), "SetSymbolXml", next_xml):
+            raise RuntimeError(f"无法写入 GTol 第 {index} 层")
+    verify_gtol_frames(symbol, xmls)
     annotation = get_com_member(symbol, "GetAnnotation")
     _confirm_attachment(app, annotation, target)
     if target_kind == "edge":
