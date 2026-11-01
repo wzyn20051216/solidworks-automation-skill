@@ -189,7 +189,9 @@ def create_annotations(drawing, resolved, app, *, name_ids=False):
         if kind == "datum":
             obj = insert_datum(drawing, view, target, app, row["label"], position, display_style=row["displayStyle"])
         else:
-            options = {"frames": row["frames"]} if "frames" in row else {key: row[key] for key in ("characteristic", "tolerance", "diameter", "datums", "materialCondition") if key in row}
+            options = {"frames": row["frames"]} if "frames" in row else {key: row[key] for key in ("characteristic", "tolerance", "diameter", "datums", "materialCondition", "options") if key in row}
+            if "materialCondition" in options:
+                options["material_condition"] = options.pop("materialCondition")
             obj = insert_gtol(drawing, view, target, app, **options, position=position,
                               target_kind="dimension" if row["target"]["kind"] == "dimension" else "edge")
         ann = get_com_member(obj, "GetAnnotation")

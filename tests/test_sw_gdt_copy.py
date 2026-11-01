@@ -141,6 +141,26 @@ def test_saved_layout_is_baseline_for_automatically_positioned_symbol():
         _capture_saved_positions([record])
 
 
+def test_flat_material_condition_reaches_native_writer_with_its_python_parameter(monkeypatch):
+    from scripts import sw_gdt_copy
+    row = plan()["geometricTolerances"][0]
+    row.update(materialCondition="M", options={"reciprocity": True})
+    annotation = SimpleNamespace(GetPosition=lambda: (.2, .2, 0.))
+    symbol = SimpleNamespace(GetAnnotation=lambda: annotation)
+    calls = []
+
+    def writer(drawing, view, target, app, *, characteristic, tolerance, diameter, datums, position, target_kind, material_condition, options):
+        calls.append((material_condition, options))
+        return symbol
+
+    monkeypatch.setattr(sw_gdt_copy, "insert_gtol", writer)
+    drawing = SimpleNamespace(Extension=SimpleNamespace(GetPersistReference3=lambda _: b"annotation"),
+                              GetCurrentSheet=lambda: SimpleNamespace(GetViews=lambda: []))
+    records = sw_gdt_copy.create_annotations(drawing, [("gtol", row, object(), object(), b"target")], object())
+    assert len(records) == 1
+    assert calls == [("M", {"reciprocity": True})]
+
+
 def test_script_entry_point_imports_project_from_unrelated_directory(tmp_path):
     script = Path(__file__).resolve().parents[1] / "scripts/sw_gdt_copy.py"
     result = subprocess.run([sys.executable, str(script), "--help"], cwd=tmp_path,

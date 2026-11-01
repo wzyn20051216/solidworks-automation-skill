@@ -42,6 +42,7 @@
 
 已有图纸的 SW2026 原生基准和 GD&T 写入使用独立的[图纸副本流程](references/native-gdt.md)，
 支持精确目标、14 种符号、独立多框/复合框和基准 M/L/S 修饰，并重开核对持久关联。
+公共基准、子基准组、投影公差带、轮廓偏置、CZ/SZ、局部范围及最大公差等，见[扩展 GD&T 输入](references/gdt-extended-options.md)。
 现有 MCP `solidworks_generate_drawing` 和 `scripts/sw_drawing_package.py` 也支持从单零件结构化规格
 自动创建尺寸、基本尺寸、基准和 GD&T，保存重开并检查 PDF/布局。原生路径限 SW2026，
 提供设计公差与精确几何目标；自由文字不猜测落图，保持 `pilot/review_required`，须目视复核。

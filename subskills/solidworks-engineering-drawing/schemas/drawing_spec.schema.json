@@ -215,7 +215,8 @@
         "materialCondition": {"enum": [null, "M", "L", "S"]},
         "positionMm": {"$ref": "#/$defs/position"},
         "target": {"$ref": "#/$defs/target"},
-        "frames": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"$ref": "#/$defs/frame"}}
+        "frames": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"$ref": "#/$defs/frame"}},
+        "options": {"$ref": "#/$defs/gdtOptions"}
       },
       "oneOf": [
         {"required": ["characteristic", "tolerance", "diameter", "datums"], "not": {"required": ["frames"]}},
@@ -227,7 +228,8 @@
               {"required": ["tolerance"]},
               {"required": ["diameter"]},
               {"required": ["datums"]},
-              {"required": ["materialCondition"]}
+              {"required": ["materialCondition"]},
+              {"required": ["options"]}
             ]
           }
         }
@@ -240,7 +242,27 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["label"],
-          "properties": {"label": {"$ref": "#/$defs/label"}, "materialCondition": {"enum": [null, "M", "L", "S"]}}
+          "properties": {
+            "label": {"$ref": "#/$defs/label"},
+            "materialCondition": {"enum": [null, "M", "L", "S"]},
+            "modifiers": {"$ref": "#/$defs/datumModifiers"},
+            "constraints": {"$ref": "#/$defs/datumConstraints"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["common"],
+          "properties": {
+            "common": {"type": "array", "minItems": 2, "maxItems": 8, "items": {"$ref": "#/$defs/datumMember"}},
+            "subDatums": {
+              "type": "array",
+              "minItems": 0,
+              "maxItems": 3,
+              "items": {"type": "array", "minItems": 2, "maxItems": 8, "items": {"$ref": "#/$defs/datumMember"}}
+            },
+            "constraints": {"$ref": "#/$defs/datumConstraints"}
+          }
         }
       ]
     },
@@ -271,7 +293,170 @@
         "diameter": {"type": "boolean"},
         "datums": {"type": "array", "maxItems": 3, "uniqueItems": true, "items": {"$ref": "#/$defs/datumReference"}},
         "materialCondition": {"enum": [null, "M", "L", "S"]},
-        "composite": {"type": "boolean"}
+        "composite": {"type": "boolean"},
+        "options": {"$ref": "#/$defs/gdtOptions"}
+      }
+    },
+    "datumModifiers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "situation": {"enum": ["plane", "straightLine", "point"]},
+        "section": {"enum": ["cross", "longitudinal"]},
+        "projection": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+        "freeState": {"type": "boolean"}
+      }
+    },
+    "datumConstraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "translationX": {"type": "boolean"},
+        "translationY": {"type": "boolean"},
+        "translationZ": {"type": "boolean"},
+        "rotationX": {"type": "boolean"},
+        "rotationY": {"type": "boolean"},
+        "rotationZ": {"type": "boolean"},
+        "contactFeature": {"type": "boolean"},
+        "orientationOnly": {"type": "boolean"},
+        "variableDistance": {"type": "boolean"},
+        "translation": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^-?[0-9]+(?:\\.[0-9]+)?$"}
+        }
+      }
+    },
+    "datumMember": {
+      "oneOf": [
+        {"$ref": "#/$defs/label"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label"],
+          "properties": {
+            "label": {"$ref": "#/$defs/label"},
+            "materialCondition": {"enum": [null, "M", "L", "S"]},
+            "modifiers": {"$ref": "#/$defs/datumModifiers"}
+          }
+        }
+      ]
+    },
+    "unitZone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["separator", "value"],
+      "properties": {
+        "separator": {"enum": ["/", "-"]},
+        "value": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+        "symbol": {"enum": ["none", "diameter", "sphericalDiameter", "square", "angle"]},
+        "limit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["separator", "value"],
+          "properties": {
+            "separator": {"enum": ["X", "-"]},
+            "value": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+            "symbol": {"enum": ["none", "diameter", "sphericalDiameter", "square", "angle"]}
+          }
+        }
+      }
+    },
+    "maxTolerance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "diameter"],
+      "properties": {
+        "value": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+        "diameter": {"type": "boolean"}
+      }
+    },
+    "profileZone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "unequalOutside": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+        "offsets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["direction", "value"],
+            "properties": {
+              "direction": {"enum": ["outside", "inside"]},
+              "value": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+(?:\\.[0-9]+)?$"}
+            }
+          }
+        },
+        "dynamic": {"type": "boolean"},
+        "combination": {"enum": ["CZ", "SZ"]},
+        "constraints": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {"enum": ["offset", "angularOffset", "orientationOnly"]},
+          "uniqueItems": true
+        }
+      },
+      "minProperties": 1,
+      "not": {"required": ["unequalOutside", "offsets"]}
+    },
+    "projectedZone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projection"],
+      "properties": {
+        "projection": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+        "range": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+(?:\\.[0-9]+)?$"}
+      }
+    },
+    "gdtFilter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["symbol", "cutOff"],
+      "properties": {
+        "symbol": {"enum": ["G", "S", "SW", "CW", "RG", "RS", "OB", "OH", "OD", "CB", "CH", "CD", "AB", "AH", "AD", "F", "H"]},
+        "cutOff": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+        "shortWave": {"type": "boolean"},
+        "longWave": {"type": "boolean"},
+        "separator": {"enum": ["", "Space", "X"]},
+        "second": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cutOff"],
+          "properties": {
+            "cutOff": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+            "shortWave": {"type": "boolean"},
+            "longWave": {"type": "boolean"}
+          }
+        }
+      }
+    },
+    "gdtOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [],
+      "properties": {
+        "symbolLibrary": {"enum": ["iso", "asme", "gb"]},
+        "zoneShape": {"enum": ["none", "diameter", "sphericalDiameter", "square"]},
+        "unitZone": {"$ref": "#/$defs/unitZone"},
+        "maxTolerance": {"$ref": "#/$defs/maxTolerance"},
+        "profileZone": {"$ref": "#/$defs/profileZone"},
+        "projectedZone": {"$ref": "#/$defs/projectedZone"},
+        "associatedFeature": {"enum": ["Minimax", "LeastSquares", "MinimumCircumscribed", "Tangent", "MaximumInscribed"]},
+        "derivedFeature": {"type": "boolean"},
+        "filters": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"$ref": "#/$defs/gdtFilter"}},
+        "associatedCharacteristic": {"enum": ["C", "CE", "CI", "G", "GE", "GI", "X", "N"]},
+        "parametricCharacteristic": {"enum": ["P", "V", "T", "Q"]},
+        "reciprocity": {"type": "boolean"},
+        "freeState": {"type": "boolean"},
+        "statistical": {"type": "boolean"}
       }
     }
   }
