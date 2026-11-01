@@ -18,7 +18,7 @@ python scripts/sw_file_rename.py C:\work\parts --template "{图号}_{名称}" --
 python scripts/sw_assembly_rename.py --root C:\work\top.sldasm --plan C:\work\rename-plan.json --output-dir C:\work\new-assembly-copy
 ```
 
-试点仅支持单配置装配体、完全解析且非虚拟组件，以及没有外部引用的单配置、单实体非 Toolbox 零件。图纸、压缩组件、多配置和 Toolbox 均不支持。执行器检查引用闭包、文件哈希、组件路径和变换、零件几何与配合健康；它尚未逐一验证配合引用的具体几何实体，因此健康状态一致不等于配合语义已全部核验。失败时保留输出目录和 `assembly-copy-manifest.json`，不要将不完整副本当作成功结果。成功仍标记 `review_required`，需在目标项目中核查设计意图和相关外部文档。
+试点仅支持单配置装配体、完全解析且非虚拟组件，以及没有外部引用的单配置、单实体非 Toolbox 零件。图纸、压缩组件、多配置和 Toolbox 均不支持。执行器检查引用闭包、文件哈希、组件路径和变换、零件几何与配合健康；每项配合还逐一核对关联组件实例、引用类型、几何参数和组件文档中的持久实体 ID，不能解析的配合会阻断。装配环境的持久 ID 包含改名上下文，不能直接比较，必须先通过 `GetCorresponding2` 映射回组件文档。清单中的 `mate_reference_checks` 给出每个装配的配合数和引用数。这些检查不能证明任意运动工况或所有配合参数的设计语义。失败时保留输出目录和 `assembly-copy-manifest.json`，不要将不完整副本当作成功结果。成功仍标记 `review_required`，需在目标项目中核查设计意图和相关外部文档。
 
 ## 把独立零件复制为新名称
 

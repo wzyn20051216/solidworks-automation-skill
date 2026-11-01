@@ -160,14 +160,57 @@ def _assembly_snapshot(model) -> dict[str, Any]:
             health = _feature_health(feature)
             if health.get("health_status") != "healthy":
                 raise ValueError("存在异常或无法确认健康状态的配合")
+            mate = get_com_member(feature, "GetSpecificFeature2")
+            count = get_com_member(mate, "GetMateEntityCount")
+            if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= 64:
+                raise ValueError("无法确认配合引用数量")
+            entities = []
+            for index in range(count):
+                entity = get_com_member(mate, "MateEntity", index)
+                component = get_com_member(entity, "ReferenceComponent")
+                reference = get_com_member(entity, "Reference")
+                if component is None or reference is None:
+                    raise ValueError("配合引用缺失或不支持解析")
+                owner = get_com_member(component, "GetModelDoc2")
+                owner_extension = get_com_member(owner, "Extension")
+                # 装配环境的持久 ID 会随文件名变化，必须映射回组件文档比较。
+                underlying = get_com_member(owner_extension, "GetCorresponding2", reference)
+                identity = get_com_member(owner_extension, "GetPersistReference3", underlying) if underlying is not None else None
+                parameters = get_com_member(entity, "EntityParams")
+                component_id = get_com_member(component, "GetID")
+                path = str(get_com_member(component, "GetPathName") or "")
+                reference_type = get_com_member(entity, "ReferenceType2")
+                if (not isinstance(identity, (list, tuple, bytes, memoryview)) or not identity
+                        or not path or not Path(path).is_file()
+                        or isinstance(component_id, bool) or not isinstance(component_id, int) or component_id < 0
+                        or isinstance(reference_type, bool) or not isinstance(reference_type, int)
+                        or not isinstance(parameters, (list, tuple)) or not parameters
+                        or not all(math.isfinite(float(value)) for value in parameters)):
+                    raise ValueError("配合实体身份或几何参数无法确认")
+                entities.append({"path": str(Path(path).resolve()), "component_id": component_id,
+                                 "reference_type": reference_type, "parameters": list(parameters),
+                                 "persistent_id": list(identity)})
             mates.append({"name": str(get_com_member(feature, "Name") or ""), "type": kind,
-                          "error_code": health["error_code"]})
+                          "error_code": health["error_code"], "entities": entities})
     return {"components": records, "mates": sorted(mates, key=lambda item: (item["name"], item["type"]))}
 
 
-def _compare_assembly(before: Mapping[str, Any], after: Mapping[str, Any], destination_by_source: Mapping[str, str]) -> None:
-    if before["mates"] != after["mates"] or len(before["components"]) != len(after["components"]):
+def _compare_assembly(before: Mapping[str, Any], after: Mapping[str, Any], destination_by_source: Mapping[str, str], *, identity_comparator=None) -> None:
+    mate_metadata = lambda rows: [{key: value for key, value in row.items() if key != "entities"} for row in rows]
+    if mate_metadata(before["mates"]) != mate_metadata(after["mates"]) or len(before["components"]) != len(after["components"]):
         raise ValueError("装配体配合或组件数量不一致")
+    for original, copied in zip(before["mates"], after["mates"]):
+        old_entities, new_entities = original.get("entities"), copied.get("entities")
+        if not old_entities or not new_entities or len(old_entities) != len(new_entities) or identity_comparator is None:
+            raise ValueError("配合缺少逐项实体核验证据")
+        for old, new in zip(old_entities, new_entities):
+            expected = destination_by_source.get(old["path"].casefold())
+            if (expected is None or expected.casefold() != new["path"].casefold()
+                    or old["component_id"] != new["component_id"] or old["reference_type"] != new["reference_type"]
+                    or len(old["parameters"]) != len(new["parameters"])
+                    or not all(math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-9) for a, b in zip(old["parameters"], new["parameters"]))
+                    or identity_comparator(new["path"], old["persistent_id"], new["persistent_id"]) is not True):
+                raise ValueError("配合关联组件、几何实体或参数不一致")
     remaining = list(after["components"])
     for item in before["components"]:
         expected = destination_by_source.get(item["path"].casefold())
@@ -191,7 +234,7 @@ def copy_assembly(root: str | Path, plans: Sequence[Mapping[str, Any]], output_d
     if target.exists() or target.is_symlink() or not target.parent.is_dir():
         raise ValueError("输出目录必须不存在，且其父目录必须存在")
     target.mkdir(mode=0o700, exist_ok=False)
-    report = {"status": "blocked", "reviewRequired": True, "outputs": [], "error": None,
+    report = {"status": "blocked", "reviewRequired": True, "outputs": [], "mate_reference_checks": [], "error": None,
               "limitations": ["只支持单配置、解析完成且无外部引用的零件和单配置装配体", "不更新源文件及其外部使用位置", "Toolbox、图纸、虚拟或压缩组件、多配置及其他外部引用未支持"]}
     try:
         with SolidWorksReadGuard(), SolidWorksSession(version=2026, visible=True) as session:
@@ -225,7 +268,21 @@ def copy_assembly(root: str | Path, plans: Sequence[Mapping[str, Any]], output_d
                 copy_path = Path(destinations[source.casefold()])
                 model = _open_checked(session, copy_path)
                 if copy_path.suffix.casefold() == ".sldasm":
-                    _compare_assembly(snapshots[source], _assembly_snapshot(model), destinations)
+                    owners = {str(Path(get_com_member(component, "GetPathName")).resolve()).casefold(): get_com_member(component, "GetModelDoc2")
+                              for component in get_com_member(model, "GetComponents", False)}
+
+                    def same_identity(path, before, after):
+                        owner_extension = get_com_member(owners[path.casefold()], "Extension")
+                        if hasattr(owner_extension, "_FlagAsMethod"):
+                            owner_extension._FlagAsMethod("IsSamePersistentID")
+                        # pywin32 的 tuple 会转为 VARIANT 数组；此 API 要求 SAFEARRAY(byte)。
+                        return get_com_member(owner_extension, "IsSamePersistentID", memoryview(bytes(before)), memoryview(bytes(after))) == 1
+
+                    actual = _assembly_snapshot(model)
+                    _compare_assembly(snapshots[source], actual, destinations, identity_comparator=same_identity)
+                    report["mate_reference_checks"].append({"source": source, "mate_count": len(actual["mates"]),
+                                                            "entity_count": sum(len(row["entities"]) for row in actual["mates"]),
+                                                            "status": "pass"})
                 else:
                     actual = _snapshot(model)
                     expected = snapshots[source]

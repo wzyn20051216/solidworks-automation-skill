@@ -85,16 +85,44 @@ def test_graph_rejects_incomplete_or_cyclic_dependencies(tmp_path, change):
 def test_component_snapshot_requires_matching_transform_and_mate_health(tmp_path):
     old, new = str(tmp_path / "old.sldprt"), str(tmp_path / "new.sldprt")
     item = {"path": old, "configuration": "default", "state": 2, "transform": [0.0] * 16}
-    before = {"components": [item], "mates": [{"name": "M1", "type": "MateCoincident", "error_code": 0}]}
-    after = {"components": [{**item, "path": new}], "mates": list(before["mates"])}
-    _compare_assembly(before, after, {old.casefold(): new})
+    entity = {"path": old, "component_id": 1, "reference_type": 4, "parameters": [0.0, 1.0], "persistent_id": [1, 2]}
+    mate = {"name": "M1", "type": "MateCoincident", "error_code": 0, "entities": [entity]}
+    before = {"components": [item], "mates": [mate]}
+    after = {"components": [{**item, "path": new}], "mates": [{**mate, "entities": [{**entity, "path": new}]}]}
+    identity = lambda path, before, after: before == after
+    _compare_assembly(before, after, {old.casefold(): new}, identity_comparator=identity)
     after["components"][0]["transform"] = [0.1] + [0.0] * 15
     with pytest.raises(ValueError, match="变换"):
-        _compare_assembly(before, after, {old.casefold(): new})
+        _compare_assembly(before, after, {old.casefold(): new}, identity_comparator=identity)
     after["components"][0]["transform"] = [0.0] * 16
     after["mates"] = []
     with pytest.raises(ValueError, match="配合"):
         _compare_assembly(before, after, {old.casefold(): new})
+
+
+@pytest.mark.parametrize("change", ["instance", "path", "entity", "type", "parameter", "nan", "missing", "unknown_identity"])
+def test_healthy_mate_does_not_hide_changed_reference(tmp_path, change):
+    old, new = str(tmp_path / "old.sldprt"), str(tmp_path / "new.sldprt")
+    entity = {"path": old, "component_id": 7, "reference_type": 4, "parameters": [0., 1.], "persistent_id": [1, 2]}
+    mate = {"name": "M1", "type": "MateCoincident", "error_code": 0, "entities": [entity]}
+    copied = {**entity, "path": new}
+    if change == "instance":
+        copied["component_id"] = 8
+    elif change == "path":
+        copied["path"] = str(tmp_path / "other.sldprt")
+    elif change == "entity":
+        copied["persistent_id"] = [1, 3]
+    elif change == "type":
+        copied["reference_type"] = 2
+    elif change == "parameter":
+        copied["parameters"] = [0., 2.]
+    elif change == "nan":
+        copied["parameters"] = [float("nan"), 1.]
+    before = {"components": [], "mates": [mate]}
+    after = {"components": [], "mates": [{**mate, "entities": [] if change == "missing" else [copied]}]}
+    compare = lambda path, before, after: 2 if change == "unknown_identity" else before == after
+    with pytest.raises(ValueError, match="配合"):
+        _compare_assembly(before, after, {old.casefold(): new}, identity_comparator=compare)
 
 
 def test_assembly_external_reference_is_blocked():
