@@ -71,6 +71,49 @@ def _is_parallel(first, second, angle_tolerance_deg=1.0):
     return math.degrees(math.acos(dot)) <= angle_tolerance_deg
 
 
+def _edge_curve(edge):
+    """返回 IEdge 的 ICurve。
+
+    pywin32 的属性访问在部分 SolidWorks 版本上会对 GetCurve 抛
+    DISP_E_MEMBERNOTFOUND，但该成员其实存在（dispid=1）——同一条边的
+    GetCurveParams2 / GetTwoAdjacentFaces2 都正常。直接 Invoke 再包装可以绕开。
+    """
+    try:
+        curve = get_com_member(edge, "GetCurve", default=None)
+        if curve is not None:
+            return curve
+    except Exception:
+        pass
+    try:
+        import pythoncom
+        from win32com.client import dynamic
+    except ImportError:
+        return None
+    try:
+        raw = edge._oleobj_.Invoke(1, 0, pythoncom.DISPATCH_METHOD, True)
+        return dynamic.Dispatch(raw)
+    except Exception:
+        return None
+
+
+def _curve_span(curve_params):
+    """从 GetCurveParams2 取 (起参, 止参)。
+
+    实测布局是 [起点x, 起点y, 起点z, 终点x, 终点y, 终点z, 起参, 止参, ...]，
+    共 11 个值，参数在索引 6、7。若某些版本只返回两个值，退回索引 0、1。
+    """
+    if not curve_params:
+        return None
+    try:
+        if len(curve_params) >= 8:
+            return float(curve_params[6]), float(curve_params[7])
+        if len(curve_params) >= 2:
+            return float(curve_params[0]), float(curve_params[1])
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
 def describe_edge(edge, index=0):
     """
     读取一条边的几何描述。
@@ -97,16 +140,24 @@ def describe_edge(edge, index=0):
     }
 
     curve_params = None
+    curve = _edge_curve(edge)
     try:
-        curve = get_com_member(edge, "GetCurve")
         curve_params = list(get_com_member(edge, "GetCurveParams2") or [])
-        descriptor["is_line"] = bool(_safe(curve, "IsLine"))
-        descriptor["is_circle"] = bool(_safe(curve, "IsCircle"))
+    except Exception as exc:
+        descriptor["errors"].append(f"读取曲线参数失败: {exc}")
+    try:
+        if curve is not None:
+            descriptor["is_line"] = bool(get_com_member(curve, "IsLine"))
+            descriptor["is_circle"] = bool(get_com_member(curve, "IsCircle"))
     except Exception as exc:
         descriptor["errors"].append(f"读取曲线类型失败: {exc}")
 
+    # 边长：IEdge 没有 GetLength，长度在 ICurve::GetLength3(起参, 止参) 上。
     try:
-        descriptor["length_mm"] = round(float(_safe(edge, "GetLength")) * _MM_PER_M, 6)
+        span = _curve_span(curve_params)
+        if curve is not None and span is not None:
+            length_m = float(get_com_member(curve, "GetLength3", span[0], span[1]))
+            descriptor["length_mm"] = round(length_m * _MM_PER_M, 6)
     except Exception as exc:
         descriptor["errors"].append(f"读取边长失败: {exc}")
 
@@ -130,17 +181,25 @@ def describe_edge(edge, index=0):
 
     # 曲线参数仅用于圆边直径/直线方向兜底；不同版本排列不同，因此做长度合法性校验：
     # 换算后的直径必须为正且与边长同量级，否则视为解析失败而不写脏数据。
-    if curve_params and len(curve_params) >= 7:
-        if descriptor["is_circle"]:
-            candidate = abs(float(curve_params[6])) * 2.0 * _MM_PER_M
-            length = descriptor.get("length_mm") or 0.0
-            # 整圆时周长 = π*d；圆弧时直径仍应不大于边长。
-            if 0.0 < candidate <= max(length, 1e-6) * 4.0 + 1e-6:
-                descriptor["diameter_mm"] = round(candidate, 6)
-        elif descriptor["direction"] is None:
+    # 直径：ICurve::CircleParams 的第 7 个元素是半径。
+    # GetCurveParams2 里根本没有半径——旧代码取 curve_params[6]，实际拿到的是
+    # 起点坐标的分量或参数，任何版本上都算不出正确直径。
+    if descriptor["is_circle"] and curve is not None:
+        try:
+            circle = list(get_com_member(curve, "CircleParams") or [])
+            if len(circle) >= 7:
+                candidate = abs(float(circle[6])) * 2.0 * _MM_PER_M
+                if candidate > 0.0:
+                    descriptor["diameter_mm"] = round(candidate, 6)
+        except Exception as exc:
+            descriptor["errors"].append(f"读取直径失败: {exc}")
+    elif descriptor["direction"] is None and curve_params and len(curve_params) >= 6:
+        try:
             descriptor["direction"] = _normalize(
                 [float(curve_params[3 + axis]) for axis in range(3)]
             )
+        except (TypeError, ValueError):
+            pass
 
     return descriptor
 
