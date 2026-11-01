@@ -48,6 +48,7 @@ def main():
     parser.add_argument("--paper-size", choices=("A3", "A2"), default="A3")
     parser.add_argument("--mcp", action="store_true", help="通过现有 MCP 工具的真实注册函数执行")
     parser.add_argument("--extra-dimensions", action="store_true", help="额外验证半径和两边夹角的原生尺寸")
+    parser.add_argument("--extended-gdt", action="store_true", help="公共基准、投影公差带及不等轮廓/CZ 的自动落图回归")
     args = parser.parse_args()
     root = Path(tempfile.mkdtemp(prefix="sw_gdt_generation_"))
     source = root / (root.name + ".sldprt")
@@ -68,6 +69,16 @@ def main():
             assert session.save(model, str(source))
         digest = _sha256(source)
         spec = specification(source)
+        if args.extended_gdt:
+            annotations = spec["professionalAnnotations"]
+            annotations["datums"].append({"id": "DAT_B", "view": "front", "label": "B", "displayStyle": "square", "positionMm": [335, 160],
+                                          "target": {"kind": "line", "startMm": [40, -30, 20], "endMm": [40, 30, 20]}})
+            for frame in annotations["geometricTolerances"][0]["frames"]:
+                frame["datums"] = [{"common": [{"label": "A", "materialCondition": "M"}, "B"]}]
+                frame["options"] = {"projectedZone": {"projection": "12"}}
+            annotations["geometricTolerances"].append({"id": "GDT_PROFILE", "view": "front", "characteristic": "surface_profile", "tolerance": "0.2", "diameter": False, "datums": ["A"],
+                                                       "target": {"kind": "circle", "centerMm": [-20, 15, 20], "radiusMm": 5}, "positionMm": [170, 260],
+                                                       "options": {"profileZone": {"unequalOutside": "0.05", "combination": "CZ"}}})
         if args.extra_dimensions:
             spec["requiredDimensions"].extend([
                 {"id": "RADIUS", "kind": "radius", "view": "front", "valueMm": 5, "positionMm": [190, 242],

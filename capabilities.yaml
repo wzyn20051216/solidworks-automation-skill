@@ -385,7 +385,7 @@
       "verified_versions": ["2024", "2026"],
       "dependencies": ["SolidWorks 或 AutoCAD"],
       "mcp_tools": ["solidworks_generate_drawing", "solidworks_review_drawing", "solidworks_inspect_drawing"],
-      "limitations": ["工程图生成与审视已抽离到 solidworks-engineering-drawing 子技能；SW2026 已验证三视图、真实尺寸实体、PDF 和非空 BMP", "SW2026 原生 GD&T 副本限单页单零件 A3 毫米；结构化 DrawingSpec 自动落图支持 A4..A0 单零件尺寸/基本尺寸、14 种符号、独立多框/复合框和基准 M/L/S 修饰，保持 review_required；自由文字 GD&T、装配体原生标注及未实现专业字段仍阻断", "尺寸文字使用最终 PDF 矢量文字框；新增基准、公差框、引线和制造语义仍需目视复核", "图框、标题栏、尺寸链、孔表和 GB/T 风格必须人工目视复核", "钣金缺少可靠展开证据时返回 blocked/pilot"],
+      "limitations": ["工程图生成与审视已抽离到 solidworks-engineering-drawing 子技能；SW2026 已验证三视图、真实尺寸实体、PDF 和非空 BMP", "SW2026 原生 GD&T 副本限单页单零件 A3 毫米；结构化 DrawingSpec 自动落图支持 A4..A0 单零件尺寸/基本尺寸、14 种符号、独立多框/复合框、基准 M/L/S、公共/子基准组、投影公差带、轮廓偏置/CZ/SZ、局部范围/MAX、互易和框内修饰，保存重开逐项核验并保持 review_required；自由文字 GD&T、装配体原生标注及未实现专业字段仍阻断", "尺寸文字使用最终 PDF 矢量文字框；新增基准、公差框、引线和制造语义仍需目视复核", "图框、标题栏、尺寸链、孔表和 GB/T 风格必须人工目视复核", "钣金缺少可靠展开证据时返回 blocked/pilot"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {

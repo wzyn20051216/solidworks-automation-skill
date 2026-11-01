@@ -48,7 +48,8 @@ python scripts/sw_gdt_copy.py --source C:\work\plate.slddrw --plan C:\work\gdt-p
 只能按前层顺序保留基准及修饰的前缀，允许后层省略基准。
 基准引用兼容 `"A"`，也接受 `{ "label": "A", "materialCondition": "M" }`（M/L/S/null），
 它与公差本体的 `materialCondition` 独立。修饰是否适合相应尺寸要素仍由设计者确认。
-公共基准、投影公差带等尚未开放，不接收任意 XML。
+公共基准/子基准组、投影公差带、轮廓偏置、CZ/SZ、局部范围/最大公差、互易要求及其他框内修饰，
+使用 [gdt-extended-options.md](gdt-extended-options.md) 的结构化输入；不接收任意 XML。
 
 ## 从三维模型自动落图
 

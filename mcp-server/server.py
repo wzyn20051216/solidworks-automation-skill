@@ -3348,7 +3348,7 @@ def _drawing_report_path(output_dir: Path, basename: str) -> Path:
     },
 )
 def solidworks_generate_drawing(params: SolidWorksGenerateDrawingInput) -> str:
-    """按 DrawingSpec 自动创建工程图、原生尺寸/基本尺寸、基准及单框/复合 GD&T，保存重开核验并导出 PDF、预览和审视报告（原生标注限 SW2026，设计公差须明确）。"""
+    """按 DrawingSpec 自动创建工程图、原生尺寸/基本尺寸、基准及单框/复合 GD&T（公共基准、投影公差带、轮廓偏置、CZ/SZ），保存重开核验并导出 PDF、预览和审视报告（原生标注限 SW2026，设计公差须明确）。"""
 
     def op():
         return drawing_generate_package(params.spec_path, params.output_dir, params.drawing_filename, overwrite=params.overwrite)
