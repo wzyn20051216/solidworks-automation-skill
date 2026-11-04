@@ -239,7 +239,7 @@ dependencies = [
 
 [[package]]
 name = "cad-studio"
-version = "0.3.4"
+version = "2.0.1"
 dependencies = [
  "log",
  "minisign-verify",

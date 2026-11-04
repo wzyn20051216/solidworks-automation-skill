@@ -72,6 +72,8 @@ foreach ($required in @(
     if (-not (Test-Path -LiteralPath (Join-Path $skill $required))) { throw "Bundled skill is incomplete: $required" }
 }
 if (-not $installer) { throw "NSIS installer was not found." }
+& python (Join-Path $PSScriptRoot "release_check.py")
+if ($LASTEXITCODE -ne 0) { throw "Built desktop skill differs from the source runtime." }
 $installerSignature = "$($installer.FullName).sig"
 if (-not (Test-Path -LiteralPath $installerSignature)) { throw "Updater signature was not found: $installerSignature" }
 
@@ -92,9 +94,13 @@ Copy-Item -LiteralPath $installer.FullName -Destination $setupPath
 $signaturePath = "$setupPath.sig"
 Copy-Item -LiteralPath $installerSignature -Destination $signaturePath
 
+$skillZip = Join-Path $releaseRoot "SolidWorks-Automation-Skill-$Version.zip"
+& python (Join-Path $PSScriptRoot "build_skill_release.py") --version $Version --output $skillZip
+if ($LASTEXITCODE -ne 0) { throw "Standalone skill package validation failed." }
+
 $latest = [ordered]@{
     version = $Version
-    notes = "CAD Studio $Version improves desktop stability, queue recovery, model previews, and signed automatic updates."
+    notes = "CAD Studio $Version includes current SolidWorks skills, verified artifact freshness gates, and corrected edge length/diameter selection. See the release notes for upgrade instructions."
     pub_date = [DateTimeOffset]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
     platforms = [ordered]@{
         "windows-x86_64" = [ordered]@{
@@ -107,7 +113,7 @@ $latestPath = Join-Path $releaseRoot "latest.json"
 $latestJson = $latest | ConvertTo-Json -Depth 5
 [System.IO.File]::WriteAllText($latestPath, $latestJson, (New-Object System.Text.UTF8Encoding($false)))
 
-$checksums = @($setupPath, $signaturePath, $portableZip, $latestPath) | ForEach-Object {
+$checksums = @($setupPath, $signaturePath, $portableZip, $skillZip, $latestPath) | ForEach-Object {
     $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $_
     "$($hash.Hash.ToLowerInvariant())  $([System.IO.Path]::GetFileName($_))"
 }
