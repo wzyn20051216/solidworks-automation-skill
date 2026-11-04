@@ -10,7 +10,7 @@ if ($resolvedInstallRoot -ne $expectedInstallRoot) { throw "Unsafe NSIS test pat
 if (Test-Path -LiteralPath $installRoot) {
     Remove-Item -LiteralPath $installRoot -Recurse -Force
 }
-$install = Start-Process -FilePath $installer -ArgumentList "/S", "/D=$installRoot" -Wait -PassThru
+$install = Start-Process -WindowStyle Hidden -FilePath $installer -ArgumentList "/S", "/D=$installRoot" -Wait -PassThru
 if ($install.ExitCode -ne 0) { throw "Installer exit code: $($install.ExitCode)" }
 
 $required = @(
@@ -28,7 +28,11 @@ $result = $required | ForEach-Object {
 $result | Format-Table -AutoSize
 if ($result.Exists -contains $false) { throw "Installed resources are incomplete." }
 
-$uninstall = Start-Process -FilePath (Join-Path $installRoot "uninstall.exe") -ArgumentList "/S" -Wait -PassThru
+$skillArchive = Join-Path $repoRoot "release-output\SolidWorks-Automation-Skill-$version.zip"
+& python (Join-Path $repoRoot "scripts\build_skill_release.py") --verify $skillArchive --version $version --installed-skill (Join-Path $installRoot "skill")
+if ($LASTEXITCODE -ne 0) { throw "Installed skill differs from the released standalone skill." }
+
+$uninstall = Start-Process -WindowStyle Hidden -FilePath (Join-Path $installRoot "uninstall.exe") -ArgumentList "/S" -Wait -PassThru
 if ($uninstall.ExitCode -ne 0) { throw "Uninstaller exit code: $($uninstall.ExitCode)" }
 Start-Sleep -Seconds 2
 [pscustomobject]@{

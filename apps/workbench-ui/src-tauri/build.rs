@@ -1,57 +1,19 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-
-const INCLUDED_EXTENSIONS: &[&str] = &[
-    "config", "cs", "csproj", "js", "json", "md", "ps1", "py", "txt", "yaml", "yml",
-];
-const EXCLUDED_DIRECTORIES: &[&str] = &[".git", "__pycache__", "bin", "obj"];
-
-fn copy_release_tree(source: &Path, destination: &Path) {
-    if !source.exists() {
-        return;
-    }
-    fs::create_dir_all(destination).expect("create release resource directory");
-    for entry in fs::read_dir(source).expect("read release resource directory") {
-        let entry = entry.expect("read release resource entry");
-        let path = entry.path();
-        let name = entry.file_name();
-        if EXCLUDED_DIRECTORIES
-            .iter()
-            .any(|excluded| name == *excluded)
-        {
-            continue;
-        }
-        let target = destination.join(name);
-        if path.is_dir() {
-            copy_release_tree(&path, &target);
-            continue;
-        }
-        let included = path
-            .extension()
-            .and_then(|value| value.to_str())
-            .is_some_and(|extension| {
-                INCLUDED_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
-            });
-        if included {
-            fs::copy(&path, &target).expect("copy release resource file");
-        }
-    }
-}
+use std::path::PathBuf;
+use std::process::Command;
 
 fn prepare_release_resources() {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-    let root = manifest
-        .ancestors()
-        .nth(3)
-        .expect("repository root")
-        .to_path_buf();
-    let staging = manifest.join("resources").join("skill");
-    if staging.exists() {
-        fs::remove_dir_all(&staging).expect("clear staged release resources");
-    }
-    fs::create_dir_all(&staging).expect("create staged release resources");
+    let root = manifest.ancestors().nth(3).expect("repository root");
+    let python = std::env::var_os("PYTHON").unwrap_or_else(|| "python".into());
+    let status = Command::new(python)
+        .arg(root.join("scripts/sync_bundled_skill.py"))
+        .current_dir(root)
+        .status()
+        .expect("Python 3.10+ is required to prepare the bundled skill");
+    assert!(status.success(), "bundled skill synchronization failed");
 
-    for file in [
+    // 只监视源目录；资源复制策略由 Python 共用清单唯一维护。
+    for source in [
         "README.md",
         "SKILL.md",
         "SUBSKILLS.md",
@@ -61,32 +23,18 @@ fn prepare_release_resources() {
         "requirements-mesh.txt",
         "requirements-occt.txt",
         "requirements-pdf.txt",
-    ] {
-        fs::copy(root.join(file), staging.join(file)).expect("copy root release resource");
-        println!("cargo:rerun-if-changed={}", root.join(file).display());
-    }
-    for directory in [
         "agents",
+        "dotnet",
         "examples",
         "mcp-server",
+        "profiles/drc",
         "scripts",
         "references",
         "subskills",
+        "apps/desktop",
     ] {
-        copy_release_tree(&root.join(directory), &staging.join(directory));
-        println!("cargo:rerun-if-changed={}", root.join(directory).display());
+        println!("cargo:rerun-if-changed={}", root.join(source).display());
     }
-    let desktop = root.join("apps").join("desktop");
-    copy_release_tree(
-        &desktop.join("cad_workbench"),
-        &staging.join("apps").join("desktop").join("cad_workbench"),
-    );
-    fs::copy(
-        desktop.join("__init__.py"),
-        staging.join("apps").join("desktop").join("__init__.py"),
-    )
-    .expect("copy desktop package marker");
-    println!("cargo:rerun-if-changed={}", desktop.display());
 }
 
 fn main() {

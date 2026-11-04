@@ -54,7 +54,11 @@ def run_release_check() -> dict[str, object]:
     tauri_version = _version(ROOT / "apps/workbench-ui/src-tauri/tauri.conf.json", r'"version"\s*:\s*"([^"]+)"')
     cargo_version = _version(ROOT / "apps/workbench-ui/src-tauri/Cargo.toml", r'(?m)^version\s*=\s*"([^"]+)"')
     app_version = _version(ROOT / "apps/workbench-ui/src/App.tsx", r'const APP_VERSION\s*=\s*"([^"]+)"')
-    if len({ui_version, tauri_version, cargo_version, app_version}) != 1:
+    skill_version = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
+    ui_lock = json.loads((ROOT / "apps/workbench-ui/package-lock.json").read_text(encoding="utf-8"))
+    cargo_lock_version = _version(ROOT / "apps/workbench-ui/src-tauri/Cargo.lock", r'name = "cad-studio"\s+version = "([^"]+)"')
+    if len({ui_version, tauri_version, cargo_version, app_version, skill_version,
+            ui_lock["version"], ui_lock["packages"][""]["version"], cargo_lock_version}) != 1:
         raise AssertionError(f"版本不一致: npm={ui_version}, tauri={tauri_version}, cargo={cargo_version}, app={app_version}")
     manifest = json.loads((ROOT / "capabilities.yaml").read_text(encoding="utf-8"))
     capabilities = manifest.get("capabilities", [])

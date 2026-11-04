@@ -27,6 +27,7 @@ EXPECTED_JOBS = {
     "rust_tests",
     "package_build",
     "test_and_build",
+    "publish_release",
 }
 
 
@@ -112,7 +113,7 @@ def test_needs_expressions_reference_identifier_safe_jobs():
             referenced = match.group(1)
             assert "-" not in referenced, f"needs 表达式使用了含连字符的作业 id: {referenced}"
             assert referenced in jobs, f"needs 表达式引用了不存在的作业: {referenced}"
-    assert found >= len(jobs) - 1, "必需检查作业必须逐个读取全部前置作业的结论"
+    assert found >= len(jobs) - 1, "验证汇总和下游发布必须读取其前置作业结论"
 
 
 def test_required_check_job_depends_on_every_other_job():
@@ -121,7 +122,8 @@ def test_required_check_job_depends_on_every_other_job():
     needs_match = re.search(r"needs:\s*\[([^\]]*)\]", _joined(block))
     assert needs_match, "必需检查作业必须以行内列表声明 needs"
     needs = {item.strip() for item in needs_match.group(1).split(",") if item.strip()}
-    expected = set(_jobs(_lines())) - {job_id}
+    # 发布作业在汇总成功后运行，不能反向成为汇总的前置，形成依赖环。
+    expected = set(_jobs(_lines())) - {job_id, "publish_release"}
     assert needs == expected, f"needs 与作业集合不一致：缺少 {expected - needs}，多出 {needs - expected}"
 
 
@@ -132,7 +134,7 @@ def test_required_check_job_reports_failure_instead_of_being_skipped():
     assert "if: always()" in joined, "必需检查作业必须使用 if: always() 保证始终给出结论"
     referenced = set(NEEDS_EXPR.findall(WORKFLOW.read_text(encoding="utf-8")))
     for job_id in _jobs(_lines()):
-        if job_id == _required_job()[0]:
+        if job_id in {_required_job()[0], "publish_release"}:
             continue
         assert job_id in referenced, f"必需检查未读取 {job_id} 的结论"
 
@@ -176,3 +178,16 @@ def test_pull_request_runs_cancel_superseded_commits():
     block = _joined(_top_level_block(_lines(), "concurrency"))
     assert "cancel-in-progress:" in block
     assert "pull_request" in block
+
+
+def test_release_publication_is_downstream_of_all_validation():
+    jobs = _jobs(_lines())
+    publisher = _joined(jobs["publish_release"])
+    assert "needs: [test_and_build]" in publisher
+    assert "needs.test_and_build.result == 'success'" in publisher
+    assert "startsWith(github.ref, 'refs/tags/v')" in publisher
+    assert "draft: true" in publisher
+    assert "SolidWorks-Automation-Skill-*.zip" in publisher
+    assert "action-gh-release" not in _joined(jobs["package_build"])
+    assert "contents: write" not in _joined(jobs["package_build"])
+    assert "contents: write" in publisher

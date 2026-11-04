@@ -32,11 +32,15 @@ if ([string]$platform.url -ne $expectedUrl) {
 
 $setupPath = Join-Path $resolvedReleaseRoot "CAD-Studio-$version-Setup-x64.exe"
 $signaturePath = "$setupPath.sig"
-foreach ($requiredPath in @($setupPath, $signaturePath, (Join-Path $resolvedReleaseRoot "SHA256SUMS.txt"))) {
+$skillArchive = Join-Path $resolvedReleaseRoot "SolidWorks-Automation-Skill-$version.zip"
+$portableArchive = Join-Path $resolvedReleaseRoot "CAD-Studio-$version-Windows-x64-Portable.zip"
+foreach ($requiredPath in @($setupPath, $signaturePath, $skillArchive, $portableArchive, (Join-Path $resolvedReleaseRoot "SHA256SUMS.txt"))) {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
         throw "Missing updater release artifact: $requiredPath"
     }
 }
+& python (Join-Path $PSScriptRoot "build_skill_release.py") --verify $skillArchive --version $version --desktop-archive $portableArchive
+if ($LASTEXITCODE -ne 0) { throw "Standalone skill package integrity check failed." }
 $signature = (Get-Content -LiteralPath $signaturePath -Raw).Trim()
 if ([string]$platform.signature -ne $signature) {
     throw "latest.json signature does not match the published .sig file."

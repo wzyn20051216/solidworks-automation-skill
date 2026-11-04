@@ -99,6 +99,9 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
@@ -132,9 +135,9 @@ jobs:
     needs: [governance, python_tests, frontend_tests]
     runs-on: windows-2022
     timeout-minutes: 45
-    # @brief 只有本作业需要写权限：发布 tag 时上传安装包。
+    # 打包只读仓库；Release 写权限仅授予完整门禁之后的发布作业。
     permissions:
-      contents: write
+      contents: read
     env:
       # @brief 端到端步骤单次上限，配合下方的一次重试，避免悬挂直到作业超时。
       CAD_E2E_TIMEOUT_MINUTES: 10
@@ -239,18 +242,6 @@ jobs:
         with:
           name: cad-studio-windows-x64
           path: release-output/*
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v3
-        with:
-          generate_release_notes: true
-          files: |
-            release-output/CAD-Studio-*-Setup-x64.exe
-            release-output/CAD-Studio-*-Setup-x64.exe.sig
-            release-output/CAD-Studio-*-Portable.zip
-            release-output/latest.json
-            release-output/SHA256SUMS.txt
-
   # ---------------------------------------------------------------- 必需状态检查
   # @brief 该作业的显示名就是 ruleset 里要求的必需检查上下文 test-and-build；改名会直接让门禁失效。
   #        作业 id 用下划线是刻意的：GitHub 表达式里 needs.python-tests.result 会被解析成减法，
@@ -291,3 +282,35 @@ jobs:
             throw ("必需作业未全部成功: {0}" -f ($notPassed -join ", "))
           }
           Write-Output "所有必需作业均成功。"
+
+  # 发布必须在全部验证成功之后；先生成草稿，回读附件及签名后再公开。
+  publish_release:
+    name: publish-release-draft
+    needs: [test_and_build]
+    if: startsWith(github.ref, 'refs/tags/v') && needs.test_and_build.result == 'success'
+    runs-on: windows-2022
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: cad-studio-windows-x64
+          path: release-output
+      - name: Prepare verified release draft
+        uses: softprops/action-gh-release@v3
+        with:
+          name: ${{ github.ref_name }} — SolidWorks Skill + CAD Studio
+          body_path: docs/releases/${{ github.ref_name }}.md
+          draft: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          files: |
+            release-output/SolidWorks-Automation-Skill-*.zip
+            release-output/CAD-Studio-*-Setup-x64.exe
+            release-output/CAD-Studio-*-Setup-x64.exe.sig
+            release-output/CAD-Studio-*-Portable.zip
+            release-output/latest.json
+            release-output/SHA256SUMS.txt
