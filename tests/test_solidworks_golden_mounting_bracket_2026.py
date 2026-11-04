@@ -139,6 +139,7 @@ def make_evidence(output, pid=12345, mutation=None, manual=True):
     """@brief 仅在 pytest 临时目录生成合成证据，用真实 Core/哈希/Ledger 测验收器。"""
     output.mkdir()
     report = complete_report(output, pid, manual)
+    report["artifact_baseline"] = golden.capture_artifact_baseline(output)
     if mutation:
         mutation(report)
     golden.adapt_terminal(report, output, load_case()[1])

@@ -76,9 +76,9 @@ export function assessDelivery(job?: AutomationJob): DeliveryAssessment {
   const readyArtifacts = artifacts.filter((item) => item.exists === true && item.producedThisRun === true);
   const issues: string[] = [];
   const staleOrMissing = artifacts.filter((item) => item.exists === false || item.producedThisRun === false);
-  const staleFiles = artifacts.filter((item) => item.exists === true && item.producedThisRun === false);
+  const staleFiles = artifacts.filter((item) => item.producedThisRun === false);
   const unknownFreshness = artifacts.filter((item) =>
-    artifactRequiresCurrentRunProof(item) && item.exists === true && item.producedThisRun == null,
+    artifactRequiresCurrentRunProof(item) && item.exists !== false && (item.producedThisRun == null || item.exists !== true),
   );
   if (staleOrMissing.length) issues.push(`${staleOrMissing.length} 个产物缺失或不是本轮生成`);
   if (unknownFreshness.length) issues.push(`${unknownFreshness.length} 个产物无法确认是否由本轮生成`);

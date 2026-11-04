@@ -4,16 +4,10 @@ export const deliveryFileExtensions = new Set([
   ".sldprt", ".sldasm", ".slddrw",
   ".step", ".stp", ".iges", ".igs", ".brep",
   ".stl", ".obj", ".glb", ".gltf",
-  ".dxf", ".dwg", ".pdf", ".png", ".svg",
-]);
-
-const currentRunProofExemptKinds = new Set([
-  "agent_output", "codex_output", "engineering_plan", "preview_manifest",
+  ".dxf", ".dwg", ".pdf", ".png", ".svg", ".bmp", ".jpg", ".jpeg", ".webp", ".csv",
 ]);
 
 export function artifactRequiresCurrentRunProof(artifact: ArtifactRecord) {
-  const kind = (artifact.kind ?? "").toLowerCase();
-  if (currentRunProofExemptKinds.has(kind)) return false;
   const match = (artifact.path ?? "").toLowerCase().match(/\.[^.\\/]+$/);
   return Boolean(match && deliveryFileExtensions.has(match[0]));
 }
@@ -87,7 +81,7 @@ export function deliveryFormatStatus(format: string, job: AutomationJob | undefi
   const extensions = extensionMap[format] ?? [];
   const ready = artifacts.some((artifact) => {
     const path = artifact.path?.toLowerCase() ?? "";
-    return artifact.exists !== false && artifact.producedThisRun === true && extensions.some((extension) => path.endsWith(extension));
+    return artifact.exists === true && artifact.producedThisRun === true && extensions.some((extension) => path.endsWith(extension));
   });
   if (ready) return "ready";
   return (job?.expectedOutput ?? "").toUpperCase().includes(format) ? "missing" : "optional";
@@ -100,15 +94,14 @@ export function collectJobArtifacts(job?: AutomationJob): ArtifactRecord[] {
   const pushArtifact = (kind: string, path?: string, extra: Partial<ArtifactRecord> = {}) => {
     if (path) items.push({ kind, path, ...extra });
   };
-  if (job.previewManifest) {
+  if (job.previewManifest && !job.artifacts?.some((artifact) => artifact.path === job.previewManifest)) {
     const source = job.artifacts?.find((artifact) => /\.(step|stp|stl|obj|glb|gltf|dxf|dwg|sldprt|sldasm)$/i.test(artifact.path ?? ""));
     pushArtifact("preview_manifest", job.previewManifest, {
       type: "preview",
       format: "json",
       sourceArtifact: source?.path,
       previewManifest: job.previewManifest,
-      exists: true,
-      producedThisRun: source?.producedThisRun ?? null,
+      producedThisRun: source?.producedThisRun === false ? false : null,
     });
   }
   for (const artifact of job.artifacts ?? []) if (artifact?.path) items.push(artifact);

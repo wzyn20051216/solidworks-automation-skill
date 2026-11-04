@@ -23,6 +23,34 @@ function jobWithArtifacts(artifacts: ArtifactRecord[]): AutomationJob {
 }
 
 describe("artifact freshness delivery gate", () => {
+  it("不凭格式标记推断不存在的文件已就绪", () => {
+    const artifacts: ArtifactRecord[] = [{ kind: "step", path: "absent.step", producedThisRun: true }];
+    expect(deliveryFormatStatus("STEP", jobWithArtifacts(artifacts), artifacts)).toBe("missing");
+  });
+
+  it("不按 kind 豁免未知 CAD 文件", () => {
+    expect(assessDelivery(jobWithArtifacts([
+      { kind: "engineering_plan", path: "unknown.step", exists: true, producedThisRun: null },
+    ])).disposition).toBe("review_required");
+  });
+
+  it("混合交付不能用新文件掩盖存在性未知的文件", () => {
+    const job = jobWithArtifacts([
+      { kind: "step", path: "fresh.step", exists: true, producedThisRun: true },
+      { kind: "step", path: "unverified.step", producedThisRun: true },
+    ]);
+    expect(assessDelivery(job).disposition).toBe("review_required");
+    job.artifacts![1].producedThisRun = false;
+    expect(assessDelivery(job).disposition).toBe("failed");
+  });
+
+  it("预览清单不能仅凭源模型新鲜就判为新鲜，也不能覆盖真实账本", () => {
+    const job = jobWithArtifacts([{ kind: "step", path: "fresh.step", exists: true, producedThisRun: true }]);
+    job.previewManifest = "preview.json";
+    expect(collectJobArtifacts(job).find((item) => item.path === "preview.json")?.producedThisRun).toBeNull();
+    job.artifacts?.push({ kind: "preview_manifest", path: "preview.json", exists: true, producedThisRun: false });
+    expect(collectJobArtifacts(job).find((item) => item.path === "preview.json")?.producedThisRun).toBe(false);
+  });
   it("不会把本轮未变化的文件计为可交付产物", () => {
     const assessment = assessDelivery(jobWithArtifacts([
       { kind: "step", path: "old.step", exists: true, producedThisRun: false },

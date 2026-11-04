@@ -16,12 +16,8 @@ DELIVERY_FILE_EXTENSIONS = frozenset({
     ".sldprt", ".sldasm", ".slddrw",
     ".step", ".stp", ".iges", ".igs", ".brep",
     ".stl", ".obj", ".glb", ".gltf",
-    ".dxf", ".dwg", ".pdf", ".png", ".svg",
+    ".dxf", ".dwg", ".pdf", ".png", ".svg", ".bmp", ".jpg", ".jpeg", ".webp", ".csv",
 })
-_CURRENT_RUN_PROOF_EXEMPT_KINDS = frozenset({
-    "agent_output", "codex_output", "engineering_plan", "preview_manifest",
-})
-
 
 def ledger_dir(queue_dir: Path) -> Path:
     """@brief 返回交付物账本目录。"""
@@ -85,19 +81,34 @@ def _artifact_key(path: Path) -> str:
     return os.path.normcase(os.path.normpath(str(Path(path).expanduser().resolve())))
 
 
+def _recorded_path_key(path: str) -> str:
+    """@brief 历史扫描路径只做词法规范化，不能随本轮目录链接变化重新解析。"""
+    return os.path.normcase(os.path.abspath(os.path.normpath(os.path.expanduser(path))))
+
+
 def normalize_artifact_baseline(value: Any) -> dict[str, Any]:
     """@brief 兼容旧纯字典基线，并返回可判断完整性的统一结构。"""
     if isinstance(value, dict) and isinstance(value.get("entries"), dict):
         entries = {
-            _artifact_key(Path(str(path))): metadata
+            _recorded_path_key(str(path)): metadata
             for path, metadata in value["entries"].items()
             if isinstance(metadata, dict)
         }
         errors = value.get("errors")
+        extensions = value.get("extensions", sorted(DELIVERY_FILE_EXTENSIONS))
+        if not isinstance(extensions, list) or not all(isinstance(item, str) for item in extensions):
+            extensions = []
+        roots = []
+        for root in value.get("roots", []) if isinstance(value.get("roots"), list) else []:
+            if isinstance(root, dict) and root.get("kind") in {"file", "directory"} and root.get("path"):
+                if Path(str(root["path"])).is_absolute():
+                    roots.append({"path": _recorded_path_key(str(root["path"])), "kind": root["kind"]})
         return {
             "schemaVersion": str(value.get("schemaVersion") or "2.0"),
             "entries": entries,
-            "complete": value.get("complete") is True,
+            "complete": value.get("complete") is True and not value.get("truncated") and not errors,
+            "roots": roots,
+            "extensions": extensions,
             "truncated": value.get("truncated") is True,
             "scannedCount": int(value.get("scannedCount") or len(entries)),
             "errors": [str(item) for item in errors] if isinstance(errors, list) else [],
@@ -109,11 +120,13 @@ def normalize_artifact_baseline(value: Any) -> dict[str, Any]:
         return {
             "schemaVersion": "1.0",
             "entries": {
-                _artifact_key(Path(str(path))): metadata
+                _recorded_path_key(str(path)): metadata
                 for path, metadata in value.items()
                 if isinstance(metadata, dict)
             },
             "complete": False,
+            "roots": [],
+            "extensions": [],
             "truncated": False,
             "scannedCount": len(value),
             "errors": ["legacy_baseline_without_completeness"],
@@ -123,6 +136,8 @@ def normalize_artifact_baseline(value: Any) -> dict[str, Any]:
         "schemaVersion": "2.0",
         "entries": {},
         "complete": False,
+        "roots": [],
+        "extensions": [],
         "truncated": False,
         "scannedCount": 0,
         "errors": ["artifact_baseline_missing"],
@@ -132,10 +147,18 @@ def normalize_artifact_baseline(value: Any) -> dict[str, Any]:
 
 def artifact_requires_current_run_proof(artifact: dict[str, Any]) -> bool:
     """@brief 判断交付物是否必须证明由本轮生成。"""
-    kind = str(artifact.get("kind") or "").lower()
-    if kind in _CURRENT_RUN_PROOF_EXEMPT_KINDS:
-        return False
+    # 不能仅凭调用方提供的 kind 豁免真实 CAD/预览/BOM 文件。
     return Path(str(artifact.get("path") or "")).suffix.lower() in DELIVERY_FILE_EXTENSIONS
+
+
+def _covered_by_baseline(path: Path, baseline: dict[str, Any]) -> bool:
+    """@brief 未记录文件只有处于明确扫描过的范围内，才可能是本轮新增。"""
+    key = Path(_artifact_key(path))
+    for root in baseline["roots"]:
+        root_path = Path(root["path"])
+        if key == root_path or (root["kind"] == "directory" and root_path in key.parents):
+            return True
+    return False
 
 
 def collect_artifact_paths(job: dict[str, Any], result: dict[str, Any]) -> list[tuple[str, Path]]:
@@ -179,7 +202,8 @@ def _describe_artifact(kind: str, path: Path, baseline: dict[str, Any]) -> dict[
         before = baseline["entries"].get(_artifact_key(resolved))
         if isinstance(before, dict) and before.get("sha256"):
             item["producedThisRun"] = before.get("sha256") != item["sha256"]
-        elif baseline["complete"]:
+        elif (baseline["complete"] and _covered_by_baseline(resolved, baseline)
+              and ("*" in baseline["extensions"] or resolved.suffix.lower() in baseline["extensions"])):
             item["producedThisRun"] = True
     return item
 
@@ -215,7 +239,7 @@ def build_artifact_ledger(queue_dir: Path, job: dict[str, Any], result: dict[str
         "queueDir": str(Path(queue_dir)),
         "freshnessBaseline": {
             key: baseline[key]
-            for key in ("schemaVersion", "complete", "truncated", "scannedCount", "errors", "legacy")
+            for key in ("schemaVersion", "complete", "roots", "extensions", "truncated", "scannedCount", "errors", "legacy")
         },
         "artifacts": artifacts,
         "verification": result.get("verification", []),

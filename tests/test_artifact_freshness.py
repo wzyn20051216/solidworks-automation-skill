@@ -179,6 +179,7 @@ def test_snapshot_covers_slddrw_and_skips_outside_symlink(tmp_path: Path) -> Non
 ])
 def test_worker_maps_freshness_failures_to_safe_terminal_states(
     tmp_path: Path,
+    monkeypatch,
     baseline,
     expected_status: str,
 ) -> None:
@@ -187,12 +188,16 @@ def test_worker_maps_freshness_failures_to_safe_terminal_states(
     queue_dir.mkdir()
     target = _step(tmp_path / "worker.step")
     snapshot = _snapshot_cad_artifacts([tmp_path]) if baseline == "stale" else None
+    if baseline is None:
+        monkeypatch.setattr("apps.desktop.cad_workbench.queue_worker._snapshot_cad_artifacts",
+                            lambda _roots: {"entries": {}, "complete": False, "errors": ["scan_failed"]})
     job_path = queue_dir / "job.json"
     write_job(job_path, {
         "schemaVersion": "2.0",
         "id": "freshness-worker",
         "kind": "agent_task",
         "executor": "agent",
+        "cwd": str(tmp_path),
         "status": "queued",
         "capabilities": ["part_and_features"],
         "expectedOutput": "STEP",
@@ -212,3 +217,108 @@ def test_worker_maps_freshness_failures_to_safe_terminal_states(
 
     assert result is not None
     assert result["status"] == expected_status
+
+
+@pytest.mark.parametrize("source", ["job", "outputs", "artifacts"])
+def test_unscanned_artifact_cannot_be_inferred_new(tmp_path: Path, source: str) -> None:
+    scanned = tmp_path / "scanned"
+    scanned.mkdir()
+    outside = _step(tmp_path / "outside.step")
+    baseline = _snapshot_cad_artifacts([scanned])
+    job = {"id": "scope", "executor": "agent", "expectedOutput": "STEP"}
+    result = {"artifactBaseline": baseline}
+    holder = job if source == "job" else result
+    holder["artifacts" if source == "job" else source] = [{"kind": "step", "path": str(outside)}]
+    ledger = build_artifact_ledger(tmp_path, job, result)
+    assert ledger["artifacts"][0]["producedThisRun"] is None
+    assert evaluate_ledger(ledger)["status"] == "warning"
+
+
+def test_nonexistent_output_directory_is_covered(tmp_path: Path) -> None:
+    output = tmp_path / "not-created-yet"
+    baseline = _snapshot_cad_artifacts([output])
+    output.mkdir()
+    target = _step(output / "new.step")
+    assert evaluate_ledger(_ledger(tmp_path, target, baseline))["status"] == "pass"
+
+
+def test_new_file_requires_covered_extension(tmp_path: Path) -> None:
+    cad_only = _snapshot_cad_artifacts([tmp_path])
+    all_files = _snapshot_cad_artifacts([tmp_path], extensions=None)
+    report = tmp_path / "report.json"
+    report.write_text("{}", encoding="utf-8")
+    assert _ledger(tmp_path, report, cad_only)["artifacts"][0]["producedThisRun"] is None
+    assert _ledger(tmp_path, report, all_files)["artifacts"][0]["producedThisRun"] is True
+
+
+def test_file_scope_does_not_cover_siblings(tmp_path: Path) -> None:
+    target = _step(tmp_path / "input.step")
+    other = _step(tmp_path / "other.step")
+    baseline = _snapshot_cad_artifacts([target])
+    ledger = _ledger(tmp_path, other, baseline)
+    assert ledger["artifacts"][0]["producedThisRun"] is None
+
+
+def test_recorded_scope_is_not_reresolved_after_run(tmp_path: Path, monkeypatch) -> None:
+    scanned = tmp_path / "scanned"
+    scanned.mkdir()
+    baseline = _snapshot_cad_artifacts([scanned])
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = _step(outside / "old.step")
+    real_resolve = Path.resolve
+    def redirected(path, *args, **kwargs):
+        return outside if path == scanned else real_resolve(path, *args, **kwargs)
+    # 模拟执行期间把原扫描目录替换为指向外部目录的链接，无需系统链接权限。
+    monkeypatch.setattr(Path, "resolve", redirected)
+    assert _ledger(tmp_path, target, baseline)["artifacts"][0]["producedThisRun"] is None
+
+
+@pytest.mark.parametrize("metadata", [{"truncated": True}, {"errors": ["permission denied"]}, {}])
+def test_incomplete_or_unscoped_baseline_never_proves_new(tmp_path: Path, metadata: dict) -> None:
+    target = _step(tmp_path / "old.step")
+    baseline = {"entries": {}, "complete": True, **metadata}
+    ledger = _ledger(tmp_path, target, baseline)
+    assert ledger["artifacts"][0]["producedThisRun"] is None
+    assert evaluate_ledger(ledger)["status"] == "warning"
+
+
+def test_directory_scan_error_invalidates_negative_evidence(tmp_path: Path, monkeypatch) -> None:
+    import apps.desktop.cad_workbench.queue_worker as worker
+    def denied(_root, *, onerror, followlinks):
+        onerror(PermissionError("cannot scan child"))
+        return iter(())
+    monkeypatch.setattr(worker.os, "walk", denied)
+    baseline = worker._snapshot_cad_artifacts([tmp_path])
+    assert baseline["complete"] is False and baseline["errors"]
+    target = _step(tmp_path / "unknown.step")
+    assert evaluate_ledger(_ledger(tmp_path, target, baseline))["status"] == "warning"
+
+
+@pytest.mark.parametrize("kind", ["agent_output", "codex_output", "engineering_plan", "preview_manifest"])
+def test_cad_extension_cannot_be_exempted_by_kind(tmp_path: Path, kind: str) -> None:
+    target = _step(tmp_path / "old.step")
+    baseline = _snapshot_cad_artifacts([tmp_path])
+    job = {"id": "kind", "executor": "agent", "uiConfig": {"cadRuntime": {"localCadAutomation": True}}}
+    result = {"artifactBaseline": baseline, "artifacts": [{"kind": kind, "path": str(target)}]}
+    assert evaluate_ledger(build_artifact_ledger(tmp_path, job, result))["status"] == "fail"
+
+
+@pytest.mark.parametrize("executor", ["agent", "codex", "solidworks-com-pywin32"])
+@pytest.mark.parametrize("fresh", [False, True])
+def test_worker_owns_baseline_across_backends(tmp_path: Path, executor: str, fresh: bool) -> None:
+    target = tmp_path / "delivery.step"
+    if not fresh:
+        _step(target)
+    job_path = tmp_path / "queue" / "job.json"
+    write_job(job_path, {"id": "owned", "kind": "create_shell", "executor": executor,
+                         "status": "queued", "cwd": str(tmp_path), "expectedOutput": "STEP"})
+    def handler(_job):
+        if fresh:
+            _step(target)
+        return {"artifacts": [{"kind": "step", "path": str(target)}],
+                "artifactBaseline": {"entries": {}, "complete": True},
+                "verification": [{"command": "fixture", "status": "passed"}]}
+    result = process_job(job_path, handlers={"create_shell": handler, "agent_task": handler, "codex_task": handler})
+    assert result["status"] == ("passed" if fresh else "failed")
+    assert result["artifacts"][0]["producedThisRun"] is fresh

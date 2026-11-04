@@ -101,6 +101,7 @@ def evidence_fixture(output,pid=1234):
     """@brief 写入合成测试文件；这些字节不是 CAD，不得放入真实运行证据目录。"""
     output.mkdir(parents=True)
     report=synthetic_report(output,pid)
+    report['artifact_baseline']=harness.capture_artifact_baseline(output)
     for key in evidence_paths(case.CASE_ID,report['trace_run_id']) | case.extra_evidence():
         if key.startswith('trace/'):
             continue  # trace 必须由真实 Core 终态适配生成，不能预填占位文本。

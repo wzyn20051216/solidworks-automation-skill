@@ -311,7 +311,8 @@ def evaluate_ledger(ledger: dict[str, Any]) -> dict[str, Any]:
     delivery_artifacts = [
         artifact
         for artifact in artifacts
-        if isinstance(artifact, dict) and str(artifact.get("kind") or "") != "codex_output"
+        if isinstance(artifact, dict) and (str(artifact.get("kind") or "") != "codex_output"
+                                         or artifact_requires_current_run_proof(artifact))
     ]
     checks.extend(_spec_conformance_checks(ledger, delivery_artifacts))
 

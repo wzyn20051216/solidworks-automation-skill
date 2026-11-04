@@ -24,8 +24,14 @@ sys.path.insert(0, str(ROOT / "tests"))
 from evals.runner import load_golden_workflows
 from scripts.core.execution import execute_with_core
 from apps.desktop.cad_workbench.artifact_ledger import write_artifact_ledger, sha256_file
+from apps.desktop.cad_workbench.queue_worker import _snapshot_cad_artifacts
 from golden_workflow_support import (CASE_REGISTRY, evidence_paths, safe_output_path, load_runtime_config,
                                      diagnose_runtime, resolve_material_database, process_created_at, validate_core_trace, valid_process_identity)
+
+
+def capture_artifact_baseline(output):
+    """@brief 在生成任何证据前记录本轮专用目录，包括 JSON/trace 等辅助文件。"""
+    return _snapshot_cad_artifacts([Path(output)], extensions=None)
 
 VIEWS = ("isometric", "front", "top", "right")
 MANUAL_REVIEW_BLOCK = "EXPECTED_MANUAL_REVIEW_REQUIRED"
@@ -316,14 +322,7 @@ def write_evidence_bundle(output, report):
     write_artifact_ledger(output, {"id": output.name, "runId": report.get("trace_run_id", output.name), "executor": "solidworks-com-pywin32",
                                   "status": report["task_status"], "cwd": str(output)},
                           {"artifacts": [{"kind": p.suffix.lstrip("."), "path": str(p)} for p in files],
-                           "artifactBaseline": {
-                               "schemaVersion": "2.0",
-                               "entries": {},
-                               "complete": True,
-                               "truncated": False,
-                               "scannedCount": 0,
-                               "errors": [],
-                           },
+                           "artifactBaseline": report.get("artifact_baseline"),
                            "verification": [report["execution_core"]]})
     files.append(ledger_path)
     write_json(output / "sha256.json", [{"path": p.relative_to(output).as_posix(), "size_bytes": p.stat().st_size,
@@ -538,8 +537,9 @@ def run_once(output, expected_terminal="completed", runtime_config=None):
     """@brief 保存所有失败、日志、Execution Core、Artifact Ledger 与文件 SHA-256。"""
     output = output.resolve()
     output.mkdir(parents=True, exist_ok=False)
+    artifact_baseline = capture_artifact_baseline(output)
     workflow, spec = load_case()
-    report = {"schema_version": "1.2", "backend": "real-solidworks-2026", "mock": False,
+    report = {"artifact_baseline": artifact_baseline, "schema_version": "1.2", "backend": "real-solidworks-2026", "mock": False,
               "status": "failed", "task_status": "failed", "acceptance_status": "failed",
               "expected_terminal": expected_terminal, "workflow": workflow, "expected_volume_mm3": expected_volume(spec),
               "trace_run_id": "golden_" + uuid.uuid4().hex,
