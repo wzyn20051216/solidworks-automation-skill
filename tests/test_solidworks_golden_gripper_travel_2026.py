@@ -98,6 +98,7 @@ def report_fixture(output,pid=1234,seal=False):
         'previews':[{'path':str(output/'review'/f'{case.CASE_ID}_{v}.bmp'),'exists':True,'likely_blank':False} for v in case.VIEWS]}
     if not seal:return report
     output.mkdir(parents=True)
+    report['artifact_baseline']=harness.capture_artifact_baseline(output)
     for key in evidence_paths(case.CASE_ID,report['trace_run_id'])|case.extra_evidence():
         if key.startswith('trace/'):continue
         p=output/key;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('OFFLINE SYNTHETIC FIXTURE',encoding='utf-8')
