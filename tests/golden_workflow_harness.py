@@ -10,7 +10,7 @@ import sys
 import traceback
 import uuid
 
-from solidworks_golden_mounting_bracket_2026 import (ROOT, write_json, sha256_file, write_artifact_ledger,
+from solidworks_golden_mounting_bracket_2026 import (ROOT, write_json, sha256_file, write_artifact_ledger, capture_artifact_baseline,
                                                      execute_with_core, MANUAL_REVIEW_BLOCK)
 from golden_workflow_support import (CASE_REGISTRY, evidence_paths, safe_output_path, load_runtime_config,
                                      diagnose_runtime, valid_process_identity, validate_core_trace)
@@ -119,7 +119,8 @@ def seal(case, output, report):
     files = [p for p in output.rglob('*') if p.is_file() and p not in {output/'sha256.json',ledger}]
     write_artifact_ledger(output,{'id':output.name,'runId':report['trace_run_id'],'executor':'solidworks-com-pywin32',
         'status':report['task_status'],'cwd':str(output)}, {'artifacts':[{'kind':p.suffix.lstrip('.'),'path':str(p)} for p in files],
-        'artifactBaseline':{},'verification':[report['execution_core']]})
+        'artifactBaseline':report.get('artifact_baseline'),
+        'verification':[report['execution_core']]})
     files.append(ledger)
     write_json(output/'sha256.json',[{'path':p.relative_to(output).as_posix(),'size_bytes':p.stat().st_size,'sha256':sha256_file(p)} for p in sorted(files)])
     return inspect_evidence(case,output,report)
@@ -150,7 +151,7 @@ def run_once(case, output, expected, runtime_config=None):
     """@brief 每轮独立目录并保留全部失败；CAD 生命周期由具体用例安全拥有。"""
     output=Path(output).resolve()
     output.mkdir(parents=True,exist_ok=False)
-    report={'schema_version':'1.2','case_id':case.CASE_ID,'backend':'real-solidworks-2026','mock':False,
+    report={'artifact_baseline':capture_artifact_baseline(output),'schema_version':'1.2','case_id':case.CASE_ID,'backend':'real-solidworks-2026','mock':False,
         'task_status':'failed','status':'failed','acceptance_status':'failed','expected_terminal':expected,
         'trace_run_id':'golden_'+uuid.uuid4().hex,'generated_at':datetime.now(timezone.utc).isoformat(),'output_dir':str(output)}
     with (output/'run.log').open('w',encoding='utf-8',buffering=1) as log, redirect_stdout(log), redirect_stderr(log):
