@@ -5,21 +5,48 @@ use super::{
 use std::{
     fs,
     path::PathBuf,
+    sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 struct Fixture(PathBuf);
+static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 impl Fixture {
     fn new() -> Self {
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path =
-            std::env::temp_dir().join(format!("cadstudio-boundary-{}-{stamp}", std::process::id()));
-        fs::create_dir_all(&path).unwrap();
+        Self::with_timestamp(stamp)
+    }
+
+    fn with_timestamp(stamp: u128) -> Self {
+        // 时钟分辨率不能保证并行测试唯一；独立序号和原子创建避免复用/误删目录。
+        let sequence = FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "cadstudio-boundary-{}-{stamp}-{sequence}",
+            std::process::id()
+        ));
+        fs::create_dir(&path).unwrap();
         Self(path)
     }
+}
+
+#[test]
+fn fixtures_with_identical_timestamps_remain_isolated() {
+    let (first, second) = std::thread::scope(|scope| {
+        let first = scope.spawn(|| Fixture::with_timestamp(0));
+        let second = scope.spawn(|| Fixture::with_timestamp(0));
+        (first.join().unwrap(), second.join().unwrap())
+    });
+    assert_ne!(first.0, second.0);
+    let preserved = second.0.join("must-survive.txt");
+    fs::write(&preserved, "independent fixture").unwrap();
+    drop(first);
+    assert_eq!(
+        fs::read_to_string(preserved).unwrap(),
+        "independent fixture"
+    );
 }
 impl Drop for Fixture {
     fn drop(&mut self) {

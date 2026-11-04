@@ -9,6 +9,8 @@
 from pathlib import Path
 import sys
 import types
+import math
+import struct
 
 import pytest
 
@@ -21,14 +23,29 @@ import scripts.sw_edge_select as sw_edge_select  # noqa: E402
 class FakeCurve:
     """曲线替身。"""
 
-    def __init__(self, is_circle=False):
-        self._circle = is_circle
+    def __init__(self, edge):
+        self.edge = edge
 
     def IsLine(self):
-        return not self._circle
+        return not self.edge._is_circle
 
     def IsCircle(self):
-        return self._circle
+        return self.edge._is_circle
+
+    def GetLength3(self, start, end):
+        if self.edge._length is not None:
+            return self.edge._length
+        if self.edge._is_circle:
+            return (self.edge._diameter or 0.01) / 2 * (end - start)
+        return math.dist(self.edge._start, self.edge._end)
+
+    @property
+    def CircleParams(self):
+        return [0, 0, 0, 0, 0, 1, (self.edge._diameter if self.edge._diameter is not None else 0.01) / 2]
+
+    @property
+    def LineParams(self):
+        return [*self.edge._start, *[b-a for a, b in zip(self.edge._start, self.edge._end)]]
 
 
 class FakeVertex:
@@ -56,14 +73,8 @@ class FakeEdge:
         self.select_calls = []
         self.selected = False
 
-    def GetLength(self):
-        if self._length is None:
-            span = [self._end[axis] - self._start[axis] for axis in range(3)]
-            return sum(value * value for value in span) ** 0.5
-        return self._length
-
     def GetCurve(self):
-        return FakeCurve(self._is_circle)
+        return FakeCurve(self)
 
     def GetStartVertex(self):
         return FakeVertex(self._start)
@@ -72,11 +83,9 @@ class FakeEdge:
         return FakeVertex(self._end)
 
     def GetCurveParams2(self):
-        if self._is_circle:
-            # 圆： [圆心(3), 轴(3), 半径]——注意是**半径**，不是直径。
-            return [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, (self._diameter or 0.01) / 2.0]
-        span = [self._end[axis] - self._start[axis] for axis in range(3)]
-        return [*self._start, *self._end, *span]
+        # 官方 IEdge 布局：起终点、参数区间、三项 packed double；这里没有半径。
+        end_param = 2 * math.pi if self._is_circle else 1.0
+        return [*self._start, *self._end, 0.0, end_param, 0.0, 0.0, struct.unpack("<d", struct.pack("<ii", 0, 1))[0]]
 
     def Select2(self, append, mark):
         self.select_calls.append(("Select2", append, mark))
@@ -167,13 +176,14 @@ def test_circular_edge_diameter_in_mm():
     assert descriptor["diameter_mm"] == pytest.approx(6.6)
 
 
-def test_absurd_diameter_is_rejected():
-    """@brief 换算出的直径与边长量级不符时拒绝写入，避免脏数据。"""
-    edge = FakeEdge((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), length_m=0.001, is_circle=True, diameter_m=0.5)
+def test_invalid_diameter_is_rejected():
+    """@brief API 返回负半径时必须报告错误，不用绝对值掩盖非法数据。"""
+    edge = FakeEdge((0.0, 0.0, 0.0), (0.0, 0.0, 0.0), length_m=0.001, is_circle=True, diameter_m=-0.5)
 
     descriptor = sw_edge_select.describe_edge(edge)
 
     assert descriptor["diameter_mm"] is None
+    assert descriptor["errors"]
 
 
 def test_edge_descriptor_reports_errors_without_raising():
@@ -384,3 +394,141 @@ def test_describe_convexity_tolerates_missing_faces():
             return []
 
     assert sw_edge_select.describe_convexity(NoFaces((0, 0, 0), (0, 0, 1))) is None
+
+
+def test_short_arc_can_have_diameter_much_larger_than_length():
+    edge = FakeEdge((.25, 0, 0), (.25, .001, 0), length_m=.001, is_circle=True, diameter_m=.5)
+    descriptor = sw_edge_select.describe_edge(edge)
+    assert descriptor["length_mm"] == 1
+    assert descriptor["diameter_mm"] == 500
+
+
+@pytest.mark.parametrize("params", [[], [10, 20], [10, 20, 30], [0]*8, [0]*12,
+                                    [0]*6+[float("nan"), 1, 0, 0, 0]])
+def test_unknown_curve_layout_is_rejected(params):
+    with pytest.raises(ValueError):
+        sw_edge_select._curve_span(params)
+
+
+def test_reversed_curve_parameters_are_restored_without_guessing():
+    params = [0]*6 + [-10, -5, 0, 0, struct.unpack("<d", struct.pack("<ii", 0, 0))[0]]
+    assert sw_edge_select._curve_span(params) == (5, 10)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -1, 0])
+def test_invalid_curve_length_is_reported(value):
+    edge = FakeEdge((0, 0, 0), (.01, 0, 0), length_m=value)
+    descriptor = sw_edge_select.describe_edge(edge)
+    assert descriptor["length_mm"] is None
+    assert any("边长" in error for error in descriptor["errors"])
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -1, 0])
+def test_invalid_circle_radius_is_reported(value):
+    edge = FakeEdge((0, 0, 0), (.01, 0, 0), is_circle=True, diameter_m=value)
+    descriptor = sw_edge_select.describe_edge(edge)
+    assert descriptor["diameter_mm"] is None
+    assert any("直径" in error for error in descriptor["errors"])
+
+
+def test_curve_none_is_not_silent_success():
+    edge = FakeEdge((0, 0, 0), (.01, 0, 0))
+    edge.GetCurve = lambda: None
+    descriptor = sw_edge_select.describe_edge(edge)
+    assert descriptor["errors"]
+    assert descriptor["is_line"] is None and descriptor["length_mm"] is None
+
+
+def test_curve_failure_propagates_and_cannot_be_selected_as_non_circle():
+    edge = FakeEdge((0, 0, 0), (.01, 0, 0))
+    edge.GetCurve = lambda: None
+    descriptors, errors = sw_edge_select.iter_model_edges(FakeModel([edge]))
+    assert errors and "读取曲线失败" in errors[0]
+    selected, rejected = sw_edge_select.filter_edges(descriptors, circular=False)
+    assert not selected and rejected
+    result = sw_edge_select.select_edges(FakeModel([edge]), {"axis": "all"})
+    assert result["status"] == "error" and not edge.select_calls
+
+
+def test_vertex_failure_uses_parameter_endpoint_difference():
+    edge = FakeEdge((.05, .02, 0), (.06, .02, 0))
+    edge.GetStartVertex = lambda: None
+    descriptor = sw_edge_select.describe_edge(edge)
+    assert descriptor["direction"] == pytest.approx((1, 0, 0))
+
+
+def test_binding_fallback_uses_resolved_member_id(monkeypatch):
+    from win32com.client import dynamic
+    edge = FakeEdge((0, 0, 0), (.01, 0, 0))
+    curve = edge.GetCurve()
+    calls = []
+    class Ole:
+        def GetIDsOfNames(self, locale, name):
+            assert name == "GetCurve"
+            return 123
+        def Invoke(self, dispid, locale, flags, result):
+            calls.append(dispid)
+            return curve
+    edge._oleobj_ = Ole()
+    def missing():
+        raise AttributeError("member unavailable")
+    edge.GetCurve = missing
+    monkeypatch.setattr(dynamic, "Dispatch", lambda value: value)
+    descriptor = sw_edge_select.describe_edge(edge)
+    assert calls == [123]
+    assert descriptor["length_mm"] == 10 and not descriptor["errors"]
+
+
+def test_runtime_failure_is_not_retried_as_binding_failure():
+    edge = FakeEdge((0, 0, 0), (.01, 0, 0))
+    def broken():
+        raise RuntimeError("server failure")
+    edge.GetCurve = broken
+    with pytest.raises(RuntimeError, match="server failure"):
+        sw_edge_select._edge_curve(edge)
+
+
+@pytest.mark.parametrize("field,criterion", [("length_mm", {"min_length_mm": 1}),
+                                           ("diameter_mm", {"diameter_mm": 10})])
+def test_nan_descriptor_cannot_pass_numeric_filter(field, criterion):
+    descriptor = {field: 10.0, "index": 0, "is_line": field == "length_mm", "is_circle": field == "diameter_mm"}
+    assert sw_edge_select.filter_edges([descriptor], **criterion)[0]
+    descriptor[field] = float("nan")
+    selected, rejected = sw_edge_select.filter_edges([descriptor], **criterion)
+    assert not selected and rejected
+
+
+@pytest.mark.parametrize("criteria", [{"axis": "zz"}, {"min_length_mm": float("nan")},
+    {"diameter_tolerance_mm": float("inf")}, {"position_mm": [0, float("nan"), 0]},
+    {"min_length_mm": 2, "max_length_mm": 1}, {"diameter_mm": -1}])
+def test_invalid_criteria_are_rejected(criteria):
+    with pytest.raises(ValueError):
+        sw_edge_select.filter_edges([], **criteria)
+
+
+def test_closed_circle_without_vertex_uses_official_endpoints():
+    edge = FakeEdge((.01, 0, 0), (.01, 0, 0), is_circle=True)
+    edge.GetStartVertex = edge.GetEndVertex = lambda: None
+    descriptor = sw_edge_select.describe_edge(edge)
+    assert descriptor["length_mm"] > 0 and not descriptor["errors"]
+
+
+def test_binding_fallback_can_resolve_type_information(monkeypatch):
+    from win32com.client import dynamic
+    edge = FakeEdge((0, 0, 0), (.01, 0, 0))
+    curve = edge.GetCurve()
+    class Info:
+        def GetTypeAttr(self): return types.SimpleNamespace(cFuncs=1)
+        def GetFuncDesc(self, index): return types.SimpleNamespace(memid=456)
+        def GetNames(self, dispid): return ["GetCurve"]
+    class Ole:
+        def GetIDsOfNames(self, *args): raise AttributeError("name binding failed")
+        def GetTypeInfo(self): return Info()
+        def Invoke(self, dispid, *args):
+            assert dispid == 456
+            return curve
+    edge._oleobj_ = Ole()
+    def missing(): raise AttributeError("member binding failed")
+    edge.GetCurve = missing
+    monkeypatch.setattr(dynamic, "Dispatch", lambda value: value)
+    assert sw_edge_select._edge_curve(edge) is curve

@@ -27,7 +27,7 @@ from scripts.sw_connect import mm
 
 # 只倒平行于 Z 轴的凸边（即立板的外轮廓竖边）
 result = select_edges(model, {"axis": "z", "convex_only": True})
-if result["status"] == "ok":
+if result["status"] == "ok" and not result["errors"]:
     fillet(model, mm(4))
 ```
 
@@ -148,3 +148,30 @@ model.FeatureManager.FeatureFillet(195, radius, 0, 0)   # (Options, Radius, R1, 
 
 同理，所选边必须非空；`sw_part.fillet()` 已经显式校验选择集，为空时抛
 `ValueError` 并提示改用 `select_edges()`。
+
+
+## 长度、直径与 COM 兼容契约
+
+长度读取必须使用 `ICurve.GetLength3(start, end)`，IEdge 没有 `GetLength`。`GetCurveParams2` 的官方返回值是 11 个 double：前六项为起终点，索引 6/7 为曲线参数，末三项为打包整数。半径在 `ICurve.CircleParams` 的第七项中，不能从边线参数中推测。
+
+实现先取得 ICurve，再读取参数并校验官方布局和有限数值。反向边按打包的 SenseFlag 恢复曲线参数；未知布局、无效参数、NaN、Infinity 和非正长度均报告错误。短圆弧的直径可以远大于弧长，因此不能以“直径与弧长同量级”作为合法性条件。
+
+整圆可能没有起止顶点，此时使用已验证的曲线参数端点。直线方向使用端点差或 `LineParams` 的方向向量，不能把终点坐标直接当方向。`position_mm` 当前比较的是起止端点平均位置，不代表一般曲线的弧长中点；复杂曲线定位需要另外的几何证据。
+
+pywin32 成员绑定失败时，兼容路径从实际对象的名称绑定或类型信息取得 GetCurve 的成员 ID，再调用 COM；不硬编码 DISPID。SolidWorks 的部分实际边线对象不提供类型信息；如果名称绑定也不可用，就明确报错。真实执行错误不会被当作绑定失败盲目重试。获取失败时保留错误，不能以空 `errors` 冒充成功。
+
+自动化调用应同时检查 `status`、`selected_count` 和 `errors`。不匹配任何边线时返回错误。无效方向、非有限筛选阈值和倒置的长度区间被拒绝。
+
+```powershell
+python -m pytest -q tests/test_sw_edge_select.py
+python tests/solidworks_edge_select_live.py
+```
+
+真机脚本仅操作临时模型：100×60×6 mm 长方体、直径 20 mm 圆柱、偏离原点的 5° 环扇形。保存重开前后验证长度、直径、选择数量和不匹配行为，并用真实 IEdge 强制验证两条 COM 兼容路径；保存预览和 JSON 证据，核对源文件哈希及用户文档集合。
+
+官方依据：
+
+- [IEdge.GetCurveParams2](https://help.solidworks.com/2024/english/api/sldworksapi/solidworks.interop.sldworks~solidworks.interop.sldworks.iedge~getcurveparams2.html)
+- [ICurve.GetLength3](https://help.solidworks.com/2024/english/api/sldworksapi/SolidWorks.Interop.sldworks~SolidWorks.Interop.sldworks.ICurve~GetLength3.html?format=P&value=)
+- [ICurve.CircleParams](https://help.solidworks.com/2021/english/api/sldworksapi/SolidWorks.Interop.sldworks~SolidWorks.Interop.sldworks.ICurve~CircleParams.html)
+- [ICurve.LineParams](https://help.solidworks.com/2016/English/api/sldworksapi/SolidWorks.Interop.sldworks~SolidWorks.Interop.sldworks.ICurve~LineParams.html)

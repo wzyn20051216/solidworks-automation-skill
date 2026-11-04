@@ -20,6 +20,7 @@ SolidWorks 语义选边工具。
 from __future__ import annotations
 
 import math
+import struct
 
 try:
     from .sw_connect import create_empty_dispatch_variant, get_com_member
@@ -39,16 +40,6 @@ _AXIS_VECTORS = {
 }
 
 
-def _safe(obj, name, *args, default=None):
-    """@brief 安全读取 COM 成员。"""
-    try:
-        member = getattr(obj, name)
-        value = member(*args) if args or callable(member) else member
-    except Exception:
-        return default
-    return default if value is None else value
-
-
 def _to_mm(values):
     """@brief 把长度序列从米换算为毫米。"""
     return [float(value) * _MM_PER_M for value in values]
@@ -56,7 +47,9 @@ def _to_mm(values):
 
 def _normalize(vector):
     """@brief 归一化向量，零向量返回 None。"""
-    length = math.sqrt(sum(component * component for component in vector))
+    if not all(math.isfinite(component) for component in vector):
+        return None
+    length = math.hypot(*vector)
     if length < 1e-12:
         return None
     return tuple(component / length for component in vector)
@@ -64,11 +57,73 @@ def _normalize(vector):
 
 def _is_parallel(first, second, angle_tolerance_deg=1.0):
     """@brief 判断两个单位向量是否（反）平行。"""
-    if first is None or second is None:
+    if first is None or second is None or not all(math.isfinite(value) for value in (*first, *second)):
         return False
     dot = abs(sum(a * b for a, b in zip(first, second)))
     dot = max(-1.0, min(1.0, dot))
     return math.degrees(math.acos(dot)) <= angle_tolerance_deg
+
+
+def _edge_curve(edge):
+    """@brief 获取 ICurve；仅在成员绑定失败时按真实类型信息调用，不猜 DISPID。"""
+    try:
+        curve = get_com_member(edge, "GetCurve")
+        if curve is None:
+            raise ValueError("IEdge.GetCurve 返回空曲线")
+        getattr(curve, "IsLine")  # 排除 pywin32 返回的未调用方法包装。
+        return curve
+    except Exception as error:
+        if not (isinstance(error, AttributeError) or getattr(error, "hresult", None) in {-2147352573, -2147352570}):
+            raise
+        original_error = error
+    try:
+        import pythoncom
+        from win32com.client import dynamic
+        ole = edge._oleobj_
+        try:
+            dispid = ole.GetIDsOfNames(0, "GetCurve")
+        except Exception:
+            # 名称绑定也不可用时，从当前对象的类型信息查真正的成员 ID。
+            info = ole.GetTypeInfo()
+            matches = []
+            for index in range(info.GetTypeAttr().cFuncs):
+                member_id = info.GetFuncDesc(index).memid
+                if info.GetNames(member_id)[0] == "GetCurve":
+                    matches.append(member_id)
+            if not matches:
+                raise ValueError("类型信息中没有 GetCurve")
+            dispid = matches[0]
+        curve = dynamic.Dispatch(ole.Invoke(dispid, 0, pythoncom.DISPATCH_METHOD, True))
+        getattr(curve, "IsLine")
+        return curve
+    except Exception as error:
+        raise RuntimeError(f"GetCurve 绑定及兼容调用均失败: {original_error}; {error}") from error
+
+
+def _curve_span(curve_params):
+    """@brief 严格读取官方 11-double 布局；反向边按 SenseFlag 恢复曲线参数。"""
+    if curve_params is None or len(curve_params) != 11:
+        raise ValueError("GetCurveParams2 必须返回 11 个 double，不能猜测未知布局")
+    values = [float(value) for value in curve_params[:8]]
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("曲线参数包含非有限值")
+    start, end = values[6:8]
+    sense = struct.unpack("<ii", struct.pack("<d", float(curve_params[10])))[1]
+    if sense not in (0, 1):
+        raise ValueError("曲线方向标记无效")
+    if not sense:
+        start, end = -end, -start
+    if start >= end:
+        raise ValueError("曲线参数区间为空或顺序无效")
+    return start, end
+
+
+def _positive_mm(value):
+    """@brief 拒绝无效/非有限几何量，避免 NaN 在筛选比较中穿透。"""
+    result = float(value) * _MM_PER_M
+    if not math.isfinite(result) or result <= 0:
+        raise ValueError("几何长度必须为有限正数")
+    return round(result, 6)
 
 
 def describe_edge(edge, index=0):
@@ -97,50 +152,80 @@ def describe_edge(edge, index=0):
     }
 
     curve_params = None
+    curve = None
+    span = None
     try:
-        curve = get_com_member(edge, "GetCurve")
-        curve_params = list(get_com_member(edge, "GetCurveParams2") or [])
-        descriptor["is_line"] = bool(_safe(curve, "IsLine"))
-        descriptor["is_circle"] = bool(_safe(curve, "IsCircle"))
+        curve = _edge_curve(edge)
+    except Exception as exc:
+        descriptor["errors"].append(f"读取曲线失败: {exc}")
+    if curve is not None:
+        try:
+            curve_params = list(get_com_member(edge, "GetCurveParams2") or [])
+            span = _curve_span(curve_params)
+        except Exception as exc:
+            descriptor["errors"].append(f"读取曲线参数失败: {exc}")
+    try:
+        if curve is not None:
+            is_line, is_circle = get_com_member(curve, "IsLine"), get_com_member(curve, "IsCircle")
+            if is_line is None or is_circle is None:
+                raise ValueError("曲线类型返回空值")
+            descriptor["is_line"], descriptor["is_circle"] = bool(is_line), bool(is_circle)
     except Exception as exc:
         descriptor["errors"].append(f"读取曲线类型失败: {exc}")
 
+    # 边长：IEdge 没有 GetLength，长度在 ICurve::GetLength3(起参, 止参) 上。
     try:
-        descriptor["length_mm"] = round(float(_safe(edge, "GetLength")) * _MM_PER_M, 6)
+        if curve is not None and span is not None:
+            descriptor["length_mm"] = _positive_mm(get_com_member(curve, "GetLength3", *span))
     except Exception as exc:
         descriptor["errors"].append(f"读取边长失败: {exc}")
 
     # 中点优先用边的起止顶点（IEdge::GetStartVertex/GetEndVertex），
     # 这是不受曲线参数排列差异影响的方式。
     start_mm = end_mm = None
+    endpoint_error = None
     try:
         start_mm = _to_mm(list(get_com_member(get_com_member(edge, "GetStartVertex"), "GetPoint") or []))
         end_mm = _to_mm(list(get_com_member(get_com_member(edge, "GetEndVertex"), "GetPoint") or []))
+        if len(start_mm) != 3 or len(end_mm) != 3 or not all(math.isfinite(v) for v in start_mm + end_mm):
+            raise ValueError("端点必须包含三个有限坐标")
     except Exception as exc:
-        descriptor["errors"].append(f"读取端点失败: {exc}")
+        endpoint_error = exc
+        start_mm = end_mm = None
 
-    if start_mm and end_mm and len(start_mm) >= 3 and len(end_mm) >= 3:
+    if span is not None and (not start_mm or not end_mm):
+        start_mm, end_mm = _to_mm(curve_params[:3]), _to_mm(curve_params[3:6])
+    if endpoint_error is not None and (not start_mm or not end_mm):
+        descriptor["errors"].append(f"读取端点失败: {endpoint_error}")
+    if start_mm and end_mm and len(start_mm) >= 3 and len(end_mm) >= 3 and all(math.isfinite(v) for v in start_mm + end_mm):
         descriptor["mid_point_mm"] = [
             round((start_mm[axis] + end_mm[axis]) / 2.0, 6) for axis in range(3)
         ]
-        if not descriptor["is_circle"]:
+        if descriptor["is_line"] is True:
             descriptor["direction"] = _normalize(
                 [end_mm[axis] - start_mm[axis] for axis in range(3)]
             )
 
-    # 曲线参数仅用于圆边直径/直线方向兜底；不同版本排列不同，因此做长度合法性校验：
-    # 换算后的直径必须为正且与边长同量级，否则视为解析失败而不写脏数据。
-    if curve_params and len(curve_params) >= 7:
-        if descriptor["is_circle"]:
-            candidate = abs(float(curve_params[6])) * 2.0 * _MM_PER_M
-            length = descriptor.get("length_mm") or 0.0
-            # 整圆时周长 = π*d；圆弧时直径仍应不大于边长。
-            if 0.0 < candidate <= max(length, 1e-6) * 4.0 + 1e-6:
-                descriptor["diameter_mm"] = round(candidate, 6)
-        elif descriptor["direction"] is None:
-            descriptor["direction"] = _normalize(
-                [float(curve_params[3 + axis]) for axis in range(3)]
-            )
+    # 直径：ICurve::CircleParams 的第 7 个元素是半径。
+    # 短圆弧的直径可以远大于弧长，不能用两者的比例限制直径。
+    if descriptor["is_circle"] and curve is not None:
+        try:
+            circle = list(get_com_member(curve, "CircleParams") or [])
+            if len(circle) != 7 or not all(math.isfinite(float(value)) for value in circle):
+                raise ValueError("CircleParams 必须返回七个有限数值")
+            descriptor["diameter_mm"] = _positive_mm(float(circle[6]) * 2.0)
+        except Exception as exc:
+            descriptor["errors"].append(f"读取直径失败: {exc}")
+    elif descriptor["is_line"] is True and descriptor["direction"] is None and curve is not None:
+        try:
+            line = [float(value) for value in get_com_member(curve, "LineParams")]
+            if len(line) != 6 or not all(math.isfinite(value) for value in line):
+                raise ValueError("LineParams 必须返回六个有限数值")
+            descriptor["direction"] = _normalize(line[3:6])
+            if descriptor["direction"] is None:
+                raise ValueError("直线方向为零向量")
+        except Exception as exc:
+            descriptor["errors"].append(f"读取直线方向失败: {exc}")
 
     return descriptor
 
@@ -212,6 +297,7 @@ def iter_model_edges(model, body_index=None):
             descriptor["body_index"] = index
             descriptor["edge_index"] = edge_index
             descriptors.append(descriptor)
+            errors.extend(f"实体 {index} 边 {edge_index}: {error}" for error in descriptor["errors"])
 
     return descriptors, errors
 
@@ -238,35 +324,50 @@ def filter_edges(descriptors, axis="all", min_length_mm=None, max_length_mm=None
     selected = []
     rejected = []
 
+    for name, value in (("min_length_mm", min_length_mm), ("max_length_mm", max_length_mm),
+                        ("diameter_mm", diameter_mm), ("diameter_tolerance_mm", diameter_tolerance_mm),
+                        ("position_tolerance_mm", position_tolerance_mm), ("angle_tolerance_deg", angle_tolerance_deg)):
+        if value is not None and (isinstance(value, bool) or not math.isfinite(value) or value < 0):
+            raise ValueError(f"{name} 必须是有限非负数")
+    if min_length_mm is not None and max_length_mm is not None and min_length_mm > max_length_mm:
+        raise ValueError("最小长度不能大于最大长度")
+    if axis not in {"all", "vertical", *_AXIS_VECTORS}:
+        raise ValueError("未知选边方向")
+    if position_mm is not None and (len(position_mm) != 3 or not all(math.isfinite(value) for value in position_mm)):
+        raise ValueError("选边位置必须包含三个有限坐标")
+
     normalized_axis = "z" if axis == "vertical" else axis
     target_vector = _AXIS_VECTORS.get(normalized_axis)
 
     for descriptor in descriptors:
         reasons = []
 
+        if descriptor.get("is_line") is None and descriptor.get("is_circle") is None:
+            reasons.append("曲线类型未知")
+
         if min_length_mm is not None:
             length = descriptor.get("length_mm")
-            if length is None or length < min_length_mm:
+            if length is None or not math.isfinite(length) or length < min_length_mm:
                 reasons.append(f"长度 {length} < {min_length_mm}")
 
         if max_length_mm is not None:
             length = descriptor.get("length_mm")
-            if length is None or length > max_length_mm:
+            if length is None or not math.isfinite(length) or length > max_length_mm:
                 reasons.append(f"长度 {length} > {max_length_mm}")
 
-        if circular is not None and bool(descriptor.get("is_circle")) != bool(circular):
+        if circular is not None and (descriptor.get("is_circle") is None or bool(descriptor.get("is_circle")) != bool(circular)):
             reasons.append(f"圆边判定不符（要求 circular={circular}）")
 
         if diameter_mm is not None:
             actual = descriptor.get("diameter_mm")
-            if actual is None:
+            if actual is None or not math.isfinite(actual) or actual <= 0:
                 reasons.append("直径未知")
             elif abs(actual - diameter_mm) > diameter_tolerance_mm:
                 reasons.append(f"直径 {actual} 偏离 {diameter_mm}±{diameter_tolerance_mm}")
 
         if position_mm is not None:
             midpoint = descriptor.get("mid_point_mm")
-            if midpoint is None:
+            if midpoint is None or len(midpoint) != 3 or not all(math.isfinite(value) for value in midpoint):
                 reasons.append("中点未知")
             else:
                 distance = max(abs(midpoint[axis] - position_mm[axis]) for axis in range(3))
