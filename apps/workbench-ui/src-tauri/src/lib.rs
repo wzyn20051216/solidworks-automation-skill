@@ -482,6 +482,67 @@ fn read_preview_file(path: String) -> Result<tauri::ipc::Response, String> {
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+fn validate_live_frame_name(file_name: &str) -> Result<(), String> {
+    if file_name.is_empty() || file_name.len() > 160 {
+        return Err("快照文件名长度无效".to_string());
+    }
+    if file_name.contains('/') || file_name.contains('\\') || file_name.contains("..") {
+        return Err("快照文件名包含非法路径段".to_string());
+    }
+    if !file_name.starts_with("step-") {
+        return Err("只允许读取任务步骤快照".to_string());
+    }
+    let extension = Path::new(file_name)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !["png", "jpg", "jpeg"].contains(&extension.as_str()) {
+        return Err("快照只允许 PNG 或 JPEG".to_string());
+    }
+    Ok(())
+}
+
+/// @brief 从当前应用数据目录读取单张视觉快照，拒绝越界与非图片文件。
+#[tauri::command]
+fn read_live_visual_frame(
+    app: AppHandle,
+    id: String,
+    file_name: String,
+) -> Result<tauri::ipc::Response, String> {
+    validate_live_frame_name(&file_name)?;
+    let root = queue_dir(&app)?.join("visual").join(safe_id(&id)?);
+    let canonical_root = fs::canonicalize(&root)
+        .map_err(|error| format!("无法定位视觉快照目录: {error}"))?;
+    let target = fs::canonicalize(root.join(&file_name))
+        .map_err(|error| format!("无法读取视觉快照: {error}"))?;
+    if !target.starts_with(&canonical_root) || !target.is_file() {
+        return Err("视觉快照越界或不是普通文件".to_string());
+    }
+    let metadata = fs::metadata(&target).map_err(|error| error.to_string())?;
+    if metadata.len() > 8 * 1024 * 1024 {
+        return Err("视觉快照超过 8 MiB".to_string());
+    }
+    let bytes = fs::read(target).map_err(|error| error.to_string())?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[tauri::command]
+fn set_live_hud_visible(app: AppHandle, visible: bool) -> Result<(), String> {
+    let window = app
+        .get_webview_window("live-hud")
+        .ok_or_else(|| "live-hud 窗口未初始化".to_string())?;
+    if visible {
+        window.show().map_err(|error| error.to_string())?;
+        window
+            .set_always_on_top(true)
+            .map_err(|error| error.to_string())?;
+    } else {
+        window.hide().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 /// @brief 将 Windows 扩展路径转换为资源协议可匹配的普通路径。
 fn asset_path(path: &Path) -> PathBuf {
     #[cfg(windows)]
@@ -3215,6 +3276,8 @@ pub fn run() {
             delete_queue_job,
             import_wallpaper,
             read_preview_file,
+            read_live_visual_frame,
+            set_live_hud_visible,
             worker_status,
             start_worker,
             stop_worker,
@@ -3339,6 +3402,14 @@ mod tests {
             "provider_verifications.json"
         )));
         assert!(!is_queue_metadata_path(Path::new("job-123.json")));
+    }
+
+    #[test]
+    fn live_frame_name_rejects_paths_and_non_images() {
+        assert!(super::validate_live_frame_name("step-001-sketch-main.png").is_ok());
+        assert!(super::validate_live_frame_name("../secret.png").is_err());
+        assert!(super::validate_live_frame_name("step-001-sketch-main.exe").is_err());
+        assert!(super::validate_live_frame_name("preview.png").is_err());
     }
 
     #[test]
