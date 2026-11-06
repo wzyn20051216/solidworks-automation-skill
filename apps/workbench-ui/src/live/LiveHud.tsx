@@ -119,9 +119,15 @@ export function LiveHud() {
         <Mascot status={loadError ? "warning" : "thinking"} />
         <section>
           <strong>{loadError ? "桌宠连接异常" : "等待可视化任务"}</strong>
-          <span>
-            {loadError || "提交任务后这里会同步真实 SolidWorks 执行步骤"}
-          </span>
+          {loadError ? (
+            <span>{loadError}</span>
+          ) : (
+            <span>
+              提交任务后
+              <br />
+              同步真实 SolidWorks 步骤
+            </span>
+          )}
         </section>
       </main>
     );

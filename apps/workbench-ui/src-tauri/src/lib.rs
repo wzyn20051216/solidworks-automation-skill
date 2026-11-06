@@ -12,7 +12,7 @@ use std::{
     fs::OpenOptions,
     path::{Path, PathBuf},
 };
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State};
 use wait_timeout::ChildExt;
 
 #[cfg(windows)]
@@ -541,6 +541,31 @@ fn set_live_hud_visible(app: AppHandle, visible: bool) -> Result<(), String> {
         window.hide().map_err(|error| error.to_string())?;
     }
     Ok(())
+}
+
+/// @brief 将桌宠固定在主显示器右上角，避开 SolidWorks 特征树和绘图区中心。
+fn position_live_hud(app: &AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("live-hud")
+        .ok_or_else(|| "live-hud 窗口未初始化".to_string())?;
+    let monitor = window
+        .primary_monitor()
+        .map_err(|error| error.to_string())?
+        .or(
+            window
+                .current_monitor()
+                .map_err(|error| error.to_string())?,
+        )
+        .ok_or_else(|| "无法定位主显示器".to_string())?;
+    let monitor_position = monitor.position();
+    let monitor_size = monitor.size();
+    let window_size = window.outer_size().map_err(|error| error.to_string())?;
+    let margin = 20_i32;
+    let x = monitor_position.x + monitor_size.width as i32 - window_size.width as i32 - margin;
+    let y = monitor_position.y + margin;
+    window
+        .set_position(PhysicalPosition::new(x, y))
+        .map_err(|error| error.to_string())
 }
 
 /// @brief 将 Windows 扩展路径转换为资源协议可匹配的普通路径。
@@ -3267,6 +3292,14 @@ pub fn run() {
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .on_window_event(|window, event| {
+            if window.label() == "main"
+                && matches!(event, tauri::WindowEvent::CloseRequested { .. })
+            {
+                let _ = stop_worker_process(window.app_handle());
+                window.app_handle().exit(0);
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             save_queue_job,
             approve_queue_job,
@@ -3295,6 +3328,7 @@ pub fn run() {
             open_external_download
         ])
         .setup(|app| {
+            position_live_hud(app.handle()).map_err(std::io::Error::other)?;
             start_queue_watcher(app.handle().clone()).map_err(std::io::Error::other)?;
             if cfg!(debug_assertions) {
                 app.handle().plugin(
