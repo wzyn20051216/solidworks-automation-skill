@@ -106,6 +106,7 @@ const ANIME_SKY_WALLPAPER_URL = new URL("./assets/wallpaper-anime-sky.webp", imp
 const TOKYO_NEON_WALLPAPER_URL = new URL("./assets/wallpaper-tokyo-neon.webp", import.meta.url).href;
 
 const wallpapers: Array<{ id: PresetWallpaperId; name: string; hint: string; assetUrl?: string; credit?: string }> = [
+  { id: "none", name: "无背景", hint: "纯色工作台" },
   { id: "blossom", name: "樱影", hint: "内置动态壁纸" },
   { id: "fuji", name: "富士暮色", hint: "CC0 · Alpsdake", assetUrl: FUJI_WALLPAPER_URL, credit: "Alpsdake · CC0" },
   { id: "anime-sky", name: "青空原野", hint: "CC BY-SA · mendhak", assetUrl: ANIME_SKY_WALLPAPER_URL, credit: "mendhak · CC BY-SA 4.0" },
@@ -465,12 +466,10 @@ function loadSettings(payload?: unknown): AppSettings | null {
     const raw = payload === undefined ? localStorage.getItem(SETTINGS_KEY) : null;
     if (payload === undefined && !raw) return null;
     const parsed = (payload === undefined ? JSON.parse(raw as string) : payload) as Partial<AppSettings>;
-    const migratedWallpaper =
-      parsed.defaultWallpaperVersion === 1
-        ? parsed.activeWallpaper ?? "blossom"
-        : parsed.customWallpaperPath
-          ? parsed.activeWallpaper ?? "custom"
-          : "blossom";
+    const migratedWallpaper: WallpaperId =
+      typeof parsed.defaultWallpaperVersion === "number" && parsed.defaultWallpaperVersion >= 2
+        ? parsed.activeWallpaper ?? "none"
+        : "none";
     const migratedName = typeof parsed.projectName === "string" && parsed.projectName.trim() ? parsed.projectName.trim().slice(0, 48) : "未命名项目";
     const migratedProject: ProjectRecord = {
       ...DEFAULT_PROJECT,
@@ -495,7 +494,7 @@ function loadSettings(payload?: unknown): AppSettings | null {
       : normalizedProjects[0].id;
     const activeProject = normalizedProjects.find((item) => item.id === activeProjectId) ?? normalizedProjects[0];
     return {
-      activeWallpaper: parsed.customWallpaperPath ? migratedWallpaper : migratedWallpaper === "custom" ? "blossom" : migratedWallpaper,
+      activeWallpaper: parsed.customWallpaperPath ? migratedWallpaper : migratedWallpaper === "custom" ? "none" : migratedWallpaper,
       customWallpaperPath: parsed.customWallpaperPath,
       wallpaperBrightness: clampNumber(parsed.wallpaperBrightness, 94, 72, 112),
       wallpaperBlur: clampNumber(parsed.wallpaperBlur, 3, 0, 14),
@@ -505,7 +504,7 @@ function loadSettings(payload?: unknown): AppSettings | null {
       wallpaperMotionStrength: clampNumber(parsed.wallpaperMotionStrength, 55, 0, 100),
       visualMode: parsed.visualMode === true,
       showLiveHud: parsed.showLiveHud !== false,
-      defaultWallpaperVersion: 1,
+      defaultWallpaperVersion: 2,
       panelOpacityVersion: 1,
       recentWallpapers: Array.isArray(parsed.recentWallpapers) ? parsed.recentWallpapers.slice(0, 6) : [],
       projects: normalizedProjects,
@@ -864,7 +863,7 @@ function buildCodexPrompt(config: CodexConfig, projectPath?: string, runtime?: R
 
 function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("project");
-  const [activeWallpaper, setActiveWallpaper] = useState<WallpaperId>("blossom");
+  const [activeWallpaper, setActiveWallpaper] = useState<WallpaperId>("none");
   const [customWallpaper, setCustomWallpaper] = useState<WallpaperFile | null>(null);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [wallpaperBrightness, setWallpaperBrightness] = useState(94);
@@ -2090,7 +2089,7 @@ function App() {
       setWindowHint(`壁纸“${imported.name}”已应用`);
       return true;
     } catch (error) {
-      setActiveWallpaper((current) => current === "custom" ? "blossom" : current);
+      setActiveWallpaper((current) => current === "custom" ? "none" : current);
       setWindowHint(`壁纸导入失败：${String(error)}`);
       return false;
     }
@@ -2298,7 +2297,7 @@ function App() {
 
   useEffect(() => {
     setWallpaperShot(0);
-    if (reducedMotion || wallpaperMotionMode !== "cinematic") return;
+    if (activeWallpaper === "none" || reducedMotion || wallpaperMotionMode !== "cinematic") return;
     const timer = window.setInterval(() => setWallpaperShot((shot) => (shot + 1) % wallpaperShots.length), 14000);
     return () => window.clearInterval(timer);
   }, [activeWallpaper, reducedMotion, wallpaperMotionMode]);
@@ -2331,8 +2330,7 @@ function App() {
       setRecentProjectPath(settings.recentProjectPath);
       setApiConfig(settings.apiConfig ?? defaultApiConfig);
       setKnowledgeBase(settings.knowledgeBase ?? defaultKnowledgeBase);
-      if (settings.customWallpaperPath) {
-        setActiveWallpaper("blossom");
+      if (settings.customWallpaperPath && settings.activeWallpaper === "custom") {
         await applyWallpaperPath(settings.customWallpaperPath, { remember: false, open: false });
       }
       setSettingsLoaded(true);
@@ -2548,7 +2546,7 @@ function App() {
   useEffect(() => {
     if (!settingsLoaded) return;
     const settings: AppSettings = {
-      activeWallpaper: activeWallpaper === "custom" && !customWallpaper?.sourcePath ? "blossom" : activeWallpaper,
+      activeWallpaper: activeWallpaper === "custom" && !customWallpaper?.sourcePath ? "none" : activeWallpaper,
       customWallpaperPath: customWallpaper?.sourcePath,
       wallpaperBrightness,
       wallpaperBlur,
@@ -2556,7 +2554,7 @@ function App() {
       workspaceOpacity,
       wallpaperMotionMode,
       wallpaperMotionStrength,
-      defaultWallpaperVersion: 1,
+      defaultWallpaperVersion: 2,
       panelOpacityVersion: 1,
       recentWallpapers,
       projects,
@@ -3075,7 +3073,7 @@ function App() {
   }
 
   const activeWallpaperName =
-    activeWallpaper === "custom" ? customWallpaper?.name ?? "我的壁纸" : wallpapers.find((item) => item.id === activeWallpaper)?.name ?? "Aurora";
+    activeWallpaper === "custom" ? customWallpaper?.name ?? "我的壁纸" : wallpapers.find((item) => item.id === activeWallpaper)?.name ?? "无背景";
   const activePresetWallpaper = activeWallpaper === "custom" ? undefined : wallpapers.find((item) => item.id === activeWallpaper);
   const effectiveWallpaperMotion: WallpaperMotionMode = reducedMotion ? "still" : wallpaperMotionMode;
   const shot = wallpaperShots[wallpaperShot % wallpaperShots.length];
@@ -3104,7 +3102,7 @@ function App() {
       onPointerMove={controlWallpaperPointer}
       onPointerLeave={resetWallpaperPointer}
     >
-      <div className="wallpaper" aria-hidden="true">
+      {activeWallpaper !== "none" ? <div className="wallpaper" aria-hidden="true">
         <div className={`wallpaper-camera motion-${effectiveWallpaperMotion}`} style={wallpaperCameraStyle}>
         <AnimatePresence>
           {activeWallpaper === "blossom" ? (
@@ -3159,7 +3157,7 @@ function App() {
           ) : null}
         </AnimatePresence>
         </div>
-      </div>
+      </div> : null}
 
       <motion.section
         className="desktop-frame"

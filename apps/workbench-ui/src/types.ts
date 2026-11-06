@@ -1,4 +1,4 @@
-export type PresetWallpaperId = "blossom" | "fuji" | "anime-sky" | "tokyo-neon" | "blueprint" | "studio" | "mist";
+export type PresetWallpaperId = "none" | "blossom" | "fuji" | "anime-sky" | "tokyo-neon" | "blueprint" | "studio" | "mist";
 export type WallpaperId = PresetWallpaperId | "custom";
 export type WallpaperMotionMode = "still" | "breathe" | "cinematic" | "follow";
 export type WallpaperFile = { url: string; name: string; kind: "image" | "video"; sourcePath?: string };

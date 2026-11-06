@@ -51,6 +51,12 @@ textarea {
   background: var(--canvas);
 }
 
+.theme-none {
+  --canvas: #edf1f3;
+  --accent: #0f766e;
+  --accent-soft: rgba(15, 118, 110, 0.12);
+}
+
 .theme-aurora {
   --canvas: #f1f4ef;
   --accent: #0f766e;
@@ -669,6 +675,11 @@ textarea {
     radial-gradient(circle at 22% 14%, #8de9ff, transparent 36%),
     radial-gradient(circle at 80% 30%, #9cc0ff, transparent 42%),
     #f7fcff;
+}
+
+.wallpaper-tile.none .tile-preview {
+  border: 1px solid rgba(24, 47, 53, 0.1);
+  background: #edf1f3;
 }
 
 .wallpaper-tile.blossom .tile-preview {
