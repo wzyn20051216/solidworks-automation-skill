@@ -284,6 +284,30 @@ def event_path_for(queue_dir: Path, job_id: Any) -> Path:
     return events_dir(queue_dir) / f"{safe_id[:96]}.jsonl"
 
 
+def visual_frame_dir_for(queue_dir: Path, job_id: Any) -> Path:
+    """@brief 返回当前任务的视觉快照目录。"""
+    safe_id = "".join(
+        ch for ch in str(job_id or "") if ch.isascii() and (ch.isalnum() or ch in "-_")
+    ) or "unknown"
+    directory = Path(queue_dir) / "visual" / safe_id[:96]
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def visual_runtime_env(job: dict[str, Any], queue_dir: Path) -> dict[str, str]:
+    """@brief 为启用可视化模式的任务生成子进程环境。"""
+    ui_config = job.get("uiConfig") if isinstance(job.get("uiConfig"), dict) else {}
+    if ui_config.get("visualMode") is not True:
+        return {}
+    job_id = job.get("id")
+    return {
+        "CADSTUDIO_JOB_ID": str(job_id),
+        "CADSTUDIO_VISUAL_MODE": "1",
+        "CADSTUDIO_VISUAL_EVENT_FILE": str(event_path_for(queue_dir, job_id)),
+        "CADSTUDIO_VISUAL_FRAME_DIR": str(visual_frame_dir_for(queue_dir, job_id)),
+    }
+
+
 def log_paths_for(queue_dir: Path, job_id: Any) -> tuple[Path, Path]:
     """@brief 返回任务 stdout/stderr 日志路径。"""
     safe_id = "".join(ch for ch in str(job_id or "") if ch.isascii() and (ch.isalnum() or ch in "-_")) or "unknown"
@@ -1127,6 +1151,19 @@ def _run_command_with_runtime(
         child_env["SW_API_LOOKUP_NETWORK"] = "off"
     if knowledge.get("parallelApiFallbackEnabled", True) is not True:
         child_env["SW_API_LOOKUP_PARALLEL"] = "off"
+    queue_root = job_path.parent
+    child_env.update(visual_runtime_env(job, queue_root))
+    if child_env.get("CADSTUDIO_VISUAL_MODE") == "1":
+        append_event(
+            queue_root,
+            job,
+            "visual.session.started",
+            "可视化执行已开始",
+            {
+                "eventFile": child_env["CADSTUDIO_VISUAL_EVENT_FILE"],
+                "frameDir": child_env["CADSTUDIO_VISUAL_FRAME_DIR"],
+            },
+        )
     with stdout_path.open("w", encoding="utf-8") as stdout_handle, stderr_path.open("w", encoding="utf-8") as stderr_handle:
         process = subprocess.Popen(
             list(command),

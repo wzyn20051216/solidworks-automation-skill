@@ -9,9 +9,11 @@ from contextlib import contextmanager
 try:
     from .sw_connect import get_com_member
     from .sw_preflight import import_com_dependencies
+    from .sw_visual_trace import traced_step, visual_step
 except ImportError:
     from sw_connect import get_com_member
     from sw_preflight import import_com_dependencies
+    from sw_visual_trace import traced_step, visual_step
 
 
 def _callout_variant():
@@ -534,19 +536,25 @@ def sketch(model, plane_name="Front Plane"):
         中文版或重建后可能持续返回 False。它的 __str__ 返回草图名，所以把它当
         字符串传给旧代码（例如 "Sketch1" 的比较或格式化）同样成立。
     """
-    start_sketch(model, plane_name)
-    sketch_ref = None
-    try:
-        sketch_ref = _capture_sketch_ref(model, source="context")
-        yield sketch_ref if sketch_ref else current_sketch_name(model)
-    finally:
-        finished_ref = end_sketch(model)
-        if sketch_ref and finished_ref:
-            sketch_ref.feature = finished_ref.feature
-            sketch_ref.contours = finished_ref.contours
-            sketch_ref.regions = finished_ref.regions
-            sketch_ref.segments = finished_ref.segments
-            _cache_sketch_ref(model, sketch_ref)
+    with visual_step(
+        "sketch-create",
+        "sketch",
+        f"绘制草图：{plane_name}",
+        "正在进入草图环境",
+    ):
+        start_sketch(model, plane_name)
+        sketch_ref = None
+        try:
+            sketch_ref = _capture_sketch_ref(model, source="context")
+            yield sketch_ref if sketch_ref else current_sketch_name(model)
+        finally:
+            finished_ref = end_sketch(model)
+            if sketch_ref and finished_ref:
+                sketch_ref.feature = finished_ref.feature
+                sketch_ref.contours = finished_ref.contours
+                sketch_ref.regions = finished_ref.regions
+                sketch_ref.segments = finished_ref.segments
+                _cache_sketch_ref(model, sketch_ref)
 
 
 def current_sketch_name(model, fallback="Sketch1"):
@@ -734,6 +742,7 @@ def add_sketch_relation(model, relation_type):
 # 特征操作
 # ============================================================
 
+@traced_step("feature-extrude", "feature", "生成拉伸特征")
 def extrude_boss(model, sketch_name, depth, direction=True, merge=True, start_offset=0.0):
     """
     凸台拉伸
@@ -774,6 +783,7 @@ def extrude_boss(model, sketch_name, depth, direction=True, merge=True, start_of
     )
 
 
+@traced_step("feature-cut", "feature", "生成切除特征")
 def extrude_cut(model, sketch_name, depth, direction=True, flip=False, both_directions=False):
     """
     切除拉伸
@@ -839,6 +849,7 @@ def extrude_midplane(model, sketch_name, total_depth):
     )
 
 
+@traced_step("feature-revolve", "feature", "生成旋转特征")
 def revolve_boss(model, sketch_name, angle_rad, axis_sketch_name=None):
     """
     旋转凸台
@@ -860,6 +871,7 @@ def revolve_boss(model, sketch_name, angle_rad, axis_sketch_name=None):
     )
 
 
+@traced_step("feature-fillet", "feature", "生成圆角特征")
 def fillet(model, radius, edges=None):
     """
     倒圆角（恒定半径）。
@@ -898,6 +910,7 @@ def fillet(model, radius, edges=None):
     return model.FeatureManager.FeatureFillet(195, radius, 0, 0)
 
 
+@traced_step("feature-chamfer", "feature", "生成倒角特征")
 def chamfer(model, distance, angle_deg=45):
     """
     倒角
@@ -973,6 +986,7 @@ def mirror_feature(model, feature_name, mirror_plane_name):
     return model.FeatureManager.InsertMirrorFeature2(False, False, False, False, 0)
 
 
+@traced_step("feature-hole", "feature", "生成孔特征")
 def hole_wizard(model, hole_type, standard, fastener_type, size, depth, x, y, z):
     """
     异型孔向导（简化版）
