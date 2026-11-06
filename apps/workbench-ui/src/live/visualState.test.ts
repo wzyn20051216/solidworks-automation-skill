@@ -103,4 +103,30 @@ describe("deriveLiveVisual", () => {
     expect(state.stats.volumeMm3).toBe(28378.5);
     expect(state.stats.featureCount).toBe(6);
   });
+
+  it("uses the queue terminal state after the last save step", () => {
+    const events = [
+      visualEvent("visual.step.completed", {
+        stepId: "delivery-model-save",
+        sequence: 8,
+        phase: "delivery",
+        title: "保存 SolidWorks 模型",
+        message: "模型已保存",
+        snapshotPath: "visual/job-visual/step-008-delivery-model-save.png",
+      }),
+    ];
+
+    expect(
+      deriveLiveVisual(
+        job({ status: "passed", progress: 100, stage: "delivery" }),
+        events,
+      ).status,
+    ).toBe("complete");
+    expect(
+      deriveLiveVisual(
+        job({ status: "review_required", progress: 100, stage: "reviewing" }),
+        events,
+      ).status,
+    ).toBe("checking");
+  });
 });

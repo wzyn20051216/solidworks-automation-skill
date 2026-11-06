@@ -91,6 +91,8 @@ export function deriveLiveVisual(job: AutomationJob, events: QueueEvent[]): Live
   if (latestEvent.type === "visual.delivery.ready") {
     status = job.status === "passed" ? "complete" : "checking";
   }
+  if (job.status === "passed") status = "complete";
+  if (job.status === "review_required") status = "checking";
   if (["failed", "blocked", "cancelled", "approval_required"].includes(job.status)) {
     status = "warning";
   }

@@ -5,16 +5,19 @@ SolidWorks 友好会话 API
 “打开/新建/保存/导出/关闭”等常见流程。底层函数仍保留在 sw_connect.py、
 sw_part.py、sw_export.py 等模块中，便于精细控制。
 """
+import math
 from pathlib import Path
 import os
 
 try:
     from .sw_connect import close_owned_solidworks, connect_solidworks, get_com_member, new_document, open_document, save_document
     from .sw_export import export_to_dxf, export_to_iges, export_to_pdf, export_to_stl, export_to_step
+    from .sw_measure import collect_mass_properties
     from .sw_visual_trace import visual_step
 except ImportError:
     from sw_connect import close_owned_solidworks, connect_solidworks, get_com_member, new_document, open_document, save_document
     from sw_export import export_to_dxf, export_to_iges, export_to_pdf, export_to_stl, export_to_step
+    from sw_measure import collect_mass_properties
     from sw_visual_trace import visual_step
 
 
@@ -34,6 +37,34 @@ DOCUMENT_LABELS = {
     "assembly": "装配体",
     "drawing": "工程图",
 }
+
+
+def _feature_count(model) -> int:
+    """@brief 遍历真实特征树，返回可视交付卡需要的特征数。"""
+    feature = get_com_member(model, "FirstFeature")
+    count = 0
+    while feature is not None and count < 10000:
+        count += 1
+        feature = get_com_member(feature, "GetNextFeature")
+    return count
+
+
+def _visual_stats(model) -> dict[str, float]:
+    """@brief 从当前 SolidWorks 文档读取体积和特征数。"""
+    stats: dict[str, float] = {}
+    try:
+        volume = collect_mass_properties(model).get("volume_mm3")
+        if isinstance(volume, (int, float)) and math.isfinite(float(volume)) and float(volume) > 0:
+            stats["volumeMm3"] = float(volume)
+    except Exception:
+        pass
+    try:
+        count = _feature_count(model)
+        if count > 0:
+            stats["featureCount"] = float(count)
+    except Exception:
+        pass
+    return stats
 
 
 class SolidWorksSession:
@@ -191,8 +222,13 @@ class SolidWorksSession:
             "delivery",
             "保存 SolidWorks 模型",
             "正在保存当前模型",
-        ):
-            return self._save_impl(model, file_path)
+        ) as visual:
+            saved = self._save_impl(model, file_path)
+            if saved and visual is not None:
+                stats = _visual_stats(model if model is not None else self.model)
+                if stats:
+                    visual.stats.update(stats)
+            return saved
 
     def _save_impl(self, model=None, file_path=None):
         """@brief 执行保存文档的真实 COM 流程。"""

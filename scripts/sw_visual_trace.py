@@ -8,6 +8,7 @@ import json
 import os
 import re
 import threading
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
@@ -25,6 +26,13 @@ PHASE_PROGRESS = {
 }
 _TOKEN = re.compile(r"[^a-z0-9_-]+")
 _LOCK = threading.Lock()
+
+
+@dataclass
+class VisualStepHandle:
+    """Caller-visible step metadata collected before the completion event."""
+
+    stats: dict[str, float] = field(default_factory=dict)
 
 
 def _now_iso() -> str:
@@ -49,6 +57,23 @@ def _write_json_line(path: Path, event: dict[str, Any]) -> None:
             os.close(descriptor)
 
 
+def _initial_sequence(path: Path) -> int:
+    """@brief 从现有事件流恢复步骤序号，避免不同高层调用互相覆盖。"""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0
+    for line in reversed(lines):
+        try:
+            event = json.loads(line)
+            sequence = event.get("data", {}).get("sequence")
+            if isinstance(sequence, int):
+                return max(0, sequence)
+        except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+            continue
+    return 0
+
+
 class VisualTrace:
     """把一次任务的视觉事件追加到现有 Queue JSONL。"""
 
@@ -56,7 +81,7 @@ class VisualTrace:
         self.event_file = Path(event_file)
         self.job_id = str(job_id)
         self.frame_dir = Path(frame_dir) if frame_dir else None
-        self.sequence = 0
+        self.sequence = _initial_sequence(self.event_file)
 
     @classmethod
     def from_environment(cls) -> "VisualTrace | None":
@@ -95,7 +120,7 @@ class VisualTrace:
         message: str = "",
         *,
         snapshot: bool = True,
-    ) -> Iterator[None]:
+    ) -> Iterator[VisualStepHandle]:
         if phase not in PHASE_PROGRESS:
             raise ValueError(f"未知视觉阶段: {phase}")
         self.sequence += 1
@@ -108,6 +133,7 @@ class VisualTrace:
             "phase": phase,
             "title": str(title),
         }
+        handle = VisualStepHandle()
         self.emit(
             "visual.step.started",
             message or f"{title}开始",
@@ -115,7 +141,7 @@ class VisualTrace:
             data=base,
         )
         try:
-            yield
+            yield handle
         except Exception as exc:
             self.emit(
                 "visual.step.failed",
@@ -140,7 +166,12 @@ class VisualTrace:
                     normalized_step,
                 )
                 if captured is not None:
-                    queue_root = self.event_file.parent.parent
+                    event_dir = self.event_file.parent
+                    queue_root = (
+                        event_dir.parent
+                        if event_dir.name.casefold() == "events"
+                        else event_dir
+                    )
                     try:
                         snapshot_path = str(captured.resolve().relative_to(queue_root.resolve()))
                     except ValueError:
@@ -148,6 +179,8 @@ class VisualTrace:
             except Exception as exc:
                 snapshot_error = str(exc)[:1000]
         completed = {**base}
+        if handle.stats:
+            completed["stats"] = dict(handle.stats)
         if snapshot_path:
             completed["snapshotPath"] = snapshot_path
         if snapshot_error:

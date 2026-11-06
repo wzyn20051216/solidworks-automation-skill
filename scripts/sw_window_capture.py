@@ -41,6 +41,7 @@ def _solidworks_window_handle() -> int | None:
     try:
         import win32con
         import win32gui
+        import win32process
     except Exception:
         return None
 
@@ -54,7 +55,7 @@ def _solidworks_window_handle() -> int | None:
             return
         if win32gui.GetAncestor(hwnd, win32con.GA_ROOT) != hwnd:
             return
-        _, pid = win32gui.GetWindowThreadProcessId(hwnd)
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
         if pid not in process_ids:
             return
         title = win32gui.GetWindowText(hwnd).strip()
@@ -95,6 +96,8 @@ def _solidworks_window_rect():
 def _capture_window_bitmap(handle: int):
     """优先使用 PrintWindow，避免把覆盖在 SolidWorks 上方的 HUD 截进快照。"""
     try:
+        import ctypes
+        from ctypes import wintypes
         import win32gui
         import win32ui
         from PIL import Image
@@ -110,11 +113,14 @@ def _capture_window_bitmap(handle: int):
         bitmap.CreateCompatibleBitmap(source_dc, width, height)
         memory_dc.SelectObject(bitmap)
         try:
-            rendered = win32gui.PrintWindow(handle, memory_dc.GetSafeHdc(), 2)
+            print_window = ctypes.windll.user32.PrintWindow
+            print_window.argtypes = [wintypes.HWND, wintypes.HDC, wintypes.UINT]
+            print_window.restype = wintypes.BOOL
+            rendered = print_window(handle, memory_dc.GetSafeHdc(), 2)
             if not rendered:
-                win32gui.PrintWindow(handle, memory_dc.GetSafeHdc(), 0)
+                print_window(handle, memory_dc.GetSafeHdc(), 0)
             bits = bitmap.GetBitmapBits(True)
-            return Image.frombuffer(
+            image = Image.frombuffer(
                 "RGB",
                 (width, height),
                 bits,
@@ -123,6 +129,9 @@ def _capture_window_bitmap(handle: int):
                 0,
                 1,
             ).copy()
+            if image.convert("L").getextrema()[1] < 8:
+                return None
+            return image
         finally:
             win32gui.DeleteObject(bitmap.GetHandle())
             memory_dc.DeleteDC()

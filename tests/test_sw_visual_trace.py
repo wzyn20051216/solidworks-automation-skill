@@ -78,3 +78,40 @@ def test_oversized_payload_is_rejected(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="64 KiB"):
         trace.emit("visual.plan.ready", "x" * 70000)
+
+
+def test_step_can_attach_real_stats(tmp_path, monkeypatch):
+    event_file = tmp_path / "events" / "job-4.jsonl"
+    monkeypatch.setenv("CADSTUDIO_JOB_ID", "job-4")
+    monkeypatch.setenv("CADSTUDIO_VISUAL_EVENT_FILE", str(event_file))
+    trace = VisualTrace.from_environment()
+    assert trace is not None
+
+    with trace.step("save", "delivery", "保存模型", snapshot=False) as handle:
+        handle.stats.update({"volumeMm3": 28378.5, "featureCount": 6})
+
+    completed = read_events(event_file)[-1]
+    assert completed["data"]["stats"] == {
+        "volumeMm3": 28378.5,
+        "featureCount": 6,
+    }
+
+
+def test_sequence_continues_across_separate_visual_step_calls(tmp_path, monkeypatch):
+    from scripts.sw_visual_trace import visual_step
+
+    event_file = tmp_path / "events" / "job-5.jsonl"
+    monkeypatch.setenv("CADSTUDIO_JOB_ID", "job-5")
+    monkeypatch.setenv("CADSTUDIO_VISUAL_EVENT_FILE", str(event_file))
+
+    with visual_step("first", "feature", "第一步", snapshot=False):
+        pass
+    with visual_step("second", "feature", "第二步", snapshot=False):
+        pass
+
+    sequences = [
+        item["data"]["sequence"]
+        for item in read_events(event_file)
+        if item["type"] == "visual.step.started"
+    ]
+    assert sequences == [1, 2]

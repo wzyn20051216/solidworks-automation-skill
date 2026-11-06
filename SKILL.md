@@ -33,6 +33,28 @@ python SKILL_DIR/scripts/cad_studio.py doctor
 
 `capabilities.yaml` 是 Skill、MCP、队列和 UI 共用的能力唯一真源。能力等级为 `verified`、`pilot`、`reference_only` 或 `not_implemented`；后两者不得作为无人值守交付。该清单还维护 Python、C# PIA/Add-in、原生 C++、SWBasic、OCCT 和外部求解器的原子操作路由；执行前可用 `python scripts/backend_router.py --list` 查询，规则见 `references/language-backend-routing.md`。
 
+### Codex 本机接入
+
+在当前 Windows 工作区直接接入本机 SolidWorks，不复制第二份技能目录：
+
+```powershell
+uv venv .venv --python 3.12
+uv pip install --python .\.venv\Scripts\python.exe --index-url https://pypi.org/simple -r .\requirements.txt -r .\mcp-server\requirements.txt -r .\requirements-mesh.txt -r .\requirements-pdf.txt -r .\requirements-occt.txt
+powershell -ExecutionPolicy Bypass -File .\scripts\install_codex_skill.ps1
+.\.venv\Scripts\python.exe .\scripts\sw_preflight.py --yes
+.\.venv\Scripts\python.exe .\scripts\cad_doctor.py --probe-cad
+powershell -ExecutionPolicy Bypass -File .\mcp-server\register_codex_mcp.ps1 -Python .\.venv\Scripts\python.exe -Force
+```
+
+第一条命令创建 `~/.codex/skills/solidworks-automation` 到当前仓库的目录链接；仓库更新后技能自动同步。`--probe-cad` 只在自检临时拉起实例时关闭该实例，已由用户打开的 SolidWorks 会话不会被关闭。注册完成后重启 Codex 会话，让 MCP 工具列表刷新。
+
+启用 `visualMode` 的任务会获得 `CADSTUDIO_VISUAL_EVENT_FILE` 和
+`CADSTUDIO_VISUAL_FRAME_DIR`。SolidWorks 高层封装自动写入
+`visual.step.started/completed/failed` 事件，并在每次成功步骤后捕获主窗口快照；
+保存步骤同时回读真实体积和特征数。
+
+需要开放格式几何和外部 FEA 时，将在标准路径安装的 CalculiX `ccx.exe` 写入用户环境变量 `CADSTUDIO_CALCULIX_EXE`；`cad_doctor.py` 会同时核验 OCP、PyMuPDF 和求解器发现状态。
+
 ### 多入口与多后端
 
 - CAD Studio 与 Skill/CLI/MCP 是平级入口，共用 Automation Job、NeutralCadDocument、Preview Manifest、Evidence Graph 和能力清单。

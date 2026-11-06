@@ -281,9 +281,9 @@
       "label": "SolidWorks 实时可视化执行流",
       "level": "pilot",
       "backends": ["solidworks-com", "local-agent"],
-      "verified_versions": [],
+      "verified_versions": ["2026"],
       "dependencies": ["SolidWorks", "pywin32", "Pillow", "Tauri"],
-      "limitations": ["HUD 与快照只反映真实结构化事件，不补造进度", "窗口快照仅限 SolidWorks 主窗口，复杂弹窗、遮挡和远程桌面环境仍需抽查", "review_required、blocked 与 pilot 结果不得展示为正式完成"],
+      "limitations": ["SW2026 SP0 已真机验证可见圆柱建模、事件、主窗口快照、SLDPRT 保存、体积和特征树回读", "HUD 与快照只反映真实结构化事件，不补造进度", "窗口快照仅限 SolidWorks 主窗口，复杂弹窗、遮挡和远程桌面环境仍需抽查", "review_required、blocked 与 pilot 结果不得展示为正式完成"],
       "allowed_modes": ["interactive", "reviewed"]
     },
     {
