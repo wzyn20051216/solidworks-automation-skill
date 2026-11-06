@@ -88,6 +88,8 @@ export type AppSettings = {
   recentProjectPath?: string;
   apiConfig?: ApiIntegrationConfig;
   knowledgeBase?: KnowledgeBaseConfig;
+  visualMode: boolean;
+  showLiveHud: boolean;
 };
 
 export type CodexConfig = {

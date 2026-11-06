@@ -277,6 +277,16 @@
       "allowed_modes": ["interactive", "reviewed"]
     },
     {
+      "id": "visual_live_execution",
+      "label": "SolidWorks 实时可视化执行流",
+      "level": "pilot",
+      "backends": ["solidworks-com", "local-agent"],
+      "verified_versions": [],
+      "dependencies": ["SolidWorks", "pywin32", "Pillow", "Tauri"],
+      "limitations": ["HUD 与快照只反映真实结构化事件，不补造进度", "窗口快照仅限 SolidWorks 主窗口，复杂弹窗、遮挡和远程桌面环境仍需抽查", "review_required、blocked 与 pilot 结果不得展示为正式完成"],
+      "allowed_modes": ["interactive", "reviewed"]
+    },
+    {
       "id": "solidworks_addin_host",
       "label": "SolidWorks C# 进程内 Add-in 宿主",
       "level": "verified",

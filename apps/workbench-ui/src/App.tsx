@@ -42,6 +42,8 @@ import { EnvironmentRemediationPanel } from "./components/EnvironmentRemediation
 import { ManualReviewPanel } from "./components/ManualReviewPanel";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
 import { TaskSequence } from "./components/TaskSequence";
+import { LiveDeliveryCard } from "./live/LiveDeliveryCard";
+import { LiveExecutionStrip } from "./live/LiveExecutionStrip";
 import { PreviewShowcase } from "./preview/PreviewShowcase";
 import { collectJobArtifacts, deliveryFormatStatus, groupedArtifacts } from "./domain/artifacts";
 import {
@@ -501,6 +503,8 @@ function loadSettings(payload?: unknown): AppSettings | null {
       workspaceOpacity: parsed.panelOpacityVersion === 1 ? clampNumber(parsed.workspaceOpacity, 36, 18, 92) : 36,
       wallpaperMotionMode: parsed.wallpaperMotionMode ?? "cinematic",
       wallpaperMotionStrength: clampNumber(parsed.wallpaperMotionStrength, 55, 0, 100),
+      visualMode: parsed.visualMode === true,
+      showLiveHud: parsed.showLiveHud !== false,
       defaultWallpaperVersion: 1,
       panelOpacityVersion: 1,
       recentWallpapers: Array.isArray(parsed.recentWallpapers) ? parsed.recentWallpapers.slice(0, 6) : [],
@@ -870,6 +874,8 @@ function App() {
   const [wallpaperMotionMode, setWallpaperMotionMode] = useState<WallpaperMotionMode>("cinematic");
   const [wallpaperMotionStrength, setWallpaperMotionStrength] = useState(55);
   const [wallpaperShot, setWallpaperShot] = useState(0);
+  const [visualMode, setVisualMode] = useState(false);
+  const [showLiveHud, setShowLiveHud] = useState(true);
   const [recentWallpapers, setRecentWallpapers] = useState<RecentWallpaper[]>([]);
   const [projects, setProjects] = useState<ProjectRecord[]>([DEFAULT_PROJECT]);
   const [activeProjectId, setActiveProjectId] = useState(LEGACY_PROJECT_ID);
@@ -1032,6 +1038,16 @@ function App() {
 
   function updateCodexConfig(patch: Partial<CodexConfig>) {
     setCodexConfig((config) => ({ ...config, ...patch }));
+  }
+
+  async function updateLiveHudVisibility(visible: boolean) {
+    setShowLiveHud(visible);
+    if (!isTauriRuntime()) return;
+    try {
+      await invoke("set_live_hud_visible", { visible });
+    } catch (error) {
+      setWindowHint(`桌宠窗口状态更新失败：${String(error)}`);
+    }
   }
 
   function updateConversationRuntime(provider: AgentProviderId, model: string) {
@@ -1314,8 +1330,12 @@ function App() {
       `${cadApplicationLabels[config.cadApplication]}: ${cadApplicationRoutes[config.cadApplication]}`,
       config.localCadAutomation ? "允许经审批后调用本机 SolidWorks / AutoCAD 桌面自动化能力。" : "不直接调用本机 CAD 软件，仅生成计划、脚本或说明。",
       `所有交付物只保存到本地输出目录: ${config.outputDir}`,
+      ...(visualMode ? ["可视化模式已启用：SolidWorks 操作必须通过现有 sw_session/sw_part 高层封装执行，使真实步骤事件和主窗口快照自动写入队列。"] : []),
     ];
-    const capabilities = capabilityIdsForConfig(config);
+    const baseCapabilities = capabilityIdsForConfig(config);
+    const capabilities = visualMode
+      ? [...baseCapabilities, "visual_live_execution"]
+      : baseCapabilities;
     const providerMeta = agentProviderCatalog[apiConfig.agentProvider];
     const job = createJob("agent_task", recentProjectPath, {
       projectId: activeProjectId,
@@ -1390,6 +1410,8 @@ function App() {
           strictGbDrawing: config.strictGbDrawing,
           localCadAutomation: config.localCadAutomation,
         },
+        visualMode,
+        liveHud: showLiveHud,
         outputDir: config.outputDir,
         knowledgeBase,
       },
@@ -1448,6 +1470,10 @@ function App() {
     }
     const prompt = buildChatPrompt(codexConfig, apiConfig, text, [...activeConversationMessages, userMessage], recentProjectPath, activeRuntime);
     const providerMeta = agentProviderCatalog[apiConfig.agentProvider];
+    const baseCapabilities = capabilityIdsForConfig(codexConfig);
+    const capabilities = visualMode
+      ? [...baseCapabilities, "visual_live_execution"]
+      : baseCapabilities;
     const job = createJob("agent_task", recentProjectPath, {
       projectId: activeProjectId,
       conversationId: conversation.id,
@@ -1463,9 +1489,10 @@ function App() {
         codexConfig.realCutouts ? "涉及孔槽时必须是真实几何开孔/切除。" : "涉及孔槽时必须说明实现状态。",
         codexConfig.strictGbDrawing ? "涉及图纸时必须遵循中国常用机械制图规范并复核尺寸链。" : "涉及图纸时说明规范覆盖范围。",
         "所有交付物只保存到用户指定的本地输出目录。",
+        ...(visualMode ? ["可视化模式已启用：SolidWorks 操作必须通过现有 sw_session/sw_part 高层封装执行，使真实步骤事件和主窗口快照自动写入队列。"] : []),
       ],
-      capabilities: capabilityIdsForConfig(codexConfig),
-      capabilitySnapshot: capabilitySnapshot(activeRuntime, capabilityIdsForConfig(codexConfig)),
+      capabilities,
+      capabilitySnapshot: capabilitySnapshot(activeRuntime, capabilities),
       prompt,
       cwd: activeRuntime.skillRoot,
       skillPath: activeRuntime.solidworksSkillPath,
@@ -1488,6 +1515,8 @@ function App() {
         },
         outputDir: codexConfig.outputDir,
         knowledgeBase,
+        visualMode,
+        liveHud: showLiveHud,
         engineeringOrchestration: {
           mode: "plan_guided_dag",
           trigger: "复杂机械工程自动拆解；简单任务保持最小执行路径",
@@ -2292,6 +2321,8 @@ function App() {
       setWorkspaceOpacity(settings.workspaceOpacity);
       setWallpaperMotionMode(settings.wallpaperMotionMode);
       setWallpaperMotionStrength(settings.wallpaperMotionStrength);
+      setVisualMode(settings.visualMode);
+      setShowLiveHud(settings.showLiveHud);
       setRecentWallpapers(settings.recentWallpapers);
       setProjects(settings.projects ?? [DEFAULT_PROJECT]);
       setActiveProjectId(settings.activeProjectId ?? LEGACY_PROJECT_ID);
@@ -2311,6 +2342,13 @@ function App() {
       setSettingsLoaded(true);
     });
   }, []);
+
+  useEffect(() => {
+    if (!settingsLoaded || !isTauriRuntime()) return;
+    void invoke("set_live_hud_visible", { visible: showLiveHud }).catch((error) => {
+      setWindowHint(`桌宠窗口初始化失败：${String(error)}`);
+    });
+  }, [settingsLoaded, showLiveHud]);
 
   useEffect(() => {
     async function restoreChat() {
@@ -2527,11 +2565,13 @@ function App() {
       recentProjectPath,
       apiConfig,
       knowledgeBase,
+      visualMode,
+      showLiveHud,
     };
     void writePersistedState("settings", SETTINGS_KEY, settings)
       .then((result) => result.degraded && setPersistenceWarning("SQLite 写入失败，设置已安全保存到本地回退副本。"))
       .catch((error) => setPersistenceWarning(`设置保存失败：${error instanceof Error ? error.message : String(error)}`));
-  }, [activeProjectId, activeWallpaper, apiConfig, customWallpaper?.sourcePath, knowledgeBase, projectName, projects, recentProjectPath, recentWallpapers, settingsLoaded, wallpaperBlur, wallpaperBrightness, wallpaperMotionMode, wallpaperMotionStrength, wallpaperVignette, workspaceOpacity]);
+  }, [activeProjectId, activeWallpaper, apiConfig, customWallpaper?.sourcePath, knowledgeBase, projectName, projects, recentProjectPath, recentWallpapers, settingsLoaded, showLiveHud, visualMode, wallpaperBlur, wallpaperBrightness, wallpaperMotionMode, wallpaperMotionStrength, wallpaperVignette, workspaceOpacity]);
 
   function renderTemplatePanel() {
     return (
@@ -3644,6 +3684,21 @@ function App() {
                   onSelectProvider={selectAgentProvider}
                   onSelectModel={selectAgentModel}
                 />
+                <label className="visual-mode-toggle">
+                  <input
+                    type="checkbox"
+                    checked={visualMode}
+                    onChange={(event) => setVisualMode(event.target.checked)}
+                  />
+                  可视化执行
+                </label>
+                <button
+                  className="visual-hud-toggle"
+                  type="button"
+                  onClick={() => void updateLiveHudVisibility(!showLiveHud)}
+                >
+                  {showLiveHud ? "隐藏桌宠" : "显示桌宠"}
+                </button>
                 <span>{activeAgentJob ? `${jobStatusLabel(activeAgentJob.status)} · ${activeAgentJob.progress}%` : activeConversation ? "等待指令" : "新建对话后开始"}</span>
               </div>
 
@@ -3680,6 +3735,7 @@ function App() {
                   <div className="live-summary">
                     <p>{activeAgentJob ? compactJobMessage(activeAgentJob, activeAgentEvents) : "输入你的要求后，这里会显示 AI 的公开执行过程、工具结果和输出文件。"}</p>
                   </div>
+                  <LiveExecutionStrip job={activeAgentJob} events={activeAgentEvents} />
                   {activeAgentJob.result?.engineeringPlan?.phases?.length ? (
                     <div className="engineering-plan-view">
                       <strong>AI 工程路径</strong>
@@ -3704,6 +3760,13 @@ function App() {
                       options={activeManualReviewOptions}
                       onChange={(draft) => updateManualReviewDraft(activeAgentJob.id, draft)}
                       onSubmit={(approved) => void reviewJob(activeAgentJob.id, approved)}
+                    />
+                  ) : null}
+                  {["passed", "review_required", "failed", "blocked"].includes(activeAgentJob.status) ? (
+                    <LiveDeliveryCard
+                      job={activeAgentJob}
+                      events={activeAgentEvents}
+                      onOpenDelivery={() => setActiveTab("export")}
                     />
                   ) : null}
                   <div className="live-timeline">
