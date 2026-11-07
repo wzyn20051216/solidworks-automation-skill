@@ -1,4 +1,4 @@
-export type PresetWallpaperId = "blossom" | "fuji" | "anime-sky" | "tokyo-neon" | "blueprint" | "studio" | "mist";
+export type PresetWallpaperId = "none" | "blossom" | "fuji" | "anime-sky" | "tokyo-neon" | "blueprint" | "studio" | "mist";
 export type WallpaperId = PresetWallpaperId | "custom";
 export type WallpaperMotionMode = "still" | "breathe" | "cinematic" | "follow";
 export type WallpaperFile = { url: string; name: string; kind: "image" | "video"; sourcePath?: string };
@@ -88,6 +88,8 @@ export type AppSettings = {
   recentProjectPath?: string;
   apiConfig?: ApiIntegrationConfig;
   knowledgeBase?: KnowledgeBaseConfig;
+  visualMode: boolean;
+  showLiveHud: boolean;
 };
 
 export type CodexConfig = {
@@ -160,6 +162,7 @@ export type JobRunSnapshot = {
   reviewGatePath?: string;
   reviewGate?: AutomationJob["reviewGate"];
   drawingEvidence?: DomainEvidence;
+  gbDrawingGate?: DomainEvidence;
   bomEvidence?: DomainEvidence;
   dfmEvidence?: DomainEvidence;
   reviewFindings?: Array<Record<string, unknown>>;
@@ -202,6 +205,7 @@ export type AutomationJob = {
   evidenceGraph?: Record<string, unknown>;
   verificationEvidence?: Array<Record<string, unknown>>;
   drawingEvidence?: DomainEvidence;
+  gbDrawingGate?: DomainEvidence;
   bomEvidence?: DomainEvidence;
   dfmEvidence?: DomainEvidence;
   reviewFindings?: Array<Record<string, unknown>>;
@@ -296,8 +300,32 @@ export type RuntimeHealth = {
   agentProviders?: Array<{ id: AgentProviderId; name: string; installed?: boolean; ready?: boolean; verified?: boolean; status?: "not_installed" | "auth_failed" | "verified" | "verification_required"; version?: { ok?: boolean; message?: string }; auth?: { ok?: boolean | null; message?: string }; entry?: string }>;
   doctor?: { schemaVersion?: string; summary?: { status?: "passed" | "warning" | "error"; errors?: number; warnings?: number }; checks?: Array<Record<string, unknown>>; error?: string };
   remediations?: RuntimeRemediation[];
-  solidworks?: { ok?: boolean; message?: string };
-  autocad?: { ok?: boolean; path?: string };
+  solidworks?: {
+    ok?: boolean;
+    installed?: boolean;
+    path?: string;
+    probe?: string;
+    mode?: string;
+    status?: string;
+    version?: string | null;
+    caption?: string | null;
+    document?: string | null;
+    message?: string;
+    exitCode?: number | null;
+  };
+  autocad?: {
+    ok?: boolean;
+    installed?: boolean;
+    path?: string;
+    probe?: string;
+    mode?: string;
+    status?: string;
+    version?: string | null;
+    caption?: string | null;
+    document?: string | null;
+    message?: string;
+    exitCode?: number | null;
+  };
   capabilityManifest?: { schema_version?: string; verified_versions?: Record<string, string[]>; capabilities?: Array<Record<string, unknown> & { id?: string; level?: string }> };
 };
 export type ImportedWallpaper = { path: string; name: string; kind: "image" | "video" };

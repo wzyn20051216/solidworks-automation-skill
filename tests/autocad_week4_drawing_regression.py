@@ -38,6 +38,38 @@ def _require_file(path: Path, label: str) -> dict:
     return {"path": str(path), "size_bytes": size}
 
 
+def _preview_quality(
+    path: Path,
+    *,
+    min_width: int = 800,
+    min_height: int = 500,
+    min_ink_ratio: float = 0.005,
+) -> dict:
+    """@brief 校验原生预览不是被最小化视口截出的缩略图。"""
+    from collections import Counter
+
+    from PIL import Image
+
+    with Image.open(path) as image:
+        rgb = image.convert("RGB")
+        width, height = rgb.size
+        pixels = list(rgb.getdata())
+    background = Counter(pixels).most_common(1)[0][0]
+    ink_ratio = sum(1 for color in pixels if color != background) / max(len(pixels), 1)
+    failures = []
+    if width < min_width or height < min_height:
+        failures.append(f"分辨率过低 {width}x{height}")
+    if ink_ratio < min_ink_ratio:
+        failures.append(f"墨迹占比过低 {ink_ratio:.4f}")
+    return {
+        "status": "ok" if not failures else "failed",
+        "width": width,
+        "height": height,
+        "ink_ratio": round(ink_ratio, 4),
+        "issues": failures,
+    }
+
+
 def _draw_frame(session: AutoCADSession) -> None:
     """@brief 绘制 A3 横向中性 GB/T 风格图框和标题栏。"""
     session.create_layer("FRAME", color=7)
@@ -155,6 +187,9 @@ def run_regression(output_root: Path, *, run_id: str | None = None) -> dict:
         if png_result.get("status") != "ok":
             raise RuntimeError(f"BMP 转 PNG 失败: {png_result}")
         _require_file(png_path, "AutoCAD 原生 PNG")
+        native_preview = _preview_quality(png_path)
+        if native_preview["status"] != "ok":
+            raise RuntimeError(f"AutoCAD 原生预览不合格: {native_preview}")
 
         native_review = review_active(session)
         if native_review["modelspace_entity_count"] < 20:
@@ -199,6 +234,7 @@ def run_regression(output_root: Path, *, run_id: str | None = None) -> dict:
                 "headless_png": _require_file(dxf_png_path, "DXF 无头 PNG"),
             },
             "native_review": native_review,
+            "native_preview": native_preview,
             "dxf_review": dxf_review,
             "headless_render": headless_render,
             "manual_review_required": [

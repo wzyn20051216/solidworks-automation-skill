@@ -116,6 +116,29 @@ def test_com_preflight_installs_without_prompt_and_can_be_disabled(monkeypatch):
         preflight.ensure_com_dependencies()
 
 
+def test_com_preflight_retries_official_pypi_after_primary_index_failure(monkeypatch):
+    from scripts import sw_preflight as preflight
+
+    calls = []
+
+    def fake_check_call(command, timeout):
+        calls.append((list(command), timeout))
+        if len(calls) == 1:
+            raise preflight.subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr(preflight.subprocess, "check_call", fake_check_call)
+    monkeypatch.setattr(preflight.importlib, "invalidate_caches", lambda: None)
+    monkeypatch.setattr(preflight.site, "addsitedir", lambda *_args, **_kwargs: None)
+    monkeypatch.delenv("SW_PIP_INDEX_URL", raising=False)
+    monkeypatch.delenv("SW_PIP_FALLBACK_INDEX_URL", raising=False)
+
+    preflight.install_com_dependencies(requirements=("comtypes>=1.2.0",))
+
+    assert len(calls) == 2
+    assert "--index-url" in calls[1][0]
+    assert "https://pypi.org/simple" in calls[1][0]
+
+
 def test_help_restore_rejects_wrong_product_and_requires_hash(monkeypatch, tmp_path):
     from scripts import api_help_restore as restore
     msi = tmp_path / "solidworks.msi"

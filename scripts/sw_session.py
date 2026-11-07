@@ -5,15 +5,20 @@ SolidWorks 友好会话 API
 “打开/新建/保存/导出/关闭”等常见流程。底层函数仍保留在 sw_connect.py、
 sw_part.py、sw_export.py 等模块中，便于精细控制。
 """
+import math
 from pathlib import Path
 import os
 
 try:
     from .sw_connect import close_owned_solidworks, connect_solidworks, get_com_member, new_document, open_document, save_document
     from .sw_export import export_to_dxf, export_to_iges, export_to_pdf, export_to_stl, export_to_step
+    from .sw_measure import collect_mass_properties
+    from .sw_visual_trace import visual_step
 except ImportError:
     from sw_connect import close_owned_solidworks, connect_solidworks, get_com_member, new_document, open_document, save_document
     from sw_export import export_to_dxf, export_to_iges, export_to_pdf, export_to_stl, export_to_step
+    from sw_measure import collect_mass_properties
+    from sw_visual_trace import visual_step
 
 
 EXPORTERS = {
@@ -26,6 +31,40 @@ EXPORTERS = {
     ".dxf": export_to_dxf,
     ".dwg": export_to_dxf,
 }
+
+DOCUMENT_LABELS = {
+    "part": "零件",
+    "assembly": "装配体",
+    "drawing": "工程图",
+}
+
+
+def _feature_count(model) -> int:
+    """@brief 遍历真实特征树，返回可视交付卡需要的特征数。"""
+    feature = get_com_member(model, "FirstFeature")
+    count = 0
+    while feature is not None and count < 10000:
+        count += 1
+        feature = get_com_member(feature, "GetNextFeature")
+    return count
+
+
+def _visual_stats(model) -> dict[str, float]:
+    """@brief 从当前 SolidWorks 文档读取体积和特征数。"""
+    stats: dict[str, float] = {}
+    try:
+        volume = collect_mass_properties(model).get("volume_mm3")
+        if isinstance(volume, (int, float)) and math.isfinite(float(volume)) and float(volume) > 0:
+            stats["volumeMm3"] = float(volume)
+    except Exception:
+        pass
+    try:
+        count = _feature_count(model)
+        if count > 0:
+            stats["featureCount"] = float(count)
+    except Exception:
+        pass
+    return stats
 
 
 class SolidWorksSession:
@@ -102,9 +141,21 @@ class SolidWorksSession:
             doc_type: "part"、"assembly"、"drawing" 或常见扩展名。
             template_path: 指定模板路径；None 表示自动查找模板。
         """
-        self.model = new_document(self.sw, doc_type=doc_type, template_path=template_path, max_documents=self.max_documents)
-        self._remember(self.model)
-        return self.model
+        label = DOCUMENT_LABELS.get(str(doc_type).lower(), str(doc_type))
+        with visual_step(
+            f"part-new-{doc_type}",
+            "planning",
+            f"创建{label}文档",
+            "正在创建 SolidWorks 文档",
+        ):
+            self.model = new_document(
+                self.sw,
+                doc_type=doc_type,
+                template_path=template_path,
+                max_documents=self.max_documents,
+            )
+            self._remember(self.model)
+            return self.model
 
     def new_part(self, template_path=None):
         """新建零件文档。"""
@@ -128,6 +179,21 @@ class SolidWorksSession:
             silent: 是否静默打开。
             raise_on_error: 打开失败时是否抛出异常。
         """
+        with visual_step(
+            "part-open",
+            "planning",
+            "打开输入文件",
+            f"正在打开 {Path(str(file_path)).name}",
+        ):
+            return self._open_impl(
+                file_path,
+                read_only=read_only,
+                silent=silent,
+                raise_on_error=raise_on_error,
+            )
+
+    def _open_impl(self, file_path, read_only=False, silent=False, raise_on_error=True):
+        """@brief 执行打开文档的真实 COM 流程。"""
         before = {os.path.normcase(str(get_com_member(doc, "GetPathName") or "")) for doc in self._documents()}
         requested = os.path.normcase(os.path.abspath(os.path.expandvars(str(file_path))))
         if requested not in before and len(self._documents()) >= self.max_documents:
@@ -151,6 +217,21 @@ class SolidWorksSession:
             model: 指定文档；None 表示当前活动文档。
             file_path: 另存为路径；None 表示保存到当前位置。
         """
+        with visual_step(
+            "model-save",
+            "delivery",
+            "保存 SolidWorks 模型",
+            "正在保存当前模型",
+        ) as visual:
+            saved = self._save_impl(model, file_path)
+            if saved and visual is not None:
+                stats = _visual_stats(model if model is not None else self.model)
+                if stats:
+                    visual.stats.update(stats)
+            return saved
+
+    def _save_impl(self, model=None, file_path=None):
+        """@brief 执行保存文档的真实 COM 流程。"""
         model = model if model is not None else self.model
         if model is None:
             raise RuntimeError("当前没有可保存的活动文档")
@@ -166,6 +247,16 @@ class SolidWorksSession:
             format_ext: 显式格式扩展名；None 表示从 output_path 推断。
             **kwargs: 传给具体导出函数的附加参数，例如 STL quality。
         """
+        with visual_step(
+            "model-export",
+            "delivery",
+            "导出交付文件",
+            f"正在导出 {format_ext or Path(str(output_path)).suffix}",
+        ):
+            return self._export_impl(model, output_path, format_ext, **kwargs)
+
+    def _export_impl(self, model=None, output_path=None, format_ext=None, **kwargs):
+        """@brief 执行导出交付文件的真实 COM 流程。"""
         model = model if model is not None else self.model
         if model is None:
             raise RuntimeError("当前没有可导出的活动文档")

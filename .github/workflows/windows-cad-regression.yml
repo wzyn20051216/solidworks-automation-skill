@@ -1,6 +1,6 @@
 # 真实 CAD 回归（手动触发，**不是**必需合并检查）
 #
-# 合并门禁只由 windows-release.yml 的 `test-and-build`（GitHub 托管 windows-2022）承担。
+# 合并门禁只由 skill-mcp-release.yml 的 `test-and-build`（GitHub 托管 windows-2022）承担。
 # 本工作流需要一台装有 SolidWorks 的自托管 Runner，仓库当前 Runner 数为 0，因而无法被调度；
 # 它既不阻止合并，也不产生任何远端 CAD 证据。不要把它写成"远程 CAD CI 已通过"。
 #

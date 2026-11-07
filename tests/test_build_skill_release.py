@@ -72,11 +72,14 @@ def test_archive_verification_rejects_invalid_delivery(tmp_path, fault):
                              expected_commit="b"*40 if fault == "wrong_commit" else "a"*40)
 
 
-def test_release_rejects_mixed_skill_and_desktop_versions(tmp_path):
+def test_release_ignores_optional_desktop_version(tmp_path):
     source_tree(tmp_path)
-    (tmp_path / "package.json").write_text('{"version":"2.0.0"}', encoding="utf-8")
-    with pytest.raises(ValueError, match="版本"):
-        build_skill_archive(tmp_path, tmp_path / "mismatch.zip", source_commit="a"*40)
+    (tmp_path / "apps/workbench-ui/src-tauri/tauri.conf.json").write_text(
+        json.dumps({"version": "9.9.9"}),
+        encoding="utf-8",
+    )
+    result = build_skill_archive(tmp_path, tmp_path / "independent.zip", source_commit="a" * 40)
+    assert result["version"] == "2.0.1"
 
 
 def test_archive_does_not_follow_sources_outside_repository(tmp_path, monkeypatch):

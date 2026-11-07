@@ -1,7 +1,7 @@
 {
   "name": "solidworks-automation-skill",
-  "version": "2.0.1",
-  "description": "SolidWorks automation skill installer for Claude CLI and other AI tools",
+  "version": "2.1.0",
+  "description": "AI Skill + MCP toolkit for verified SolidWorks and CAD automation",
   "main": "install.js",
   "bin": {
     "solidworks-automation-skill": "./install.js"

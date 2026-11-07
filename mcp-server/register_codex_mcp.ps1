@@ -72,8 +72,15 @@ if ($InstallDependencies) {
 Write-Host "Checking Python syntax..."
 Invoke-CheckedCommand $Python -m py_compile $serverPath
 
-$null = & codex mcp get $Name 2>$null
-$exists = ($LASTEXITCODE -eq 0)
+$probePreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = "SilentlyContinue"
+    $null = & codex mcp get $Name 2>$null
+    $exists = ($LASTEXITCODE -eq 0)
+}
+finally {
+    $ErrorActionPreference = $probePreference
+}
 
 if ($exists) {
     if (-not $Force) {

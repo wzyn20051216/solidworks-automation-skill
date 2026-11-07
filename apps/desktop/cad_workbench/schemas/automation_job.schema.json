@@ -156,6 +156,10 @@
       "type": "object",
       "additionalProperties": true
     },
+    "gbDrawingGate": {
+      "type": "object",
+      "additionalProperties": true
+    },
     "bomEvidence": {
       "type": "object",
       "additionalProperties": true

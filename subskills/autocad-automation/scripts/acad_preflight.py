@@ -11,6 +11,7 @@ import argparse
 import json
 import platform
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict
 
@@ -89,9 +90,35 @@ def check_autocad(launch: bool) -> Dict[str, Any]:
     except Exception:
         pass
 
+    def wait_value(getter, *, timeout: float = 20.0):
+        """@brief AutoCAD 启动期间会短暂拒绝 COM 调用，必须重试而不是误报未连接。"""
+        deadline = time.monotonic() + timeout
+        last_error = None
+        while time.monotonic() < deadline:
+            try:
+                return getter()
+            except Exception as error:  # noqa: BLE001 - COM 拒绝调用需要重试
+                last_error = error
+                time.sleep(0.5)
+        raise last_error or RuntimeError("AutoCAD COM 未返回属性")
+
+    try:
+        version = str(wait_value(lambda: app.Version))
+        caption = str(wait_value(lambda: app.Caption))
+    except Exception as error:
+        return _result(
+            "unavailable",
+            prog_id="AutoCAD.Application",
+            installed=installation["installed"],
+            executable=installation["executable"],
+            installation_source=installation["source"],
+            mode=mode,
+            error=repr(error),
+            hint="AutoCAD 已启动但 COM 仍在忙，请等待启动完成后重试。",
+        )
     doc_name = None
     try:
-        doc_name = app.ActiveDocument.Name
+        doc_name = str(wait_value(lambda: app.ActiveDocument.Name, timeout=3.0))
     except Exception:
         doc_name = None
 
@@ -102,8 +129,8 @@ def check_autocad(launch: bool) -> Dict[str, Any]:
         executable=installation["executable"],
         installation_source=installation["source"],
         mode=mode,
-        version=str(getattr(app, "Version", "")),
-        caption=str(getattr(app, "Caption", "")),
+        version=version,
+        caption=caption,
         active_document=doc_name,
     )
 

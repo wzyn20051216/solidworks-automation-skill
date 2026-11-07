@@ -19,6 +19,10 @@ DELIVERY_FILE_EXTENSIONS = frozenset({
     ".dxf", ".dwg", ".pdf", ".png", ".svg", ".bmp", ".jpg", ".jpeg", ".webp", ".csv",
 })
 
+# 快照追踪范围比交付物分类更宽：JSON/Markdown 证据需要参与 producedThisRun 判定，
+# 但不改变「哪些文件算 CAD 交付物」的既有语义。
+TRACKED_FILE_EXTENSIONS = DELIVERY_FILE_EXTENSIONS | frozenset({".json", ".md"})
+
 def ledger_dir(queue_dir: Path) -> Path:
     """@brief 返回交付物账本目录。"""
     directory = Path(queue_dir) / "ledgers"
@@ -223,6 +227,12 @@ def build_artifact_ledger(queue_dir: Path, job: dict[str, Any], result: dict[str
         "runId": job.get("runId"),
         "kind": job.get("kind"),
         "executor": job.get("executor", "mock"),
+        "pipelineStage": (
+            job.get("uiConfig", {}).get("pipeline", {}).get("stage")
+            if isinstance(job.get("uiConfig"), dict)
+            and isinstance(job.get("uiConfig", {}).get("pipeline"), dict)
+            else job.get("pipelineStage")
+        ),
         "target": job.get("target"),
         "objective": job.get("objective"),
         "detail": job.get("detail"),
@@ -245,6 +255,7 @@ def build_artifact_ledger(queue_dir: Path, job: dict[str, Any], result: dict[str
         "verification": result.get("verification", []),
         "risks": result.get("risks", []),
         "drawingEvidence": result.get("drawingEvidence"),
+        "gbDrawingGate": result.get("gbDrawingGate"),
         "bomEvidence": result.get("bomEvidence"),
         "dfmEvidence": result.get("dfmEvidence"),
         "reviewFindings": result.get("reviewFindings", []),

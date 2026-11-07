@@ -88,6 +88,8 @@ test('依赖安装使用用户目录并准确报告失败', () => {
   assert.equal(result.ok, false);
   assert.ok(calls[1][1].includes('--user'));
   assert.ok(calls[1][1].includes('--no-input'));
+  assert.ok(calls[2][1].includes('--index-url'));
+  assert.ok(calls[2][1].includes('https://pypi.org/simple'));
 });
 
 test('MCP 注册复用已选择的 Python，失败时返回失败且不重复安装依赖', () => {

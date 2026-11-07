@@ -17,6 +17,8 @@ $tauriRoot = Join-Path $repoRoot "apps\workbench-ui\src-tauri"
 $tauriConfigPath = Join-Path $tauriRoot "tauri.conf.json"
 $tauriConfig = Get-Content -LiteralPath $tauriConfigPath -Raw | ConvertFrom-Json
 $version = [string]$tauriConfig.version
+$corePackage = Get-Content -LiteralPath (Join-Path $repoRoot "package.json") -Raw | ConvertFrom-Json
+$coreVersion = [string]$corePackage.version
 $latestPath = Join-Path $resolvedReleaseRoot "latest.json"
 $latest = Get-Content -LiteralPath $latestPath -Raw | ConvertFrom-Json
 if ([string]$latest.version -ne $version) {
@@ -32,14 +34,14 @@ if ([string]$platform.url -ne $expectedUrl) {
 
 $setupPath = Join-Path $resolvedReleaseRoot "CAD-Studio-$version-Setup-x64.exe"
 $signaturePath = "$setupPath.sig"
-$skillArchive = Join-Path $resolvedReleaseRoot "SolidWorks-Automation-Skill-$version.zip"
+$skillArchive = Join-Path $resolvedReleaseRoot "SolidWorks-Automation-Skill-$coreVersion.zip"
 $portableArchive = Join-Path $resolvedReleaseRoot "CAD-Studio-$version-Windows-x64-Portable.zip"
 foreach ($requiredPath in @($setupPath, $signaturePath, $skillArchive, $portableArchive, (Join-Path $resolvedReleaseRoot "SHA256SUMS.txt"))) {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
         throw "Missing updater release artifact: $requiredPath"
     }
 }
-& python (Join-Path $PSScriptRoot "build_skill_release.py") --verify $skillArchive --version $version --desktop-archive $portableArchive
+& python (Join-Path $PSScriptRoot "build_skill_release.py") --verify $skillArchive --version $coreVersion --desktop-archive $portableArchive
 if ($LASTEXITCODE -ne 0) { throw "Standalone skill package integrity check failed." }
 $signature = (Get-Content -LiteralPath $signaturePath -Raw).Trim()
 if ([string]$platform.signature -ne $signature) {

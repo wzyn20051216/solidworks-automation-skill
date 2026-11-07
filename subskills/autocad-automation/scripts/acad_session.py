@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import ctypes
+import ctypes.wintypes
 import math
 import time
 from pathlib import Path
@@ -26,6 +27,9 @@ else:
 
 PointLike = Sequence[float]
 _RETRYABLE_COM_HRESULTS = {-2147418111, -2147417846}
+_CJK_TEXT_STYLE = "CAD_STUDIO_CJK"
+_CJK_FONT_CANDIDATES = ("simsun.ttc", "simhei.ttf", "msyh.ttc", "Deng.ttf")
+_CJK_TYPEFACES = ("宋体", "SimSun", "微软雅黑", "Microsoft YaHei", "黑体", "SimHei", "等线", "DengXian")
 
 
 def _retry_com_busy(operation, label: str, attempts: int = 10) -> Any:
@@ -454,6 +458,63 @@ class AutoCADSession:
             color=color,
         )
 
+    def ensure_cjk_text_style(self) -> str:
+        """@brief 确保存在 TrueType 中文字体样式并设为当前文字样式。
+
+        AutoCAD 新建图纸默认 ``Standard`` 样式基于 txt.shx/simplex.shx，
+        没有中文字形，直接 AddText 会把汉字替换成问号。
+
+        """
+        cached = getattr(self, "_cjk_text_style_name", None)
+        if cached:
+            return str(cached)
+        document = self.active_document()
+        styles = document.TextStyles
+        name = _CJK_TEXT_STYLE
+        try:
+            style = styles.Item(name)
+        except Exception:
+            style = _retry_com_busy(lambda: styles.Add(name), "创建文字样式")
+
+        applied = None
+        for typeface in _CJK_TYPEFACES:
+            try:
+                style.SetFont(typeface, False, False, 134, 2)
+                resolved, _bold, _italic, _charset, _pitch = style.GetFont()
+                if str(resolved).strip():
+                    applied = str(resolved)
+                    break
+            except Exception:
+                continue
+
+        if applied is None:
+            # 回退：直接绑定 TrueType 字体文件，AutoCAD 只接受完整路径。
+            fonts_dir = Path("C:/Windows/Fonts")
+            for font in _CJK_FONT_CANDIDATES:
+                candidate = fonts_dir / font
+                if not candidate.is_file():
+                    continue
+                try:
+                    style.fontFile = str(candidate)
+                    applied = str(candidate)
+                    break
+                except Exception:
+                    continue
+
+        if applied is None:
+            raise RuntimeError("无法设置中文字体样式，请检查 AutoCAD 字体目录")
+        try:
+            style.BigFontFile = ""
+        except Exception:
+            pass
+        try:
+            document.ActiveTextStyle = style
+        except Exception:
+            pass
+        self._cjk_text_style_name = name
+        self._cjk_typeface = applied
+        return name
+
     def add_text(
         self,
         text: str,
@@ -463,10 +524,15 @@ class AutoCADSession:
         color: Optional[int] = None,
     ) -> Any:
         """@brief 添加单行文字。"""
+        style_name = self.ensure_cjk_text_style()
         entity = _retry_com_busy(
             lambda: self.model.AddText(str(text), acad_point(point), float(height)),
             "创建文字",
         )
+        try:
+            entity.StyleName = style_name
+        except Exception:
+            pass
         return self._apply_entity_options(entity, layer, color)
 
     def add_mtext(
@@ -478,10 +544,15 @@ class AutoCADSession:
         color: Optional[int] = None,
     ) -> Any:
         """@brief 添加多行文字。"""
+        style_name = self.ensure_cjk_text_style()
         entity = _retry_com_busy(
             lambda: self.model.AddMText(acad_point(point), float(width), str(text)),
             "创建多行文字",
         )
+        try:
+            entity.StyleName = style_name
+        except Exception:
+            pass
         return self._apply_entity_options(entity, layer, color)
 
     def add_dim_aligned(
@@ -567,13 +638,140 @@ class AutoCADSession:
 
     def regen(self) -> None:
         """@brief 重生成当前文档。"""
-        _retry_com_busy(lambda: self.active_document().Regen(1), "重生成图纸")
+        last_error: Optional[BaseException] = None
+        for attempt in range(6):
+            try:
+                document = self.refresh_document_proxy()
+                document.Regen(1)
+                return
+            except Exception as exc:
+                last_error = exc
+                time.sleep(0.08 + attempt * 0.05)
+        raise RuntimeError("重生成图纸失败") from last_error
 
     def zoom_extents(self) -> None:
         """@brief 缩放到全图。"""
         if self.app is None:
             self.connect()
         _retry_com_busy(lambda: self.app.ZoomExtents(), "缩放到全图")
+
+    def model_bbox(self) -> Optional[Tuple[Tuple[float, float, float], Tuple[float, float, float]]]:
+        """@brief 汇总模型空间全部实体的整体包围盒。"""
+        minimum: Optional[Tuple[float, float, float]] = None
+        maximum: Optional[Tuple[float, float, float]] = None
+        for entity in self.iter_model_entities():
+            try:
+                min_pt, max_pt = entity.GetBoundingBox()
+                low = tuple(float(value) for value in min_pt)[:3]
+                high = tuple(float(value) for value in max_pt)[:3]
+            except Exception:
+                continue
+            if len(low) < 3 or len(high) < 3:
+                continue
+            if minimum is None or maximum is None:
+                minimum, maximum = low, high  # type: ignore[assignment]
+            else:
+                minimum = tuple(min(a, b) for a, b in zip(minimum, low))  # type: ignore[assignment]
+                maximum = tuple(max(a, b) for a, b in zip(maximum, high))  # type: ignore[assignment]
+        if minimum is None or maximum is None:
+            return None
+        return minimum, maximum
+
+    def fit_view_to_extents(self, attempts: int = 10, settle_s: float = 0.12) -> bool:
+        """@brief 投递 ZoomExtents 并读回 VIEWSIZE/VIEWCTR 校验是否真正收敛。
+
+        ``Application.ZoomExtents`` 是异步投递的，立即 ``Export`` 会拿到未缩放的
+        视口；VIEWCTR/VIEWSIZE 又是只读变量，所以这里改成"投递 → 读回 → 重试"。
+        """
+        bbox = self.model_bbox()
+        if bbox is None:
+            return False
+        (min_x, min_y, _), (max_x, max_y, _) = bbox
+        width = max(max_x - min_x, 1e-6)
+        height = max(max_y - min_y, 1e-6)
+        center_x = (min_x + max_x) / 2.0
+        center_y = (min_y + max_y) / 2.0
+        document = self.refresh_document_proxy()
+        for _ in range(max(int(attempts), 1)):
+            try:
+                _retry_com_busy(lambda: self.app.ZoomExtents(), "缩放到全图")
+            except Exception:
+                return False
+            try:
+                self.regen()
+            except Exception:
+                pass
+            try:
+                size = float(document.GetVariable("VIEWSIZE"))
+                view_center = document.GetVariable("VIEWCTR")
+                cx = float(view_center[0])
+                cy = float(view_center[1])
+            except Exception:
+                time.sleep(settle_s)
+                continue
+            size_ok = height * 0.95 <= size <= height * 1.60
+            center_ok = abs(cx - center_x) <= width * 0.25 and abs(cy - center_y) <= height * 0.25
+            if size_ok and center_ok:
+                return True
+            time.sleep(settle_s)
+        return False
+
+    def ensure_export_viewport(
+        self,
+        minimum_width: int = 800,
+        minimum_height: int = 600,
+        timeout_s: float = 3.0,
+    ) -> dict[str, Any]:
+        """@brief 导出前恢复主窗口，避免最小化窗口导致位图只有几十像素高。
+
+        AutoCAD 的 ``Export`` 位图分辨率跟随当前视口，窗口被最小化或压到很小
+        时导出的预览会变成缩略图。
+        """
+        info: dict[str, Any] = {
+            "hwnd": None,
+            "width": 0,
+            "height": 0,
+            "restored": False,
+            "maximized": False,
+        }
+        try:
+            hwnd = int(self.app.HWND)
+        except Exception:
+            return info
+        info["hwnd"] = hwnd
+        user32 = ctypes.windll.user32
+        rect = ctypes.wintypes.RECT()
+        try:
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+            user32.SetForegroundWindow(hwnd)
+        except Exception:
+            pass
+        deadline = time.time() + max(float(timeout_s), 0.1)
+        while time.time() < deadline:
+            try:
+                if user32.GetClientRect(hwnd, ctypes.byref(rect)):
+                    width = int(rect.right - rect.left)
+                    height = int(rect.bottom - rect.top)
+                    info["width"], info["height"] = width, height
+                    if width >= minimum_width and height >= minimum_height:
+                        info["restored"] = True
+                        return info
+            except Exception:
+                pass
+            time.sleep(0.05)
+        try:
+            user32.ShowWindow(hwnd, 3)  # SW_MAXIMIZE
+            info["maximized"] = True
+            time.sleep(0.25)
+            if user32.GetClientRect(hwnd, ctypes.byref(rect)):
+                info["width"] = int(rect.right - rect.left)
+                info["height"] = int(rect.bottom - rect.top)
+                info["restored"] = (
+                    info["width"] >= minimum_width and info["height"] >= minimum_height
+                )
+        except Exception:
+            pass
+        return info
 
     def live_update(self, step_delay_s: float = 0.0, zoom: bool = False) -> None:
         """@brief 刷新并短暂停顿，让 AutoCAD 绘图过程对用户可见。
@@ -671,8 +869,15 @@ class AutoCADSession:
         if target.exists():
             target.unlink()
 
-        self.regen()
-        self.zoom_extents()
+        self.last_export_viewport = self.ensure_export_viewport()
+        try:
+            self.regen()
+        except Exception:
+            # Regen 只影响重绘，代理异常时不应阻断导出。
+            pass
+        if not self.fit_view_to_extents():
+            self.zoom_extents()
+        time.sleep(0.15)
         self.refresh_document_proxy()
         sset = self.create_empty_selection_set(selection_set_name)
         try:

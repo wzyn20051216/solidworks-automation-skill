@@ -245,7 +245,7 @@ def test_nonexistent_output_directory_is_covered(tmp_path: Path) -> None:
 def test_new_file_requires_covered_extension(tmp_path: Path) -> None:
     cad_only = _snapshot_cad_artifacts([tmp_path])
     all_files = _snapshot_cad_artifacts([tmp_path], extensions=None)
-    report = tmp_path / "report.json"
+    report = tmp_path / "report.txt"
     report.write_text("{}", encoding="utf-8")
     assert _ledger(tmp_path, report, cad_only)["artifacts"][0]["producedThisRun"] is None
     assert _ledger(tmp_path, report, all_files)["artifacts"][0]["producedThisRun"] is True
@@ -322,3 +322,15 @@ def test_worker_owns_baseline_across_backends(tmp_path: Path, executor: str, fre
     result = process_job(job_path, handlers={"create_shell": handler, "agent_task": handler, "codex_task": handler})
     assert result["status"] == ("passed" if fresh else "failed")
     assert result["artifacts"][0]["producedThisRun"] is fresh
+
+
+def test_new_json_evidence_is_marked_produced_this_run(tmp_path: Path) -> None:
+    """@brief 本轮新增的机器可读 JSON 证据必须被标记为 producedThisRun=True。"""
+    baseline = _snapshot_cad_artifacts([tmp_path])
+    spec = tmp_path / "verification" / "part_design_cad_spec.json"
+    spec.parent.mkdir(parents=True)
+    spec.write_text('{"cad_spec":{"length_mm":120.0}}', encoding="utf-8")
+
+    ledger = _ledger(tmp_path, spec, baseline)
+
+    assert ledger["artifacts"][0]["producedThisRun"] is True

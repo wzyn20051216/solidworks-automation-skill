@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -228,13 +229,47 @@ def _normalise_unified_result(value: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _load_json_payload(text: str) -> Any:
+    """@brief 从可能带前缀、代码块或说明文字的文本中提取 JSON 对象。
+
+    Agent 最终消息经常被宿主前缀、Markdown 围栏或「结果如下」之类说明包住，
+    这里依次尝试完整解析、代码块解析和从第一个 ``{`` 开始的增量解析。
+    """
+    stripped = text.lstrip("\ufeff").strip()
+    if not stripped:
+        raise json.JSONDecodeError("结构化结果为空", text, 0)
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        pass
+    for block in re.findall(r"```(?:json)?\s*(.*?)```", stripped, flags=re.S | re.I):
+        candidate = block.strip()
+        if not candidate:
+            continue
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+    decoder = json.JSONDecoder()
+    for index, character in enumerate(stripped):
+        if character != "{":
+            continue
+        try:
+            value, _end = decoder.raw_decode(stripped[index:])
+            if isinstance(value, dict):
+                return value
+        except json.JSONDecodeError:
+            continue
+    raise json.JSONDecodeError("未找到 JSON 对象", stripped, 0)
+
+
 def parse_provider_result(provider: AgentProvider, stdout: str, output_path: Path) -> dict[str, Any]:
     """@brief 将 Provider 原生输出归一化为统一 Agent 结果对象。"""
     if provider.id == "codex":
         if not output_path.is_file():
             raise RuntimeError(f"Codex 未生成结构化结果文件: {output_path}")
         try:
-            value = json.loads(output_path.read_text(encoding="utf-8"))
+            value = _load_json_payload(output_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise RuntimeError(f"Codex 结构化结果无效: {output_path}: {exc}") from exc
         found = _result_from_value(value)

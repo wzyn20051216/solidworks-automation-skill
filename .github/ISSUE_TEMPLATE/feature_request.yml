@@ -1,0 +1,29 @@
+name: Feature request
+description: Propose a new Skill workflow, MCP tool, CAD capability, or delivery improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Engineering problem
+      description: Describe the CAD workflow and why the current tools cannot complete it reliably.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Required outcome
+      description: State the observable result, artifact formats, and verification evidence.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Runtime constraints
+      description: CAD version, backend, dependencies, and known limitations.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Existing workaround
+      description: Describe any script, API, or manual workflow already tried.

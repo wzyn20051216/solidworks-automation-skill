@@ -33,9 +33,31 @@ python SKILL_DIR/scripts/cad_studio.py doctor
 
 `capabilities.yaml` 是 Skill、MCP、队列和 UI 共用的能力唯一真源。能力等级为 `verified`、`pilot`、`reference_only` 或 `not_implemented`；后两者不得作为无人值守交付。该清单还维护 Python、C# PIA/Add-in、原生 C++、SWBasic、OCCT 和外部求解器的原子操作路由；执行前可用 `python scripts/backend_router.py --list` 查询，规则见 `references/language-backend-routing.md`。
 
+### Codex 本机接入
+
+在当前 Windows 工作区直接接入本机 SolidWorks，不复制第二份技能目录：
+
+```powershell
+uv venv .venv --python 3.12
+uv pip install --python .\.venv\Scripts\python.exe --index-url https://pypi.org/simple -r .\requirements.txt -r .\mcp-server\requirements.txt -r .\requirements-mesh.txt -r .\requirements-pdf.txt -r .\requirements-occt.txt
+powershell -ExecutionPolicy Bypass -File .\scripts\install_codex_skill.ps1
+.\.venv\Scripts\python.exe .\scripts\sw_preflight.py --yes
+.\.venv\Scripts\python.exe .\scripts\cad_doctor.py --probe-cad
+powershell -ExecutionPolicy Bypass -File .\mcp-server\register_codex_mcp.ps1 -Python .\.venv\Scripts\python.exe -Force
+```
+
+第一条命令创建 `~/.codex/skills/solidworks-automation` 到当前仓库的目录链接；仓库更新后技能自动同步。`--probe-cad` 只在自检临时拉起实例时关闭该实例，已由用户打开的 SolidWorks 会话不会被关闭。注册完成后重启 Codex 会话，让 MCP 工具列表刷新。
+
+启用 `visualMode` 的任务会获得 `CADSTUDIO_VISUAL_EVENT_FILE` 和
+`CADSTUDIO_VISUAL_FRAME_DIR`。SolidWorks 高层封装自动写入
+`visual.step.started/completed/failed` 事件，并在每次成功步骤后捕获主窗口快照；
+保存步骤同时回读真实体积和特征数。
+
+需要开放格式几何和外部 FEA 时，将在标准路径安装的 CalculiX `ccx.exe` 写入用户环境变量 `CADSTUDIO_CALCULIX_EXE`；`cad_doctor.py` 会同时核验 OCP、PyMuPDF 和求解器发现状态。
+
 ### 多入口与多后端
 
-- CAD Studio 与 Skill/CLI/MCP 是平级入口，共用 Automation Job、NeutralCadDocument、Preview Manifest、Evidence Graph 和能力清单。
+- Skill 与 MCP 是默认主产品，共用 Automation Job、NeutralCadDocument、Preview Manifest、Evidence Graph 和能力清单；CAD Studio 是可选桌面 GUI，不参与核心包发布门禁。
 - 检测不到 SolidWorks/AutoCAD 时，只阻断 `SLDPRT/SLDASM/SLDDRW/DWG` 等原生格式；开放格式任务优先路由到 `headless_open_format_writing`。
 - 需要设计规则审查或丝杠/皮带电机扭矩初筛时，读取 `references/design-rule-check.md` 和 `references/drive-sizing.md`，以用户提供或经验证采集的中性文档为输入；缺失证据标为 `review_required`，结果必须由工程师复核。
 - 需要识别钻孔面板孔位或规划图纸候选时，读取 `subskills/solidworks-engineering-drawing/references/drilling-panel-gdt.md`；孔型、基准和公差不得凭几何猜定，候选规格不得冒充已验证工程图。

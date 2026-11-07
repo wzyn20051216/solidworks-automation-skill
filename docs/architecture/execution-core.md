@@ -18,7 +18,7 @@ V2 把这些已有能力工程化为一个轻量执行层，核心原则：
 ```
 LLM Agent (Codex / Claude / Cursor / OpenClaw)
   ↓
-Skill / MCP / CAD Studio（三个用户入口，保持不变）
+Skill / MCP（主产品）与可选 CAD Studio 桌面 GUI
   ↓
 Execution Core（scripts/core/）
   ├─ State（state.py）

@@ -32,7 +32,11 @@ from .agent_contracts import (
     validate_codex_job,
 )
 from .agent_providers import AgentProvider, build_provider_command, parse_provider_result, resolve_provider
-from .artifact_ledger import DELIVERY_FILE_EXTENSIONS, sha256_file, write_artifact_ledger
+from .artifact_ledger import (
+    TRACKED_FILE_EXTENSIONS,
+    sha256_file,
+    write_artifact_ledger,
+)
 from .core import CN_TZ, now_iso
 from .engineering_orchestrator import (
     build_engineering_plan,
@@ -40,6 +44,7 @@ from .engineering_orchestrator import (
     replan_for_local_change,
     requires_engineering_orchestration,
 )
+from .gb_drawing_gate import pipeline_stage, run_gb_drawing_gate
 from .knowledge_retrieval import build_job_knowledge_context
 from .reviewer_gate import write_reviewer_gate
 from .worker_health import QUEUE_METADATA_FILES, write_worker_health
@@ -53,6 +58,11 @@ KNOWN_JOB_KINDS = {"create_shell", "import_model", "delivery_package", "dfm_revi
 TERMINAL_STATES = {"passed", "review_required", "failed", "cancelled", "blocked"}
 NON_EXECUTABLE_STATES = {"approval_required", *TERMINAL_STATES}
 DEFAULT_CODEX_TIMEOUT_SECONDS = 1800
+DEFAULT_STAGE_TIMEOUT_SECONDS = {
+    "design": 1800,
+    "verify": 1800,
+    "drawing": 3600,
+}
 DEFAULT_LEASE_SECONDS = 900
 PROVIDER_VERIFICATION_FILE = "provider_verifications.json"
 _ACTIVE_LOCKS: dict[Path, BinaryIO] = {}
@@ -282,6 +292,30 @@ def event_path_for(queue_dir: Path, job_id: Any) -> Path:
     if not safe_id:
         safe_id = "unknown"
     return events_dir(queue_dir) / f"{safe_id[:96]}.jsonl"
+
+
+def visual_frame_dir_for(queue_dir: Path, job_id: Any) -> Path:
+    """@brief 返回当前任务的视觉快照目录。"""
+    safe_id = "".join(
+        ch for ch in str(job_id or "") if ch.isascii() and (ch.isalnum() or ch in "-_")
+    ) or "unknown"
+    directory = Path(queue_dir) / "visual" / safe_id[:96]
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def visual_runtime_env(job: dict[str, Any], queue_dir: Path) -> dict[str, str]:
+    """@brief 为启用可视化模式的任务生成子进程环境。"""
+    ui_config = job.get("uiConfig") if isinstance(job.get("uiConfig"), dict) else {}
+    if ui_config.get("visualMode") is not True:
+        return {}
+    job_id = job.get("id")
+    return {
+        "CADSTUDIO_JOB_ID": str(job_id),
+        "CADSTUDIO_VISUAL_MODE": "1",
+        "CADSTUDIO_VISUAL_EVENT_FILE": str(event_path_for(queue_dir, job_id)),
+        "CADSTUDIO_VISUAL_FRAME_DIR": str(visual_frame_dir_for(queue_dir, job_id)),
+    }
 
 
 def log_paths_for(queue_dir: Path, job_id: Any) -> tuple[Path, Path]:
@@ -758,7 +792,7 @@ def run_dfm_review_job(job: dict[str, Any]) -> dict[str, Any]:
 
 
 def _snapshot_cad_artifacts(roots: list[Path], limit: int = 10000, *,
-                            extensions: frozenset[str] | None = DELIVERY_FILE_EXTENSIONS) -> dict[str, Any]:
+                            extensions: frozenset[str] | None = TRACKED_FILE_EXTENSIONS) -> dict[str, Any]:
     """@brief 记录执行前交付文件 hash，并明确扫描是否完整。"""
     entries: dict[str, dict[str, Any]] = {}
     errors: list[str] = []
@@ -878,6 +912,18 @@ def _provider_id_for_job(job: dict[str, Any]) -> str:
     ui_config = job.get("uiConfig") if isinstance(job.get("uiConfig"), dict) else {}
     agent_runtime = ui_config.get("agentRuntime") if isinstance(ui_config.get("agentRuntime"), dict) else {}
     return str(agent_runtime.get("provider") or "codex").strip().lower()
+
+
+def _job_timeout_seconds(job: dict[str, Any]) -> int:
+    """@brief 按流水线阶段选择真实进程超时，工程图阶段允许长时原生出图。"""
+    ui_config = job.get("uiConfig") if isinstance(job.get("uiConfig"), dict) else {}
+    pipeline = ui_config.get("pipeline") if isinstance(ui_config.get("pipeline"), dict) else {}
+    stage = pipeline_stage(job)
+    default = DEFAULT_STAGE_TIMEOUT_SECONDS.get(stage, DEFAULT_CODEX_TIMEOUT_SECONDS)
+    raw = pipeline.get("timeoutSeconds", job.get("timeoutSeconds"))
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        return max(60, min(int(raw), 86_400))
+    return default
 
 
 def record_provider_verification(queue_dir: Path, provider: AgentProvider) -> Path:
@@ -1127,6 +1173,19 @@ def _run_command_with_runtime(
         child_env["SW_API_LOOKUP_NETWORK"] = "off"
     if knowledge.get("parallelApiFallbackEnabled", True) is not True:
         child_env["SW_API_LOOKUP_PARALLEL"] = "off"
+    queue_root = job_path.parent
+    child_env.update(visual_runtime_env(job, queue_root))
+    if child_env.get("CADSTUDIO_VISUAL_MODE") == "1":
+        append_event(
+            queue_root,
+            job,
+            "visual.session.started",
+            "可视化执行已开始",
+            {
+                "eventFile": child_env["CADSTUDIO_VISUAL_EVENT_FILE"],
+                "frameDir": child_env["CADSTUDIO_VISUAL_FRAME_DIR"],
+            },
+        )
     with stdout_path.open("w", encoding="utf-8") as stdout_handle, stderr_path.open("w", encoding="utf-8") as stderr_handle:
         process = subprocess.Popen(
             list(command),
@@ -1260,6 +1319,32 @@ def _record_verification_assessment(path: Path, job: dict[str, Any], review: dic
         job["recoveryDecision"] = decision.to_dict()
 
 
+def _merge_gb_drawing_gate(review: dict[str, Any], gate: dict[str, Any] | None) -> None:
+    """@brief 把 Worker 强制 GB 检查结果并入 Reviewer Gate，并回写报告。"""
+    if not isinstance(gate, dict):
+        return
+    passed = gate.get("status") == "pass"
+    checks = review.setdefault("checks", [])
+    if isinstance(checks, list):
+        checks.append(
+            {
+                "id": "gb-drawing-gate",
+                "severity": "P0",
+                "status": "pass" if passed else "fail",
+                "message": str(gate.get("message") or "GB 图纸门禁未通过"),
+            }
+        )
+    review["gbDrawingGate"] = gate
+    if not passed:
+        review["status"] = "fail"
+    review_path = review.get("reviewPath")
+    if review_path:
+        Path(str(review_path)).write_text(
+            json.dumps(review, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+
 def process_job(
     path: Path,
     handlers: Mapping[str, JobHandler] | None = None,
@@ -1310,21 +1395,36 @@ def process_job(
 
         job["_runtime"] = {"jobPath": str(path), "runnerId": job.get("runnerId"), "leaseSeconds": lease_seconds}
         # 由 worker 在执行前取证，覆盖全部生产后端；不信任 handler 自报的新鲜度基线。
+        base_dir = Path(str(job.get("cwd") or Path.cwd())).expanduser()
         baseline = None
         if job.get("executor", "mock") != "mock":
-            base_dir = Path(str(job.get("cwd") or Path.cwd())).expanduser()
             baseline = _snapshot_cad_artifacts(_artifact_roots(job, base_dir))
             job["_runtime"]["artifactBaseline"] = baseline
         result = _execute_handler_with_core(active_handlers[kind], kind, job, path)
         if isinstance(result, dict) and baseline is not None:
             result["artifactBaseline"] = baseline
+        if isinstance(result, dict):
+            gb_gate = run_gb_drawing_gate(job, result, base_dir)
+            if gb_gate is not None:
+                job["gbDrawingGate"] = gb_gate
+                append_event(
+                    path.parent,
+                    job,
+                    "gb.gate_completed",
+                    str(gb_gate.get("message") or "GB 图纸门禁完成"),
+                    {
+                        "status": gb_gate.get("status"),
+                        "reportPath": gb_gate.get("reportPath"),
+                        "failedItems": gb_gate.get("failedItems", []),
+                    },
+                )
         if is_cancel_requested(path):
             raise JobCancelled("任务已请求取消")
         job.pop("_runtime", None)
         job["result"] = result
         # Job 2.0 领域证据保持在顶层，便于 UI、CLI 和后续重试无需解析执行器私有 result。
         if isinstance(result, dict):
-            for evidence_key in ("drawingEvidence", "bomEvidence", "dfmEvidence", "reviewFindings", "artifactRelations"):
+            for evidence_key in ("drawingEvidence", "bomEvidence", "dfmEvidence", "gbDrawingGate", "reviewFindings", "artifactRelations"):
                 if evidence_key in result:
                     job[evidence_key] = result[evidence_key]
         ledger = write_artifact_ledger(path.parent, job, result)
@@ -1332,12 +1432,18 @@ def process_job(
         job["artifacts"] = ledger["artifacts"]
         append_event(path.parent, job, "artifact.ledger_written", "交付物账本已写入", {"ledgerPath": ledger["ledgerPath"]})
         review = write_reviewer_gate(path.parent, ledger)
+        _merge_gb_drawing_gate(review, job.get("gbDrawingGate"))
         if is_cancel_requested(path):
             raise JobCancelled("任务已请求取消")
         job["reviewGate"] = review
         job["reviewGatePath"] = review["reviewPath"]
         append_event(path.parent, job, "review.gate_completed", "Reviewer Gate 已完成", {"status": review["status"], "reviewPath": review["reviewPath"]})
         _record_verification_assessment(path, job, review)
+        # Verification Adapter 可能把状态收紧为 warning/fail，落盘必须使用最终状态。
+        Path(str(review["reviewPath"])).write_text(
+            json.dumps(review, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
         if review["status"] == "fail":
             message = "交付文件检查未通过，任务不可交付。请查看复核记录并修正。"
             job["error"] = message
@@ -1398,9 +1504,17 @@ def build_handlers(
     if enable_mock:
         handlers.update(MOCK_HANDLERS)
     if enable_codex:
-        handlers["codex_task"] = lambda job: run_agent_job(job, allow_full_access=codex_full_access)
+        handlers["codex_task"] = lambda job: run_agent_job(
+            job,
+            timeout_seconds=_job_timeout_seconds(job),
+            allow_full_access=codex_full_access,
+        )
     if enable_agent:
-        handlers["agent_task"] = lambda job: run_agent_job(job, allow_full_access=codex_full_access)
+        handlers["agent_task"] = lambda job: run_agent_job(
+            job,
+            timeout_seconds=_job_timeout_seconds(job),
+            allow_full_access=codex_full_access,
+        )
     return handlers
 
 

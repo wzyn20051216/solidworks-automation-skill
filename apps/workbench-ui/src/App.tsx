@@ -40,10 +40,20 @@ import { AppUpdatePanel } from "./components/AppUpdatePanel";
 import { ConversationControls } from "./components/ConversationControls";
 import { EnvironmentRemediationPanel } from "./components/EnvironmentRemediationPanel";
 import { ManualReviewPanel } from "./components/ManualReviewPanel";
+import { ProjectPipelinePanel } from "./components/ProjectPipelinePanel";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
 import { TaskSequence } from "./components/TaskSequence";
+import { LiveDeliveryCard } from "./live/LiveDeliveryCard";
+import { LiveExecutionStrip } from "./live/LiveExecutionStrip";
 import { PreviewShowcase } from "./preview/PreviewShowcase";
 import { collectJobArtifacts, deliveryFormatStatus, groupedArtifacts } from "./domain/artifacts";
+import {
+  PIPELINE_STAGE_META,
+  buildStagePrompt,
+  specToObjective,
+  type PipelineStageKey,
+  type ProjectPipeline,
+} from "./domain/pipeline";
 import {
   artifactVersionComparison,
   assessDelivery,
@@ -104,6 +114,7 @@ const ANIME_SKY_WALLPAPER_URL = new URL("./assets/wallpaper-anime-sky.webp", imp
 const TOKYO_NEON_WALLPAPER_URL = new URL("./assets/wallpaper-tokyo-neon.webp", import.meta.url).href;
 
 const wallpapers: Array<{ id: PresetWallpaperId; name: string; hint: string; assetUrl?: string; credit?: string }> = [
+  { id: "none", name: "无背景", hint: "纯色工作台" },
   { id: "blossom", name: "樱影", hint: "内置动态壁纸" },
   { id: "fuji", name: "富士暮色", hint: "CC0 · Alpsdake", assetUrl: FUJI_WALLPAPER_URL, credit: "Alpsdake · CC0" },
   { id: "anime-sky", name: "青空原野", hint: "CC BY-SA · mendhak", assetUrl: ANIME_SKY_WALLPAPER_URL, credit: "mendhak · CC BY-SA 4.0" },
@@ -164,7 +175,7 @@ const SETTINGS_KEY = "cad-studio.settings.v1";
 const QUEUE_KEY = "cad-studio.queue.v1";
 const CHAT_KEY = "cad-studio.agent-chat.v1";
 const CONVERSATIONS_KEY = "cad-studio.agent-conversations.v1";
-const APP_VERSION = "2.0.1";
+const APP_VERSION = "2.1.0";
 const LEGACY_CONVERSATION_ID = "conversation-legacy";
 const manualReviewOptions = [
   ["native-open", "已用目标 CAD 软件原生打开并确认无报错"],
@@ -319,6 +330,20 @@ const cadApplicationRoutes: Record<CodexConfig["cadApplication"], string> = {
   both: "先用 SolidWorks 完成三维实体、装配、开孔和 STEP/STL；再用 AutoCAD 完成 DWG/DXF/PDF 工程图、孔槽定位尺寸、标题栏和图纸复核。",
 };
 
+function describeAutocadHealth(autocad?: RuntimeHealth["autocad"]): string {
+  if (!autocad) return "待检测";
+  if (autocad.ok) return autocad.version ? `已连接 ${autocad.version}` : "已连接";
+  if (autocad.installed) return "已安装 · 未连接";
+  return "未检测到";
+}
+
+function describeSolidworksHealth(solidworks?: RuntimeHealth["solidworks"]): string {
+  if (!solidworks) return "待检测";
+  if (solidworks.ok) return solidworks.version ? `已连接 ${solidworks.version}` : "已连接";
+  if (solidworks.installed) return "已安装 · 未连接";
+  return "未检测到";
+}
+
 const codexTargets: Record<CodexConfig["target"], string> = {
   auto: "AI 自动判断",
   general_part: "通用零件建模",
@@ -463,12 +488,10 @@ function loadSettings(payload?: unknown): AppSettings | null {
     const raw = payload === undefined ? localStorage.getItem(SETTINGS_KEY) : null;
     if (payload === undefined && !raw) return null;
     const parsed = (payload === undefined ? JSON.parse(raw as string) : payload) as Partial<AppSettings>;
-    const migratedWallpaper =
-      parsed.defaultWallpaperVersion === 1
-        ? parsed.activeWallpaper ?? "blossom"
-        : parsed.customWallpaperPath
-          ? parsed.activeWallpaper ?? "custom"
-          : "blossom";
+    const migratedWallpaper: WallpaperId =
+      typeof parsed.defaultWallpaperVersion === "number" && parsed.defaultWallpaperVersion >= 2
+        ? parsed.activeWallpaper ?? "none"
+        : "none";
     const migratedName = typeof parsed.projectName === "string" && parsed.projectName.trim() ? parsed.projectName.trim().slice(0, 48) : "未命名项目";
     const migratedProject: ProjectRecord = {
       ...DEFAULT_PROJECT,
@@ -493,7 +516,7 @@ function loadSettings(payload?: unknown): AppSettings | null {
       : normalizedProjects[0].id;
     const activeProject = normalizedProjects.find((item) => item.id === activeProjectId) ?? normalizedProjects[0];
     return {
-      activeWallpaper: parsed.customWallpaperPath ? migratedWallpaper : migratedWallpaper === "custom" ? "blossom" : migratedWallpaper,
+      activeWallpaper: parsed.customWallpaperPath ? migratedWallpaper : migratedWallpaper === "custom" ? "none" : migratedWallpaper,
       customWallpaperPath: parsed.customWallpaperPath,
       wallpaperBrightness: clampNumber(parsed.wallpaperBrightness, 94, 72, 112),
       wallpaperBlur: clampNumber(parsed.wallpaperBlur, 3, 0, 14),
@@ -501,7 +524,9 @@ function loadSettings(payload?: unknown): AppSettings | null {
       workspaceOpacity: parsed.panelOpacityVersion === 1 ? clampNumber(parsed.workspaceOpacity, 36, 18, 92) : 36,
       wallpaperMotionMode: parsed.wallpaperMotionMode ?? "cinematic",
       wallpaperMotionStrength: clampNumber(parsed.wallpaperMotionStrength, 55, 0, 100),
-      defaultWallpaperVersion: 1,
+      visualMode: parsed.visualMode === true,
+      showLiveHud: parsed.showLiveHud !== false,
+      defaultWallpaperVersion: 2,
       panelOpacityVersion: 1,
       recentWallpapers: Array.isArray(parsed.recentWallpapers) ? parsed.recentWallpapers.slice(0, 6) : [],
       projects: normalizedProjects,
@@ -860,7 +885,7 @@ function buildCodexPrompt(config: CodexConfig, projectPath?: string, runtime?: R
 
 function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("project");
-  const [activeWallpaper, setActiveWallpaper] = useState<WallpaperId>("blossom");
+  const [activeWallpaper, setActiveWallpaper] = useState<WallpaperId>("none");
   const [customWallpaper, setCustomWallpaper] = useState<WallpaperFile | null>(null);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [wallpaperBrightness, setWallpaperBrightness] = useState(94);
@@ -870,6 +895,8 @@ function App() {
   const [wallpaperMotionMode, setWallpaperMotionMode] = useState<WallpaperMotionMode>("cinematic");
   const [wallpaperMotionStrength, setWallpaperMotionStrength] = useState(55);
   const [wallpaperShot, setWallpaperShot] = useState(0);
+  const [visualMode, setVisualMode] = useState(false);
+  const [showLiveHud, setShowLiveHud] = useState(true);
   const [recentWallpapers, setRecentWallpapers] = useState<RecentWallpaper[]>([]);
   const [projects, setProjects] = useState<ProjectRecord[]>([DEFAULT_PROJECT]);
   const [activeProjectId, setActiveProjectId] = useState(LEGACY_PROJECT_ID);
@@ -1032,6 +1059,16 @@ function App() {
 
   function updateCodexConfig(patch: Partial<CodexConfig>) {
     setCodexConfig((config) => ({ ...config, ...patch }));
+  }
+
+  async function updateLiveHudVisibility(visible: boolean) {
+    setShowLiveHud(visible);
+    if (!isTauriRuntime()) return;
+    try {
+      await invoke("set_live_hud_visible", { visible });
+    } catch (error) {
+      setWindowHint(`桌宠窗口状态更新失败：${String(error)}`);
+    }
   }
 
   function updateConversationRuntime(provider: AgentProviderId, model: string) {
@@ -1314,8 +1351,12 @@ function App() {
       `${cadApplicationLabels[config.cadApplication]}: ${cadApplicationRoutes[config.cadApplication]}`,
       config.localCadAutomation ? "允许经审批后调用本机 SolidWorks / AutoCAD 桌面自动化能力。" : "不直接调用本机 CAD 软件，仅生成计划、脚本或说明。",
       `所有交付物只保存到本地输出目录: ${config.outputDir}`,
+      ...(visualMode ? ["可视化模式已启用：SolidWorks 操作必须通过现有 sw_session/sw_part 高层封装执行，使真实步骤事件和主窗口快照自动写入队列。"] : []),
     ];
-    const capabilities = capabilityIdsForConfig(config);
+    const baseCapabilities = capabilityIdsForConfig(config);
+    const capabilities = visualMode
+      ? [...baseCapabilities, "visual_live_execution"]
+      : baseCapabilities;
     const providerMeta = agentProviderCatalog[apiConfig.agentProvider];
     const job = createJob("agent_task", recentProjectPath, {
       projectId: activeProjectId,
@@ -1390,6 +1431,8 @@ function App() {
           strictGbDrawing: config.strictGbDrawing,
           localCadAutomation: config.localCadAutomation,
         },
+        visualMode,
+        liveHud: showLiveHud,
         outputDir: config.outputDir,
         knowledgeBase,
       },
@@ -1410,6 +1453,119 @@ function App() {
       setWindowHint("任务写入失败");
     } finally {
       setSubmissionKind(null);
+    }
+  }
+
+  /**
+   * @brief 把流水线阶段转成一条 agent_task，复用本地队列、能力门禁与 worker 启动。
+   */
+  async function enqueuePipelineStage(stage: PipelineStageKey, pipeline: ProjectPipeline): Promise<string | null> {
+    if (!isTauriRuntime()) {
+      setAgentMessages((messages) => [...messages, createChatMessage("system", "浏览器仅用于界面预览，请启动 CAD Studio 桌面版执行流水线。")].slice(-40));
+      return null;
+    }
+    let activeRuntime: RuntimeHealth;
+    try {
+      activeRuntime = await ensureRuntimeHealth();
+    } catch (error) {
+      setAgentMessages((messages) => [...messages, createChatMessage("system", `本地运行环境未就绪：${String(error)}`)].slice(-40));
+      return null;
+    }
+    const stageConfig: CodexConfig = {
+      ...codexConfig,
+      cadApplication: stage === "drawing" ? "autocad" : stage === "design" ? "solidworks" : codexConfig.cadApplication,
+      target: stage === "drawing" ? "drawing" : codexConfig.target,
+      objective: pipeline.spec ? specToObjective(pipeline.spec) : pipeline.requirementText,
+    };
+    const capabilities = capabilityIdsForConfig(stageConfig);
+    const providerMeta = agentProviderCatalog[apiConfig.agentProvider];
+    const job = createJob("agent_task", recentProjectPath, {
+      projectId: activeProjectId,
+      executor: "agent",
+      title: `${pipeline.projectName} · ${PIPELINE_STAGE_META[stage].label}`,
+      detail: `${PIPELINE_STAGE_META[stage].label} · ${pipeline.spec?.outputs || pipeline.requirementText.slice(0, 40)}`,
+      objective: stageConfig.objective,
+      targetSoftware: stage === "drawing" ? "AutoCAD" : "SolidWorks",
+      target: PIPELINE_STAGE_META[stage].label,
+      expectedOutput: stage === "drawing" ? "DWG / DXF / PDF" : stage === "design" ? "SLDPRT / STEP" : "verification.json",
+      strictRules: [
+        "只执行流水线当前阶段，不越阶段修改上游结论。",
+        "孔槽、接口和螺纹必须是真实几何切除。",
+        `所有产物保存到 ${codexConfig.outputDir} 并回读验证。`,
+      ],
+      capabilities,
+      capabilitySnapshot: capabilitySnapshot(activeRuntime, capabilities),
+      prompt: buildStagePrompt(stage, pipeline, {
+        outputDir: codexConfig.outputDir,
+        skillRoot: activeRuntime.skillRoot,
+      }),
+      cwd: activeRuntime.skillRoot,
+      skillPath: stage === "drawing" ? activeRuntime.autocadSkillPath : activeRuntime.solidworksSkillPath,
+      policy: {
+        sandbox: codexConfig.localCadAutomation ? "danger-full-access" : "workspace-write",
+        approval: "never",
+        requireSkillRead: true,
+        requireTests: true,
+        requireCommit: false,
+        requirePush: false,
+        requireReviewerPass: true,
+      },
+      uiConfig: {
+        agentRuntime: {
+          provider: apiConfig.agentProvider,
+          providerName: providerMeta.name,
+          protocol: providerMeta.protocol,
+          model: apiConfig.model.includes("跟随") || apiConfig.model.includes("配置决定") ? "" : apiConfig.model,
+        },
+        cadRuntime: {
+          application: stageConfig.cadApplication,
+          applicationLabel: cadApplicationLabels[stageConfig.cadApplication],
+          route: cadApplicationRoutes[stageConfig.cadApplication],
+          localCadAutomation: codexConfig.localCadAutomation,
+          solidworksSkillPath: activeRuntime.solidworksSkillPath,
+          autocadSkillPath: activeRuntime.autocadSkillPath,
+        },
+        manufacturing: {
+          process: codexConfig.process,
+          processLabel: processLabels[codexConfig.process],
+          material: codexConfig.material,
+          materialLabel: materialLabels[codexConfig.material],
+          unit: codexConfig.unit,
+        },
+        gates: {
+          realCutouts: codexConfig.realCutouts,
+          strictGbDrawing: codexConfig.strictGbDrawing,
+          localCadAutomation: codexConfig.localCadAutomation,
+        },
+        pipeline: {
+          stage,
+          stageLabel: PIPELINE_STAGE_META[stage].label,
+          projectId: pipeline.projectId,
+          requirement: pipeline.requirementText,
+          specConfirmedAt: pipeline.specConfirmedAt,
+          timeoutSeconds: stage === "drawing" ? 3600 : 1800,
+          repairBudget: 1,
+        },
+        visualMode,
+        liveHud: showLiveHud,
+        outputDir: codexConfig.outputDir,
+      },
+    });
+    try {
+      setWindowHint(`正在写入${PIPELINE_STAGE_META[stage].label}任务...`);
+      await persistJob(job);
+      upsertJob(job);
+      setActiveAgentJobId(job.id);
+      setExpandedJobId(job.id);
+      setWindowHint(`${PIPELINE_STAGE_META[stage].label}任务已进入本地队列`);
+      if (!workerStatus.running) void startLocalWorker();
+      return job.id;
+    } catch (error) {
+      setAgentMessages((messages) => [
+        ...messages,
+        createChatMessage("system", `${PIPELINE_STAGE_META[stage].label}任务写入失败：${String(error)}`),
+      ].slice(-40));
+      return null;
     }
   }
 
@@ -1448,6 +1604,10 @@ function App() {
     }
     const prompt = buildChatPrompt(codexConfig, apiConfig, text, [...activeConversationMessages, userMessage], recentProjectPath, activeRuntime);
     const providerMeta = agentProviderCatalog[apiConfig.agentProvider];
+    const baseCapabilities = capabilityIdsForConfig(codexConfig);
+    const capabilities = visualMode
+      ? [...baseCapabilities, "visual_live_execution"]
+      : baseCapabilities;
     const job = createJob("agent_task", recentProjectPath, {
       projectId: activeProjectId,
       conversationId: conversation.id,
@@ -1463,9 +1623,10 @@ function App() {
         codexConfig.realCutouts ? "涉及孔槽时必须是真实几何开孔/切除。" : "涉及孔槽时必须说明实现状态。",
         codexConfig.strictGbDrawing ? "涉及图纸时必须遵循中国常用机械制图规范并复核尺寸链。" : "涉及图纸时说明规范覆盖范围。",
         "所有交付物只保存到用户指定的本地输出目录。",
+        ...(visualMode ? ["可视化模式已启用：SolidWorks 操作必须通过现有 sw_session/sw_part 高层封装执行，使真实步骤事件和主窗口快照自动写入队列。"] : []),
       ],
-      capabilities: capabilityIdsForConfig(codexConfig),
-      capabilitySnapshot: capabilitySnapshot(activeRuntime, capabilityIdsForConfig(codexConfig)),
+      capabilities,
+      capabilitySnapshot: capabilitySnapshot(activeRuntime, capabilities),
       prompt,
       cwd: activeRuntime.skillRoot,
       skillPath: activeRuntime.solidworksSkillPath,
@@ -1488,6 +1649,8 @@ function App() {
         },
         outputDir: codexConfig.outputDir,
         knowledgeBase,
+        visualMode,
+        liveHud: showLiveHud,
         engineeringOrchestration: {
           mode: "plan_guided_dag",
           trigger: "复杂机械工程自动拆解；简单任务保持最小执行路径",
@@ -2061,7 +2224,7 @@ function App() {
       setWindowHint(`壁纸“${imported.name}”已应用`);
       return true;
     } catch (error) {
-      setActiveWallpaper((current) => current === "custom" ? "blossom" : current);
+      setActiveWallpaper((current) => current === "custom" ? "none" : current);
       setWindowHint(`壁纸导入失败：${String(error)}`);
       return false;
     }
@@ -2227,7 +2390,7 @@ function App() {
         });
         setRuntimeMessage(
           installedProviders.length
-            ? `已安装 ${installedProviders.map((provider) => provider.name).join("、")}；真实任务已验证 ${verifiedProviders.length ? verifiedProviders.map((provider) => provider.name).join("、") : "无"}。SolidWorks ${health.solidworks?.ok ? "可用" : "待检查"}，AutoCAD ${health.autocad?.ok ? "可用" : "未检测到"}。`
+            ? `已安装 ${installedProviders.map((provider) => provider.name).join("、")}；真实任务已验证 ${verifiedProviders.length ? verifiedProviders.map((provider) => provider.name).join("、") : "无"}。SolidWorks ${describeSolidworksHealth(health.solidworks)}，AutoCAD ${describeAutocadHealth(health.autocad)}。`
             : "未检测到 Agent Provider，请在设置中检查 CLI 安装状态。",
         );
       })
@@ -2269,7 +2432,7 @@ function App() {
 
   useEffect(() => {
     setWallpaperShot(0);
-    if (reducedMotion || wallpaperMotionMode !== "cinematic") return;
+    if (activeWallpaper === "none" || reducedMotion || wallpaperMotionMode !== "cinematic") return;
     const timer = window.setInterval(() => setWallpaperShot((shot) => (shot + 1) % wallpaperShots.length), 14000);
     return () => window.clearInterval(timer);
   }, [activeWallpaper, reducedMotion, wallpaperMotionMode]);
@@ -2292,6 +2455,8 @@ function App() {
       setWorkspaceOpacity(settings.workspaceOpacity);
       setWallpaperMotionMode(settings.wallpaperMotionMode);
       setWallpaperMotionStrength(settings.wallpaperMotionStrength);
+      setVisualMode(settings.visualMode);
+      setShowLiveHud(settings.showLiveHud);
       setRecentWallpapers(settings.recentWallpapers);
       setProjects(settings.projects ?? [DEFAULT_PROJECT]);
       setActiveProjectId(settings.activeProjectId ?? LEGACY_PROJECT_ID);
@@ -2300,8 +2465,7 @@ function App() {
       setRecentProjectPath(settings.recentProjectPath);
       setApiConfig(settings.apiConfig ?? defaultApiConfig);
       setKnowledgeBase(settings.knowledgeBase ?? defaultKnowledgeBase);
-      if (settings.customWallpaperPath) {
-        setActiveWallpaper("blossom");
+      if (settings.customWallpaperPath && settings.activeWallpaper === "custom") {
         await applyWallpaperPath(settings.customWallpaperPath, { remember: false, open: false });
       }
       setSettingsLoaded(true);
@@ -2310,6 +2474,26 @@ function App() {
       setPersistenceWarning(`设置恢复失败：${error instanceof Error ? error.message : String(error)}`);
       setSettingsLoaded(true);
     });
+  }, []);
+
+  useEffect(() => {
+    if (!settingsLoaded || !isTauriRuntime()) return;
+    void invoke("set_live_hud_visible", { visible: showLiveHud }).catch((error) => {
+      setWindowHint(`桌宠窗口初始化失败：${String(error)}`);
+    });
+  }, [settingsLoaded, showLiveHud]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let unlisten: (() => void) | undefined;
+    void listen<{ visible?: boolean }>("live-hud-visibility", (event) => {
+      if (typeof event.payload?.visible === "boolean") {
+        setShowLiveHud(event.payload.visible);
+      }
+    }).then((dispose) => {
+      unlisten = dispose;
+    });
+    return () => unlisten?.();
   }, []);
 
   useEffect(() => {
@@ -2510,7 +2694,7 @@ function App() {
   useEffect(() => {
     if (!settingsLoaded) return;
     const settings: AppSettings = {
-      activeWallpaper: activeWallpaper === "custom" && !customWallpaper?.sourcePath ? "blossom" : activeWallpaper,
+      activeWallpaper: activeWallpaper === "custom" && !customWallpaper?.sourcePath ? "none" : activeWallpaper,
       customWallpaperPath: customWallpaper?.sourcePath,
       wallpaperBrightness,
       wallpaperBlur,
@@ -2518,7 +2702,7 @@ function App() {
       workspaceOpacity,
       wallpaperMotionMode,
       wallpaperMotionStrength,
-      defaultWallpaperVersion: 1,
+      defaultWallpaperVersion: 2,
       panelOpacityVersion: 1,
       recentWallpapers,
       projects,
@@ -2527,11 +2711,13 @@ function App() {
       recentProjectPath,
       apiConfig,
       knowledgeBase,
+      visualMode,
+      showLiveHud,
     };
     void writePersistedState("settings", SETTINGS_KEY, settings)
       .then((result) => result.degraded && setPersistenceWarning("SQLite 写入失败，设置已安全保存到本地回退副本。"))
       .catch((error) => setPersistenceWarning(`设置保存失败：${error instanceof Error ? error.message : String(error)}`));
-  }, [activeProjectId, activeWallpaper, apiConfig, customWallpaper?.sourcePath, knowledgeBase, projectName, projects, recentProjectPath, recentWallpapers, settingsLoaded, wallpaperBlur, wallpaperBrightness, wallpaperMotionMode, wallpaperMotionStrength, wallpaperVignette, workspaceOpacity]);
+  }, [activeProjectId, activeWallpaper, apiConfig, customWallpaper?.sourcePath, knowledgeBase, projectName, projects, recentProjectPath, recentWallpapers, settingsLoaded, showLiveHud, visualMode, wallpaperBlur, wallpaperBrightness, wallpaperMotionMode, wallpaperMotionStrength, wallpaperVignette, workspaceOpacity]);
 
   function renderTemplatePanel() {
     return (
@@ -2565,7 +2751,15 @@ function App() {
       .map((id) => runtimeHealth?.capabilityManifest?.capabilities?.find((item) => item.id === id))
       .filter((item): item is Record<string, unknown> & { id?: string; level?: string } => Boolean(item && ["reference_only", "not_implemented"].includes(String(item.level))));
     return (
-      <section className="project-console">
+      <>
+        <ProjectPipelinePanel
+          projectId={activeProjectId}
+          projectName={projectName}
+          jobs={jobs}
+          disabled={submissionKind !== null}
+          onRunStage={enqueuePipelineStage}
+        />
+        <section className="project-console">
         <article className="project-brief">
           <div className="panel-heading compact">
             <div>
@@ -2615,7 +2809,8 @@ function App() {
             </div>
           ) : null}
         </aside>
-      </section>
+        </section>
+      </>
     );
   }
 
@@ -2980,8 +3175,8 @@ function App() {
         <div className="help-status-grid">
           <div><span>AI</span><strong>{installedProviders.length ? installedProviders.join("、") : "尚未检测到可用 CLI"}</strong></div>
           <div><span>Python</span><strong>{runtimeHealth?.python?.ok ? "已就绪" : "需要安装 Python 3"}</strong></div>
-          <div><span>SolidWorks</span><strong>{runtimeHealth?.solidworks?.ok ? "可用" : "未检测到或待检查"}</strong></div>
-          <div><span>AutoCAD</span><strong>{runtimeHealth?.autocad?.ok ? "可用" : "未检测到"}</strong></div>
+          <div><span>SolidWorks</span><strong>{describeSolidworksHealth(runtimeHealth?.solidworks)}</strong></div>
+          <div><span>AutoCAD</span><strong>{describeAutocadHealth(runtimeHealth?.autocad)}</strong></div>
         </div>
         <EnvironmentRemediationPanel remediations={runtimeHealth?.remediations ?? []} onCopyCommand={copyRuntimeCommand} onOpenDownload={openRuntimeDownload} />
         <div className="help-guide">
@@ -3035,7 +3230,7 @@ function App() {
   }
 
   const activeWallpaperName =
-    activeWallpaper === "custom" ? customWallpaper?.name ?? "我的壁纸" : wallpapers.find((item) => item.id === activeWallpaper)?.name ?? "Aurora";
+    activeWallpaper === "custom" ? customWallpaper?.name ?? "我的壁纸" : wallpapers.find((item) => item.id === activeWallpaper)?.name ?? "无背景";
   const activePresetWallpaper = activeWallpaper === "custom" ? undefined : wallpapers.find((item) => item.id === activeWallpaper);
   const effectiveWallpaperMotion: WallpaperMotionMode = reducedMotion ? "still" : wallpaperMotionMode;
   const shot = wallpaperShots[wallpaperShot % wallpaperShots.length];
@@ -3064,7 +3259,7 @@ function App() {
       onPointerMove={controlWallpaperPointer}
       onPointerLeave={resetWallpaperPointer}
     >
-      <div className="wallpaper" aria-hidden="true">
+      {activeWallpaper !== "none" ? <div className="wallpaper" aria-hidden="true">
         <div className={`wallpaper-camera motion-${effectiveWallpaperMotion}`} style={wallpaperCameraStyle}>
         <AnimatePresence>
           {activeWallpaper === "blossom" ? (
@@ -3119,7 +3314,7 @@ function App() {
           ) : null}
         </AnimatePresence>
         </div>
-      </div>
+      </div> : null}
 
       <motion.section
         className="desktop-frame"
@@ -3614,8 +3809,8 @@ function App() {
             <div className="desktop-statusbar" aria-live="polite">
               <span className={selectedProvider?.ready ? "ready" : "warning"}>{agentProviderCatalog[apiConfig.agentProvider].name} {selectedProvider?.ready ? "已连接" : "未确认"}</span>
               <span>Worker {workerStatus.running ? `运行中 · ${workerStatus.pid ?? "-"}` : "未启动"}</span>
-              <span>SolidWorks {runtimeHealth?.solidworks?.ok ? "可用" : "待检查"}</span>
-              <span>AutoCAD {runtimeHealth?.autocad?.ok ? "可用" : "未检测到"}</span>
+              <span>SolidWorks {describeSolidworksHealth(runtimeHealth?.solidworks)}</span>
+              <span>AutoCAD {describeAutocadHealth(runtimeHealth?.autocad)}</span>
               <span>{queueLoaded ? queueSummary : "队列加载中"}</span>
             </div>
 
@@ -3644,6 +3839,21 @@ function App() {
                   onSelectProvider={selectAgentProvider}
                   onSelectModel={selectAgentModel}
                 />
+                <label className="visual-mode-toggle">
+                  <input
+                    type="checkbox"
+                    checked={visualMode}
+                    onChange={(event) => setVisualMode(event.target.checked)}
+                  />
+                  可视化执行
+                </label>
+                <button
+                  className="visual-hud-toggle"
+                  type="button"
+                  onClick={() => void updateLiveHudVisibility(!showLiveHud)}
+                >
+                  {showLiveHud ? "隐藏桌宠" : "显示桌宠"}
+                </button>
                 <span>{activeAgentJob ? `${jobStatusLabel(activeAgentJob.status)} · ${activeAgentJob.progress}%` : activeConversation ? "等待指令" : "新建对话后开始"}</span>
               </div>
 
@@ -3680,6 +3890,7 @@ function App() {
                   <div className="live-summary">
                     <p>{activeAgentJob ? compactJobMessage(activeAgentJob, activeAgentEvents) : "输入你的要求后，这里会显示 AI 的公开执行过程、工具结果和输出文件。"}</p>
                   </div>
+                  <LiveExecutionStrip job={activeAgentJob} events={activeAgentEvents} />
                   {activeAgentJob.result?.engineeringPlan?.phases?.length ? (
                     <div className="engineering-plan-view">
                       <strong>AI 工程路径</strong>
@@ -3704,6 +3915,13 @@ function App() {
                       options={activeManualReviewOptions}
                       onChange={(draft) => updateManualReviewDraft(activeAgentJob.id, draft)}
                       onSubmit={(approved) => void reviewJob(activeAgentJob.id, approved)}
+                    />
+                  ) : null}
+                  {["passed", "review_required", "failed", "blocked"].includes(activeAgentJob.status) ? (
+                    <LiveDeliveryCard
+                      job={activeAgentJob}
+                      events={activeAgentEvents}
+                      onOpenDelivery={() => setActiveTab("export")}
                     />
                   ) : null}
                   <div className="live-timeline">

@@ -6,6 +6,7 @@ __pycache__/
 .Python
 env/
 venv/
+.venv/
 ENV/
 build/
 dist/
@@ -58,6 +59,7 @@ Thumbs.db
 desktop.ini
 
 # Output files
+*.log
 *.step
 *.stp
 *.stl
@@ -85,6 +87,7 @@ docs/architecture/evidence/**/*.bmp
 # 未经过逐项脱敏与核对前不作为公开证据提交。
 /HANDOFF.md
 /docs/architecture/evidence/mcp-discovery-20261029/
+/config/runtime.local.json
 
 # 治理证明签名私钥：仅存于维护者本机，任何情况下不得入库
 *.private.pem

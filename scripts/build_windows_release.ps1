@@ -18,6 +18,8 @@ if ($resolvedReleaseRoot -ne $expectedReleaseRoot -or -not $resolvedReleaseRoot.
 }
 $tauriConfig = Get-Content -LiteralPath (Join-Path $tauriRoot "tauri.conf.json") -Raw | ConvertFrom-Json
 $packageConfig = Get-Content -LiteralPath (Join-Path $uiRoot "package.json") -Raw | ConvertFrom-Json
+$corePackageConfig = Get-Content -LiteralPath (Join-Path $repoRoot "package.json") -Raw | ConvertFrom-Json
+$coreVersion = [string]$corePackageConfig.version
 $cargoManifest = Get-Content -LiteralPath (Join-Path $tauriRoot "Cargo.toml") -Raw
 $appSource = Get-Content -LiteralPath (Join-Path $uiRoot "src\App.tsx") -Raw
 $configuredVersion = [string]$tauriConfig.version
@@ -31,8 +33,8 @@ if ([string]::IsNullOrWhiteSpace($Version)) { $Version = $configuredVersion }
 if ($Version -ne $configuredVersion -or $Version -ne [string]$packageConfig.version -or $Version -ne $cargoVersion -or $Version -ne $appVersion) {
     throw "Version mismatch: requested=$Version, tauri=$configuredVersion, npm=$($packageConfig.version), cargo=$cargoVersion, app=$appVersion"
 }
-if ($env:GITHUB_REF -like "refs/tags/v*") {
-    $tagVersion = $env:GITHUB_REF.Substring("refs/tags/v".Length)
+if ($env:GITHUB_REF -like "refs/tags/desktop-v*") {
+    $tagVersion = $env:GITHUB_REF.Substring("refs/tags/desktop-v".Length)
     if ($tagVersion -ne $Version) {
         throw "Release tag/version mismatch: tag=$tagVersion, package=$Version"
     }
@@ -94,13 +96,16 @@ Copy-Item -LiteralPath $installer.FullName -Destination $setupPath
 $signaturePath = "$setupPath.sig"
 Copy-Item -LiteralPath $installerSignature -Destination $signaturePath
 
-$skillZip = Join-Path $releaseRoot "SolidWorks-Automation-Skill-$Version.zip"
-& python (Join-Path $PSScriptRoot "build_skill_release.py") --version $Version --output $skillZip
-if ($LASTEXITCODE -ne 0) { throw "Standalone skill package validation failed." }
+& powershell -NoProfile -File (Join-Path $PSScriptRoot "build_core_release.ps1") `
+    -Version $coreVersion -OutputDirectory $releaseRoot
+if ($LASTEXITCODE -ne 0) { throw "Core Skill + MCP package build failed." }
+$skillZip = Join-Path $releaseRoot "SolidWorks-Automation-Skill-$coreVersion.zip"
+$mcpbZip = Join-Path $releaseRoot "SolidWorks-Automation-Skill-$coreVersion.mcpb"
+$smitheryMcpb = Join-Path $releaseRoot "SolidWorks-Automation-Skill-$coreVersion-smithery.mcpb"
 
 $latest = [ordered]@{
     version = $Version
-    notes = "CAD Studio $Version includes current SolidWorks skills, verified artifact freshness gates, and corrected edge length/diameter selection. See the release notes for upgrade instructions."
+    notes = "CAD Studio $Version includes the current Agent Skill and MCP bundle, the five-stage CAD delivery pipeline, GB drawing gates, and verified artifact freshness checks. See the release notes for upgrade instructions."
     pub_date = [DateTimeOffset]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
     platforms = [ordered]@{
         "windows-x86_64" = [ordered]@{
@@ -113,7 +118,7 @@ $latestPath = Join-Path $releaseRoot "latest.json"
 $latestJson = $latest | ConvertTo-Json -Depth 5
 [System.IO.File]::WriteAllText($latestPath, $latestJson, (New-Object System.Text.UTF8Encoding($false)))
 
-$checksums = @($setupPath, $signaturePath, $portableZip, $skillZip, $latestPath) | ForEach-Object {
+$checksums = @($setupPath, $signaturePath, $portableZip, $skillZip, $mcpbZip, $smitheryMcpb, $latestPath) | ForEach-Object {
     $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $_
     "$($hash.Hash.ToLowerInvariant())  $([System.IO.Path]::GetFileName($_))"
 }

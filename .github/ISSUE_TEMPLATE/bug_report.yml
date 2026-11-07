@@ -1,0 +1,46 @@
+name: Bug report
+description: Report a reproducible Skill, MCP, CAD Studio, or release-package defect.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remove API keys, private paths, customer models, and proprietary drawings before submitting.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What failed, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Include the exact command, tool name, inputs, and expected state.
+      placeholder: |
+        1. Install with ...
+        2. Call ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Project version
+      placeholder: v2.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Windows, Python, Node.js, SolidWorks/AutoCAD version, and MCP client.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or evidence
+      description: Use text or redacted screenshots; do not upload private models or credentials.

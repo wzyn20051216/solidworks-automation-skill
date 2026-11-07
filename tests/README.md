@@ -106,7 +106,7 @@ python tests\manual_native_wire_2026.py "$PWD" "$PWD\output\native-wire-$(Get-Da
 
 | 作业 | 运行位置 | 是否必需合并检查 | 内容 |
 | --- | --- | --- | --- |
-| `test-and-build`（`windows-release.yml`） | GitHub 托管 `windows-2022` | **是**（`main` 的唯一必需检查） | 治理单测 + `pytest` + 离线 eval + 前端/Rust 构建 + 发布契约 |
+| `test-and-build`（`skill-mcp-release.yml`） | GitHub 托管 `windows-2022` | **是**（`main` 的唯一必需检查） | 治理单测 + `pytest` + Skill/MCP 验证 + 核心发布契约 |
 | `authorize` / `cad-regression`（`windows-cad-regression.yml`） | `ubuntu-24.04` + `[self-hosted, Windows, CAD]` | **否**（手动 `workflow_dispatch`） | 治理准入 + 真实 CAD Golden |
 
 由此产生三条必须遵守的口径：

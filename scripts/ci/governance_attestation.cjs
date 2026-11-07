@@ -17,7 +17,7 @@ const MAX_TTL_DAYS = 30;
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
 /** 被审计的分支范围；单人维护模式下只有 main 允许运行真机 CAD。 */
 const GOVERNED_REF = 'refs/heads/main';
-/** 合并前必须通过的既有状态检查；改名需同步 ruleset 与 windows-release.yml。 */
+/** 合并前必须通过的既有状态检查；改名需同步 ruleset 与 skill-mcp-release.yml。 */
 const REQUIRED_CHECK = 'test-and-build';
 /** 采样合规判定时必须存在的规则类型。 */
 const REQUIRED_RULE_TYPES = Object.freeze(['pull_request', 'required_status_checks']);

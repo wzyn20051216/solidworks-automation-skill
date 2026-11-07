@@ -19,6 +19,7 @@ const { execFileSync, spawnSync } = require('child_process');
 const SKILL_NAME = 'solidworks-automation';
 const REPO_URL = 'https://github.com/wzyn20051216/solidworks-automation-skill.git';
 const MIN_NODE_MAJOR = 20;
+const OFFICIAL_PYPI_INDEX = 'https://pypi.org/simple';
 
 /** @brief 支持的客户端 -> 其 skills 目录（相对 home 的路径片段）。 */
 const CLIENT_SKILL_DIRS = {
@@ -290,7 +291,16 @@ function installDependencies(primaryDir, detect = detectPython, bootstrap = boot
   const args = ['-m', 'pip', 'install', '--no-input', '--disable-pip-version-check', '-r', 'requirements.txt', '-r', 'mcp-server/requirements.txt'];
   const virtualEnv = run(python, ['-c', 'import sys; print(int(sys.prefix != sys.base_prefix))'], { encoding: 'utf8', stdio: 'pipe', timeout: 5000 });
   if (virtualEnv.status === 0 && virtualEnv.stdout.trim() === '0') args.push('--user');
-  const result = run(python, args, { cwd: primaryDir, stdio: 'inherit', timeout: 300000, windowsHide: true });
+  let result = run(python, args, { cwd: primaryDir, stdio: 'inherit', timeout: 300000, windowsHide: true });
+  if (result.status !== 0) {
+    console.log('  ↻ 当前 pip 索引未完成安装，回退官方 PyPI 重试...');
+    result = run(python, [...args, '--index-url', OFFICIAL_PYPI_INDEX], {
+      cwd: primaryDir,
+      stdio: 'inherit',
+      timeout: 300000,
+      windowsHide: true,
+    });
+  }
   if (result.status !== 0) {
     console.log('  ⚠️  依赖安装未成功，请手动执行:');
     console.log(`     ${dependencyCommand(primaryDir)}`);

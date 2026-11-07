@@ -24,6 +24,7 @@ except ImportError:
 
 
 PIP_REQUIREMENTS = ("pywin32>=305", "comtypes>=1.2.0")
+OFFICIAL_PYPI_INDEX = "https://pypi.org/simple"
 DEPENDENCY_PROMPT = "检测到当前 Python 环境缺少 comtypes / win32com 库，是否授权 AI 自动为您配置本地环境？[Y/N]"
 
 
@@ -108,8 +109,34 @@ def install_com_dependencies(
     python_executable: Optional[str] = None,
     requirements: Sequence[str] = PIP_REQUIREMENTS,
 ) -> None:
-    """执行 pip 安装，补齐 Python COM 依赖。"""
-    subprocess.check_call(pip_install_command(python_executable, requirements), timeout=180)
+    """执行 pip 安装，补齐 Python COM 依赖。
+
+    企业镜像可能缺少 comtypes 等 Windows 专用包。首次安装失败时自动回退到
+    官方 PyPI；仍失败则保留两次命令的错误，便于调用方定位网络或权限问题。
+    """
+    base_command = pip_install_command(python_executable, requirements)
+    primary_index = os.environ.get("SW_PIP_INDEX_URL", "").strip()
+    primary_command = list(base_command)
+    if primary_index:
+        primary_command.extend(["--index-url", primary_index])
+    fallback_index = os.environ.get("SW_PIP_FALLBACK_INDEX_URL", OFFICIAL_PYPI_INDEX).strip()
+    fallback_command = [*base_command, "--index-url", fallback_index] if fallback_index else list(base_command)
+
+    try:
+        subprocess.check_call(primary_command, timeout=180)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as first_error:
+        if fallback_command == primary_command:
+            raise
+        try:
+            subprocess.check_call(fallback_command, timeout=180)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as fallback_error:
+            raise RuntimeError(
+                "SolidWorks COM 依赖安装失败。\n"
+                f"主索引命令: {shell_command_text(primary_command)}\n"
+                f"回退命令: {shell_command_text(fallback_command)}\n"
+                f"主索引错误: {first_error}\n"
+                f"回退错误: {fallback_error}"
+            ) from fallback_error
     importlib.invalidate_caches()
     if python_executable is None and sys.prefix == getattr(sys, "base_prefix", sys.prefix) and not sys.flags.no_user_site:
         site.addsitedir(site.getusersitepackages())

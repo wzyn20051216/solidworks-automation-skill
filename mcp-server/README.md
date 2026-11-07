@@ -1,6 +1,6 @@
 # SolidWorks MCP Server
 
-本目录提供一个本地 MCP Server，同时暴露无 CAD 开放格式工具和 SolidWorks COM 白名单工具。MCP 与 CAD Studio、Skill、CLI 共用能力清单和数据协议。
+本目录提供主产品之一的本地 MCP Server，同时暴露无 CAD 开放格式工具和 SolidWorks COM 白名单工具。MCP 与 Skill 共用能力清单和数据协议；CAD Studio 是可选桌面 GUI。
 
 SolidWorks 是 Windows 桌面 COM 应用，不适合远程多客户端并发；因此本 server 默认使用 `stdio`，并在内部用全局锁串行执行所有 SolidWorks 操作。
 
@@ -183,13 +183,17 @@ python mcp-server\server.py --transport streamable-http --host 0.0.0.0 --port 80
 根目录 `manifest.json` 遵循 MCPB 规范，并使用 `tools_generated: true`。先用 `mcpb pack` 生成标准包，再运行以下命令生成包含 FastMCP 实际 `inputSchema` 的 Smithery 发布包：
 
 ```powershell
-mcpb pack . .\dist\solidworks-automation-skill-1.3.0.mcpb
+npx --yes @anthropic-ai/mcpb@2.1.2 pack . .\dist\solidworks-automation-skill-2.1.0.mcpb
+python .\scripts\verify_mcpb.py .\dist\solidworks-automation-skill-2.1.0.mcpb --version 2.1.0
 python .\scripts\build_smithery_mcpb.py `
-  .\dist\solidworks-automation-skill-1.3.0.mcpb `
-  .\dist\solidworks-automation-skill-1.3.0-smithery.mcpb
-smithery mcp publish .\dist\solidworks-automation-skill-1.3.0-smithery.mcpb `
+  .\dist\solidworks-automation-skill-2.1.0.mcpb `
+  .\dist\solidworks-automation-skill-2.1.0-smithery.mcpb
+smithery mcp publish .\dist\solidworks-automation-skill-2.1.0-smithery.mcpb `
   -n wzyn20051216/solidworks-automation-skill
 ```
+
+仓库发布流程也会自动生成这两个 MCPB 附件。`.mcpbignore` 保留工程图运行时依赖的
+`subskills/` 与 `references/`，并排除本地运行配置、日志、测试和构建产物。
 
 Smithery 当前发布接口要求工具卡包含 `inputSchema`，而 MCPB 0.4 的静态 `tools` 项不允许该字段，因此发布包由脚本从 MCP Server 注册表自动生成，避免手工维护两套 schema。工具卡来自完整注册表（72 项：69 个原生工具 + 3 个发现入口），与运行时 `SW_MCP_DISCOVERY` 的选择无关。
 

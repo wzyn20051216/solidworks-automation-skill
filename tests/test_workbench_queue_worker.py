@@ -1351,10 +1351,12 @@ def test_resolve_workspace_accepts_windows_extended_path_prefix() -> None:
 def test_resolve_workspace_still_rejects_extended_path_outside_allowed_root() -> None:
     """@brief 去掉扩展路径前缀后仍必须执行工作区边界检查。"""
     repo = Path(__file__).resolve().parents[1]
-    extended_parent = Path("\\\\?\\" + str(repo.parent))
+    # 不能直接使用盘符根目录：那会先触发“拒绝文件系统根目录”的独立防线。
+    outside = repo.parent / "__cadstudio_outside_workspace__"
+    extended_outside = Path("\\\\?\\" + str(outside))
 
     with pytest.raises(ValueError, match="cwd 不在允许工作区内"):
-        resolve_workspace({"cwd": str(extended_parent)}, allowed_roots=[repo])
+        resolve_workspace({"cwd": str(extended_outside)}, allowed_roots=[repo])
 
 
 def test_codex_output_path_is_forced_inside_workspace() -> None:
