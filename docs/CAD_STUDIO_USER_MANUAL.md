@@ -1,6 +1,6 @@
 # CAD Studio 用户说明书
 
-本文面向第一次使用 CAD Studio 的机械工程师、学生和设计人员。CAD Studio 与 Skill/CLI/MCP 是平级入口，共用 CAD Core、任务协议、能力清单和证据系统；用户不安装桌面软件也可以直接运行 Skill/CLI/MCP。工程文件和任务记录默认保存在本机。
+本文面向需要图形界面使用 CAD Studio 的机械工程师、学生和设计人员。Skill 与 MCP 是默认主产品；CAD Studio 是独立版本、可选安装的桌面 GUI，共用 CAD Core、任务协议、能力清单和证据系统。工程文件和任务记录默认保存在本机。
 
 ## 1. 软件能做什么
 

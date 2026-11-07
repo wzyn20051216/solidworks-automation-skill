@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import argparse
 from filecmp import cmp
 from pathlib import Path
 
@@ -48,12 +49,8 @@ def find_bundled_skill_drift(root: Path, bundled_skill: Path, expected_paths=Non
     return drift
 
 
-def run_release_check() -> dict[str, object]:
+def run_release_check(*, include_desktop: bool = True) -> dict[str, object]:
     """@brief 校验应用版本、能力真源和必需发布文件。"""
-    ui_version = _version(ROOT / "apps/workbench-ui/package.json", r'"version"\s*:\s*"([^"]+)"')
-    tauri_version = _version(ROOT / "apps/workbench-ui/src-tauri/tauri.conf.json", r'"version"\s*:\s*"([^"]+)"')
-    cargo_version = _version(ROOT / "apps/workbench-ui/src-tauri/Cargo.toml", r'(?m)^version\s*=\s*"([^"]+)"')
-    app_version = _version(ROOT / "apps/workbench-ui/src/App.tsx", r'const APP_VERSION\s*=\s*"([^"]+)"')
     skill_version = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
     mcpb_version = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))["version"]
     pyproject_version = _version(ROOT / "pyproject.toml", r'(?m)^version\s*=\s*"([^"]+)"')
@@ -62,24 +59,38 @@ def run_release_check() -> dict[str, object]:
         ROOT / "uv.lock",
         r'name = "solidworks-automation-skill"\s+version = "([^"]+)"',
     )
-    ui_lock = json.loads((ROOT / "apps/workbench-ui/package-lock.json").read_text(encoding="utf-8"))
-    cargo_lock_version = _version(ROOT / "apps/workbench-ui/src-tauri/Cargo.lock", r'name = "cad-studio"\s+version = "([^"]+)"')
-    versions = {
-        "npm": ui_version,
-        "tauri": tauri_version,
-        "cargo": cargo_version,
-        "app": app_version,
+    core_versions = {
         "skill": skill_version,
         "mcpb": mcpb_version,
         "pyproject": pyproject_version,
         "setup": setup_version,
         "uv_lock": uv_lock_version,
-        "npm_lock": ui_lock["version"],
-        "npm_lock_root": ui_lock["packages"][""]["version"],
-        "cargo_lock": cargo_lock_version,
     }
-    if len(set(versions.values())) != 1:
-        raise AssertionError("版本不一致: " + ", ".join(f"{name}={value}" for name, value in versions.items()))
+    desktop_versions = {}
+    if include_desktop:
+        ui_version = _version(ROOT / "apps/workbench-ui/package.json", r'"version"\s*:\s*"([^"]+)"')
+        tauri_version = _version(ROOT / "apps/workbench-ui/src-tauri/tauri.conf.json", r'"version"\s*:\s*"([^"]+)"')
+        cargo_version = _version(ROOT / "apps/workbench-ui/src-tauri/Cargo.toml", r'(?m)^version\s*=\s*"([^"]+)"')
+        app_version = _version(ROOT / "apps/workbench-ui/src/App.tsx", r'const APP_VERSION\s*=\s*"([^"]+)"')
+        ui_lock = json.loads((ROOT / "apps/workbench-ui/package-lock.json").read_text(encoding="utf-8"))
+        cargo_lock_version = _version(ROOT / "apps/workbench-ui/src-tauri/Cargo.lock", r'name = "cad-studio"\s+version = "([^"]+)"')
+        desktop_versions = {
+            "npm": ui_version,
+            "tauri": tauri_version,
+            "cargo": cargo_version,
+            "app": app_version,
+            "npm_lock": ui_lock["version"],
+            "npm_lock_root": ui_lock["packages"][""]["version"],
+            "cargo_lock": cargo_lock_version,
+        }
+    if len(set(core_versions.values())) != 1:
+        raise AssertionError(
+            "核心版本不一致: " + ", ".join(f"{name}={value}" for name, value in core_versions.items())
+        )
+    if include_desktop and len(set(desktop_versions.values())) != 1:
+        raise AssertionError(
+            "桌面版本不一致: " + ", ".join(f"{name}={value}" for name, value in desktop_versions.items())
+        )
     manifest = json.loads((ROOT / "capabilities.yaml").read_text(encoding="utf-8"))
     capabilities = manifest.get("capabilities", [])
     ids = [item.get("id") for item in capabilities]
@@ -96,22 +107,40 @@ def run_release_check() -> dict[str, object]:
     missing = [item for item in required if not (ROOT / item).is_file()]
     if missing:
         raise AssertionError("发布文件缺失: " + ", ".join(missing))
-    expected_runtime_files = collect_runtime_files(ROOT)
-    bundled_drift = find_bundled_skill_drift(ROOT, BUNDLED_SKILL, expected_runtime_files)
-    if bundled_drift:
-        preview = ", ".join(bundled_drift[:10])
-        suffix = " ..." if len(bundled_drift) > 10 else ""
-        raise AssertionError(f"桌面内嵌 Skill 与根 Skill 不一致: {preview}{suffix}")
-    bundled_file_count = sum(1 for path in BUNDLED_SKILL.rglob("*") if path.is_file())
+    bundled_file_count = 0
+    if include_desktop and BUNDLED_SKILL.is_dir():
+        expected_runtime_files = collect_runtime_files(ROOT)
+        bundled_drift = find_bundled_skill_drift(ROOT, BUNDLED_SKILL, expected_runtime_files)
+        if bundled_drift:
+            preview = ", ".join(bundled_drift[:10])
+            suffix = " ..." if len(bundled_drift) > 10 else ""
+            raise AssertionError(f"桌面内嵌 Skill 与根 Skill 不一致: {preview}{suffix}")
+        bundled_file_count = sum(1 for path in BUNDLED_SKILL.rglob("*") if path.is_file())
     return {
         "status": "pass",
-        "version": ui_version,
-        "versions": versions,
+        "version": skill_version,
+        "versions": core_versions,
+        "desktopVersion": desktop_versions.get("npm"),
+        "desktopVersions": desktop_versions,
         "capabilities": len(capabilities),
         "bundled_skill_files": bundled_file_count,
+        "bundledSkillPresent": BUNDLED_SKILL.is_dir() if include_desktop else None,
         "missing": [],
     }
 
 
 if __name__ == "__main__":
-    print(json.dumps(run_release_check(), ensure_ascii=False, indent=2))
+    parser = argparse.ArgumentParser(description="校验 Skill/MCP 与可选桌面端发布元数据")
+    parser.add_argument(
+        "--core-only",
+        action="store_true",
+        help="只校验 Skill/MCP 主产品，不要求桌面端元数据或内嵌运行时同步",
+    )
+    args = parser.parse_args()
+    print(
+        json.dumps(
+            run_release_check(include_desktop=not args.core_only),
+            ensure_ascii=False,
+            indent=2,
+        )
+    )

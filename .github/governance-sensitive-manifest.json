@@ -2,14 +2,15 @@
   "schema": "governance-sensitive-manifest/v1",
   "files": {
     ".github/CODEOWNERS": "8a0367d308c85c1a5c2e06113737d0902ab700470e7a4110b3135f658b867d81",
-    ".github/workflows/windows-cad-regression.yml": "66cce09f73e5878f81a10cdf48c0e04ade6c074c0f7bcda8b56536edd266d1c8",
-    ".github/workflows/windows-release.yml": "c36bbfd55253cc34bc1e403d6bf735b4e4d916f8ee33d0eab7ad05c8dd82ae98",
+    ".github/workflows/windows-cad-regression.yml": "fde30ceb263c8bf67d0878d4ad2c72c54200f02fe3a98bb5c48ea19223009ac0",
+    ".github/workflows/windows-release.yml": "b4d0266a86a0435179a1e4138e12f9a5e2762928e14c972abac65569b74a5c86",
+    ".github/workflows/skill-mcp-release.yml": "5995e4236f2edaedb487da162a386385ae0f14f0b63d8393a19c68d4d8917886",
     "docs/architecture/evidence/governance-ruleset-attestation.json": "bb48a2a6725b54feb29e9ed332529483c61df69d96d53366b77fb31271ca4352",
     "scripts/ci/cad_ci_guard.cjs": "48fb07462d4406a5326746a5d2e51356cbe63ad7ad521b30891c1a04821ca01e",
     "scripts/ci/capture_governance_attestation.cjs": "2d24b64e69a2aff2c3ce93c8b81ede3fcdef3cfba94354aa2f06ce293a84a4eb",
-    "scripts/ci/check_governance_drift.cjs": "f3e9813490c120b273cc9941ab3ffccb4fee47a0b8bfbe403d4c233c111d8b47",
-    "scripts/ci/governance_attestation.cjs": "8dbe427028e5fa41c7ae2466158fde41658e38f6bb5bf90d453aa0870ca1dd6e",
+    "scripts/ci/check_governance_drift.cjs": "6d8b3f0184035dd5237411235b5a8fe632f891206243162825035130b7233caf",
+    "scripts/ci/governance_attestation.cjs": "0864dfc54e73d899ec784aac828ef1cd3c454a021a49e94556a59ff33e0aa7a5",
     "scripts/ci/governance_trust_root.cjs": "16c4db7164dc4262156d858b7a541b9fab353b50a0260503781a9dee99e09fbd",
-    "tests/test_cad_ci_guard.cjs": "83ba1c939fdf025e8a488fe17a87906ec8be4cadf6828d29c11e77a4715ee01f"
+    "tests/test_cad_ci_guard.cjs": "d88211261d40eb1d4c2fe375a5b501cafa63e12530f929b2ca7b177fa6ef5485"
   }
 }

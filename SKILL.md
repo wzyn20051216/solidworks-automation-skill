@@ -57,7 +57,7 @@ powershell -ExecutionPolicy Bypass -File .\mcp-server\register_codex_mcp.ps1 -Py
 
 ### 多入口与多后端
 
-- CAD Studio 与 Skill/CLI/MCP 是平级入口，共用 Automation Job、NeutralCadDocument、Preview Manifest、Evidence Graph 和能力清单。
+- Skill 与 MCP 是默认主产品，共用 Automation Job、NeutralCadDocument、Preview Manifest、Evidence Graph 和能力清单；CAD Studio 是可选桌面 GUI，不参与核心包发布门禁。
 - 检测不到 SolidWorks/AutoCAD 时，只阻断 `SLDPRT/SLDASM/SLDDRW/DWG` 等原生格式；开放格式任务优先路由到 `headless_open_format_writing`。
 - 需要设计规则审查或丝杠/皮带电机扭矩初筛时，读取 `references/design-rule-check.md` 和 `references/drive-sizing.md`，以用户提供或经验证采集的中性文档为输入；缺失证据标为 `review_required`，结果必须由工程师复核。
 - 需要识别钻孔面板孔位或规划图纸候选时，读取 `subskills/solidworks-engineering-drawing/references/drilling-panel-gdt.md`；孔型、基准和公差不得凭几何猜定，候选规格不得冒充已验证工程图。

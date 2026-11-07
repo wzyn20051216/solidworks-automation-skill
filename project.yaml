@@ -7,7 +7,7 @@ category: Tool
 tags: [SolidWorks, CAD, AutoCAD, Desktop, Tauri, React, MCP, Python, COM, Automation, VibeCAD, Subskills]
 status: in-progress
 updated: 2026-10-27
-summary: 面向 Codex、Claude 与 OpenClaw 的 SolidWorks 自动化技能总仓，支持零件建模、装配、工程图、导出、自审查、本地 MCP 工具调用；桌面端为 Tauri + React 的 CAD Studio（早期 PySide6 原型已归档为遗留）。
+summary: 面向 Codex、Claude 与 OpenClaw 的 SolidWorks 自动化技能总仓，以 Skill + MCP 为主产品，支持零件建模、装配、工程图、导出、自审查与本地工具调用；CAD Studio 是可选、独立版本的 Tauri + React 桌面 GUI。
 
 cover: assets/douyin-balance.jpg
 readme: README.md

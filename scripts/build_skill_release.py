@@ -20,11 +20,10 @@ EXTRA_FILES = ("LICENSE", "install.js", "package.json", "docs/CAD_STUDIO_USER_MA
 
 
 def release_version(root: Path) -> str:
-    """技能包和桌面程序使用同一个发布版本。"""
+    """技能包使用自身的核心版本，不依赖可选桌面端版本。"""
     skill = json.loads((root / "package.json").read_text(encoding="utf-8"))["version"]
-    desktop = json.loads((root / "apps/workbench-ui/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))["version"]
-    if skill != desktop or not re.fullmatch(r"\d+\.\d+\.\d+", skill):
-        raise ValueError("技能包与桌面程序版本不一致或无效")
+    if not re.fullmatch(r"\d+\.\d+\.\d+", skill):
+        raise ValueError("技能包版本无效")
     return skill
 
 

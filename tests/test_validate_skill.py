@@ -1,7 +1,7 @@
 """validate_skill.py 的回归测试。
 
 重点覆盖 2026-10-27 修复的缺陷：`check_json_files()` 曾把黄金工作流数量写死为 10，
-新增 Golden 用例后 `windows-release.yml` 的 "Validate skill" 步骤必然失败，
+新增 Golden 用例后 `skill-mcp-release.yml` 的 "Validate Skill" 步骤必然失败，
 而该步骤属于必需检查 `test-and-build` 的一部分。
 
 修复后改为：结构不变量（非空、id 唯一）+ 与 `tests/evals/baseline.json.workflow_count` 交叉一致。

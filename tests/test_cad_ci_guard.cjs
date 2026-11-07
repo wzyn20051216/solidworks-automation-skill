@@ -769,6 +769,7 @@ test('治理敏感文件清单覆盖准入代码、工作流与测试', () => {
     'scripts/ci/governance_trust_root.cjs', 'scripts/ci/capture_governance_attestation.cjs',
     'scripts/ci/check_governance_drift.cjs', 'tests/test_cad_ci_guard.cjs',
     '.github/workflows/windows-cad-regression.yml', '.github/workflows/windows-release.yml',
+    '.github/workflows/skill-mcp-release.yml',
     '.github/CODEOWNERS', 'docs/architecture/evidence/governance-ruleset-attestation.json']) {
     assert.ok(drift.SENSITIVE_FILES.includes(file), `清单应包含 ${file}`);
   }

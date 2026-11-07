@@ -28,6 +28,7 @@ const SENSITIVE_FILES = Object.freeze([
   '.github/CODEOWNERS',
   '.github/workflows/windows-cad-regression.yml',
   '.github/workflows/windows-release.yml',
+  '.github/workflows/skill-mcp-release.yml',
   'docs/architecture/evidence/governance-ruleset-attestation.json',
   'scripts/ci/cad_ci_guard.cjs',
   'scripts/ci/capture_governance_attestation.cjs',

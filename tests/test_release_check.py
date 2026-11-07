@@ -34,19 +34,22 @@ def test_release_check_still_validates_versions_without_bundle():
     root = Path(__file__).resolve().parents[1]
     package = json.loads((root / "package.json").read_text(encoding="utf-8"))
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-    versions = {
+    core_versions = {
         package["version"],
         manifest["version"],
         _version(root / "pyproject.toml", r'(?m)^version\s*=\s*"([^"]+)"'),
         _version(root / "setup.py", r'\bversion="([^"]+)"'),
         _version(root / "uv.lock", r'name = "solidworks-automation-skill"\s+version = "([^"]+)"'),
+    }
+    desktop_versions = {
         _version(root / "apps/workbench-ui/package.json", r'"version"\s*:\s*"([^"]+)"'),
         _version(root / "apps/workbench-ui/src-tauri/tauri.conf.json", r'"version"\s*:\s*"([^"]+)"'),
         _version(root / "apps/workbench-ui/src-tauri/Cargo.toml", r'(?m)^version\s*=\s*"([^"]+)"'),
         _version(root / "apps/workbench-ui/src/App.tsx", r'const APP_VERSION\s*=\s*"([^"]+)"'),
     }
 
-    assert len(versions) == 1
+    assert len(core_versions) == 1
+    assert len(desktop_versions) == 1
 
 
 def test_find_bundled_skill_drift_detects_changed_and_missing_sources(tmp_path):

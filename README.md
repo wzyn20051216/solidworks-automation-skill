@@ -8,16 +8,16 @@
 
 工具调用成功，不代表任务真的完成；需要 Review 的任务会经过结果验证后再交付。
 
-当前发布版本为 **v2.1.0**：Skill ZIP、标准 MCPB、CAD Studio 安装版与便携版统一版本并包含同版运行时。下载入口和升级说明见 [v2.1.0 发布说明](docs/releases/v2.1.0.md)。
+当前主产品版本为 **v2.1.0**：默认交付 Agent Skill ZIP 与标准 MCPB，不要求安装桌面程序。CAD Studio 是独立版本、可选发布的图形界面渠道。下载入口和升级说明见 [v2.1.0 发布说明](docs/releases/v2.1.0.md)。
 
-CAD Studio 会对各生产执行器统一检查交付文件是否为本轮新增或内容已变化；旧文件拒绝交付，证据不足转为待复核。扫描范围、兼容性与验证方法见[本轮交付门禁](references/delivery-freshness.md)。
+可选的 CAD Studio 会对各生产执行器统一检查交付文件是否为本轮新增或内容已变化；旧文件拒绝交付，证据不足转为待复核。扫描范围、兼容性与验证方法见[本轮交付门禁](references/delivery-freshness.md)。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![GitHub Release](https://img.shields.io/github/v/release/wzyn20051216/solidworks-automation-skill)](https://github.com/wzyn20051216/solidworks-automation-skill/releases)
 [![GitHub Stars](https://img.shields.io/github/stars/wzyn20051216/solidworks-automation-skill?style=flat)](https://github.com/wzyn20051216/solidworks-automation-skill)
 [![MCP](https://img.shields.io/badge/MCP-stdio--server-blue)](mcp-server/README.md)
-[![CI](https://github.com/wzyn20051216/solidworks-automation-skill/actions/workflows/windows-release.yml/badge.svg)](https://github.com/wzyn20051216/solidworks-automation-skill/actions/workflows/windows-release.yml)
+[![Skill + MCP CI](https://github.com/wzyn20051216/solidworks-automation-skill/actions/workflows/skill-mcp-release.yml/badge.svg)](https://github.com/wzyn20051216/solidworks-automation-skill/actions/workflows/skill-mcp-release.yml)
 
 ```text
 User → Agent (Codex / Claude / Cursor) → Skill / MCP → Execution Core → CAD → Artifacts + Evidence
@@ -77,7 +77,7 @@ python scripts/sw_capability_probe.py  # 类型库与能力清单
 
 ## Quick Start
 
-三种入口**任选其一**即可，不需要同时启动。
+**Skill + MCP 是主产品**，二者任选其一即可；CAD Studio 是第三个可选桌面渠道，不参与核心发布门禁。
 
 ### Option 1 — Skill
 
@@ -125,21 +125,21 @@ node mcp-server/register_all_ai_mcp.js --clients codex,claude-code,cursor
 
 注册脚本会写入对应客户端的 MCP 配置，并在写入前生成 `.bak` 备份；加 `--strict` 可让任一客户端失败时非零退出。
 
-### Option 3 — CAD Studio 桌面版
+### Option 3 — Optional CAD Studio Desktop
 
 从 [GitHub Releases](https://github.com/wzyn20051216/solidworks-automation-skill/releases) 下载 Windows 安装包。
 
 桌面端启动本地执行器时，如果 Windows 没有可用的 Python 3.10+，会尝试通过 winget 为当前用户安装 Python 3.12；无法安装时显示错误。环境诊断仍只读。SolidWorks 必须由用户另行安装并具备许可；API 查证所需的 7-Zip、Python 包和可验证的本地 API Help 按需自动配置，详情见 [`references/api-lookup.md`](references/api-lookup.md)。
 
-> **Choose one entry point. You do not need to run all three.**
+> **Start with Skill or MCP. Install the desktop app only when you need a GUI.**
 
-| 入口 | 适合谁 | 需要 GUI | 典型用法 |
-|---|---|---|---|
-| **Skill** | 支持 skill 导入的 Agent 客户端 | 否 | 自然语言驱动 SolidWorks |
-| **MCP** | Codex / Claude / Cursor / Windsurf 等 MCP 客户端 | 否 | MCPB 导入或命令行注册，Agent 自动 Tool Calling |
-| **CAD Studio** | 需要图形界面管理项目/任务/预览/交付 | 是 | 桌面端提交任务 |
+| 层级 | 入口 | 适合谁 | 需要 GUI | 典型用法 |
+|---|---|---|---|---|
+| 主产品 | **Skill** | 支持 skill 导入的 Agent 客户端 | 否 | 自然语言驱动 SolidWorks |
+| 主产品 | **MCP** | Codex / Claude / Cursor / Windsurf 等 MCP 客户端 | 否 | MCPB 导入或命令行注册，Agent 自动 Tool Calling |
+| 可选桌面端 | **CAD Studio** | 需要图形界面管理项目/任务/预览/交付 | 是 | 桌面端提交任务；独立构建与发布 |
 
-三者是**平级入口**，共用同一套能力清单（`capabilities.yaml`）、脚本与证据系统。安装后可用 `python scripts/cad_doctor.py` 做环境诊断；详细安装与 CLI 见 [`docs/CAD_STUDIO_USER_MANUAL.md`](docs/CAD_STUDIO_USER_MANUAL.md)。
+Skill 与 MCP 共用同一套能力清单（`capabilities.yaml`）、脚本与证据系统，是默认安装路径。CAD Studio 只是可选的 GUI 封装，不会阻塞 Skill/MCP 独立发版，也不要求所有用户承担 WebView2、Python 环境、签名和 Windows 安装包维护成本。安装后可用 `python scripts/cad_doctor.py` 做环境诊断；桌面端细节见 [`docs/CAD_STUDIO_USER_MANUAL.md`](docs/CAD_STUDIO_USER_MANUAL.md)。
 
 ---
 
@@ -221,8 +221,8 @@ Artifacts + Evidence
 
 | 层 | 在哪里跑 | 覆盖什么 | 不覆盖什么 |
 |---|---|---|---|
-| L1 离线回归 | 任意机器 | `pytest`（全量，当前 1730 项）、`evals/runner.py`（12 workflow / 43 scenario）、治理单测（当前 93 项） | 需要 SolidWorks / AutoCAD 进程的一切 |
-| L2 托管 CI | GitHub 托管 `windows-2022` | 与 L1 相同，外加前端/ Rust 构建与发布契约检查；作业名 `test-and-build`，是 `main` 的**唯一必需状态检查** | 真实 CAD 执行 |
+| L1 离线回归 | 任意机器 | `pytest`（全量，当前 1728 项）、`evals/runner.py`（12 workflow / 43 scenario）、治理单测（当前 93 项） | 需要 SolidWorks / AutoCAD 进程的一切 |
+| L2 托管 CI | GitHub 托管 `windows-2022` | Skill/MCP 主产品由 `skill-mcp-release.yml` 验证并执行 `test-and-build` 必需检查；可选桌面端由 `windows-release.yml` 手动构建 | 真实 CAD 执行 |
 | L3 真实 CAD 验收 | **仅维护者本机**（Windows 11 + SolidWorks 2026 SP01.1） | Golden 五轮真机、装配/工程图/运动算例等真机回归 | 其它机器、其它版本 |
 
 必须明确的三点：
@@ -341,7 +341,7 @@ Artifacts + Evidence
 
 ## English
 
-**SolidWorks Automation Skill** is an AI Skill + MCP toolkit for reliable desktop CAD automation. Codex, Claude, Cursor, and other agents drive real SolidWorks / CAD workflows through natural language, with verification, deterministic recovery decisions, and execution tracing. Three peer entry points — Skill, MCP, and CAD Studio — share one capability registry (`capabilities.yaml`). **Choose one; no extra runtime service is required.** See Quick Start above.
+**SolidWorks Automation Skill** is an AI Skill + MCP toolkit for reliable desktop CAD automation. Codex, Claude, Cursor, and other agents drive real SolidWorks / CAD workflows through natural language, with verification, deterministic recovery decisions, and execution tracing. **Skill and MCP are the primary products.** CAD Studio is an optional, independently versioned desktop GUI and does not block the core release.
 
 ---
 
