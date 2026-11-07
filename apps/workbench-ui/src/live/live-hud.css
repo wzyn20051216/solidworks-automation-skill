@@ -15,9 +15,9 @@ body,
 
 .live-hud {
   position: relative;
-  width: calc(100% - 16px);
-  height: calc(100% - 16px);
-  margin: 8px;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   box-sizing: border-box;
   overflow: hidden;
   border: 1px solid rgba(116, 221, 230, 0.38);
@@ -32,11 +32,34 @@ body,
 
 .live-hud header {
   height: 42px;
-  padding: 0 10px 0 14px;
+  padding: 0 8px 0 14px;
   display: flex;
   align-items: center;
   gap: 8px;
   border-bottom: 1px solid rgba(126, 222, 228, 0.14);
+}
+
+.live-hud-drag {
+  height: 100%;
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+  cursor: grab;
+  -webkit-app-region: drag;
+}
+
+.live-hud-drag:active {
+  cursor: grabbing;
+}
+
+.live-hud-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  -webkit-app-region: no-drag;
 }
 
 .live-hud header span {
@@ -55,13 +78,20 @@ body,
 }
 
 .live-hud header button {
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
   border: 0;
-  border-radius: 7px;
+  border-radius: 6px;
   background: rgba(255, 255, 255, 0.06);
   color: #cceff2;
   cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.live-hud header button:hover {
+  background: rgba(116, 221, 230, 0.16);
 }
 
 .live-hud-body {
@@ -202,9 +232,9 @@ body,
 }
 
 .live-hud.collapsed {
-  width: 112px;
-  height: 112px;
-  margin: 8px;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   padding: 0;
   display: grid;
   place-items: center;

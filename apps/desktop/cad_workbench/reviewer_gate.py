@@ -318,6 +318,31 @@ def evaluate_ledger(ledger: dict[str, Any]) -> dict[str, Any]:
 
     executor = str(ledger.get("executor") or "mock")
     production_executor = executor != "mock"
+    pipeline_stage = str(ledger.get("pipelineStage") or "").strip().lower()
+    if pipeline_stage == "verify" and production_executor:
+        verification_artifacts = [
+            artifact
+            for artifact in delivery_artifacts
+            if Path(str(artifact.get("path") or "")).suffix.lower() == ".json"
+            and artifact.get("exists") is True
+            and artifact.get("producedThisRun") is True
+            and (
+                "verification" in Path(str(artifact.get("path") or "")).stem.lower()
+                or "verification" in Path(str(artifact.get("path") or "")).parent.name.lower()
+            )
+        ]
+        checks.append(
+            {
+                "id": "pipeline-stage-verification",
+                "severity": "P0",
+                "status": "pass" if verification_artifacts else "fail",
+                "message": (
+                    f"验证阶段已生成本轮 verification JSON，共 {len(verification_artifacts)} 个。"
+                    if verification_artifacts
+                    else "验证阶段缺少本轮生成的 verification JSON；不能只凭 Agent 回执放行。"
+                ),
+            }
+        )
     verification = ledger.get("verification") if isinstance(ledger.get("verification"), list) else []
     if ledger.get("executor") == "codex" and not verification:
         checks.append(

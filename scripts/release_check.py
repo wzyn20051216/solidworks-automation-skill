@@ -55,11 +55,31 @@ def run_release_check() -> dict[str, object]:
     cargo_version = _version(ROOT / "apps/workbench-ui/src-tauri/Cargo.toml", r'(?m)^version\s*=\s*"([^"]+)"')
     app_version = _version(ROOT / "apps/workbench-ui/src/App.tsx", r'const APP_VERSION\s*=\s*"([^"]+)"')
     skill_version = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
+    mcpb_version = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))["version"]
+    pyproject_version = _version(ROOT / "pyproject.toml", r'(?m)^version\s*=\s*"([^"]+)"')
+    setup_version = _version(ROOT / "setup.py", r'\bversion="([^"]+)"')
+    uv_lock_version = _version(
+        ROOT / "uv.lock",
+        r'name = "solidworks-automation-skill"\s+version = "([^"]+)"',
+    )
     ui_lock = json.loads((ROOT / "apps/workbench-ui/package-lock.json").read_text(encoding="utf-8"))
     cargo_lock_version = _version(ROOT / "apps/workbench-ui/src-tauri/Cargo.lock", r'name = "cad-studio"\s+version = "([^"]+)"')
-    if len({ui_version, tauri_version, cargo_version, app_version, skill_version,
-            ui_lock["version"], ui_lock["packages"][""]["version"], cargo_lock_version}) != 1:
-        raise AssertionError(f"版本不一致: npm={ui_version}, tauri={tauri_version}, cargo={cargo_version}, app={app_version}")
+    versions = {
+        "npm": ui_version,
+        "tauri": tauri_version,
+        "cargo": cargo_version,
+        "app": app_version,
+        "skill": skill_version,
+        "mcpb": mcpb_version,
+        "pyproject": pyproject_version,
+        "setup": setup_version,
+        "uv_lock": uv_lock_version,
+        "npm_lock": ui_lock["version"],
+        "npm_lock_root": ui_lock["packages"][""]["version"],
+        "cargo_lock": cargo_lock_version,
+    }
+    if len(set(versions.values())) != 1:
+        raise AssertionError("版本不一致: " + ", ".join(f"{name}={value}" for name, value in versions.items()))
     manifest = json.loads((ROOT / "capabilities.yaml").read_text(encoding="utf-8"))
     capabilities = manifest.get("capabilities", [])
     ids = [item.get("id") for item in capabilities]
@@ -86,6 +106,7 @@ def run_release_check() -> dict[str, object]:
     return {
         "status": "pass",
         "version": ui_version,
+        "versions": versions,
         "capabilities": len(capabilities),
         "bundled_skill_files": bundled_file_count,
         "missing": [],

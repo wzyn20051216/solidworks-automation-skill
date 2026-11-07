@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "CAD Studio",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "identifier": "com.wzyn.cadstudio",
   "build": {
     "frontendDist": "../dist",
@@ -29,8 +29,8 @@
         "url": "index.html?window=live",
         "width": 420,
         "height": 300,
-        "minWidth": 320,
-        "minHeight": 220,
+        "minWidth": 128,
+        "minHeight": 128,
         "visible": false,
         "transparent": true,
         "decorations": false,

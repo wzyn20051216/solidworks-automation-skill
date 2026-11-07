@@ -1,13 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import {
   ArrowsOutSimple,
-  CaretDown,
   CheckCircle,
+  Minus,
   WarningCircle,
+  X,
 } from "@phosphor-icons/react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useMemo, useState } from "react";
+import { type PointerEvent as ReactPointerEvent, useEffect, useMemo, useState } from "react";
 import type { AutomationJob, QueueEvent } from "../types";
 import { demoEvents, demoJob } from "./liveFixtures";
 import { deriveLiveVisual } from "./visualState";
@@ -15,6 +17,10 @@ import { Mascot } from "./Mascot";
 import "./live-hud.css";
 
 const DEMO = new URLSearchParams(location.search).get("demo");
+const HUD_VISIBILITY_EVENT = "live-hud-visibility";
+const EXPANDED_SIZE = new LogicalSize(420, 300);
+const COLLAPSED_SIZE = new LogicalSize(128, 128);
+const HUD_WINDOW = getCurrentWindow();
 const HUD_STATUSES = [
   "running",
   "review_required",
@@ -113,6 +119,30 @@ export function LiveHud() {
     };
   }, [job?.id, visual?.snapshotPath]);
 
+  useEffect(() => {
+    if (DEMO) return;
+    // 原生窗口必须和可见卡片一起缩小，否则透明区域会继续拦截下方窗口的鼠标。
+    void HUD_WINDOW
+      .setSize(collapsed ? COLLAPSED_SIZE : EXPANDED_SIZE)
+      .catch((error) => setLoadError(String(error)));
+  }, [collapsed]);
+
+  async function closeHud() {
+    try {
+      await emit(HUD_VISIBILITY_EVENT, { visible: false });
+      await HUD_WINDOW.hide();
+    } catch (error) {
+      setLoadError(String(error));
+    }
+  }
+
+  function startHudDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    if ((event.target as Element | null)?.closest("button")) return;
+    event.preventDefault();
+    void HUD_WINDOW.startDragging().catch((error) => setLoadError(String(error)));
+  }
+
   if (!job || !visual) {
     return (
       <main className="live-hud empty" aria-live="polite">
@@ -152,17 +182,33 @@ export function LiveHud() {
       className={`live-hud status-${visual.status}`}
       aria-live="polite"
     >
-      <header data-tauri-drag-region>
-        <span>LIVE CAD</span>
-        <strong>{job.title}</strong>
-        <button
-          type="button"
-          onClick={() => setCollapsed(true)}
-          title="收起桌宠"
-          aria-label="收起桌宠"
+      <header>
+        <div
+          className="live-hud-drag"
+          data-tauri-drag-region
+          onPointerDown={startHudDrag}
         >
-          <CaretDown size={16} />
-        </button>
+          <span>LIVE CAD</span>
+          <strong>{job.title}</strong>
+        </div>
+        <div className="live-hud-actions">
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            title="收起桌宠"
+            aria-label="收起桌宠"
+          >
+            <Minus size={15} />
+          </button>
+          <button
+            type="button"
+            onClick={() => void closeHud()}
+            title="关闭桌宠"
+            aria-label="关闭桌宠"
+          >
+            <X size={15} />
+          </button>
+        </div>
       </header>
       <div className="live-hud-body">
         <Mascot status={visual.status} />

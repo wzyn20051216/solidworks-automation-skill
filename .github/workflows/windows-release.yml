@@ -309,6 +309,7 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             release-output/SolidWorks-Automation-Skill-*.zip
+            release-output/*.mcpb
             release-output/CAD-Studio-*-Setup-x64.exe
             release-output/CAD-Studio-*-Setup-x64.exe.sig
             release-output/CAD-Studio-*-Portable.zip

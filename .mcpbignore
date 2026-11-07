@@ -9,6 +9,9 @@ HANDOFF.md
 .cad-governance/
 .venv/
 venv/
+config/runtime.local.json
+scripts/create_lotus.py
+*.log
 dist/
 build/
 *.egg-info/
@@ -16,9 +19,6 @@ build/
 ai_team/
 assets/
 docs/
-examples/
-references/
-subskills/
 tests/
 apps/workbench-ui/
 apps/workbench-ui/**

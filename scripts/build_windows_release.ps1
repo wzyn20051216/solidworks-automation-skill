@@ -97,10 +97,15 @@ Copy-Item -LiteralPath $installerSignature -Destination $signaturePath
 $skillZip = Join-Path $releaseRoot "SolidWorks-Automation-Skill-$Version.zip"
 & python (Join-Path $PSScriptRoot "build_skill_release.py") --version $Version --output $skillZip
 if ($LASTEXITCODE -ne 0) { throw "Standalone skill package validation failed." }
+& powershell -NoProfile -File (Join-Path $PSScriptRoot "build_mcpb.ps1") `
+    -Version $Version -OutputDirectory $releaseRoot
+if ($LASTEXITCODE -ne 0) { throw "MCP bundle build failed." }
+$mcpbZip = Join-Path $releaseRoot "SolidWorks-Automation-Skill-$Version.mcpb"
+$smitheryMcpb = Join-Path $releaseRoot "SolidWorks-Automation-Skill-$Version-smithery.mcpb"
 
 $latest = [ordered]@{
     version = $Version
-    notes = "CAD Studio $Version includes current SolidWorks skills, verified artifact freshness gates, and corrected edge length/diameter selection. See the release notes for upgrade instructions."
+    notes = "CAD Studio $Version includes the current Agent Skill and MCP bundle, the five-stage CAD delivery pipeline, GB drawing gates, and verified artifact freshness checks. See the release notes for upgrade instructions."
     pub_date = [DateTimeOffset]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
     platforms = [ordered]@{
         "windows-x86_64" = [ordered]@{
@@ -113,7 +118,7 @@ $latestPath = Join-Path $releaseRoot "latest.json"
 $latestJson = $latest | ConvertTo-Json -Depth 5
 [System.IO.File]::WriteAllText($latestPath, $latestJson, (New-Object System.Text.UTF8Encoding($false)))
 
-$checksums = @($setupPath, $signaturePath, $portableZip, $skillZip, $latestPath) | ForEach-Object {
+$checksums = @($setupPath, $signaturePath, $portableZip, $skillZip, $mcpbZip, $smitheryMcpb, $latestPath) | ForEach-Object {
     $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $_
     "$($hash.Hash.ToLowerInvariant())  $([System.IO.Path]::GetFileName($_))"
 }

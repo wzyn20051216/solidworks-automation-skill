@@ -222,3 +222,19 @@ def test_follow_up_agent_job_replans_previous_dag_locally(tmp_path: Path, monkey
     assert result["engineeringPlan"]["phases"][0]["status"] == "completed"
     assert result["engineeringPlan"]["phases"][1]["status"] == "completed"
     assert result["engineeringPlan"]["phases"][2]["status"] == "planned"
+
+
+def test_codex_result_tolerates_host_prefix_and_markdown_fence() -> None:
+    """@brief Agent 结果带宿主前缀或 Markdown 围栏时仍应能解析。"""
+    from apps.desktop.cad_workbench.agent_providers import _load_json_payload
+
+    payload = {
+        "summary": "ok",
+        "changedFiles": [],
+        "verification": [],
+        "risks": [],
+        "nextSteps": [],
+    }
+    encoded = json.dumps(payload, ensure_ascii=False)
+    assert _load_json_payload(f"XT {encoded}") == payload
+    assert _load_json_payload("XT 结果如下：\n```json\n" + encoded + "\n```\n") == payload

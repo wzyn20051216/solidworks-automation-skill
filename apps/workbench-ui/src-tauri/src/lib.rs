@@ -512,8 +512,8 @@ fn read_live_visual_frame(
 ) -> Result<tauri::ipc::Response, String> {
     validate_live_frame_name(&file_name)?;
     let root = queue_dir(&app)?.join("visual").join(safe_id(&id)?);
-    let canonical_root = fs::canonicalize(&root)
-        .map_err(|error| format!("无法定位视觉快照目录: {error}"))?;
+    let canonical_root =
+        fs::canonicalize(&root).map_err(|error| format!("无法定位视觉快照目录: {error}"))?;
     let target = fs::canonicalize(root.join(&file_name))
         .map_err(|error| format!("无法读取视觉快照: {error}"))?;
     if !target.starts_with(&canonical_root) || !target.is_file() {
@@ -551,18 +551,25 @@ fn position_live_hud(app: &AppHandle) -> Result<(), String> {
     let monitor = window
         .primary_monitor()
         .map_err(|error| error.to_string())?
-        .or(
-            window
-                .current_monitor()
-                .map_err(|error| error.to_string())?,
-        )
+        .or(window
+            .current_monitor()
+            .map_err(|error| error.to_string())?)
         .ok_or_else(|| "无法定位主显示器".to_string())?;
     let monitor_position = monitor.position();
     let monitor_size = monitor.size();
     let window_size = window.outer_size().map_err(|error| error.to_string())?;
     let margin = 20_i32;
+    // 桌宠是独立置顶透明窗口，必须完全避开主窗口标题栏，否则会拦截最小化/关闭按钮。
+    let titlebar_clearance = app
+        .get_webview_window("main")
+        .and_then(|main_window| {
+            let position = main_window.outer_position().ok()?;
+            let scale = main_window.scale_factor().ok()?;
+            Some(position.y + (56.0 * scale).round() as i32 + (8.0 * scale).round() as i32)
+        })
+        .unwrap_or(monitor_position.y + 120);
     let x = monitor_position.x + monitor_size.width as i32 - window_size.width as i32 - margin;
-    let y = monitor_position.y + margin;
+    let y = titlebar_clearance.max(monitor_position.y + margin);
     window
         .set_position(PhysicalPosition::new(x, y))
         .map_err(|error| error.to_string())
@@ -2058,6 +2065,185 @@ fn collect_doctor_report(program: &str, args: &[String], skill_root: &Path) -> V
     }
 }
 
+/// @brief 通用 CAD 活体探针：跑 Python 脚本做真实 COM 握手，而不是只看安装目录。
+fn collect_cad_health(
+    program: &str,
+    args: &[String],
+    skill_root: &Path,
+    script_segments: &[&str],
+    product_key: &str,
+    product_label: &str,
+    installed: Option<&Path>,
+) -> Value {
+    let mut script = skill_root.to_path_buf();
+    for segment in script_segments {
+        script = script.join(segment);
+    }
+    let declared_installed = installed.is_some();
+    let declared_path = installed
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_default();
+    if !script.is_file() {
+        return json!({
+            "ok": false,
+            "installed": declared_installed,
+            "path": declared_path,
+            "probe": "live-com",
+            "mode": "script-missing",
+            "message": format!("未找到 {}", script.display())
+        });
+    }
+    let mut command = match python_process(program) {
+        Ok(command) => command,
+        Err(error) => {
+            return json!({
+                "ok": false,
+                "installed": declared_installed,
+                "path": declared_path,
+                "probe": "live-com",
+                "mode": "python-invalid",
+                "message": error
+            })
+        }
+    };
+    command
+        .args(args)
+        .current_dir(skill_root)
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONUTF8", "1")
+        .arg(&script);
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    let output = match command_output_with_timeout(&mut command, Duration::from_secs(20)) {
+        Ok(output) => output,
+        Err(error) => {
+            return json!({
+                "ok": false,
+                "installed": declared_installed,
+                "path": declared_path,
+                "probe": "live-com",
+                "mode": "timeout",
+                "message": error.to_string()
+            })
+        }
+    };
+    let probe = serde_json::from_slice::<Value>(&output.stdout)
+        .ok()
+        .or_else(|| {
+            let text = String::from_utf8_lossy(&output.stdout);
+            serde_json::from_str::<Value>(&text).ok()
+        })
+        .and_then(|value| value.get(product_key).cloned())
+        .unwrap_or(Value::Null);
+    let status = probe
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
+    let ok = status == "ok";
+    let mode = probe
+        .get("mode")
+        .and_then(Value::as_str)
+        .unwrap_or(status.as_str())
+        .to_string();
+    let version = probe
+        .get("version")
+        .or_else(|| probe.get("installed_version"))
+        .or_else(|| probe.get("revision"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let caption = probe
+        .get("caption")
+        .or_else(|| probe.get("document"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let document = probe
+        .get("active_document")
+        .or_else(|| probe.get("document"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let installed_flag = declared_installed
+        || probe
+            .get("installed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+    let path = if declared_path.is_empty() {
+        probe
+            .get("executable")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    } else {
+        declared_path
+    };
+    let message = if ok {
+        format!("{product_label} COM 握手成功 {version}")
+            .trim()
+            .to_string()
+    } else {
+        match status.as_str() {
+            "not_running" => format!("{product_label} 已安装但未运行，启动后可自动连接。"),
+            "missing_pywin32" => format!("{product_label} COM 需要 pywin32，请先安装。"),
+            _ => probe
+                .get("hint")
+                .and_then(Value::as_str)
+                .unwrap_or("CAD COM 未就绪")
+                .to_string(),
+        }
+    };
+    json!({
+        "ok": ok,
+        "installed": installed_flag,
+        "path": path,
+        "probe": "live-com",
+        "mode": mode,
+        "status": status,
+        "version": if version.is_empty() { Value::Null } else { Value::String(version) },
+        "revision": probe.get("revision").cloned().unwrap_or(Value::Null),
+        "caption": caption,
+        "document": document,
+        "message": message,
+        "exitCode": output.status.code()
+    })
+}
+
+/// @brief 通过 acad_preflight.py 做一次真实 AutoCAD COM 握手。
+fn collect_autocad_health(
+    program: &str,
+    args: &[String],
+    skill_root: &Path,
+    installed: Option<&Path>,
+) -> Value {
+    collect_cad_health(
+        program,
+        args,
+        skill_root,
+        &[
+            "subskills",
+            "autocad-automation",
+            "scripts",
+            "acad_preflight.py",
+        ],
+        "autocad",
+        "AutoCAD",
+        installed,
+    )
+}
+
+/// @brief 通过 sw_live_probe.py 做一次真实 SolidWorks COM 握手。
+fn collect_solidworks_health(program: &str, args: &[String], skill_root: &Path) -> Value {
+    collect_cad_health(
+        program,
+        args,
+        skill_root,
+        &["scripts", "sw_live_probe.py"],
+        "solidworks",
+        "SolidWorks",
+        None,
+    )
+}
+
 fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
     let skill_root = detected_skill_root(&app, None)?;
     let capability_manifest = fs::read_to_string(skill_root.join("capabilities.yaml"))
@@ -2068,22 +2254,13 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
         .or_else(|_| std::env::var("HOME"))
         .map(PathBuf::from)
         .unwrap_or_default();
-    let (python, solidworks, doctor) = match python_command() {
+    let autocad_path = detect_autocad();
+    let (python, solidworks, doctor, autocad) = match python_command() {
         Ok((program, args)) => {
-            // CWE-78: python_process 校验命令和固定用户安装路径。
-            let mut preflight = python_process(&program)?;
-            preflight
-                .args(&args)
-                .current_dir(&skill_root)
-                .arg(skill_root.join("scripts").join("sw_preflight.py"))
-                .arg("--no-install");
-            #[cfg(windows)]
-            preflight.creation_flags(CREATE_NO_WINDOW);
-            let solidworks = command_output_with_timeout(&mut preflight, Duration::from_secs(10)).map(|output| json!({
-                "ok": output.status.success(),
-                "message": String::from_utf8_lossy(if output.status.success() { &output.stdout } else { &output.stderr }).trim()
-            })).unwrap_or_else(|error| json!({ "ok": false, "message": error.to_string() }));
+            let solidworks = collect_solidworks_health(&program, &args, &skill_root);
             let doctor = collect_doctor_report(&program, &args, &skill_root);
+            let autocad =
+                collect_autocad_health(&program, &args, &skill_root, autocad_path.as_deref());
             (
                 json!({
                     "ok": true,
@@ -2092,6 +2269,7 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
                 }),
                 solidworks,
                 doctor,
+                autocad,
             )
         }
         Err(error) => (
@@ -2110,9 +2288,16 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
                     "downloadUrl": "https://www.python.org/downloads/windows/"
                 }]
             }),
+            json!({
+                "ok": false,
+                "installed": autocad_path.is_some(),
+                "path": autocad_path.as_ref().map(|path| path.to_string_lossy().to_string()).unwrap_or_default(),
+                "probe": "live-com",
+                "mode": "python-missing",
+                "message": "AutoCAD COM 探测需要 Python 3 与 pywin32。"
+            }),
         ),
     };
-    let autocad_path = detect_autocad();
 
     let codex = codex_command();
     let (codex_version, codex_login, codex_entry) = match codex {
@@ -2151,10 +2336,7 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
         "remediations": remediations,
         "capabilityManifest": capability_manifest,
         "solidworks": solidworks,
-        "autocad": {
-            "ok": autocad_path.is_some(),
-            "path": autocad_path.map(|path| path.to_string_lossy().to_string()).unwrap_or_default()
-        }
+        "autocad": autocad
     }))
 }
 
@@ -3362,6 +3544,40 @@ mod tests {
     use rusqlite::{params, Connection};
     use serde_json::json;
     use std::path::Path;
+
+    #[test]
+    #[ignore = "需要本机已安装并运行 AutoCAD"]
+    fn autocad_health_reports_live_connection() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let skill_root = manifest
+            .parent()
+            .and_then(|path| path.parent())
+            .and_then(|path| path.parent())
+            .expect("skill root");
+        let (program, args) = super::python_command().expect("python");
+        let installed = super::detect_autocad();
+        let value =
+            super::collect_autocad_health(&program, &args, skill_root, installed.as_deref());
+        println!("{value}");
+        assert_eq!(value["probe"], "live-com");
+        assert_eq!(value["ok"], true, "AutoCAD COM 握手未成功: {value}");
+    }
+
+    #[test]
+    #[ignore = "需要本机已安装并运行 SolidWorks"]
+    fn solidworks_health_reports_live_connection() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let skill_root = manifest
+            .parent()
+            .and_then(|path| path.parent())
+            .and_then(|path| path.parent())
+            .expect("skill root");
+        let (program, args) = super::python_command().expect("python");
+        let value = super::collect_solidworks_health(&program, &args, skill_root);
+        println!("{value}");
+        assert_eq!(value["probe"], "live-com");
+        assert_eq!(value["ok"], true, "SolidWorks COM 握手未成功: {value}");
+    }
 
     fn queued_job() -> serde_json::Value {
         json!({

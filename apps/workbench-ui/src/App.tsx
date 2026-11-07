@@ -40,12 +40,20 @@ import { AppUpdatePanel } from "./components/AppUpdatePanel";
 import { ConversationControls } from "./components/ConversationControls";
 import { EnvironmentRemediationPanel } from "./components/EnvironmentRemediationPanel";
 import { ManualReviewPanel } from "./components/ManualReviewPanel";
+import { ProjectPipelinePanel } from "./components/ProjectPipelinePanel";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
 import { TaskSequence } from "./components/TaskSequence";
 import { LiveDeliveryCard } from "./live/LiveDeliveryCard";
 import { LiveExecutionStrip } from "./live/LiveExecutionStrip";
 import { PreviewShowcase } from "./preview/PreviewShowcase";
 import { collectJobArtifacts, deliveryFormatStatus, groupedArtifacts } from "./domain/artifacts";
+import {
+  PIPELINE_STAGE_META,
+  buildStagePrompt,
+  specToObjective,
+  type PipelineStageKey,
+  type ProjectPipeline,
+} from "./domain/pipeline";
 import {
   artifactVersionComparison,
   assessDelivery,
@@ -167,7 +175,7 @@ const SETTINGS_KEY = "cad-studio.settings.v1";
 const QUEUE_KEY = "cad-studio.queue.v1";
 const CHAT_KEY = "cad-studio.agent-chat.v1";
 const CONVERSATIONS_KEY = "cad-studio.agent-conversations.v1";
-const APP_VERSION = "2.0.1";
+const APP_VERSION = "2.1.0";
 const LEGACY_CONVERSATION_ID = "conversation-legacy";
 const manualReviewOptions = [
   ["native-open", "已用目标 CAD 软件原生打开并确认无报错"],
@@ -321,6 +329,20 @@ const cadApplicationRoutes: Record<CodexConfig["cadApplication"], string> = {
   autocad: "必须优先调用本机 AutoCAD，通过 autocad-automation 的 Python COM/ActiveX 封装完成 DWG/DXF/PDF 二维绘图、图层、尺寸标注、图框标题栏和原生预览复核。",
   both: "先用 SolidWorks 完成三维实体、装配、开孔和 STEP/STL；再用 AutoCAD 完成 DWG/DXF/PDF 工程图、孔槽定位尺寸、标题栏和图纸复核。",
 };
+
+function describeAutocadHealth(autocad?: RuntimeHealth["autocad"]): string {
+  if (!autocad) return "待检测";
+  if (autocad.ok) return autocad.version ? `已连接 ${autocad.version}` : "已连接";
+  if (autocad.installed) return "已安装 · 未连接";
+  return "未检测到";
+}
+
+function describeSolidworksHealth(solidworks?: RuntimeHealth["solidworks"]): string {
+  if (!solidworks) return "待检测";
+  if (solidworks.ok) return solidworks.version ? `已连接 ${solidworks.version}` : "已连接";
+  if (solidworks.installed) return "已安装 · 未连接";
+  return "未检测到";
+}
 
 const codexTargets: Record<CodexConfig["target"], string> = {
   auto: "AI 自动判断",
@@ -1434,6 +1456,119 @@ function App() {
     }
   }
 
+  /**
+   * @brief 把流水线阶段转成一条 agent_task，复用本地队列、能力门禁与 worker 启动。
+   */
+  async function enqueuePipelineStage(stage: PipelineStageKey, pipeline: ProjectPipeline): Promise<string | null> {
+    if (!isTauriRuntime()) {
+      setAgentMessages((messages) => [...messages, createChatMessage("system", "浏览器仅用于界面预览，请启动 CAD Studio 桌面版执行流水线。")].slice(-40));
+      return null;
+    }
+    let activeRuntime: RuntimeHealth;
+    try {
+      activeRuntime = await ensureRuntimeHealth();
+    } catch (error) {
+      setAgentMessages((messages) => [...messages, createChatMessage("system", `本地运行环境未就绪：${String(error)}`)].slice(-40));
+      return null;
+    }
+    const stageConfig: CodexConfig = {
+      ...codexConfig,
+      cadApplication: stage === "drawing" ? "autocad" : stage === "design" ? "solidworks" : codexConfig.cadApplication,
+      target: stage === "drawing" ? "drawing" : codexConfig.target,
+      objective: pipeline.spec ? specToObjective(pipeline.spec) : pipeline.requirementText,
+    };
+    const capabilities = capabilityIdsForConfig(stageConfig);
+    const providerMeta = agentProviderCatalog[apiConfig.agentProvider];
+    const job = createJob("agent_task", recentProjectPath, {
+      projectId: activeProjectId,
+      executor: "agent",
+      title: `${pipeline.projectName} · ${PIPELINE_STAGE_META[stage].label}`,
+      detail: `${PIPELINE_STAGE_META[stage].label} · ${pipeline.spec?.outputs || pipeline.requirementText.slice(0, 40)}`,
+      objective: stageConfig.objective,
+      targetSoftware: stage === "drawing" ? "AutoCAD" : "SolidWorks",
+      target: PIPELINE_STAGE_META[stage].label,
+      expectedOutput: stage === "drawing" ? "DWG / DXF / PDF" : stage === "design" ? "SLDPRT / STEP" : "verification.json",
+      strictRules: [
+        "只执行流水线当前阶段，不越阶段修改上游结论。",
+        "孔槽、接口和螺纹必须是真实几何切除。",
+        `所有产物保存到 ${codexConfig.outputDir} 并回读验证。`,
+      ],
+      capabilities,
+      capabilitySnapshot: capabilitySnapshot(activeRuntime, capabilities),
+      prompt: buildStagePrompt(stage, pipeline, {
+        outputDir: codexConfig.outputDir,
+        skillRoot: activeRuntime.skillRoot,
+      }),
+      cwd: activeRuntime.skillRoot,
+      skillPath: stage === "drawing" ? activeRuntime.autocadSkillPath : activeRuntime.solidworksSkillPath,
+      policy: {
+        sandbox: codexConfig.localCadAutomation ? "danger-full-access" : "workspace-write",
+        approval: "never",
+        requireSkillRead: true,
+        requireTests: true,
+        requireCommit: false,
+        requirePush: false,
+        requireReviewerPass: true,
+      },
+      uiConfig: {
+        agentRuntime: {
+          provider: apiConfig.agentProvider,
+          providerName: providerMeta.name,
+          protocol: providerMeta.protocol,
+          model: apiConfig.model.includes("跟随") || apiConfig.model.includes("配置决定") ? "" : apiConfig.model,
+        },
+        cadRuntime: {
+          application: stageConfig.cadApplication,
+          applicationLabel: cadApplicationLabels[stageConfig.cadApplication],
+          route: cadApplicationRoutes[stageConfig.cadApplication],
+          localCadAutomation: codexConfig.localCadAutomation,
+          solidworksSkillPath: activeRuntime.solidworksSkillPath,
+          autocadSkillPath: activeRuntime.autocadSkillPath,
+        },
+        manufacturing: {
+          process: codexConfig.process,
+          processLabel: processLabels[codexConfig.process],
+          material: codexConfig.material,
+          materialLabel: materialLabels[codexConfig.material],
+          unit: codexConfig.unit,
+        },
+        gates: {
+          realCutouts: codexConfig.realCutouts,
+          strictGbDrawing: codexConfig.strictGbDrawing,
+          localCadAutomation: codexConfig.localCadAutomation,
+        },
+        pipeline: {
+          stage,
+          stageLabel: PIPELINE_STAGE_META[stage].label,
+          projectId: pipeline.projectId,
+          requirement: pipeline.requirementText,
+          specConfirmedAt: pipeline.specConfirmedAt,
+          timeoutSeconds: stage === "drawing" ? 3600 : 1800,
+          repairBudget: 1,
+        },
+        visualMode,
+        liveHud: showLiveHud,
+        outputDir: codexConfig.outputDir,
+      },
+    });
+    try {
+      setWindowHint(`正在写入${PIPELINE_STAGE_META[stage].label}任务...`);
+      await persistJob(job);
+      upsertJob(job);
+      setActiveAgentJobId(job.id);
+      setExpandedJobId(job.id);
+      setWindowHint(`${PIPELINE_STAGE_META[stage].label}任务已进入本地队列`);
+      if (!workerStatus.running) void startLocalWorker();
+      return job.id;
+    } catch (error) {
+      setAgentMessages((messages) => [
+        ...messages,
+        createChatMessage("system", `${PIPELINE_STAGE_META[stage].label}任务写入失败：${String(error)}`),
+      ].slice(-40));
+      return null;
+    }
+  }
+
   async function submitAgentMessage() {
     const text = agentInput.trim();
     if (!text || submissionKind) return;
@@ -2255,7 +2390,7 @@ function App() {
         });
         setRuntimeMessage(
           installedProviders.length
-            ? `已安装 ${installedProviders.map((provider) => provider.name).join("、")}；真实任务已验证 ${verifiedProviders.length ? verifiedProviders.map((provider) => provider.name).join("、") : "无"}。SolidWorks ${health.solidworks?.ok ? "可用" : "待检查"}，AutoCAD ${health.autocad?.ok ? "可用" : "未检测到"}。`
+            ? `已安装 ${installedProviders.map((provider) => provider.name).join("、")}；真实任务已验证 ${verifiedProviders.length ? verifiedProviders.map((provider) => provider.name).join("、") : "无"}。SolidWorks ${describeSolidworksHealth(health.solidworks)}，AutoCAD ${describeAutocadHealth(health.autocad)}。`
             : "未检测到 Agent Provider，请在设置中检查 CLI 安装状态。",
         );
       })
@@ -2347,6 +2482,19 @@ function App() {
       setWindowHint(`桌宠窗口初始化失败：${String(error)}`);
     });
   }, [settingsLoaded, showLiveHud]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return;
+    let unlisten: (() => void) | undefined;
+    void listen<{ visible?: boolean }>("live-hud-visibility", (event) => {
+      if (typeof event.payload?.visible === "boolean") {
+        setShowLiveHud(event.payload.visible);
+      }
+    }).then((dispose) => {
+      unlisten = dispose;
+    });
+    return () => unlisten?.();
+  }, []);
 
   useEffect(() => {
     async function restoreChat() {
@@ -2603,7 +2751,15 @@ function App() {
       .map((id) => runtimeHealth?.capabilityManifest?.capabilities?.find((item) => item.id === id))
       .filter((item): item is Record<string, unknown> & { id?: string; level?: string } => Boolean(item && ["reference_only", "not_implemented"].includes(String(item.level))));
     return (
-      <section className="project-console">
+      <>
+        <ProjectPipelinePanel
+          projectId={activeProjectId}
+          projectName={projectName}
+          jobs={jobs}
+          disabled={submissionKind !== null}
+          onRunStage={enqueuePipelineStage}
+        />
+        <section className="project-console">
         <article className="project-brief">
           <div className="panel-heading compact">
             <div>
@@ -2653,7 +2809,8 @@ function App() {
             </div>
           ) : null}
         </aside>
-      </section>
+        </section>
+      </>
     );
   }
 
@@ -3018,8 +3175,8 @@ function App() {
         <div className="help-status-grid">
           <div><span>AI</span><strong>{installedProviders.length ? installedProviders.join("、") : "尚未检测到可用 CLI"}</strong></div>
           <div><span>Python</span><strong>{runtimeHealth?.python?.ok ? "已就绪" : "需要安装 Python 3"}</strong></div>
-          <div><span>SolidWorks</span><strong>{runtimeHealth?.solidworks?.ok ? "可用" : "未检测到或待检查"}</strong></div>
-          <div><span>AutoCAD</span><strong>{runtimeHealth?.autocad?.ok ? "可用" : "未检测到"}</strong></div>
+          <div><span>SolidWorks</span><strong>{describeSolidworksHealth(runtimeHealth?.solidworks)}</strong></div>
+          <div><span>AutoCAD</span><strong>{describeAutocadHealth(runtimeHealth?.autocad)}</strong></div>
         </div>
         <EnvironmentRemediationPanel remediations={runtimeHealth?.remediations ?? []} onCopyCommand={copyRuntimeCommand} onOpenDownload={openRuntimeDownload} />
         <div className="help-guide">
@@ -3652,8 +3809,8 @@ function App() {
             <div className="desktop-statusbar" aria-live="polite">
               <span className={selectedProvider?.ready ? "ready" : "warning"}>{agentProviderCatalog[apiConfig.agentProvider].name} {selectedProvider?.ready ? "已连接" : "未确认"}</span>
               <span>Worker {workerStatus.running ? `运行中 · ${workerStatus.pid ?? "-"}` : "未启动"}</span>
-              <span>SolidWorks {runtimeHealth?.solidworks?.ok ? "可用" : "待检查"}</span>
-              <span>AutoCAD {runtimeHealth?.autocad?.ok ? "可用" : "未检测到"}</span>
+              <span>SolidWorks {describeSolidworksHealth(runtimeHealth?.solidworks)}</span>
+              <span>AutoCAD {describeAutocadHealth(runtimeHealth?.autocad)}</span>
               <span>{queueLoaded ? queueSummary : "队列加载中"}</span>
             </div>
 

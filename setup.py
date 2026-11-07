@@ -1,48 +1,23 @@
+from pathlib import Path
+
 from setuptools import setup
 from setuptools.command.install import install
-import os
-import shutil
-import sys
+
 
 class PostInstallCommand(install):
-    """安装后自动注册到 Claude CLI / Codex"""
+    """保留 setuptools 兼容入口，不触碰用户已有的 Skill 目录。"""
+
     def run(self):
         install.run(self)
+        print("Use `node install.js --help` or an MCPB release to install the Skill/MCP runtime.")
 
-        # 获取源目录
-        source_dir = os.path.dirname(os.path.abspath(__file__))
 
-        # Claude CLI 路径
-        claude_skills_dir = os.path.expanduser("~/.claude/skills/solidworks-automation")
-
-        # Codex 路径（如果存在）
-        codex_skills_dir = os.path.expanduser("~/.codex/skills/solidworks-automation")
-
-        # 需要复制的文件和目录
-        items_to_copy = ["scripts", "references", "mcp-server", "SKILL.md", "README.md", "requirements.txt"]
-
-        for target_dir in [claude_skills_dir, codex_skills_dir]:
-            try:
-                os.makedirs(target_dir, exist_ok=True)
-                for item in items_to_copy:
-                    src = os.path.join(source_dir, item)
-                    dst = os.path.join(target_dir, item)
-                    if os.path.isdir(src):
-                        if os.path.exists(dst):
-                            shutil.rmtree(dst)
-                        shutil.copytree(src, dst)
-                    elif os.path.isfile(src):
-                        shutil.copy2(src, dst)
-                print(f"✓ 已安装到: {target_dir}")
-            except Exception as e:
-                print(f"⚠ 跳过 {target_dir}: {e}", file=sys.stderr)
-
-with open("README.md", "r", encoding="utf-8") as fh:
-    long_description = fh.read()
+ROOT = Path(__file__).resolve().parent
+long_description = (ROOT / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="solidworks-automation",
-    version="2.0.0",
+    version="2.1.0",
     author="wzyn20051216",
     description="Python automation toolkit for SolidWorks API",
     long_description=long_description,

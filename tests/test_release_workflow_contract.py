@@ -17,6 +17,7 @@ import re
 from pathlib import Path
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "windows-release.yml"
+RELEASE_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "build_windows_release.ps1"
 JOB_LINE = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$")
 NEEDS_EXPR = re.compile(r"needs\.([A-Za-z0-9_-]+)\.result")
 REQUIRED_CHECK = "test-and-build"
@@ -188,6 +189,8 @@ def test_release_publication_is_downstream_of_all_validation():
     assert "startsWith(github.ref, 'refs/tags/v')" in publisher
     assert "draft: true" in publisher
     assert "SolidWorks-Automation-Skill-*.zip" in publisher
+    assert "release-output/*.mcpb" in publisher
+    assert "build_mcpb.ps1" in RELEASE_SCRIPT.read_text(encoding="utf-8")
     assert "action-gh-release" not in _joined(jobs["package_build"])
     assert "contents: write" not in _joined(jobs["package_build"])
     assert "contents: write" in publisher

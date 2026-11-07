@@ -227,14 +227,49 @@ def run_doctor(*, probe_cad: bool = False) -> dict[str, Any]:
     ))
 
     if probe_cad and sw["registered"]:
+        sw_app = None
+        connection_metadata = None
         try:
             sys.path.insert(0, str(ROOT / "scripts"))
-            from sw_connect import connect_solidworks
+            from sw_connect import close_owned_solidworks, connect_solidworks, get_com_member
 
-            app, _ = connect_solidworks(wait_seconds=8, visible=False)
-            checks.append(_check("cad.solidworks.com", app is not None, "SolidWorks COM 连接成功", code="SOLIDWORKS_COM_FAILED"))
+            sw_app, _, connection_metadata = connect_solidworks(
+                wait_seconds=8,
+                visible=False,
+                return_metadata=True,
+            )
+            com_ready = sw_app is not None
+            checks.append(_check(
+                "cad.solidworks.com",
+                com_ready,
+                (
+                    "SolidWorks COM 连接成功"
+                    f"（{connection_metadata.get('actual_version')}，"
+                    f"Revision {connection_metadata.get('actual_revision')}，"
+                    f"PID {connection_metadata.get('process_id')}）"
+                ),
+                code="SOLIDWORKS_COM_READY" if com_ready else "SOLIDWORKS_COM_FAILED",
+            ))
         except Exception as exc:  # pragma: no cover - 真实 Windows 环境执行
             checks.append(_check("cad.solidworks.com", False, str(exc), code="SOLIDWORKS_COM_FAILED"))
+        finally:
+            if sw_app is not None and connection_metadata and connection_metadata.get("started_by_cad_studio"):
+                try:
+                    documents = get_com_member(sw_app, "GetDocuments", default=None) or []
+                    if len(list(documents)) == 0:
+                        close_owned_solidworks(
+                            sw_app,
+                            True,
+                            connection_metadata.get("process_id"),
+                        )
+                except Exception as cleanup_exc:
+                    checks.append(_check(
+                        "cad.solidworks.com.cleanup",
+                        False,
+                        f"自检实例清理失败: {cleanup_exc}",
+                        severity="warning",
+                        code="SOLIDWORKS_COM_CLEANUP_FAILED",
+                    ))
 
     errors = sum(item["status"] == "error" for item in checks)
     warnings = sum(item["status"] == "warning" for item in checks)

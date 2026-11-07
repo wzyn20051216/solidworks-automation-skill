@@ -8,7 +8,7 @@
 
 工具调用成功，不代表任务真的完成；需要 Review 的任务会经过结果验证后再交付。
 
-当前发布版本为 **v2.0.1**：技能 ZIP、CAD Studio 安装版与便携版统一版本并包含同版运行时。下载入口和升级说明见 [v2.0.1 发布说明](docs/releases/v2.0.1.md)。
+当前发布版本为 **v2.1.0**：Skill ZIP、标准 MCPB、CAD Studio 安装版与便携版统一版本并包含同版运行时。下载入口和升级说明见 [v2.1.0 发布说明](docs/releases/v2.1.0.md)。
 
 CAD Studio 会对各生产执行器统一检查交付文件是否为本轮新增或内容已变化；旧文件拒绝交付，证据不足转为待复核。扫描范围、兼容性与验证方法见[本轮交付门禁](references/delivery-freshness.md)。
 
@@ -112,6 +112,9 @@ npx github:wzyn20051216/solidworks-automation-skill --target claude
 
 ### Option 2 — MCP
 
+支持 MCP Bundle 的客户端可直接从 [GitHub Releases](https://github.com/wzyn20051216/solidworks-automation-skill/releases) 导入
+`SolidWorks-Automation-Skill-2.1.0.mcpb`；该包同时提供标准版与 Smithery 版。
+
 ```powershell
 git clone https://github.com/wzyn20051216/solidworks-automation-skill.git
 cd solidworks-automation-skill
@@ -133,7 +136,7 @@ node mcp-server/register_all_ai_mcp.js --clients codex,claude-code,cursor
 | 入口 | 适合谁 | 需要 GUI | 典型用法 |
 |---|---|---|---|
 | **Skill** | 支持 skill 导入的 Agent 客户端 | 否 | 自然语言驱动 SolidWorks |
-| **MCP** | Codex / Claude / Cursor / Windsurf 等 MCP 客户端 | 否 | Agent 自动 Tool Calling |
+| **MCP** | Codex / Claude / Cursor / Windsurf 等 MCP 客户端 | 否 | MCPB 导入或命令行注册，Agent 自动 Tool Calling |
 | **CAD Studio** | 需要图形界面管理项目/任务/预览/交付 | 是 | 桌面端提交任务 |
 
 三者是**平级入口**，共用同一套能力清单（`capabilities.yaml`）、脚本与证据系统。安装后可用 `python scripts/cad_doctor.py` 做环境诊断；详细安装与 CLI 见 [`docs/CAD_STUDIO_USER_MANUAL.md`](docs/CAD_STUDIO_USER_MANUAL.md)。
@@ -218,7 +221,7 @@ Artifacts + Evidence
 
 | 层 | 在哪里跑 | 覆盖什么 | 不覆盖什么 |
 |---|---|---|---|
-| L1 离线回归 | 任意机器 | `pytest`（全量，当前 1045 项）、`evals/runner.py`（12 workflow / 43 scenario）、治理单测（当前 93 项） | 需要 SolidWorks / AutoCAD 进程的一切 |
+| L1 离线回归 | 任意机器 | `pytest`（全量，当前 1730 项）、`evals/runner.py`（12 workflow / 43 scenario）、治理单测（当前 93 项） | 需要 SolidWorks / AutoCAD 进程的一切 |
 | L2 托管 CI | GitHub 托管 `windows-2022` | 与 L1 相同，外加前端/ Rust 构建与发布契约检查；作业名 `test-and-build`，是 `main` 的**唯一必需状态检查** | 真实 CAD 执行 |
 | L3 真实 CAD 验收 | **仅维护者本机**（Windows 11 + SolidWorks 2026 SP01.1） | Golden 五轮真机、装配/工程图/运动算例等真机回归 | 其它机器、其它版本 |
 
@@ -327,7 +330,7 @@ Artifacts + Evidence
 
 ## License & Community
 
-[MIT](LICENSE) · [GitHub Issues](https://github.com/wzyn20051216/solidworks-automation-skill/issues) · [Star History](https://star-history.com/#wzyn20051216/solidworks-automation-skill&Date)
+[MIT](LICENSE) · [Code of Conduct](CODE_OF_CONDUCT.md) · [GitHub Issues](https://github.com/wzyn20051216/solidworks-automation-skill/issues) · [Star History](https://star-history.com/#wzyn20051216/solidworks-automation-skill&Date)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=wzyn20051216/solidworks-automation-skill&amp;type=Date&amp;theme=dark">

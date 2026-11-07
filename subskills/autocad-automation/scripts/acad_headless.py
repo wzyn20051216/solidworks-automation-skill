@@ -234,6 +234,7 @@ def render_dxf(source: str | Path, output: str | Path) -> dict[str, Any]:
     try:
         import ezdxf
         from ezdxf.addons.drawing import Frontend, RenderContext
+        from ezdxf.addons.drawing.config import ColorPolicy, Configuration
         from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
         import matplotlib.pyplot as plt
     except ImportError as exc:
@@ -250,7 +251,11 @@ def render_dxf(source: str | Path, output: str | Path) -> dict[str, Any]:
     axes.set_aspect("equal")
     axes.axis("off")
     context = RenderContext(document)
-    Frontend(context, MatplotlibBackend(axes)).draw_layout(document.modelspace(), finalize=True)
+    # 白底打印式渲染：ACI 7 与彩色图层统一转黑，避免浅色线条在白纸上不可读。
+    config = Configuration(color_policy=ColorPolicy.MONOCHROME_LIGHT_BG)
+    Frontend(context, MatplotlibBackend(axes), config=config).draw_layout(
+        document.modelspace(), finalize=True
+    )
     figure.savefig(output_path, facecolor="white", bbox_inches="tight", pad_inches=0.05)
     plt.close(figure)
     pixel_check: dict[str, Any] = {}

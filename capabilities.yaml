@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "verified_versions": {
     "solidworks": ["2024", "2026"],
-    "autocad": ["2024"]
+    "autocad": ["2024", "2026"]
   },
   "backend_schema_version": "1.0",
   "backend_catalog": {
@@ -450,12 +450,12 @@
     {
       "id": "autocad_basic_drafting",
       "label": "AutoCAD 二维绘图与批量改图",
-      "level": "not_implemented",
+      "level": "pilot",
       "backends": ["autocad-com"],
-      "verified_versions": [],
+      "verified_versions": ["2026"],
       "dependencies": ["AutoCAD", "pywin32"],
-      "limitations": ["AutoCAD 2024 ActiveX 当前真机回归被阻塞：Documents、Layers、SelectionSets 代理不稳定；不得宣称原生 DWG 绘图已完成", "可用范围仅限人工交互排障；DXF 无头预览和结构审查见 autocad_headless_preview"],
-      "allowed_modes": ["interactive"]
+      "limitations": ["AutoCAD 2026 真机回归已通过：A3 图框、图层、6 个真实尺寸、4 个 Ø9 孔、DWG 保存重开、DXF/BMP/PNG 导出；2024 上曾出现 ActiveX Documents/Layers/SelectionSets 代理不稳定，未复测", "中文文字必须用本地化字体名（如 宋体）经 SetFont 设置，直接写 fontFile 会清空字形；原生位图分辨率跟随视口，导出前须恢复窗口并校验 VIEWSIZE", "批量改图与 PDF 打印输出尚未纳入该回归，交付仍须工程师目视复核"],
+      "allowed_modes": ["interactive", "reviewed"]
     },
     {
       "id": "configurations_and_design_tables",
