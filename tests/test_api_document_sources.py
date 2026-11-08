@@ -1,4 +1,4 @@
-"""验证本机帮助、持久缓存、备用解析和匿名 Parallel 的证据边界。"""
+"""Yerel yardım, kalıcı önbellek, yedek ayrıştırma ve anonim Parallel kanıt sınırlarını doğrular."""
 import asyncio
 import hashlib
 import json
@@ -43,7 +43,7 @@ def test_persistent_cache_offline_failure_and_tampering(monkeypatch):
     monkeypatch.setattr(api, "retrieve_official_document", lambda *a, **k: pytest.fail("offline called network"))
     offline = api.lookup_api(INTERFACE, MEMBER, YEAR, online=False)
     assert offline["official"]["cache_status"] == "previously_retrieved"
-    assert any("上次获取" in warning for warning in offline["warnings"])
+    assert any("son alınan yerel önbellek" in warning for warning in offline["warnings"])
     assert local.load_document(2026, INTERFACE, MEMBER) is None
     path = local._cache_path(YEAR, INTERFACE, MEMBER)
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -67,7 +67,7 @@ def test_fallback_does_not_send_task_or_call_when_disabled(monkeypatch):
     result = api.lookup_api(INTERFACE, MEMBER, YEAR)
     assert calls == [(YEAR, INTERFACE, MEMBER, URL)]
     assert result["official"]["provider"] == "parallel-anonymous"
-    assert any("链接和标题" in warning for warning in result["warnings"])
+    assert any("bağlantı ve başlığa dayanıyor" in warning for warning in result["warnings"])
     monkeypatch.setattr(api, "retrieve_parallel_document", lambda *a, **k: pytest.fail("unexpected network"))
     assert api.lookup_api(INTERFACE, MEMBER, YEAR, online=False)["official"]["cache_status"]
 

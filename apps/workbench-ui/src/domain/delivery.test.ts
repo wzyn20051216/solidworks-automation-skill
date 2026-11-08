@@ -9,7 +9,7 @@ function jobWithArtifacts(artifacts: ArtifactRecord[]): AutomationJob {
     id: "delivery-test",
     runId: "run-delivery-test",
     kind: "agent_task",
-    title: "交付测试",
+    title: "Teslimat testi",
     detail: "STEP",
     status: "passed",
     progress: 100,
@@ -23,18 +23,18 @@ function jobWithArtifacts(artifacts: ArtifactRecord[]): AutomationJob {
 }
 
 describe("artifact freshness delivery gate", () => {
-  it("不凭格式标记推断不存在的文件已就绪", () => {
+  it("var olmayan dosyaları yalnızca biçim işaretine bakarak hazır saymaz", () => {
     const artifacts: ArtifactRecord[] = [{ kind: "step", path: "absent.step", producedThisRun: true }];
     expect(deliveryFormatStatus("STEP", jobWithArtifacts(artifacts), artifacts)).toBe("missing");
   });
 
-  it("不按 kind 豁免未知 CAD 文件", () => {
+  it("bilinmeyen CAD dosyalarını kind alanına göre muaf tutmaz", () => {
     expect(assessDelivery(jobWithArtifacts([
       { kind: "engineering_plan", path: "unknown.step", exists: true, producedThisRun: null },
     ])).disposition).toBe("review_required");
   });
 
-  it("混合交付不能用新文件掩盖存在性未知的文件", () => {
+  it("karma teslimatta yeni dosyalar, varlığı bilinmeyen dosyaları gizleyemez", () => {
     const job = jobWithArtifacts([
       { kind: "step", path: "fresh.step", exists: true, producedThisRun: true },
       { kind: "step", path: "unverified.step", producedThisRun: true },
@@ -44,24 +44,24 @@ describe("artifact freshness delivery gate", () => {
     expect(assessDelivery(job).disposition).toBe("failed");
   });
 
-  it("预览清单不能仅凭源模型新鲜就判为新鲜，也不能覆盖真实账本", () => {
+  it("önizleme manifestosu yalnızca kaynak model güncel diye güncel sayılamaz ve gerçek defterin üzerine yazamaz", () => {
     const job = jobWithArtifacts([{ kind: "step", path: "fresh.step", exists: true, producedThisRun: true }]);
     job.previewManifest = "preview.json";
     expect(collectJobArtifacts(job).find((item) => item.path === "preview.json")?.producedThisRun).toBeNull();
     job.artifacts?.push({ kind: "preview_manifest", path: "preview.json", exists: true, producedThisRun: false });
     expect(collectJobArtifacts(job).find((item) => item.path === "preview.json")?.producedThisRun).toBe(false);
   });
-  it("不会把本轮未变化的文件计为可交付产物", () => {
+  it("bu çalıştırmada değişmeyen dosyaları teslim edilebilir çıktı olarak saymaz", () => {
     const assessment = assessDelivery(jobWithArtifacts([
       { kind: "step", path: "old.step", exists: true, producedThisRun: false },
     ]));
 
     expect(assessment.disposition).toBe("failed");
     expect(assessment.readyArtifacts).toBe(0);
-    expect(assessment.issues.join(" ")).toContain("不是本轮生成");
+    expect(assessment.issues.join(" ")).toContain("bu çalıştırmada üretilmedi");
   });
 
-  it("把 null 和缺失的新鲜度标记视为待复核", () => {
+  it("null ve eksik güncellik işaretlerini inceleme bekliyor olarak değerlendirir", () => {
     for (const producedThisRun of [null, undefined]) {
       const assessment = assessDelivery(jobWithArtifacts([
         { kind: "step", path: "unknown.step", exists: true, producedThisRun },
@@ -69,11 +69,11 @@ describe("artifact freshness delivery gate", () => {
 
       expect(assessment.disposition).toBe("review_required");
       expect(assessment.readyArtifacts).toBe(0);
-      expect(assessment.issues.join(" ")).toContain("无法确认");
+      expect(assessment.issues.join(" ")).toContain("doğrulanamıyor");
     }
   });
 
-  it("只有明确标记为本轮生成的文件才能满足格式交付", () => {
+  it("biçim teslimatını yalnızca bu çalıştırmada üretildiği açıkça işaretlenen dosyalar karşılayabilir", () => {
     const artifacts: ArtifactRecord[] = [
       { kind: "step", path: "fresh.step", exists: true, producedThisRun: true },
     ];
@@ -85,7 +85,7 @@ describe("artifact freshness delivery gate", () => {
     ]), [{ kind: "step", path: "unknown.step", exists: true, producedThisRun: null }])).toBe("missing");
   });
 
-  it("预览清单从源文件继承新鲜度，不按 schema 版本自动伪造", () => {
+  it("önizleme manifestosu güncelliği kaynak dosyadan devralır, schema sürümüne göre otomatik uydurmaz", () => {
     const job = jobWithArtifacts([
       { kind: "step", path: "old.step", exists: true, producedThisRun: false },
     ]);

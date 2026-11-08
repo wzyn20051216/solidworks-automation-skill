@@ -197,16 +197,17 @@ mcp = FastMCP(
 
 _sw_lock = threading.RLock()
 
-# 单个 SolidWorks 操作的持锁上限。超时意味着上一个操作被模态对话框阻塞，
-# 必须让出控制权给调用方，而不是让整个 server 永久挂起。
+# Tek bir SolidWorks işlemi için kilit tutma üst sınırı. Zaman aşımı, önceki işlemin
+# bir kalıcı iletişim kutusu tarafından bloklandığı anlamına gelir; bu durumda tüm
+# sunucu sonsuza kadar askıda kalmak yerine denetimi çağırana bırakmalıdır.
 DEFAULT_LOCK_TIMEOUT_SECONDS = 300.0
 
-# swUserPreferenceIntegerValue_e：文档单位相关偏好项。
+# swUserPreferenceIntegerValue_e: belge birimleriyle ilgili tercih öğeleri.
 SW_UNITS_LINEAR_PREF = 46
 SW_UNITS_ANGULAR_PREF = 47
 SW_UNITS_DECIMALS_PREF = 48
 
-# swLengthUnit_e / swAngleUnit_e 枚举值。
+# swLengthUnit_e / swAngleUnit_e numaralandırma değerleri.
 _LINEAR_UNIT_ENUM = {
     "mm": 0, "cm": 1, "m": 2, "in": 3, "ft": 4, "in_micro": 5, "mil": 6,
 }
@@ -214,8 +215,9 @@ _LINEAR_UNIT_BY_ENUM = {value: key for key, value in _LINEAR_UNIT_ENUM.items()}
 _ANGULAR_UNIT_ENUM = {"deg": 0, "rad": 1}
 _ANGULAR_UNIT_BY_ENUM = {value: key for key, value in _ANGULAR_UNIT_ENUM.items()}
 
-# 供超时诊断使用的锁持有者信息。诊断工具把它原样返回给用户，让工程师能判断
-# 到底是哪个操作卡住了，而不是只看到一句"超时"。
+# Zaman aşımı teşhisi için kilit sahibi bilgisi. Teşhis aracı bunu kullanıcıya olduğu
+# gibi döndürür; böylece mühendis yalnızca "zaman aşımı" ifadesi yerine hangi işlemin
+# takıldığını belirleyebilir.
 _lock_state: Dict[str, Any] = {
     "acquired_at": None,
     "thread": None,
@@ -250,7 +252,7 @@ class ExportFormat(str, Enum):
 
 
 HEADLESS_OPEN_FORMATS = {"cadstudio", "step", "iges", "brep", "stl", "obj", "glb", "dxf", "svg", "pdf", "png"}
-DFM_PROCESSES = {"auto", "machining", "sheet_metal", "laser_cutting", "3d_printing", "injection_molding", "injection", "注塑", "CNC", "FDM", "SLA"}
+DFM_PROCESSES = {"auto", "machining", "sheet_metal", "laser_cutting", "3d_printing", "injection_molding", "injection", "注塑", "enjeksiyon", "CNC", "FDM", "SLA"}
 FEA_SOLVERS = {"auto", "calculix", "elmer"}
 
 
@@ -377,7 +379,7 @@ class CadStudioDxfPreviewInput(BaseInput):
 
 
 class CadStudioDrcReviewInput(BaseInput):
-    """中性文档设计规则检查；报告会写入新文件。"""
+    """Nötr belge tasarım kuralı denetimi; rapor yeni bir dosyaya yazılır."""
 
     input_path: str = Field(..., min_length=1, description="Existing NeutralCadDocument JSON file.")
     output_path: str = Field(..., min_length=1, description="JSON report path; existing files are never overwritten.")
@@ -989,7 +991,7 @@ class SolidWorksPackAndGoInput(BaseInput):
     overwrite: bool = Field(default=False)
     fallback_policy: Literal["stage_dependencies", "blocked"] = Field(
         default="stage_dependencies",
-        description="原生依赖枚举缺失时生成可审计暂存包，或严格阻断",
+        description="Yerel bağımlılık numaralandırması eksik olduğunda denetlenebilir bir hazırlık paketi üretir veya kesin olarak engeller",
     )
     response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
 
@@ -1096,7 +1098,7 @@ class SolidWorksHoleFeatureInput(BaseInput):
     slot_end_x_mm: Optional[float] = Field(default=None, description="Slot end X on the sketch plane, mm.")
     slot_end_y_mm: Optional[float] = Field(default=None, description="Slot end Y on the sketch plane, mm.")
     plane_name: str = Field(default="Front Plane", min_length=1, max_length=120, description="Standard sketch plane.")
-    feature_name: str = Field(default="MCP_孔槽", min_length=1, max_length=120, description="Feature tree name.")
+    feature_name: str = Field(default="MCP_Delik_Yuvasi", min_length=1, max_length=120, description="Feature tree name.")
     response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
 
 
@@ -1187,8 +1189,8 @@ class SolidWorksRotaryMotorInput(BaseInput):
     rotor_radius_min_mm: float = Field(default=0.0, ge=0.0, description="Minimum rotor cylinder radius in mm.")
     rotor_radius_max_mm: Optional[float] = Field(default=None, ge=0.0, description="Maximum rotor cylinder radius in mm.")
     rpm: float = Field(default=60.0, description="Constant motor speed in RPM.")
-    study_name: str = Field(default="MCP_旋转马达算例", min_length=1, max_length=120, description="Motion Study name.")
-    motor_name: str = Field(default="MCP_匀速旋转马达", min_length=1, max_length=120, description="Motor feature name.")
+    study_name: str = Field(default="MCP_Donme_Motoru_Calismasi", min_length=1, max_length=120, description="Motion Study name.")
+    motor_name: str = Field(default="MCP_Sabit_Hizli_Donme_Motoru", min_length=1, max_length=120, description="Motor feature name.")
     duration_seconds: float = Field(default=4.0, gt=0.0, le=120.0, description="Motion Study duration in seconds.")
     calculate: bool = Field(default=True, description="Calculate the Motion Study after creating the motor.")
     play: bool = Field(default=False, description="Play the animation after calculation.")
@@ -1236,12 +1238,12 @@ def _active_model_required():
     """Return the active SolidWorks document or raise a helpful error."""
     sw, model = connect_solidworks(wait_seconds=1)
     active = sw.ActiveDoc
-    # 已绑定目标时绝不能回退到 connect 返回的旧对象：活动文档可能已关闭。
+    # Hedef bağlıyken connect'in döndürdüğü eski nesneye asla geri düşülmemelidir: etkin belge kapatılmış olabilir.
     model = active if has_bound_document() else (active or model)
     if model is None:
         raise RuntimeError("No active SolidWorks document. Use solidworks_open_document or solidworks_new_document first.")
     if has_bound_document():
-        # 操作在 _run_locked 持锁期间进行，核验后将同一个 model 对象交给调用方。
+        # İşlem _run_locked kilidi tutarken yapılır; doğrulamadan sonra aynı model nesnesi çağırana verilir.
         verify_bound_document(get_com_member(sw, "GetProcessID"), get_com_member(model, "GetPathName"))
     return sw, model
 
@@ -1329,7 +1331,7 @@ def _result(payload: Dict[str, Any], response_format: ResponseFormat) -> str:
 
 
 def _artifact_access():
-    """@brief 使用既有 CAD Studio 工作目录存账本；输出根由操作员配置。"""
+    """@brief Defteri mevcut CAD Studio çalışma dizininde saklar; çıktı kökü operatör tarafından yapılandırılır."""
     import tempfile
     from apps.desktop.cad_workbench.queue_worker import default_tauri_queue_dir
     root = os.environ.get("SW_MCP_OUTPUT_ROOT") or str(Path(tempfile.gettempdir()) / "solidworks-automation-artifacts")
@@ -1365,23 +1367,25 @@ def _run_locked(operation, response_format: ResponseFormat, load_automation: boo
     """
     Run one SolidWorks COM operation under the global lock.
 
-    锁带超时：SolidWorks 弹出模态对话框（模板选择、许可证提示、文件覆盖确认）
-    时 COM 调用会永久阻塞，若无超时的锁会让整个 MCP server 变成砖头——所有后
-    续调用都排队等一个永远不会释放的锁。超时后返回结构化错误并提示调用
-    solidworks_recover。
+    Kilit zaman aşımlıdır: SolidWorks kalıcı bir iletişim kutusu açtığında (şablon
+    seçimi, lisans uyarısı, dosya üzerine yazma onayı) COM çağrısı sonsuza kadar
+    bloke olur; zaman aşımı olmayan bir kilit tüm MCP sunucusunu kullanılamaz hale
+    getirir çünkü sonraki tüm çağrılar asla serbest bırakılmayan bir kilidi bekleyerek
+    kuyruğa girer. Zaman aşımında yapılandırılmış bir hata döndürülür ve
+    solidworks_recover çağrısı önerilir.
     """
     if not _sw_lock.acquire(timeout=timeout_seconds):
         payload = {
             "status": "error",
             "error_type": "SolidWorksBusyTimeout",
             "message": (
-                f"等待 SolidWorks 操作锁超过 {timeout_seconds:.0f} 秒仍未获得。"
-                f"上一个操作可能被模态对话框阻塞。"
+                f"SolidWorks işlem kilidi {timeout_seconds:.0f} saniyeden fazla beklendi ancak alınamadı. "
+                f"Önceki işlem kalıcı bir iletişim kutusu tarafından bloklanmış olabilir."
             ),
             "holder": dict(_lock_state),
             "suggestion": (
-                "检查 SolidWorks 主窗口是否有等待确认的对话框（模板选择/许可证/文件覆盖），"
-                "手动关闭后调用 solidworks_recover 复检；必要时重启 SolidWorks。"
+                "SolidWorks ana penceresinde onay bekleyen bir iletişim kutusu olup olmadığını kontrol edin (şablon seçimi/lisans/dosya üzerine yazma); "
+                "elle kapattıktan sonra solidworks_recover çağırarak yeniden denetleyin; gerekirse SolidWorks'ü yeniden başlatın."
             ),
         }
         return _result(payload, response_format)
@@ -1666,7 +1670,7 @@ def cadstudio_prepare_fea(params: CadStudioFeaPrepareInput) -> str:
                 "manual_review_required": True,
                 "retryable": False,
                 "error_code": "fea_elmer_adapter_not_implemented",
-                "message": "Elmer 安全输入适配器尚未实现；当前 prepare_fea 只生成 CalculiX .inp。",
+                "message": "Elmer güvenli giriş bağdaştırıcısı henüz uygulanmadı; şu anda prepare_fea yalnızca CalculiX .inp üretir.",
             }
         output_dir.mkdir(parents=True, exist_ok=True)
         return build_calculix_input(request, output_dir / f"{request['analysisId']}.inp")
@@ -1835,11 +1839,11 @@ def solidworks_connect(params: SolidWorksConnectInput = SolidWorksConnectInput()
 
 @mcp.tool(
     name="solidworks_lookup_api",
-    title="查证 SolidWorks API 接口",
+    title="SolidWorks API arayüzünü doğrula",
     annotations={"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
 )
 async def solidworks_lookup_api(params: SolidWorksApiLookupInput) -> str:
-    """按接口或自然语言任务查证目标版本 API；默认按需配置依赖，可关闭自动安装和联网。"""
+    """Bir arayüzü veya doğal dil görevini kullanarak hedef sürümün API'sini doğrular; varsayılan olarak bağımlılıkları isteğe bağlı yapılandırır, otomatik kurulum ve ağ erişimi kapatılabilir."""
     from scripts.sw_api_lookup import lookup_api, lookup_task
 
     cancelled = threading.Event()
@@ -1913,22 +1917,25 @@ def solidworks_health_check(params: SolidWorksHealthCheckInput = SolidWorksHealt
 
 def _enumerate_solidworks_windows():
     """
-    枚举 SolidWorks 顶层窗口，找出疑似模态对话框。
+    SolidWorks üst düzey pencerelerini numaralandırır ve olası kalıcı iletişim kutularını bulur.
 
-    返回 (main_window, dialogs)。模态对话框是 COM 调用永久阻塞的根因：SolidWorks
-    在等待用户点击时不会响应 Automation 调用，而且不会超时。这里只枚举和报告，
-    默认不代为点击——自动关闭对话框可能丢弃用户尚未保存的更改或接受错误的模板。
+    (main_window, dialogs) döndürür. Kalıcı iletişim kutuları, COM çağrılarının sonsuza
+    kadar bloke olmasının temel nedenidir: SolidWorks kullanıcı tıklamasını beklerken
+    Automation çağrılarına yanıt vermez ve zaman aşımına uğramaz. Burada yalnızca
+    numaralandırma ve raporlama yapılır; varsayılan olarak tıklama yapılmaz çünkü
+    iletişim kutusunu otomatik kapatmak kullanıcının henüz kaydetmediği değişiklikleri
+    kaybettirebilir veya yanlış şablonu kabul ettirebilir.
     """
     try:
         import win32gui  # type: ignore
     except Exception:
-        return None, [], "win32gui 不可用，无法枚举窗口（pywin32 未安装或不完整）"
+        return None, [], "win32gui kullanılamıyor, pencereler numaralandırılamıyor (pywin32 kurulu değil veya eksik)"
 
     dialogs = []
     main_window = None
 
     def visit(handle, _param):
-        """@brief EnumWindows 回调，按窗口标题归类。"""
+        """@brief EnumWindows geri çağrısı; pencere başlığına göre sınıflandırır."""
         nonlocal main_window
         if not win32gui.IsWindowVisible(handle):
             return True
@@ -1939,7 +1946,7 @@ def _enumerate_solidworks_windows():
         if "SolidWorks" in class_name and "SldWorks" in class_name:
             main_window = {"handle": handle, "title": title, "class": class_name}
             return True
-        # SolidWorks 的模态提示多为 #32770 标准对话框，标题常含版本号或功能名。
+        # SolidWorks'in kalıcı uyarıları çoğunlukla #32770 standart iletişim kutusudur; başlık genellikle sürüm numarası veya özellik adı içerir.
         if class_name == "#32770" and (
             "SolidWorks" in title or "SOLIDWORKS" in title
         ):
@@ -1949,7 +1956,7 @@ def _enumerate_solidworks_windows():
     try:
         win32gui.EnumWindows(visit, None)
     except Exception as exc:
-        return main_window, dialogs, f"枚举窗口失败: {exc}"
+        return main_window, dialogs, f"Pencereler numaralandırılamadı: {exc}"
 
     return main_window, dialogs, None
 
@@ -1993,19 +2000,20 @@ def solidworks_recover(params: SolidWorksRecoverInput = SolidWorksRecoverInput()
                 import win32con  # type: ignore
                 import win32gui  # type: ignore
             except Exception as exc:
-                probe["dismiss_error"] = f"无法发送关闭消息: {exc}"
+                probe["dismiss_error"] = f"Kapatma iletisi gönderilemedi: {exc}"
             else:
                 for dialog in dialogs:
                     try:
-                        # WM_CLOSE 等价于点击标题栏关闭；不自动按"确定"，
-                        # 以免在模板/覆盖确认框上做出用户未授权的选择。
+                        # WM_CLOSE, başlık çubuğundaki kapatmaya tıklamaya eşdeğerdir; "Tamam"a
+                        # otomatik basılmaz, böylece şablon/üzerine yazma onay kutularında
+                        # kullanıcının yetkilendirmediği bir seçim yapılmaz.
                         win32gui.PostMessage(dialog["handle"], win32con.WM_CLOSE, 0, 0)
                         dismissed.append(dialog["title"])
                     except Exception as exc:
                         probe["dismiss_error"] = f"{dialog['title']}: {exc}"
         probe["dismissed_dialogs"] = dismissed
 
-        # 探测 COM 是否恢复响应。
+        # COM'un yanıt verir duruma dönüp dönmediğini yoklar.
         com_status = "not_checked"
         com_detail = None
         try:
@@ -2024,7 +2032,7 @@ def solidworks_recover(params: SolidWorksRecoverInput = SolidWorksRecoverInput()
                         _sw_lock.release()
                 else:
                     com_status = "locked"
-                    com_detail = "操作锁仍被占用，说明上一个操作尚未返回。"
+                    com_detail = "İşlem kilidi hâlâ kullanımda; bu, önceki işlemin henüz dönmediğini gösterir."
         except Exception as exc:
             com_status = "error"
             com_detail = f"{type(exc).__name__}: {exc}"
@@ -2032,14 +2040,14 @@ def solidworks_recover(params: SolidWorksRecoverInput = SolidWorksRecoverInput()
         probe["com_detail"] = com_detail
 
         if com_status == "responsive":
-            next_step = "会话正常，可以继续调用建模工具。"
+            next_step = "Oturum normal; modelleme araçlarını çağırmaya devam edebilirsiniz."
         elif com_status == "locked":
             next_step = (
-                "会话仍被占用。请切到 SolidWorks 窗口手动关闭对话框；若窗口无响应，"
-                "在任务管理器中结束 SolidWorks 进程后重新调用 solidworks_connect。"
+                "Oturum hâlâ kullanımda. SolidWorks penceresine geçip iletişim kutusunu elle kapatın; pencere yanıt vermiyorsa "
+                "Görev Yöneticisi'nden SolidWorks sürecini sonlandırdıktan sonra solidworks_connect'i yeniden çağırın."
             )
         else:
-            next_step = "COM 未恢复，建议重启 SolidWorks 后重新连接。"
+            next_step = "COM yanıt vermiyor; SolidWorks'ü yeniden başlattıktan sonra yeniden bağlanmanız önerilir."
 
         return {
             "status": com_status,
@@ -2764,7 +2772,7 @@ def design_spec_build(params: DesignSpecBuildInput) -> str:
         audit["output_path"] = resolved_output
         audit["document"] = _model_summary(model)
         if params.output_path and not saved:
-            audit["errors"].append(f"模型已构建但保存失败: {resolved_output}")
+            audit["errors"].append(f"Model oluşturuldu ancak kaydedilemedi: {resolved_output}")
             audit["status"] = "error"
         return audit
 
@@ -2908,8 +2916,9 @@ def solidworks_close_documents(params: SolidWorksCloseDocumentsInput = SolidWork
         sw, model = _active_model_required()
         if params.close_all:
             sw.CloseAllDocuments(bool(params.save_changes))
-            # 文档已关闭，其 ISketch 引用必须立即释放；否则常驻进程会一直持有
-            # 已关闭文档的 COM 对象，导致 SolidWorks 侧无法释放文档。
+            # Belge kapatıldı; ISketch başvuruları hemen serbest bırakılmalıdır; aksi halde
+            # kalıcı süreç kapatılmış belgenin COM nesnesini tutmaya devam eder ve SolidWorks
+            # tarafında belge serbest bırakılamaz.
             clear_sketch_selection_cache()
             return {"status": "ok", "closed": "all", "save_changes": params.save_changes}
         title = get_com_member(model, "GetTitle")
@@ -3332,7 +3341,7 @@ def solidworks_review_active(params: SolidWorksReviewInput) -> str:
 
 
 def _drawing_report_path(output_dir: Path, basename: str) -> Path:
-    """@brief 返回工程图子技能报告路径。"""
+    """@brief Teknik resim alt becerisinin rapor yolunu döndürür."""
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir / f"{basename}.json"
 
@@ -3348,7 +3357,7 @@ def _drawing_report_path(output_dir: Path, basename: str) -> Path:
     },
 )
 def solidworks_generate_drawing(params: SolidWorksGenerateDrawingInput) -> str:
-    """按 DrawingSpec 自动创建工程图、原生尺寸/基本尺寸、基准及单框/复合 GD&T（公共基准、投影公差带、轮廓偏置、CZ/SZ），保存重开核验并导出 PDF、预览和审视报告（原生标注限 SW2026，设计公差须明确）。"""
+    """DrawingSpec'e göre teknik resmi, yerel ölçüleri/temel ölçüleri, datumu ve tek çerçeveli/birleşik GD&T'yi (ortak datum, projeksiyon tolerans bölgesi, kontur ofseti, CZ/SZ) otomatik oluşturur; kaydedip yeniden açarak doğrular ve PDF, önizleme ve inceleme raporunu dışa aktarır (yerel işaretleme SW2026 ile sınırlıdır, tasarım toleransları açıkça belirtilmelidir)."""
 
     def op():
         return drawing_generate_package(params.spec_path, params.output_dir, params.drawing_filename, overwrite=params.overwrite)
@@ -3367,7 +3376,7 @@ def solidworks_generate_drawing(params: SolidWorksGenerateDrawingInput) -> str:
     },
 )
 def solidworks_review_drawing(params: SolidWorksReviewDrawingInput) -> str:
-    """打开工程图并执行 DrawingSpec、布局、尺寸、孔槽和 PDF 证据审视。"""
+    """Teknik resmi açar ve DrawingSpec, düzen, ölçüler, delikler/yuvalar ve PDF kanıtı incelemesini yürütür."""
 
     def op():
         output_dir = Path(os.path.expandvars(params.output_dir)).expanduser().resolve()
@@ -3407,7 +3416,7 @@ def solidworks_review_drawing(params: SolidWorksReviewDrawingInput) -> str:
     },
 )
 def solidworks_inspect_drawing(params: SolidWorksInspectDrawingInput) -> str:
-    """只读读取工程图页、视图、尺寸、注释和表格结构，并生成预览证据。"""
+    """Teknik resim sayfalarını, görünümlerini, ölçülerini, açıklamalarını ve tablo yapısını salt okunur şekilde okur ve önizleme kanıtı üretir."""
 
     def op():
         output_dir = Path(os.path.expandvars(params.output_dir)).expanduser().resolve()
@@ -3634,7 +3643,7 @@ def solidworks_validate_motion_study(params: SolidWorksMotionValidationInput = S
 
 
 class ArtifactReadInput(BaseInput):
-    """@brief 使用交付 ID 取回图片或有界文件块，禁止传任意本地路径。"""
+    """@brief Teslim ID'si kullanarak görüntüyü veya sınırlı dosya bloğunu alır; rastgele yerel yol iletilmesi yasaktır."""
     artifact_id: str = Field(..., pattern=r"^mcp-[0-9a-f]{32}-[0-9]{1,5}$")
     offset: int = Field(default=0, ge=0)
     max_bytes: int = Field(default=1024 * 1024, ge=1, le=MAX_INLINE)
@@ -3650,18 +3659,18 @@ def cadstudio_read_artifact(params: ArtifactReadInput):
         if params.as_preview and params.offset == 0 and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp"}:
             path, data, metadata = _artifact_access().read(params.artifact_id, 0, MAX_INLINE)
             if metadata["next_offset"] is not None:
-                raise ValueError("预览图片超过内联大小上限")
+                raise ValueError("Önizleme görüntüsü satır içi boyut sınırını aşıyor")
             import io
             from PIL import Image as PillowImage
             from mcp.server.fastmcp import Image
             with PillowImage.open(io.BytesIO(data)) as source:
                 if source.width * source.height > 20_000_000:
-                    raise ValueError("预览像素数超过上限")
+                    raise ValueError("Önizleme piksel sayısı sınırı aşıyor")
                 converted = io.BytesIO()
                 source.convert("RGB").save(converted, format="PNG")
             encoded = converted.getvalue()
             if len(encoded) > MAX_INLINE:
-                raise ValueError("转换后的 PNG 超过内联大小上限，请取回原始文件块")
+                raise ValueError("Dönüştürülen PNG satır içi boyut sınırını aşıyor; lütfen özgün dosya bloğunu alın")
             return Image(data=encoded, format="png")
         return _result({"status": "ok", **metadata, "encoding": "base64",
             "data": base64.b64encode(data).decode("ascii")}, params.response_format)
@@ -3671,31 +3680,33 @@ def cadstudio_read_artifact(params: ArtifactReadInput):
 
 @mcp.resource("cad-artifact://delivery/{artifact_id}", mime_type="application/octet-stream")
 def read_artifact_resource(artifact_id: str) -> bytes:
-    """@brief 原始交付文件资源；超大文件通过有界块工具读取。"""
+    """@brief Özgün teslim dosyası kaynağı; çok büyük dosyalar sınırlı blok aracıyla okunur."""
     _, data, metadata = _artifact_access().read(artifact_id)
     if metadata["next_offset"] is not None:
-        raise ValueError("文件超过内联资源大小，请使用 cadstudio_read_artifact 分块读取")
+        raise ValueError("Dosya satır içi kaynak boyutunu aşıyor; lütfen cadstudio_read_artifact ile blok blok okuyun")
     return data
 
 
 from scripts.sw_native_wire import register_tools as _register_native_wire_tools
-# @brief 连接函数由持锁入口延迟加载，注册时不能提前解析尚未存在的全局名称。
+# @brief Bağlantı işlevi kilitli giriş noktası tarafından tembel yüklenir; kayıt sırasında
+# henüz var olmayan genel adlar önceden çözümlenmemelidir.
 _register_native_wire_tools(
     mcp, lambda **kwargs: connect_solidworks(**kwargs), _run_locked, ResponseFormat,
 )
 
 
 # ---------------------------------------------------------------------------
-# 工具发现（默认）与原生完整模式
+# Araç keşfi (varsayılan) ve yerel tam mod
 # ---------------------------------------------------------------------------
-# 新版默认只暴露三个入口，把原生工具的 Schema 从上下文里拿掉；老客户端可以
-# 设置 SW_MCP_DISCOVERY=full 继续用原来的逐工具界面。
+# Yeni sürüm varsayılan olarak yalnızca üç giriş noktası sunar ve yerel araçların
+# Schema'sını bağlamdan çıkarır; eski istemciler SW_MCP_DISCOVERY=full ayarını
+# yaparak önceki araç-başına arayüzü kullanmaya devam edebilir.
 _DISCOVERY_MODE = os.environ.get("SW_MCP_DISCOVERY", "search").strip().lower()
 _APPROVAL_MODE = os.environ.get("SW_MCP_APPROVAL", "auto").strip().lower()
 
 from gate import DISCOVERY_TOOLS, ToolGate  # noqa: E402
 
-# @brief 注册表换成网关代理：此时工具已全部注册，之后所有 list/call 都经过它。
+# @brief Kayıt defteri ağ geçidi vekiliyle değiştirilir: bu noktada tüm araçlar kayıtlıdır ve sonraki tüm list/call çağrıları ondan geçer.
 _gate = ToolGate(mcp._tool_manager, mode=_DISCOVERY_MODE, approval_mode=_APPROVAL_MODE)
 mcp._tool_manager = _gate
 
@@ -3706,7 +3717,7 @@ mcp._tool_manager = _gate
     annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
 )
 def sw_search_tools(query: str, limit: int = 5) -> str:
-    """按中英文 CAD 术语、命令名或别名检索工具，返回少量候选及其副作用等级；不执行任何操作。"""
+    """Çince ve İngilizce CAD terimleri, komut adları veya diğer adlarıyla araç arar; az sayıda aday ve yan etki düzeyini döndürür; hiçbir işlem yürütmez."""
     try:
         results = _gate.search(query, limit)
     except ValueError as exc:
@@ -3723,10 +3734,10 @@ def sw_search_tools(query: str, limit: int = 5) -> str:
     annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
 )
 def sw_describe_tool(name: str) -> str:
-    """返回一个工具的完整输入 Schema、副作用等级，以及执行前是否需要人工批准。"""
+    """Bir aracın tam giriş Schema'sını, yan etki düzeyini ve yürütmeden önce insan onayı gerekip gerekmediğini döndürür."""
     tool = _gate.describe(name)
     if tool is None:
-        raise ToolError(f"未知工具: {name}。先用 sw_search_tools 检索。")
+        raise ToolError(f"Bilinmeyen araç: {name}. Önce sw_search_tools ile arayın.")
     return json.dumps(tool, ensure_ascii=False)
 
 
@@ -3737,15 +3748,15 @@ def sw_describe_tool(name: str) -> str:
 )
 async def sw_call_tool(name: str, arguments: Dict[str, Any] | None = None,
                        document_target: Dict[str, Any] | None = None, ctx: Context = None) -> Any:
-    """按名称执行工具；可选提供已保存文档路径和 SolidWorks 进程 ID 以核验目标。"""
+    """Aracı adıyla yürütür; hedefi doğrulamak için isteğe bağlı olarak kayıtlı belge yolu ve SolidWorks süreç ID'si sağlanabilir."""
     if name in DISCOVERY_TOOLS:
-        raise ToolError("sw_call_tool 不能调用发现入口自身。")
+        raise ToolError("sw_call_tool, keşif giriş noktasının kendisini çağıramaz.")
     if _gate.get_tool(name) is None:
-        raise ToolError(f"未知工具: {name}。先用 sw_search_tools 检索。")
+        raise ToolError(f"Bilinmeyen araç: {name}. Önce sw_search_tools ile arayın.")
     result = await _gate.call_tool(name, arguments or {}, context=ctx, convert_result=True,
                                    document_target=document_target)
-    # FastMCP 的嵌套调用可能同时返回 content 和 structuredContent；直接返回
-    # tuple 会被外层工具再次转换成纯文本，导致调用方丢失结构化结果。
+    # FastMCP'nin iç içe çağrısı content ve structuredContent'i aynı anda döndürebilir; doğrudan
+    # tuple döndürülürse dış araç onu yeniden düz metne çevirir ve çağıran yapılandırılmış sonucu kaybeder.
     if isinstance(result, CallToolResult):
         return result
     if isinstance(result, tuple) and len(result) == 2:
@@ -3785,9 +3796,9 @@ def main() -> None:
         default=None,
         help="Bind port for streamable-http (default: 8000)",
     )
-    parser.add_argument("--allow-host", action="append", default=[], help="允许的远端 Host，例如 cad.example:*，可重复")
-    parser.add_argument("--allow-origin", action="append", default=[], help="允许的浏览器 Origin，可重复")
-    parser.add_argument("--output-root", default=os.environ.get("SW_MCP_OUTPUT_ROOT"), help="允许客户端取回的产物目录")
+    parser.add_argument("--allow-host", action="append", default=[], help="İzin verilen uzak Host, örn. cad.example:*; yinelenebilir")
+    parser.add_argument("--allow-origin", action="append", default=[], help="İzin verilen tarayıcı Origin; yinelenebilir")
+    parser.add_argument("--output-root", default=os.environ.get("SW_MCP_OUTPUT_ROOT"), help="İstemcinin geri almasına izin verilen artefakt dizini")
     args = parser.parse_args()
 
     if sys.stdout is not _MCP_STDOUT:
@@ -3801,12 +3812,12 @@ def main() -> None:
     try:
         args.port = args.port if args.port is not None else int(os.environ.get("SW_MCP_PORT", "8000"))
     except ValueError:
-        parser.error("SW_MCP_PORT 必须是整数")
+        parser.error("SW_MCP_PORT bir tam sayı olmalıdır")
     if not 1 <= args.port <= 65535:
-        parser.error("port 必须在 1..65535")
+        parser.error("port 1..65535 aralığında olmalıdır")
     token = os.environ.get("SW_MCP_TOKEN")
     if args.host not in {"127.0.0.1", "localhost", "::1"} and (not token or not args.allow_host):
-        parser.error("远端监听需设置 SW_MCP_TOKEN 并显式指定 --allow-host")
+        parser.error("Uzak dinleme için SW_MCP_TOKEN ayarlanmalı ve --allow-host açıkça belirtilmelidir")
 
     # streamable-http is served by uvicorn, which FastMCP imports lazily.
     if importlib.util.find_spec("uvicorn") is None:

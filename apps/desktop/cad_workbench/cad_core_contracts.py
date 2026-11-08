@@ -1,7 +1,7 @@
-"""CAD Studio 双入口/双后端公共数据契约。
+"""CAD Studio çift giriş/çift arka uç ortak veri sözleşmeleri.
 
-本模块不依赖 SolidWorks、AutoCAD 或桌面 UI，供 Skill、CLI、MCP、worker 和前端
-共同读写 NeutralCadDocument、PreviewManifest 和 EvidenceGraph。
+Bu modül SolidWorks, AutoCAD veya masaüstü UI'ye bağımlı değildir; Skill, CLI, MCP, worker ve ön yüzün
+NeutralCadDocument, PreviewManifest ve EvidenceGraph'ı ortak okuyup yazması için kullanılır.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ FallbackPolicy = Literal["allow_open_formats", "native_only", "blocked"]
 
 @dataclass(frozen=True)
 class CoordinateSystem:
-    """@brief 中性 CAD 文档的坐标系约定。"""
+    """@brief Nötr CAD belgesinin koordinat sistemi sözleşmesi."""
 
     upAxis: str = "Z"
     frontAxis: str = "Y"
@@ -30,7 +30,7 @@ class CoordinateSystem:
 
 @dataclass(frozen=True)
 class NeutralFeature:
-    """@brief 可跨后端路由的参数化特征节点。"""
+    """@brief Arka uçlar arasında yönlendirilebilen parametrik unsur düğümü."""
 
     id: str
     type: str
@@ -42,7 +42,7 @@ class NeutralFeature:
 
 @dataclass(frozen=True)
 class NeutralCadDocument:
-    """@brief 不绑定厂商 CAD 的参数化源文档。"""
+    """@brief Üretici CAD'ine bağlı olmayan parametrik kaynak belgesi."""
 
     documentId: str
     title: str = ""
@@ -58,7 +58,7 @@ class NeutralCadDocument:
 
 @dataclass(frozen=True)
 class PreviewManifest:
-    """@brief 预览产物与真实源产物的可追溯清单。"""
+    """@brief Önizleme ürünleri ile gerçek kaynak ürünlerin izlenebilirlik listesi."""
 
     sourceArtifact: str
     previewArtifact: str
@@ -79,7 +79,7 @@ class PreviewManifest:
 
 @dataclass(frozen=True)
 class EvidenceNode:
-    """@brief 需求、实体、尺寸、文件或复核结论节点。"""
+    """@brief Gereksinim, geometri, ölçü, dosya veya inceleme sonucu düğümü."""
 
     id: str
     type: str
@@ -91,7 +91,7 @@ class EvidenceNode:
 
 @dataclass(frozen=True)
 class EvidenceEdge:
-    """@brief 两个证据节点之间的来源或验证关系。"""
+    """@brief İki kanıt düğümü arasındaki köken veya doğrulama ilişkisi."""
 
     from_: str
     to: str
@@ -103,7 +103,7 @@ class EvidenceEdge:
 
 @dataclass(frozen=True)
 class EvidenceGraph:
-    """@brief CAD Studio 交付证据图。"""
+    """@brief CAD Studio teslimat kanıt grafiği."""
 
     nodes: list[EvidenceNode] = field(default_factory=list)
     edges: list[EvidenceEdge] = field(default_factory=list)
@@ -118,7 +118,7 @@ def _asdict(value: Any) -> dict[str, Any]:
 
 
 def sha256_file(path: str | Path) -> str:
-    """@brief 计算产物 SHA-256，用于预览与交付文件绑定。"""
+    """@brief Ürünün SHA-256 değerini hesaplar; önizleme ile teslimat dosyasını bağlamak için kullanılır."""
     digest = hashlib.sha256()
     with Path(path).open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -127,7 +127,7 @@ def sha256_file(path: str | Path) -> str:
 
 
 def write_json_contract(path: str | Path, value: Any) -> Path:
-    """@brief 以稳定 UTF-8 JSON 写出公共契约文件。"""
+    """@brief Ortak sözleşme dosyasını kararlı UTF-8 JSON olarak yazar."""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(_asdict(value), ensure_ascii=False, indent=2), encoding="utf-8")
@@ -135,7 +135,7 @@ def write_json_contract(path: str | Path, value: Any) -> Path:
 
 
 def read_json_contract(path: str | Path) -> dict[str, Any]:
-    """@brief 读取公共契约 JSON。"""
+    """@brief Ortak sözleşme JSON'unu okur."""
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
@@ -149,7 +149,7 @@ def preview_manifest_for_artifact(
     is_demo: bool = False,
     evidence_refs: list[str] | None = None,
 ) -> PreviewManifest:
-    """@brief 为真实源文件和 JS 可读预览文件生成追溯清单。"""
+    """@brief Gerçek kaynak dosya ve JS tarafından okunabilir önizleme dosyası için izlenebilirlik listesi üretir."""
     preview_path = Path(preview_artifact)
     digest = sha256_file(preview_path) if preview_path.is_file() else ""
     return PreviewManifest(
@@ -161,7 +161,7 @@ def preview_manifest_for_artifact(
         isDemo=is_demo,
         evidenceRefs=evidence_refs or [],
         sha256=digest,
-        limitations=["演示数据不能进入交付判断"] if is_demo else [],
+        limitations=["Tanıtım verisi teslimat değerlendirmesine giremez"] if is_demo else [],
     )
 
 
@@ -175,7 +175,7 @@ def enrich_job_with_core_contracts(
     preview_manifest: str | None = None,
     evidence_graph: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """@brief 给 AutomationJob 2.0 补齐双入口/双后端路由字段。"""
+    """@brief AutomationJob 2.0 için çift giriş/çift arka uç yönlendirme alanlarını tamamlar."""
     job["preferredBackend"] = preferred_backend
     job["requiredOutputs"] = required_outputs or list(job.get("requiredArtifacts") or [])
     job["nativeFormatRequired"] = native_format_required

@@ -68,7 +68,7 @@ def test_approval_displays_full_arguments_or_refuses_oversized(tmp_path):
 
 def test_scope_authorization_is_disabled(tmp_path):
     ledger = ApprovalLedger(tmp_path)
-    with pytest.raises(ApprovalError, match="范围授权已停用"):
+    with pytest.raises(ApprovalError, match="Kapsam yetkilendirmesi devre dışı"):
         ledger.grant_scope(["solidworks_save_document"], [os.path.join("..", "outside")])
 
 
@@ -98,7 +98,7 @@ def test_approval_rejects_changed_request_after_display(tmp_path):
     original = ledger.request("solidworks_save_document", {"path": "safe"}, "write")
     changed = dict(original, digest="0" * 64)
     ledger._write(ledger.requests_dir / f"{original['id']}.json", changed)
-    with pytest.raises(ApprovalError, match="展示后发生变化"):
+    with pytest.raises(ApprovalError, match="gösterimden sonra değişti"):
         ledger.approve(original["id"], expected_record=original)
     assert not list(ledger.grants_dir.glob("*.json"))
 
@@ -108,7 +108,7 @@ def test_approval_rejects_digest_not_matching_displayed_arguments(tmp_path):
     request = ledger.request("solidworks_save_document", {"path": "safe"}, "write")
     forged = dict(request, digest="0" * 64)
     ledger._write(ledger.requests_dir / f"{request['id']}.json", forged)
-    with pytest.raises(ApprovalError, match="参数摘要与执行内容不一致"):
+    with pytest.raises(ApprovalError, match="parametre özeti ile yürütme içeriği uyuşmuyor"):
         ledger.approve(request["id"], expected_record=forged)
     assert not list(ledger.grants_dir.glob("*.json"))
 
@@ -118,6 +118,6 @@ def test_approval_rejects_forged_or_stale_effect(tmp_path):
     request = ledger.request("solidworks_save_document", {"path": "safe"}, "write")
     forged = dict(request, effect="read")
     ledger._write(ledger.requests_dir / f"{request['id']}.json", forged)
-    with pytest.raises(ApprovalError, match="副作用等级与当前策略不一致"):
+    with pytest.raises(ApprovalError, match="yan etki düzeyi geçerli politikayla uyuşmuyor"):
         ledger.approve(request["id"], expected_record=forged)
     assert not list(ledger.grants_dir.glob("*.json"))

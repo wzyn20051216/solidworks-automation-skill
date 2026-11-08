@@ -1,11 +1,11 @@
-"""@brief 只读枚举 SolidWorks PID 与可识别版本；无需新增依赖或守护进程。"""
+"""@brief SolidWorks PID ve tanınabilir sürümü salt okunur numaralandırır; yeni bağımlılık veya arka plan süreci gerekmez."""
 import ctypes
 from ctypes import wintypes
 import os
 
 
 def solidworks_processes():
-    """@brief 返回 PID→年份；枚举失败返回 None，避免猜测进程所有权。"""
+    """@brief PID→yıl döndürür; numaralandırma başarısız olursa None döndürerek süreç sahipliğini tahmin etmeyi önler."""
     if os.name != "nt":
         return None
 

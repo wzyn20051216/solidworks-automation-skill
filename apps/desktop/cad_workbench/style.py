@@ -1,4 +1,4 @@
-"""@brief 桌面端视觉样式。"""
+"""@brief Masaüstü görsel stilleri."""
 
 APP_STYLE = """
 QMainWindow {

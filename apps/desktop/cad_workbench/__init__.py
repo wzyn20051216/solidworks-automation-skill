@@ -1,3 +1,3 @@
-"""CAD 自动化交付工作台。"""
+"""CAD otomasyonu teslimat çalışma tezgâhı."""
 
 __version__ = "0.1.0"

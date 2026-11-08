@@ -14,7 +14,7 @@ export type ProjectRecord = {
 };
 
 export type ApiIntegrationMode = "codex_cli" | "cc_switch";
-export type AgentProviderId = "codex" | "claude" | "gemini" | "opencode";
+export type AgentProviderId = "codex" | "claude" | "gemini" | "opencode" | "lmstudio";
 export type ApiProviderSummary = {
   id?: string;
   name?: string;

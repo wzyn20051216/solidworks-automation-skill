@@ -2,19 +2,19 @@ import { useMemo, useState } from "react";
 import { CadPreview } from "../CadPreview";
 import { DEMO_SCENES } from "./demoScenes";
 
-/** @brief 与真实交付隔离的固定预览演示台。 */
+/** @brief Gerçek teslimattan yalıtılmış sabit önizleme demo tezgahı. */
 export function PreviewShowcase() {
   const [activeId, setActiveId] = useState(DEMO_SCENES[0].id);
   const active = useMemo(() => DEMO_SCENES.find((item) => item.id === activeId) ?? DEMO_SCENES[0], [activeId]);
   return (
-    <section className="preview-showcase" aria-label="预览演示">
+    <section className="preview-showcase" aria-label="Önizleme demosu">
       <div className="preview-showcase-heading">
         <div>
           <span className="eyebrow">DEMO SHOWCASE</span>
-          <strong>机械检视台演示</strong>
+          <strong>Mekanik inceleme tezgahı demosu</strong>
         </div>
         <label>
-          <span>样例</span>
+          <span>Örnek</span>
           <select value={activeId} onChange={(event) => setActiveId(event.target.value)}>
             {DEMO_SCENES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>

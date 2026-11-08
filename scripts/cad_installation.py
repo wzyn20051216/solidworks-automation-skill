@@ -1,7 +1,7 @@
-"""CAD Studio 本机 CAD 安装发现。
+"""CAD Studio yerel CAD kurulum keşfi.
 
-该模块只读检查快捷方式、常见安装目录和 COM 注册，不启动或关闭 CAD。
-路径发现结果供 CLI、Skill 自检和桌面端复用；调用方负责脱敏后再上传诊断包。
+Bu modül kısayolları, yaygın kurulum dizinlerini ve COM kaydını salt okunur inceler; CAD başlatmaz veya kapatmaz.
+Yol keşif sonuçları CLI, Skill öz denetimi ve masaüstü tarafından yeniden kullanılır; tanılama paketini yüklemeden önce gizlilik temizliğinden çağıran sorumludur.
 """
 from __future__ import annotations
 
@@ -24,10 +24,10 @@ SHORTCUT_PATTERNS = {
 
 
 def resolve_shortcut_target(target: str | None, working_directory: str | None, executable_name: str) -> list[Path]:
-    """把 Windows 快捷方式的目标和工作目录转换成可验证的 exe 候选。
+    """Windows kısayolunun hedefini ve çalışma dizinini doğrulanabilir exe adaylarına dönüştürür.
 
-    安装器快捷方式有时目标不是最终程序（例如 i386_SldWorks.exe），此时优先
-    从工作目录补出真正的 SLDWORKS.exe，避免把安装器误当作 CAD 主程序。
+    Kurulum kısayolunun hedefi bazen nihai program değildir (örn. i386_SldWorks.exe); bu durumda öncelikle
+    çalışma dizininden gerçek SLDWORKS.exe türetilir, kurulumun CAD ana programı sanılması önlenir.
     """
     candidates: list[Path] = []
     target_path = Path(target) if target else None
@@ -53,7 +53,7 @@ def _unique_paths(paths: Iterable[Path]) -> list[Path]:
 
 
 def _shortcut_info(path: Path) -> tuple[str | None, str | None]:
-    """读取 .lnk；没有 pywin32 或非 Windows 时安静失败。"""
+    """ .lnk dosyasını okur; pywin32 yoksa veya Windows dışında sessizce başarısız olur."""
     if not path.is_file() or os.name != "nt":
         return None, None
     try:
@@ -66,7 +66,7 @@ def _shortcut_info(path: Path) -> tuple[str | None, str | None]:
 
 
 def _shortcut_paths(product: str) -> list[Path]:
-    """@brief 枚举产品的全部公共桌面快捷方式，不把版本固定为 2024。"""
+    """@brief Ürünün tüm genel masaüstü kısayollarını numaralandırır; sürümü 2024 olarak sabitlemez."""
     paths = [SHORTCUTS[product]]
     if PUBLIC_DESKTOP.is_dir():
         for pattern in SHORTCUT_PATTERNS[product]:
@@ -75,7 +75,7 @@ def _shortcut_paths(product: str) -> list[Path]:
 
 
 def _version_metadata(*values: object) -> tuple[str | None, str | None]:
-    """@brief 从显示名、路径或文件版本文本中提取年份与 Service Pack。"""
+    """@brief Görünen ad, yol veya dosya sürümü metninden yılı ve Service Pack'i çıkarır."""
     text = " ".join(str(value or "") for value in values)
     version_match = re.search(r"(?<!\d)(20\d{2})(?!\d)", text)
     service_pack_match = re.search(r"\bSP\s*0?(\d+)(?:[._](\d+))?\b", text, re.IGNORECASE)
@@ -88,7 +88,7 @@ def _version_metadata(*values: object) -> tuple[str | None, str | None]:
 
 
 def _uninstall_registry_candidates(product: str) -> list[dict[str, Any]]:
-    """@brief 从 Windows 卸载注册表读取主 CAD 产品的真实安装目录。"""
+    """@brief Windows kaldırma kayıt defterinden ana CAD ürününün gerçek kurulum dizinini okur."""
     if os.name != "nt":
         return []
     try:
@@ -203,11 +203,11 @@ def _registry_paths(product: str) -> list[Path]:
 
 
 def _candidate_drives() -> tuple[str, ...]:
-    """@brief 返回按优先顺序枚举的盘符（形如 ``D:``）。
+    """@brief Öncelik sırasına göre numaralandırılan sürücü harflerini döndürür (``D:`` biçiminde).
 
-    @note 历史实现固定为 ``("D:", "E:")``，安装在 ``F:`` 及之后盘符、且注册表与快捷方式
-          都未能提供线索的部署会被漏检。此处改为"优先 D:/E:，再枚举本机其余盘符"，
-          在既有机器上候选顺序不变；非 Windows 或枚举失败时退回原固定列表。
+    @note Eski uygulama ``("D:", "E:")`` olarak sabitlenmişti; ``F:`` ve sonrası sürücülere kurulan ve
+          kayıt defteri ile kısayolların da ipucu vermediği dağıtımlar gözden kaçıyordu. Burada "önce D:/E:, sonra makinedeki diğer sürücüler" yaklaşımına geçildi,
+          mevcut makinelerde aday sırası değişmez; Windows dışında veya numaralandırma başarısız olduğunda eski sabit liste kullanılır.
     """
     preferred = ("D:", "E:")
     try:
@@ -248,9 +248,9 @@ def _common_candidates(product: str) -> list[Path]:
 
 
 def discover_installations(product: str, *, exists: Callable[[Path], bool] | None = None) -> list[dict[str, Any]]:
-    """@brief 发现产品的全部安装，并按版本从新到旧排序。"""
+    """@brief Ürünün tüm kurulumlarını bulur ve sürümü yeniye göre sıralar."""
     if product not in {"solidworks", "autocad"}:
-        raise ValueError(f"不支持的 CAD 产品: {product}")
+        raise ValueError(f"Desteklenmeyen CAD ürünü: {product}")
     exists = exists or Path.is_file
     exe_name = "SLDWORKS.exe" if product == "solidworks" else "acad.exe"
     candidates: list[dict[str, Any]] = []
@@ -325,7 +325,7 @@ def discover_installations(product: str, *, exists: Callable[[Path], bool] | Non
 
 
 def discover_installation(product: str, *, exists: Callable[[Path], bool] | None = None) -> dict:
-    """@brief 返回最新安装，保持旧调用方的单结果接口兼容。"""
+    """@brief En yeni kurulumu döndürür; eski çağıranların tek sonuç arayüzüyle uyumluluğu korur."""
     installations = discover_installations(product, exists=exists)
     if installations:
         return installations[0]

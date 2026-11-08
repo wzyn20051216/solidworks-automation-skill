@@ -1,4 +1,4 @@
-"""@brief CAD Studio 专业知识检索回归测试。"""
+"""@brief CAD Studio uzmanlık bilgisi erişimi regresyon testi."""
 
 from pathlib import Path
 import hashlib
@@ -74,10 +74,10 @@ def test_prompt_includes_rag_source_and_hash() -> None:
 
     prompt = compile_codex_prompt(job)
 
-    assert "【RAG 专业知识上下文】" in prompt
+    assert "[RAG Uzmanlık Bilgisi Bağlamı]" in prompt
     assert "C:/kb/bearing.md" in prompt
     assert "abc123" in prompt
-    assert "不可信参考数据" in prompt
+    assert "güvenilmez referans verisi" in prompt
 
 
 def test_knowledge_hash_matches_bounded_prompt_excerpt(monkeypatch) -> None:
@@ -93,7 +93,7 @@ def test_knowledge_hash_matches_bounded_prompt_excerpt(monkeypatch) -> None:
 
 
 def test_prompt_enforces_versioned_stage_retry_without_overwrite() -> None:
-    """@brief 局部重跑策略必须进入 Agent Prompt，不能仅作为 UI 提示。"""
+    """@brief Yerel yeniden çalıştırma stratejisi Agent Prompt'una girmeli; yalnızca UI ipucu olarak kalmamalıdır."""
     prompt = compile_codex_prompt(
         {
             "objective": "重新生成工程图和 BOM",
@@ -107,10 +107,10 @@ def test_prompt_enforces_versioned_stage_retry_without_overwrite() -> None:
         }
     )
 
-    assert "【重新生成策略】" in prompt
+    assert "[Yeniden Üretim Stratejisi]" in prompt
     assert '"retryFromStage": "drawing-bom"' in prompt
-    assert "只执行 retryFromStage 及其后继阶段" in prompt
-    assert "禁止覆盖上一轮 CAD" in prompt
+    assert "yalnızca retryFromStage ve ardıl aşamaları çalıştırılır" in prompt
+    assert "önceki turun CAD" in prompt
 
 
 def test_cloud_rag_rejects_arbitrary_environment_variable_name(monkeypatch) -> None:
@@ -127,7 +127,7 @@ def test_cloud_rag_rejects_arbitrary_environment_variable_name(monkeypatch) -> N
 
 
 def test_cloud_rag_disables_authorized_redirects(monkeypatch) -> None:
-    """@brief 防止 Authorization 头被 urllib 自动转发到重定向目标。"""
+    """@brief Authorization başlığının urllib tarafından yönlendirme hedefine otomatik iletilmesini önler."""
     monkeypatch.setenv("CAD_STUDIO_RAG_TOKEN", "secret-token")
 
     class FakeOpener:
@@ -140,7 +140,7 @@ def test_cloud_rag_disables_authorized_redirects(monkeypatch) -> None:
         lambda handler: FakeOpener(),
     )
 
-    with pytest.raises(RuntimeError, match="云知识库检索失败"):
+    with pytest.raises(RuntimeError, match="Bulut bilgi tabanı araması başarısız"):
         retrieve_cloud_knowledge(
             "机械知识",
             {"endpoint": "https://rag.example.test/retrieve"},
@@ -159,5 +159,5 @@ def test_policy_derives_network_and_cross_workspace_from_knowledge_config() -> N
         }
     )
 
-    assert any("外部网络" in reason for reason in reasons)
-    assert any("跨工作区访问" in reason for reason in reasons)
+    assert any("Dış ağ erişimi" in reason for reason in reasons)
+    assert any("Çalışma alanları arası erişim" in reason for reason in reasons)

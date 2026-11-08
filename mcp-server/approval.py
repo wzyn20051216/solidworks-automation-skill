@@ -1,12 +1,11 @@
-"""写操作的本地批准记录；模型传入的工具参数不能直接构造批准。
+"""Yazma işlemleri için yerel onay kaydı; modelin ilettiği araç parametreleri doğrudan onay oluşturamaz.
 
-仅支持逐次批准：绑定工具名、完整参数摘要和调用方标识，一次性、有有效期。
-范围授权暂不支持，既有范围记录也不会被消费。
+Yalnızca çağrı başına onay desteklenir: araç adına, tam parametre özetine ve çağıranın kimliğine bağlanır; tek kullanımlık ve geçerlilik sürelidir.
+Kapsam yetkilendirmesi henüz desteklenmez; mevcut kapsam kayıtları da tüketilmez.
 
-落地形态是本地目录里的 JSON，签名密钥在同一目录生成。CLI 提供交互式确认，
-但终端检查无法证明输入来自人；具有同一 OS 用户权限的程序可能读写账本和密钥，
-HMAC 并不隔离这些程序。部署者应保护账本目录及执行环境；不能以此机制声称防止
-具有同等本地权限的恶意进程伪造批准。工具参数中的 ``approved=true`` 不生效。
+Kalıcı biçim yerel dizindeki JSON'dur; imza anahtarı aynı dizinde üretilir. CLI etkileşimli onay sunar,
+ancak terminal kontrolü girdinin bir insandan geldiğini kanıtlayamaz; aynı OS kullanıcı izinlerine sahip programlar defteri ve anahtarı okuyup yazabilir,
+HMAC bu programları yalıtmaz. Dağıtımcı defter dizinini ve yürütme ortamını korumalıdır; bu mekanizmayla eşit yerel izinlere sahip kötü niyetli süreçlerin onay taklit etmesinin engellendiği iddia edilemez. Araç parametrelerindeki ``approved=true`` etkisizdir.
 """
 from __future__ import annotations
 
@@ -26,16 +25,16 @@ from policy import Effect, canonical_digest, classify, targets
 
 DEFAULT_CALL_TTL_SECONDS = 15 * 60
 MAX_APPROVAL_ARGUMENT_BYTES = 64 * 1024
-# 历史记录不自动删除；满额时暂停新增并提示用户自行归档。
+# Geçmiş kayıtlar otomatik silinmez; kapasite dolduğunda ekleme durur ve kullanıcıdan kendi arşivlemesi istenir.
 MAX_APPROVAL_REQUEST_RECORDS = 1000
 MAX_APPROVAL_GRANT_RECORDS = 1000
 
-# 请求 ID 由 token_hex(4) 生成；校验格式同时挡住 ../ 之类的路径注入。
+# İstek ID'si token_hex(4) ile üretilir; biçim doğrulaması ../ gibi yol enjeksiyonlarını da engeller.
 _REQUEST_ID = re.compile(r"[0-9a-f]{8}")
 
 
 def default_root() -> Path:
-    """批准记录目录；放在用户数据区，不进仓库、不随安装包分发。"""
+    """Onay kayıtları dizini; kullanıcı veri alanında tutulur, depoya girmez ve kurulum paketiyle dağıtılmaz."""
     override = os.environ.get("SW_MCP_APPROVAL_DIR")
     if override:
         return Path(override)
@@ -44,11 +43,11 @@ def default_root() -> Path:
 
 
 class ApprovalError(RuntimeError):
-    """批准记录不合法、已过期或已被使用。"""
+    """Onay kaydı geçersiz, süresi dolmuş veya zaten kullanılmış."""
 
 
 def _locked(method):
-    """跨进程保护账本的读取、校验与更新。"""
+    """Defterin okunmasını, doğrulanmasını ve güncellenmesini süreçler arası korur."""
     @wraps(method)
     def wrapper(self, *args, **kwargs):
         with self._lock():
@@ -57,7 +56,7 @@ def _locked(method):
 
 
 class ApprovalLedger:
-    """批准请求与批准记录的本地账本。"""
+    """Onay istekleri ve onay kayıtları için yerel defter."""
 
     def __init__(self, root: Path | str | None = None):
         self.root = Path(root) if root is not None else default_root()
@@ -68,7 +67,7 @@ class ApprovalLedger:
 
     @contextmanager
     def _lock(self):
-        # 独立文件描述符使锁覆盖其他线程和其他服务进程；崩溃时由 OS 释放。
+        # Bağımsız dosya tanıtıcısı, kilidin diğer iş parçacıklarını ve diğer servis süreçlerini kapsamasını sağlar; çökme durumunda OS serbest bırakır.
         with (self.root / '.lock').open('a+b') as handle:
             handle.seek(0, os.SEEK_END)
             if handle.tell() == 0:
@@ -87,7 +86,7 @@ class ApprovalLedger:
                     break
                 except OSError as exc:
                     if time.monotonic() >= deadline:
-                        raise ApprovalError('审批账本锁超时，拒绝执行。') from exc
+                        raise ApprovalError('Onay defteri kilidi zaman aşımına uğradı, yürütme reddedildi.') from exc
                     time.sleep(0.01)
             try:
                 yield
@@ -98,14 +97,14 @@ class ApprovalLedger:
                 else:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
-    # ------------------------------------------------------------------ 密钥
+    # ------------------------------------------------------------------ Anahtar
     def _secret(self) -> bytes:
         path = self.root / "secret.key"
         if not path.exists():
             path.write_bytes(secrets.token_bytes(32))
             try:
                 path.chmod(0o600)
-            except OSError:  # pragma: no cover - Windows ACL 由用户目录继承
+            except OSError:  # pragma: no cover - Windows ACL kullanıcı dizininden devralınır
                 pass
         return path.read_bytes()
 
@@ -113,20 +112,20 @@ class ApprovalLedger:
         payload = json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         return hmac.new(self._secret(), payload, hashlib.sha256).hexdigest()
 
-    # ------------------------------------------------------------------ 请求
+    # ------------------------------------------------------------------ İstek
     @_locked
     def request(self, tool: str, arguments: Any, effect: str, *, subject: str | None = None) -> dict[str, Any]:
-        """登记一次待批准调用；同一工具同一参数重复请求会复用原 id。"""
+        """Onay bekleyen bir çağrıyı kaydeder; aynı araç ve aynı parametreyle tekrarlanan istek özgün id'yi yeniden kullanır."""
         summary = json.dumps(arguments, ensure_ascii=False, sort_keys=True, default=str)
         if len(summary.encode('utf-8')) > MAX_APPROVAL_ARGUMENT_BYTES:
-            raise ApprovalError('操作参数超过审批显示上限，拒绝执行。')
+            raise ApprovalError('İşlem parametreleri onay gösterim sınırını aşıyor, yürütme reddedildi.')
         digest = canonical_digest(tool, arguments)
         for existing in self.pending():
             if existing["tool"] == tool and existing["digest"] == digest and existing.get("subject") == subject:
                 return existing
         if sum(1 for _ in self.requests_dir.glob("*.json")) >= MAX_APPROVAL_REQUEST_RECORDS:
-            raise ApprovalError("审批请求记录已达容量上限；请在安全位置归档旧记录后重试。")
-        # 短 ID 可能发生碰撞；不得覆盖已经存在的请求或旧授权。
+            raise ApprovalError("Onay isteği kayıtları kapasite sınırına ulaştı; lütfen eski kayıtları güvenli bir konumda arşivledikten sonra yeniden deneyin.")
+        # Kısa ID'ler çakışabilir; var olan bir isteğin veya eski bir yetkinin üzerine yazılmamalıdır.
         request_id = None
         for _ in range(32):
             candidate = secrets.token_hex(4)
@@ -134,7 +133,7 @@ class ApprovalLedger:
                 request_id = candidate
                 break
         if request_id is None:
-            raise ApprovalError("无法生成唯一的审批请求 ID，拒绝创建请求。")
+            raise ApprovalError("Benzersiz bir onay isteği ID'si üretilemedi, istek oluşturma reddedildi.")
         now = time.time()
         record = {
             "id": request_id,
@@ -153,7 +152,7 @@ class ApprovalLedger:
         return record
 
     def pending(self) -> list[dict[str, Any]]:
-        """未过期且仍在等待人工决定的请求。"""
+        """Süresi dolmamış ve hâlâ insan kararını bekleyen istekler."""
         now = time.time()
         items = []
         for path in sorted(self.requests_dir.glob("*.json")):
@@ -163,29 +162,29 @@ class ApprovalLedger:
         return items
 
     def decisions(self, limit: int = 20) -> list[dict[str, Any]]:
-        """最近的人工决定，便于用户确认自己批过什么。"""
+        """En son insan kararları; kullanıcının neleri onayladığını doğrulamasını kolaylaştırır."""
         items = [self._read(path) for path in self.requests_dir.glob("*.json")]
         decided = [item for item in items if item.get("status") in {"approved", "denied"}]
         decided.sort(key=lambda item: item.get("decided_at") or 0, reverse=True)
         return decided[:limit]
 
-    # ------------------------------------------------------------------ 人工决定
+    # ------------------------------------------------------------------ İnsan kararı
     def _request_path(self, request_id: str) -> Path:
         if not isinstance(request_id, str) or not _REQUEST_ID.fullmatch(request_id):
-            raise ApprovalError(f"非法的请求 ID: {request_id!r}")
+            raise ApprovalError(f"Geçersiz istek ID'si: {request_id!r}")
         return self.requests_dir / f"{request_id}.json"
 
     def request_record(self, request_id: str) -> dict[str, Any]:
-        """按 ID 读取请求详情；ID 格式非法时报 ApprovalError。"""
+        """İstek ayrıntılarını ID ile okur; ID biçimi geçersizse ApprovalError verir."""
         return self._read(self._request_path(request_id))
 
     @_locked
     def approve(self, request_id: str, ttl_seconds: int | None = None, *,
                 expected_record: dict[str, Any] | None = None) -> dict[str, Any]:
-        """把一条 pending 请求变成一次性 call 批准记录。"""
+        """Bekleyen bir isteği tek kullanımlık bir call onay kaydına dönüştürür."""
         record = self.request_record(request_id)
         if expected_record is not None and record != expected_record:
-            raise ApprovalError(f"请求 {request_id} 在展示后发生变化，拒绝批准。")
+            raise ApprovalError(f"İstek {request_id} gösterimden sonra değişti, onay reddedildi.")
         try:
             displayed_arguments = json.loads(record["summary"])
             matches_display = (
@@ -195,17 +194,17 @@ class ApprovalLedger:
         except (KeyError, TypeError, ValueError):
             matches_display = False
         if not matches_display:
-            raise ApprovalError(f"请求 {request_id} 的参数摘要与执行内容不一致，拒绝批准。")
+            raise ApprovalError(f"İstek {request_id} için parametre özeti ile yürütme içeriği uyuşmuyor, onay reddedildi.")
         effect, _ = classify(record["tool"], displayed_arguments)
         if effect not in (Effect.WRITE, Effect.DESTRUCTIVE) or record.get("effect") != effect.value:
-            raise ApprovalError(f"请求 {request_id} 的副作用等级与当前策略不一致，拒绝批准。")
+            raise ApprovalError(f"İstek {request_id} için yan etki düzeyi geçerli politikayla uyuşmuyor, onay reddedildi.")
         if record.get("status") != "pending":
-            raise ApprovalError(f"请求 {request_id} 当前状态是 {record.get('status')}，不能批准。")
+            raise ApprovalError(f"İstek {request_id} şu anki durumu {record.get('status')}, onaylanamaz.")
         if record.get("expires_at", 0) <= time.time():
-            raise ApprovalError(f"请求 {request_id} 已过期，重新调用工具即可生成新的请求。")
-        # 容量检查必须在锁内、修改请求状态前完成，避免批准后无法签发授权。
+            raise ApprovalError(f"İstek {request_id} süresi dolmuş; aracı yeniden çağırarak yeni bir istek oluşturabilirsiniz.")
+        # Kapasite kontrolü kilit içinde ve istek durumu değiştirilmeden önce yapılmalıdır; aksi halde onaydan sonra yetki verilemeyebilir.
         if sum(1 for _ in self.grants_dir.glob("*.json")) >= MAX_APPROVAL_GRANT_RECORDS:
-            raise ApprovalError("审批授权记录已达容量上限；请在安全位置归档旧记录后重试。")
+            raise ApprovalError("Onay yetki kayıtları kapasite sınırına ulaştı; lütfen eski kayıtları güvenli bir konumda arşivledikten sonra yeniden deneyin.")
         record.update({"status": "approved", "decided_at": time.time()})
         self._write(self.requests_dir / f"{request_id}.json", record)
 
@@ -226,20 +225,20 @@ class ApprovalLedger:
     def deny(self, request_id: str) -> dict[str, Any]:
         record = self.request_record(request_id)
         if record.get("status") != "pending":
-            raise ApprovalError(f"请求 {request_id} 当前状态是 {record.get('status')}，不能拒绝。")
+            raise ApprovalError(f"İstek {request_id} şu anki durumu {record.get('status')}, reddedilemez.")
         record.update({"status": "denied", "decided_at": time.time()})
         return self._write(self.requests_dir / f"{request_id}.json", record)
 
     @_locked
     def grant_scope(self, tools: list[str], paths: list[str], ttl_seconds: int | None = None,
                     max_uses: int | None = None) -> dict[str, Any]:
-        """批准一组工具在一段时间内的写入范围。"""
-        raise ApprovalError("范围授权已停用；请逐次审核并批准具体调用。")
+        """Bir grup aracın belirli bir süre için yazma kapsamını onaylar."""
+        raise ApprovalError("Kapsam yetkilendirmesi devre dışı bırakıldı; lütfen her çağrıyı tek tek inceleyip onaylayın.")
 
-    # ------------------------------------------------------------------ 校验
+    # ------------------------------------------------------------------ Doğrulama
     @_locked
     def consume(self, tool: str, arguments: Any, *, subject: str | None = None) -> dict[str, Any] | None:
-        """找到覆盖本次调用的批准记录；一次性记录在校验通过后立即消耗。"""
+        """Bu çağrıyı kapsayan onay kaydını bulur; tek kullanımlık kayıtlar doğrulama geçince hemen tüketilir."""
         digest = canonical_digest(tool, arguments)
         call_hit = None
         for grant in self._grants():
@@ -252,7 +251,7 @@ class ApprovalLedger:
             self._consume(call_hit)
             return call_hit
 
-        # 旧范围授权也不能生效：工具可能修改隐式活动文档或引用外部文件。
+        # Eski kapsam yetkileri de geçerli olmamalıdır: araç örtük etkin belgeyi değiştirebilir veya harici dosyalara başvurabilir.
         return None
 
     def _scope_covers(self, grant: dict[str, Any], tool: str, tool_targets: list[str]) -> bool:
@@ -260,7 +259,7 @@ class ApprovalLedger:
         if "*" not in allowed and tool not in allowed:
             return False
         if tool not in allowed and "*" in allowed:
-            # * 表示"全部写工具"，但破坏性操作必须逐个点名，避免一把梭。
+            # * "tüm yazma araçları" anlamına gelir, ancak yıkıcı işlemler tek tek adlandırılmalıdır; hepsini birden açmaktan kaçının.
             if classify(tool)[0] is Effect.DESTRUCTIVE:
                 return False
         try:
@@ -299,7 +298,7 @@ class ApprovalLedger:
         grant["used_at"] = time.time()
         self._write(self.grants_dir / f"{grant['id']}.json", self._sign_record(grant))
 
-    # ------------------------------------------------------------------ 存储
+    # ------------------------------------------------------------------ Depolama
     def _issue(self, body: dict[str, Any]) -> dict[str, Any]:
         record = self._sign_record(body)
         self._write(self.grants_dir / f"{body['id']}.json", record)
@@ -322,9 +321,9 @@ class ApprovalLedger:
         try:
             return json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError as exc:
-            raise ApprovalError(f"没有找到批准记录：{path.name}") from exc
+            raise ApprovalError(f"Onay kaydı bulunamadı: {path.name}") from exc
         except json.JSONDecodeError as exc:
-            raise ApprovalError(f"批准记录已损坏：{path.name}") from exc
+            raise ApprovalError(f"Onay kaydı bozulmuş: {path.name}") from exc
 
 
 def _unsigned(record: dict[str, Any]) -> dict[str, Any]:
@@ -334,12 +333,12 @@ def _unsigned(record: dict[str, Any]) -> dict[str, Any]:
 def _normalize_path(value: Any) -> str:
     path = Path(str(value))
     if not path.is_absolute():
-        raise ValueError('审批范围和目标必须是绝对路径')
+        raise ValueError('Onay kapsamı ve hedefi mutlak yol olmalıdır')
     return os.path.normcase(str(path.resolve(strict=False)))
 
 
 def _within(target: str, prefix: str) -> bool:
-    """按路径段匹配，避免 D:/work 误覆盖 D:/workshop。"""
+    """Yol segmentine göre eşleştirir; D:/work'ün yanlışlıkla D:/workshop'u kapsamasını önler."""
     try:
         return os.path.commonpath((target, prefix)) == prefix
     except ValueError:

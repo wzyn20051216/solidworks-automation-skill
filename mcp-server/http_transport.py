@@ -1,9 +1,9 @@
-"""@brief 同一 MCP 的可选 HTTP 传输；显式 Host/Origin 与共享密钥边界。"""
+"""@brief Aynı MCP için isteğe bağlı HTTP taşıma; açık Host/Origin ve paylaşılan anahtar sınırı."""
 import hmac
 
 
 class TokenAuthMiddleware:
-    """@brief 在 HTTP 层校验 Bearer，不接触工具 Schema、COM 锁或日志内容。"""
+    """@brief Bearer'ı HTTP katmanında doğrular; araç Schema'sına, COM kilidine veya günlük içeriğine dokunmaz."""
     def __init__(self, app, token):
         self.app = app
         self.expected = ("Bearer " + token).encode("utf-8") if token else None

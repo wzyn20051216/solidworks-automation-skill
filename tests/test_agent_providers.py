@@ -1,4 +1,4 @@
-"""@brief CAD Studio 多 Agent Provider 协议回归测试。"""
+"""@brief CAD Studio çoklu Agent Provider protokolü regresyon testi."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from apps.desktop.cad_workbench.queue_worker import record_provider_verification
 
 
 def test_codex_prefers_npm_node_entry_over_windowsapps_alias(tmp_path: Path, monkeypatch) -> None:
-    """@brief 防止 Worker 命中可发现但不可执行的 WindowsApps Codex 别名。"""
+    """@brief Worker'ın bulunabilen ama çalıştırılamayan WindowsApps Codex takma adına çarpmasını önler."""
     appdata = tmp_path / "AppData" / "Roaming"
     script = appdata / "npm" / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
     script.parent.mkdir(parents=True)
@@ -48,7 +48,7 @@ RESULT = {
     ],
 )
 def test_provider_commands_compile_unified_protocol(tmp_path: Path, provider_id: str, expected_tokens: list[str]) -> None:
-    """@brief 四类 Provider 都必须使用非交互命令并保留统一工作区。"""
+    """@brief Dört Provider türü de etkileşimsiz komut kullanmalı ve birleşik çalışma alanını korumalıdır."""
     schema = tmp_path / "schema.json"
     schema.write_text(json.dumps({"type": "object"}), encoding="utf-8")
     provider = AgentProvider(provider_id, provider_id, f"{provider_id}-v1", provider_id in {"codex", "claude"}, True, (provider_id,))
@@ -77,7 +77,7 @@ def test_provider_commands_compile_unified_protocol(tmp_path: Path, provider_id:
     ],
 )
 def test_provider_outputs_normalize_to_unified_result(tmp_path: Path, provider_id: str, stdout: str) -> None:
-    """@brief Provider 包装 JSON/JSONL 必须归一化成统一结果对象。"""
+    """@brief Provider sarmalayıcı JSON/JSONL birleşik sonuç nesnesine normalleştirilmelidir."""
     provider = AgentProvider(provider_id, provider_id, f"{provider_id}-v1", False, True, (provider_id,))
     output = tmp_path / "result.json"
 
@@ -88,7 +88,7 @@ def test_provider_outputs_normalize_to_unified_result(tmp_path: Path, provider_i
 
 
 def test_claude_verification_aliases_normalize_to_reviewer_contract(tmp_path: Path) -> None:
-    """@brief Claude 常见 type/detail 输出必须归一化后再进入 Reviewer Gate。"""
+    """@brief Claude'un yaygın type/detail çıktısı Reviewer Gate'e girmeden önce normalleştirilmelidir."""
     provider = AgentProvider("claude", "Claude Code", "claude-print-v1", True, True, ("claude",))
     output = tmp_path / "claude-normalised.json"
     provider_result = {
@@ -103,7 +103,7 @@ def test_claude_verification_aliases_normalize_to_reviewer_contract(tmp_path: Pa
 
 
 def test_claude_agent_job_uses_selected_provider(tmp_path: Path, monkeypatch) -> None:
-    """@brief executor=agent 时不得回退到 Codex 命令。"""
+    """@brief executor=agent iken Codex komutuna geri dönülmemelidir."""
     repo = Path(__file__).resolve().parents[1]
     output = tmp_path / "agent-result.json"
     monkeypatch.setattr("apps.desktop.cad_workbench.queue_worker.agent_output_path", lambda job, cwd: output)
@@ -142,7 +142,7 @@ def test_claude_agent_job_uses_selected_provider(tmp_path: Path, monkeypatch) ->
 
 
 def test_live_provider_verification_is_persisted_without_secrets(tmp_path: Path) -> None:
-    """@brief 真实成功记录只保存协议与时间，不保存凭证或原始输出。"""
+    """@brief Gerçek başarı kaydı yalnızca protokol ve zamanı saklar; kimlik bilgisi veya ham çıktı saklamaz."""
     provider = AgentProvider("claude", "Claude Code", "claude-print-v1", True, True, ("claude",))
 
     path = record_provider_verification(tmp_path, provider)
@@ -154,7 +154,7 @@ def test_live_provider_verification_is_persisted_without_secrets(tmp_path: Path)
 
 
 def test_complex_agent_job_injects_auditable_engineering_dag(tmp_path: Path, monkeypatch) -> None:
-    """@brief 综合任务必须生成 DAG 证据，简单 Provider 协议仍保持不变。"""
+    """@brief Kapsamlı görev DAG kanıtı üretmelidir; basit Provider protokolü değişmeden kalır."""
     repo = Path(__file__).resolve().parents[1]
     output = tmp_path / "complex-agent-result.json"
     monkeypatch.setattr("apps.desktop.cad_workbench.queue_worker.agent_output_path", lambda job, cwd: output)
@@ -182,7 +182,7 @@ def test_complex_agent_job_injects_auditable_engineering_dag(tmp_path: Path, mon
 
 
 def test_follow_up_agent_job_replans_previous_dag_locally(tmp_path: Path, monkeypatch) -> None:
-    """@brief 对话追改必须恢复上一轮 DAG，而不是把局部要求当成全新简单任务。"""
+    """@brief Konuşma düzeltmesi önceki DAG'ı geri yüklemeli; yerel isteği yepyeni basit görev saymamalıdır."""
     repo = Path(__file__).resolve().parents[1]
     queue = tmp_path / "queue"
     queue.mkdir()
@@ -222,3 +222,130 @@ def test_follow_up_agent_job_replans_previous_dag_locally(tmp_path: Path, monkey
     assert result["engineeringPlan"]["phases"][0]["status"] == "completed"
     assert result["engineeringPlan"]["phases"][1]["status"] == "completed"
     assert result["engineeringPlan"]["phases"][2]["status"] == "planned"
+
+
+def test_lmstudio_provider_resolves_to_python_bridge() -> None:
+    """@brief LM Studio, harici CLI gerektirmeden Python API köprüsüyle çözülmelidir."""
+    provider = resolve_provider("lmstudio")
+
+    assert provider.id == "lmstudio"
+    assert provider.name == "LM Studio"
+    assert provider.protocol == "lmstudio-openai-v1"
+    assert provider.command[1].endswith("lmstudio_client.py")
+
+
+def test_lmstudio_command_targets_api_endpoint(tmp_path: Path, monkeypatch) -> None:
+    """@brief LM Studio komutu şemayı, modeli ve yapılandırılan uç noktayı taşımalıdır."""
+    monkeypatch.setenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:9999/v1")
+    schema = tmp_path / "schema.json"
+    schema.write_text(json.dumps({"type": "object"}), encoding="utf-8")
+    provider = resolve_provider("lmstudio")
+
+    command = build_provider_command(provider, "görevi çalıştır", tmp_path, tmp_path / "result.json", schema, "workspace-write", model="qwen2.5-coder")
+
+    assert command[:2] == list(provider.command)
+    assert "--schema" in command and str(schema) in command
+    assert "--base-url" in command and "http://127.0.0.1:9999/v1" in command
+    assert "--model" in command and "qwen2.5-coder" in command
+    assert command[-1] == "görevi çalıştır"
+
+
+def test_lmstudio_output_normalizes_to_unified_result(tmp_path: Path) -> None:
+    """@brief LM Studio stdout JSON'u birleşik sonuç nesnesine normalleştirilmelidir."""
+    provider = AgentProvider("lmstudio", "LM Studio", "lmstudio-openai-v1", True, False, ("lmstudio",))
+    output = tmp_path / "lmstudio-result.json"
+
+    parsed = parse_provider_result(provider, json.dumps(RESULT, ensure_ascii=False), output)
+
+    assert parsed == RESULT
+    assert json.loads(output.read_text(encoding="utf-8")) == RESULT
+
+
+def test_lmstudio_client_round_trip_against_local_endpoint(tmp_path: Path, monkeypatch, capsys) -> None:
+    """@brief Köprü CLI, gerçek bir OpenAI uyumlu HTTP uç noktasıyla uçtan uca çalışmalıdır."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    from apps.desktop.cad_workbench import lmstudio_client
+
+    captured: dict[str, object] = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def _send(self, payload: dict) -> None:
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self) -> None:  # noqa: N802
+            assert self.path == "/v1/models"
+            self._send({"data": [{"id": "qwen2.5-coder"}]})
+
+        def do_POST(self) -> None:  # noqa: N802
+            assert self.path == "/v1/chat/completions"
+            length = int(self.headers.get("Content-Length") or 0)
+            captured["request"] = json.loads(self.rfile.read(length).decode("utf-8"))
+            self._send({"choices": [{"message": {"content": json.dumps(RESULT, ensure_ascii=False)}}]})
+
+        def log_message(self, *args) -> None:  # noqa: ANN002
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base_url = f"http://127.0.0.1:{server.server_address[1]}/v1"
+        schema = tmp_path / "schema.json"
+        schema.write_text(json.dumps({"type": "object"}), encoding="utf-8")
+        monkeypatch.delenv("LMSTUDIO_API_KEY", raising=False)
+
+        assert lmstudio_client.main(["--version", "--base-url", base_url]) == 0
+        assert lmstudio_client.main(["--base-url", base_url, "--schema", str(schema), "görev istemi"]) == 0
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+    stdout = capsys.readouterr().out
+    assert "LM Studio API hazır" in stdout
+    request = captured["request"]
+    assert request["model"] == "qwen2.5-coder"
+    assert request["messages"][-1] == {"role": "user", "content": "görev istemi"}
+    assert request["response_format"]["type"] == "json_schema"
+    assert json.loads(stdout.strip().splitlines()[-1]) == RESULT
+
+
+def test_lmstudio_agent_job_uses_api_bridge(tmp_path: Path, monkeypatch) -> None:
+    """@brief executor=agent + provider=lmstudio görevi birleşik protokolde tamamlanmalıdır."""
+    repo = Path(__file__).resolve().parents[1]
+    output = tmp_path / "lmstudio-agent-result.json"
+    monkeypatch.setattr("apps.desktop.cad_workbench.queue_worker.agent_output_path", lambda job, cwd: output)
+    job = {
+        "id": "agent-lmstudio-test",
+        "kind": "agent_task",
+        "executor": "agent",
+        "cwd": str(repo),
+        "prompt": "birleşik protokol testi",
+        "objective": "LM Studio Provider doğrulaması",
+        "uiConfig": {
+            "agentRuntime": {
+                "provider": "lmstudio",
+                "providerName": "LM Studio",
+                "protocol": "lmstudio-openai-v1",
+            }
+        },
+    }
+    calls: list[list[str]] = []
+
+    def fake_runner(command, cwd, timeout_seconds):  # noqa: ANN001, ANN201
+        calls.append(list(command))
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps(RESULT, ensure_ascii=False), stderr="")
+
+    result = run_agent_job(job, runner=fake_runner, timeout_seconds=3)
+
+    assert calls[0][0] == "lmstudio"
+    assert result["mode"] == "agent"
+    assert result["provider"]["id"] == "lmstudio"
+    assert result["provider"]["protocol"] == "lmstudio-openai-v1"
+    assert output.is_file()

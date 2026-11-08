@@ -41,7 +41,7 @@ export function mimeType(path?: string) {
 }
 
 export function fileName(path?: string) {
-  return path?.split(/[\\/]/).pop() || "未选择文件";
+  return path?.split(/[\\/]/).pop() || "Dosya seçilmedi";
 }
 
 export function formatBounds(bounds?: { minX?: number; minY?: number; maxX?: number; maxY?: number }, units = "mm") {

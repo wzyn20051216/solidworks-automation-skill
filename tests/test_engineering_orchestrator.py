@@ -1,4 +1,4 @@
-"""@brief 复杂机械工程 DAG 编排器回归测试。"""
+"""@brief Kapsamlı makine mühendisliği DAG orkestratörü regresyon testi."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ BRIEF = "带倒角、沉孔、四零件装配、旋转马达、GB/T工程图和S
 
 
 def test_complex_reducer_is_split_into_complete_engineering_dag() -> None:
-    """@brief 给定综合减速机构需求必须拆成八个可验收阶段。"""
+    """@brief Verilen kapsamlı redüktör mekanizması gereksinimi sekiz kabul edilebilir aşamaya bölünmelidir."""
     plan = build_engineering_plan(BRIEF)
 
     assert [phase.id for phase in plan.phases] == [
@@ -44,14 +44,14 @@ def test_complex_reducer_is_split_into_complete_engineering_dag() -> None:
 
 
 def test_complex_classifier_does_not_force_simple_part_into_full_dag() -> None:
-    """@brief 简单拉伸零件不应被强行加入装配、Motion 和图纸阶段。"""
+    """@brief Basit ekstrüzyon parçasına zorla montaj, Motion ve teknik resim aşamaları eklenmemelidir."""
     assert requires_engineering_orchestration(BRIEF) is True
     assert requires_engineering_orchestration("拉伸一个 50x30x10 mm 的矩形块") is False
     assert requires_engineering_orchestration("设计一个四零件装配体并输出 STEP") is True
 
 
 def test_dynamic_dag_omits_unrequested_motion_and_drawing() -> None:
-    """@brief 装配加 STEP 不能自动扩张为 Motion 和工程图项目。"""
+    """@brief Montaj ve STEP, otomatik olarak Motion ve teknik resim projesine genişlememelidir."""
     plan = build_engineering_plan("设计一个四零件装配体并输出 STEP")
     phase_ids = [phase.id for phase in plan.phases]
 
@@ -63,7 +63,7 @@ def test_dynamic_dag_omits_unrequested_motion_and_drawing() -> None:
 
 
 def test_routes_select_existing_skills_and_mcp_tools() -> None:
-    """@brief 倒角、沉孔、装配和 Motion 必须路由到现有真实能力。"""
+    """@brief Pah, havşa, montaj ve Motion mevcut gerçek yeteneklere yönlendirilmelidir."""
     plan = build_engineering_plan(BRIEF)
 
     feature_phase = plan.phase("holes-fillet-chamfer")
@@ -82,7 +82,7 @@ def test_routes_select_existing_skills_and_mcp_tools() -> None:
 
 
 def test_every_phase_has_artifacts_acceptance_risks_and_retry_policy() -> None:
-    """@brief 每阶段必须能独立交付证据、验收和局部重试。"""
+    """@brief Her aşama bağımsız olarak kanıt, kabul ve yerel yeniden deneme sunabilmelidir."""
     plan = build_engineering_plan(BRIEF)
 
     for phase in plan.phases:
@@ -94,7 +94,7 @@ def test_every_phase_has_artifacts_acceptance_risks_and_retry_policy() -> None:
 
 
 def test_plan_never_claims_unexecuted_or_pilot_work_is_complete() -> None:
-    """@brief 规划成功不能被误解为 CAD、BOM 或图纸已经完成。"""
+    """@brief Planlama başarısı CAD, BOM veya teknik resmin tamamlandığı şeklinde yorumlanmamalıdır."""
     plan = build_engineering_plan(BRIEF)
     drawing = plan.phase("drawing-bom")
 
@@ -107,11 +107,11 @@ def test_plan_never_claims_unexecuted_or_pilot_work_is_complete() -> None:
         "solidworks_review_drawing",
         "solidworks_inspect_drawing",
     }
-    assert any("不能无人值守" in risk for risk in drawing.risks)
+    assert any("gözetimsiz teslim edilemez" in risk for risk in drawing.risks)
 
 
 def test_capability_report_can_block_unimplemented_motion() -> None:
-    """@brief 本机报告声明未实现时不得继续把 Motion 当作可自动执行。"""
+    """@brief Yerel rapor uygulanmadığını bildirdiğinde Motion otomatik çalıştırılabilir sayılmamalıdır."""
     plan = build_engineering_plan(
         BRIEF,
         capability_report={
@@ -131,12 +131,12 @@ def test_capability_report_can_block_unimplemented_motion() -> None:
 
     invalid = replace(motion, status=PhaseStatus.COMPLETED)
     invalid_plan = replace(plan, phases=tuple(invalid if item.id == motion.id else item for item in plan.phases))
-    with pytest.raises(ValueError, match="未实现能力"):
+    with pytest.raises(ValueError, match="Uygulanmamış yetenek"):
         invalid_plan.validate()
 
 
 def test_probe_capability_alias_downgrades_pilot_drawing_route() -> None:
-    """@brief 编排器必须识别真实能力探测器的 drawings 键。"""
+    """@brief Orkestratör, gerçek yetenek sondasının drawings anahtarını tanımalıdır."""
     plan = build_engineering_plan(
         BRIEF,
         capability_report={
@@ -155,7 +155,7 @@ def test_probe_capability_alias_downgrades_pilot_drawing_route() -> None:
 
 
 def test_critical_cad_phases_share_single_serial_lane() -> None:
-    """@brief 关键 SolidWorks COM 阶段不得被调度为并发写操作。"""
+    """@brief Kritik SolidWorks COM aşamaları eşzamanlı yazma işlemi olarak planlanmamalıdır."""
     plan = build_engineering_plan(BRIEF)
     critical = [phase for phase in plan.phases if phase.serial_required]
 
@@ -166,7 +166,7 @@ def test_critical_cad_phases_share_single_serial_lane() -> None:
 
 
 def test_local_hole_change_replans_only_affected_phase_and_descendants() -> None:
-    """@brief 修改沉孔后保留已确认需求和零件，失效孔特征及所有下游结果。"""
+    """@brief Havşa değiştirildiğinde onaylanmış gereksinim ve parçalar korunur; delik özelliği ve tüm alt sonuçlar geçersiz olur."""
     plan = build_engineering_plan(BRIEF)
     completed_phases = tuple(
         replace(phase, status=PhaseStatus.COMPLETED) if phase.id in {"requirements", "part-modeling"} else phase
@@ -188,7 +188,7 @@ def test_local_hole_change_replans_only_affected_phase_and_descendants() -> None
 
 
 def test_plan_serializes_to_provider_friendly_values() -> None:
-    """@brief 计划应可直接写入统一 Agent 任务 JSON。"""
+    """@brief Plan doğrudan birleşik Agent görev JSON'una yazılabilmelidir."""
     payload = build_engineering_plan(BRIEF).to_dict()
 
     assert payload["schema_version"] == "1.0"
@@ -198,7 +198,7 @@ def test_plan_serializes_to_provider_friendly_values() -> None:
 
 
 def test_persisted_plan_round_trip_supports_follow_up_replanning() -> None:
-    """@brief 队列中的上一轮 DAG 必须可恢复并继续做局部修改。"""
+    """@brief Kuyruktaki önceki DAG geri yüklenebilmeli ve yerel değişiklikle sürdürülebilmelidir."""
     original = build_engineering_plan(BRIEF)
 
     restored = engineering_plan_from_dict(original.to_dict())

@@ -66,25 +66,25 @@ function manifestFromArtifact(artifact?: CadPreviewArtifact): PreviewManifest | 
     isDemo: artifact.isDemo,
     units: "mm",
     sha256: artifact.sha256,
-    limitations: artifact.isDemo ? ["演示预览不能作为本轮交付证据"] : [],
+    limitations: artifact.isDemo ? ["Demo önizleme, bu çalıştırmanın teslimat kanıtı olarak kullanılamaz"] : [],
   };
 }
 
-/** @brief CAD 交付预览调度层，统一模型、DXF、图片和预览清单。 */
+/** @brief CAD teslimat önizleme yönlendirme katmanı; model, DXF, görüntü ve önizleme manifestolarını birleştirir. */
 export function CadPreview({ artifact }: { artifact?: CadPreviewArtifact }) {
   const actionsRef = useRef<PreviewActions | null>(null);
   const dxfActionsRef = useRef<PreviewActions | null>(null);
   const modelActionsRef = useRef<PreviewActions | null>(null);
   const [loaded, setLoaded] = useState<LoadedPreview | null>(null);
-  const [phase, setPhase] = useState<PreviewPhase>("等待文件");
-  const [message, setMessage] = useState("选择 STL、GLB、GLTF、OBJ、DXF、预览清单或图片产物后显示预览");
+  const [phase, setPhase] = useState<PreviewPhase>("Dosya bekleniyor");
+  const [message, setMessage] = useState("STL, GLB, GLTF, OBJ, DXF, önizleme manifestosu veya görüntü çıktısı seçildiğinde önizleme gösterilir");
   const [selection, setSelection] = useState<PreviewSelection | null>(null);
   const [stats, setStats] = useState<PreviewStats>({});
   const [layers, setLayers] = useState<PreviewLayer[]>([]);
   const [visibleLayers, setVisibleLayers] = useState<Set<string>>(new Set());
   const [projection, setProjection] = useState<"perspective" | "orthographic">("perspective");
   const effectiveMode = loaded?.mode ?? modeForPath(artifact?.path);
-  const ready = phase === "可交互";
+  const ready = phase === "Etkileşime hazır";
 
   const setPreviewPhase = useCallback((next: string, detail = "") => {
     setPhase(next as PreviewPhase);
@@ -101,7 +101,7 @@ export function CadPreview({ artifact }: { artifact?: CadPreviewArtifact }) {
     actionsRef.current = null;
     const sourcePath = artifact?.previewManifest || artifact?.path;
     if (!sourcePath || artifact?.exists === false) {
-      setPreviewPhase("等待文件", artifact?.exists === false ? "文件缺失，不能预览。" : "等待选择产物。");
+      setPreviewPhase("Dosya bekleniyor", artifact?.exists === false ? "Dosya eksik; önizlenemiyor." : "Çıktı seçilmesi bekleniyor.");
       return;
     }
     const load = async () => {
@@ -118,13 +118,13 @@ export function CadPreview({ artifact }: { artifact?: CadPreviewArtifact }) {
               manifestPath: artifact.previewManifest,
               revoke: () => URL.revokeObjectURL(objectUrl),
             });
-            setPreviewPhase("正在解码", "读取演示 PreviewScene");
+            setPreviewPhase("Kod çözülüyor", "Demo PreviewScene okunuyor");
           } else {
             URL.revokeObjectURL(objectUrl);
           }
           return;
         }
-        setPreviewPhase("正在读取文件", fileName(sourcePath));
+        setPreviewPhase("Dosya okunuyor", fileName(sourcePath));
         let manifest = manifestFromArtifact(artifact);
         let displayPath = artifact?.path || sourcePath;
         if (artifact?.previewManifest || modeForPath(sourcePath) === "manifest") {
@@ -143,9 +143,9 @@ export function CadPreview({ artifact }: { artifact?: CadPreviewArtifact }) {
           return;
         }
         setLoaded({ url: loadedUrl.url, path: displayPath, mode, manifest, manifestPath: sourcePath, revoke: loadedUrl.revoke });
-        setPreviewPhase(mode === "image" ? "可交互" : "正在解码", mode === "image" ? "图像回退预览已就绪" : fileName(displayPath));
+        setPreviewPhase(mode === "image" ? "Etkileşime hazır" : "Kod çözülüyor", mode === "image" ? "Görüntü yedeği önizlemesi hazır" : fileName(displayPath));
       } catch (error) {
-        if (!disposed) setPreviewPhase("预览失败", (error as Error).message);
+        if (!disposed) setPreviewPhase("Önizleme başarısız", (error as Error).message);
       }
     };
     void load();
@@ -157,11 +157,11 @@ export function CadPreview({ artifact }: { artifact?: CadPreviewArtifact }) {
   const handleModelFailure = useCallback((reason: string) => {
     const fallback = loaded?.manifest?.fallbackImage;
     if (!fallback) {
-      setPreviewPhase("预览失败", reason);
+      setPreviewPhase("Önizleme başarısız", reason);
       return;
     }
     const fallbackPath = resolveSiblingPath(loaded.manifestPath || loaded.path, fallback);
-    setPreviewPhase("正在读取文件", `${reason} 正在切换 PNG 回退。`);
+    setPreviewPhase("Dosya okunuyor", `${reason} PNG yedeğine geçiliyor.`);
     void readPreviewUrl(fallbackPath).then((fallbackUrl) => {
       setLoaded((current) => ({
         url: fallbackUrl.url,
@@ -171,8 +171,8 @@ export function CadPreview({ artifact }: { artifact?: CadPreviewArtifact }) {
         manifestPath: current?.manifestPath,
         revoke: fallbackUrl.revoke,
       }));
-      setPreviewPhase("可交互", `${reason} 已显示 PNG 回退预览。`);
-    }).catch((error: Error) => setPreviewPhase("预览失败", `${reason} PNG 回退失败: ${error.message}`));
+      setPreviewPhase("Etkileşime hazır", `${reason} PNG yedek önizlemesi gösterildi.`);
+    }).catch((error: Error) => setPreviewPhase("Önizleme başarısız", `${reason} PNG yedeği başarısız: ${error.message}`));
   }, [loaded, setPreviewPhase]);
 
   useEffect(() => {
@@ -194,10 +194,10 @@ export function CadPreview({ artifact }: { artifact?: CadPreviewArtifact }) {
   actionsRef.current = activeActions;
 
   return (
-    <section className="cad-preview mechanical-bench" aria-label="CAD 预览">
+    <section className="cad-preview mechanical-bench" aria-label="CAD önizlemesi">
       <div className="cad-preview-heading">
         <div><span className="eyebrow">CAD INSPECTION BENCH</span><strong>{fileName(loaded?.path || artifact?.path)}</strong></div>
-        <span className={`cad-preview-status ${phase === "可交互" ? "ready" : phase === "预览失败" ? "error" : "loading"}`}>{phase}</span>
+        <span className={`cad-preview-status ${phase === "Etkileşime hazır" ? "ready" : phase === "Önizleme başarısız" ? "error" : "loading"}`}>{phase}</span>
       </div>
       <PreviewStatus phase={phase} message={message} manifest={manifest} />
       <div className="cad-preview-layout">
@@ -224,7 +224,7 @@ export function CadPreview({ artifact }: { artifact?: CadPreviewArtifact }) {
           ) : (
             <div className="cad-preview-empty"><WarningCircle size={22} /><span>{message}</span></div>
           )}
-          {phase === "预览失败" ? <div className="cad-preview-error">{message}</div> : null}
+          {phase === "Önizleme başarısız" ? <div className="cad-preview-error">{message}</div> : null}
         </div>
         <PreviewEvidencePanel manifest={manifest} selection={selection} />
       </div>

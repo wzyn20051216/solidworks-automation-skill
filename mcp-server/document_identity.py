@@ -1,8 +1,9 @@
-"""活动文档目标的显式绑定与核验；不负责读取 COM 或批准用户操作。
+"""Etkin belge hedefinin açık bağlanması ve doğrulanması; COM okumaktan veya kullanıcı işlemini onaylamaktan sorumlu değildir.
 
-PID 与规范化的已保存文档路径用于定位执行目标，并不证明文档内容没有变化，
-也不构成对同系统用户进程的安全隔离。调用方必须在 CAD 操作锁内取得真实
-PID 和活动文档路径，验证后使用同一个模型对象执行操作。
+PID ve normalleştirilmiş kayıtlı belge yolu, yürütme hedefini belirlemek için kullanılır;
+belge içeriğinin değişmediğini kanıtlamaz ve aynı sistem kullanıcısının süreçlerine karşı
+güvenlik yalıtımı sağlamaz. Çağıran, gerçek PID ile etkin belge yolunu CAD işlem kilidi
+içinde almalı ve doğrulamadan sonra aynı model nesnesiyle işlemi yürütmelidir.
 """
 from __future__ import annotations
 
@@ -15,34 +16,34 @@ from typing import Iterator
 
 
 class DocumentIdentityError(ValueError):
-    """目标无效、未绑定或与实际活动文档不一致。"""
+    """Hedef geçersiz, bağlanmamış veya gerçek etkin belgeyle uyuşmuyor."""
 
 
 def _path(value: object) -> str:
     if not isinstance(value, str) or not value or value != value.strip() or "\x00" in value:
-        raise DocumentIdentityError("文档路径必须是有效的非空绝对路径。")
+        raise DocumentIdentityError("Belge yolu geçerli, boş olmayan mutlak bir yol olmalıdır.")
     if any(character in value for character in ("*", "?")):
-        raise DocumentIdentityError("文档路径不能包含通配符。")
+        raise DocumentIdentityError("Belge yolu joker karakter içeremez.")
     candidate = Path(value)
     if not candidate.is_absolute():
-        raise DocumentIdentityError("文档路径必须是绝对路径；未保存文档不能使用此验证。")
+        raise DocumentIdentityError("Belge yolu mutlak olmalıdır; kaydedilmemiş belgeler bu doğrulamayı kullanamaz.")
     if candidate.suffix.lower() not in {".sldprt", ".sldasm", ".slddrw"}:
-        raise DocumentIdentityError("目标必须是已保存的 SolidWorks 原生文档路径。")
+        raise DocumentIdentityError("Hedef, kayıtlı bir SolidWorks yerel belge yolu olmalıdır.")
     try:
         return os.path.normcase(str(candidate.resolve(strict=False)))
     except (OSError, RuntimeError, ValueError) as exc:
-        raise DocumentIdentityError("文档路径无法规范化。") from exc
+        raise DocumentIdentityError("Belge yolu normalleştirilemedi.") from exc
 
 
 def _pid(value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise DocumentIdentityError("SolidWorks 进程 ID 必须是正整数。")
+        raise DocumentIdentityError("SolidWorks süreç ID'si pozitif bir tam sayı olmalıdır.")
     return value
 
 
 @dataclass(frozen=True)
 class DocumentIdentity:
-    """审批绑定的 SolidWorks 进程及已保存文档路径。"""
+    """Onaya bağlanan SolidWorks süreci ve kayıtlı belge yolu."""
 
     process_id: int
     path: str
@@ -56,11 +57,11 @@ class DocumentIdentity:
         return cls(process_id, path)  # type: ignore[arg-type]
 
     def verify(self, process_id: object, path: object) -> None:
-        """核对实际活动文档；调用方应在执行锁内立即使用已取回的模型对象。"""
+        """Gerçek etkin belgeyi denetler; çağıran, alınan model nesnesini yürütme kilidi içinde hemen kullanmalıdır."""
         if _pid(process_id) != self.process_id:
-            raise DocumentIdentityError("SolidWorks 进程与批准时的目标不一致。")
+            raise DocumentIdentityError("SolidWorks süreci, onay sırasındaki hedefle uyuşmuyor.")
         if _path(path) != self.path:
-            raise DocumentIdentityError("活动文档与批准时的目标不一致。")
+            raise DocumentIdentityError("Etkin belge, onay sırasındaki hedefle uyuşmuyor.")
 
 
 _target: contextvars.ContextVar[DocumentIdentity | None] = contextvars.ContextVar(
@@ -70,9 +71,9 @@ _target: contextvars.ContextVar[DocumentIdentity | None] = contextvars.ContextVa
 
 @contextmanager
 def bind_document(identity: DocumentIdentity) -> Iterator[None]:
-    """把经批准的目标绑定到本次调用上下文，退出时恢复上层上下文。"""
+    """Onaylanan hedefi bu çağrı bağlamına bağlar; çıkışta üst bağlamı geri yükler."""
     if not isinstance(identity, DocumentIdentity):
-        raise DocumentIdentityError("缺少有效的批准文档身份。")
+        raise DocumentIdentityError("Geçerli bir onaylı belge kimliği eksik.")
     token = _target.set(identity)
     try:
         yield
@@ -81,13 +82,13 @@ def bind_document(identity: DocumentIdentity) -> Iterator[None]:
 
 
 def verify_bound_document(process_id: object, path: object) -> None:
-    """验证当前调用所绑定的目标；缺少绑定时失败关闭。"""
+    """Geçerli çağrıya bağlanan hedefi doğrular; bağlama yoksa güvenli biçimde başarısız olur."""
     identity = _target.get()
     if identity is None:
-        raise DocumentIdentityError("该调用没有绑定获批准的文档身份。")
+        raise DocumentIdentityError("Bu çağrıda onaylı bir belge kimliği bağlı değil.")
     identity.verify(process_id, path)
 
 
 def has_bound_document() -> bool:
-    """兼容完整模式：仅在服务端审批调用中强制执行目标核验。"""
+    """Tam modla uyumluluk: hedef doğrulamayı yalnızca sunucu tarafı onay çağrılarında zorunlu kılar."""
     return _target.get() is not None

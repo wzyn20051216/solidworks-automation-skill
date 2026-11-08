@@ -1,8 +1,9 @@
-"""发现模式与原生直调共用的唯一网关。
+"""Keşif modu ile yerel doğrudan çağrının paylaştığı tek ağ geçidi.
 
-FastMCP 的 ``list_tools`` / ``call_tool`` 都在调用时读取 ``self._tool_manager``，
-所以把注册表换成这个代理，就同时覆盖 stdio 和 streamable-http，也覆盖"客户端
-直接点名调用被隐藏的原工具"这条绕过路径。
+FastMCP'nin ``list_tools`` / ``call_tool`` metotları çağrı anında ``self._tool_manager``
+okur; bu nedenle kayıt defterini bu vekille değiştirmek hem stdio hem streamable-http
+üzerinde geçerli olur ve "istemcinin gizlenen yerel aracı doğrudan adıyla çağırması"
+biçimindeki atlama yolunu da kapatır.
 """
 from __future__ import annotations
 
@@ -37,21 +38,21 @@ class _Confirm(BaseModel):
 
 
 class ToolGate:
-    """注册表代理：控制可见性，并在执行前统一做策略与审批。"""
+    """Kayıt defteri vekili: görünürlüğü denetler ve yürütmeden önce Policy ile onayı tek yerden uygular."""
 
     def __init__(self, manager: Any, *, mode: str = "search", approval_mode: str = "auto",
                  ledger: ApprovalLedger | None = None):
         if mode not in MODES:
-            raise ValueError(f"SW_MCP_DISCOVERY 只能是 {'/'.join(MODES)}，收到 {mode!r}")
+            raise ValueError(f"SW_MCP_DISCOVERY yalnızca {'/'.join(MODES)} olabilir; alınan değer {mode!r}")
         if approval_mode not in APPROVAL_MODES:
-            raise ValueError(f"SW_MCP_APPROVAL 只能是 {'/'.join(APPROVAL_MODES)}，收到 {approval_mode!r}")
+            raise ValueError(f"SW_MCP_APPROVAL yalnızca {'/'.join(APPROVAL_MODES)} olabilir; alınan değer {approval_mode!r}")
         if mode == "search" and approval_mode == "client":
-            raise ValueError("发现模式不能使用 client 审批：客户端只能看到通用入口，无法按原工具审批。")
+            raise ValueError("Keşif modu client onayını kullanamaz: istemci yalnızca genel girişleri görür ve özgün araç başına onay veremez.")
         self._manager = manager
         self.mode = mode
         self.approval_mode = "task" if (approval_mode == "auto" and mode == "search") else (
             "client" if approval_mode == "auto" else approval_mode)
-        # 注册工具、打包与只读调用不应在用户目录中创建审批账本。
+        # Araç kaydı, paketleme ve salt okunur çağrılar kullanıcı dizininde onay defteri oluşturmamalıdır.
         self._ledger = ledger
         self._catalog: ToolCatalog | None = None
         self._catalog_size = -1
@@ -66,7 +67,7 @@ class ToolGate:
         return self._ledger
 
     def _subject(self, context: Any) -> str:
-        """绑定服务端会话，而不是信任模型传入的客户端标识。"""
+        """Modelin ilettiği istemci kimliğine güvenmek yerine sunucu tarafı oturuma bağlar."""
         if context is None:
             return self._internal_subject
         try:
@@ -78,12 +79,12 @@ class ToolGate:
                     self._subjects[session] = subject
                 return subject
         except (AttributeError, TypeError, ValueError) as exc:
-            raise ToolError("无法绑定审批到当前客户端会话，拒绝执行。") from exc
+            raise ToolError("Onay, geçerli istemci oturumuna bağlanamadı; yürütme reddedildi.") from exc
 
-    # ------------------------------------------------------------ 注册表代理
+    # ------------------------------------------------------------ Kayıt defteri vekili
     @property
     def _tools(self) -> dict[str, Any]:
-        """打包脚本需要读取完整注册表，发现模式不能影响发布产物。"""
+        """Paketleme betiği tam kayıt defterini okumalıdır; keşif modu yayın ürününü etkilememelidir."""
         return self._manager._tools
 
     def add_tool(self, *args: Any, **kwargs: Any) -> Any:
@@ -104,7 +105,7 @@ class ToolGate:
             return [tool for tool in tools if tool.name not in DISCOVERY_TOOLS]
         return [tool for tool in tools if tool.name in DISCOVERY_TOOLS]
 
-    # ------------------------------------------------------------ 检索
+    # ------------------------------------------------------------ Arama
     def catalog(self) -> ToolCatalog:
         tools = [tool for tool in self._manager.list_tools() if tool.name not in DISCOVERY_TOOLS]
         if self._catalog is None or len(tools) != self._catalog_size:
@@ -147,7 +148,7 @@ class ToolGate:
         if (self.approval_mode not in _EXTERNAL_APPROVAL_MODES
                 and policy.supports_document_identity(name)):
             view["document_target_required"] = True
-            view["document_target_note"] = "通过 sw_call_tool 提供已保存文档的绝对路径和 SolidWorks 进程 ID。"
+            view["document_target_note"] = "sw_call_tool üzerinden kayıtlı belgenin mutlak yolunu ve SolidWorks süreç ID'sini sağlayın."
         if note:
             view["policy_note"] = note
         blocked = self._blocked_reason(name)
@@ -161,12 +162,12 @@ class ToolGate:
                 and policy.needs_active_document_identity(name)
                 and not policy.supports_document_identity(name)):
             return (
-                f"已阻止：{name} 依赖 SolidWorks 活动文档；当前服务端审批无法绑定并复核文档身份。"
-                "请使用具有可信逐工具审批的原生模式，或等待文档身份绑定功能。"
+                f"Engellendi: {name} SolidWorks etkin belgesine bağlıdır; mevcut sunucu tarafı onayı belge kimliğini bağlayıp doğrulayamaz. "
+                "Güvenilir araç başına onaya sahip yerel modu kullanın veya belge kimliği bağlama özelliğini bekleyin."
             )
         return None
 
-    # ------------------------------------------------------------ 执行
+    # ------------------------------------------------------------ Yürütme
     async def call_tool(self, name: str, arguments: dict[str, Any] | None,
                         context: Any = None, convert_result: bool = False,
                         document_target: dict[str, Any] | None = None) -> Any:
@@ -177,8 +178,8 @@ class ToolGate:
         effect, note = policy.classify(name, arguments)
         if effect is policy.Effect.UNKNOWN:
             raise ToolError(
-                f"工具 {name} 未登记副作用等级，服务端拒绝执行。"
-                "请先在 mcp-server/policy.py 补充分级后再发布。"
+                f"Araç {name} için yan etki düzeyi kayıtlı değil; sunucu yürütmeyi reddetti. "
+                "Yayınlamadan önce mcp-server/policy.py içinde sınıflandırmayı ekleyin."
             )
 
         blocked = self._blocked_reason(name)
@@ -188,11 +189,11 @@ class ToolGate:
         identity = None
         approval_arguments: dict[str, Any] = arguments
         if document_target is not None and policy.needs_active_document_identity(name) and not policy.supports_document_identity(name):
-            raise ToolError(f"{name} 暂不支持 document_target 校验，无法使用此目标参数。")
+            raise ToolError(f"{name} henüz document_target doğrulamasını desteklemiyor; bu hedef parametresi kullanılamaz.")
         if (policy.supports_document_identity(name)
                 and (self.approval_mode not in _EXTERNAL_APPROVAL_MODES or document_target is not None)):
             if not isinstance(document_target, dict) or set(document_target) != {"process_id", "path"}:
-                raise ToolError("该操作需要 document_target：已保存文档绝对路径 path 和 SolidWorks 进程 ID process_id。")
+                raise ToolError("Bu işlem document_target gerektirir: kayıtlı belgenin mutlak yolu path ve SolidWorks süreç ID'si process_id.")
             try:
                 identity = DocumentIdentity.create(document_target["process_id"], document_target["path"])
             except DocumentIdentityError as exc:
@@ -220,7 +221,7 @@ class ToolGate:
 
     async def _confirm_via_client(self, name: str, arguments: dict[str, Any], effect: policy.Effect,
                                   note: str, context: Any) -> bool:
-        """走 MCP 用户交互向人确认；客户端不支持时按未批准处理。"""
+        """MCP kullanıcı etkileşimiyle onay alır; istemci desteklemiyorsa onaylanmamış sayılır."""
         if context is None:
             return False
         try:
@@ -230,39 +231,40 @@ class ToolGate:
             return False
         if not capabilities:
             return False
-        # 不能让用户在看不到完整参数时批准操作。超出交互消息的安全上限时，
-        # 转入带外审批，让审批端展示完整参数，而不是静默截断。
+        # Kullanıcının tam parametreleri görmeden bir işlemi onaylamasına izin verilmemelidir.
+        # Etkileşim mesajının güvenli sınırı aşılırsa sessizce kırpmak yerine bant dışı onaya geçilir
+        # ve tam parametreler onay tarafında gösterilir.
         parameters = json.dumps(arguments, ensure_ascii=False, sort_keys=True, default=str)
         if len(parameters) > 4000:
-            logger.warning("审批参数过长，不能通过 elicitation 完整展示")
+            logger.warning("Onay parametreleri çok uzun; elicitation ile tam olarak gösterilemez")
             return False
         targets = policy.targets(arguments)
         message = (
-            f"SolidWorks MCP 请求执行写操作。\n工具: {name}\n等级: {effect.value}\n"
-            f"参数: {parameters}"
-            + (f"\n目标: {', '.join(targets)}" if targets else "")
-            + (f"\n注意: {note}" if note else "")
+            f"SolidWorks MCP bir yazma işlemi yürütmek istiyor.\nAraç: {name}\nDüzey: {effect.value}\n"
+            f"Parametreler: {parameters}"
+            + (f"\nHedefler: {', '.join(targets)}" if targets else "")
+            + (f"\nNot: {note}" if note else "")
         )
         try:
             result = await context.elicit(message=message, schema=_Confirm)
-        except Exception as exc:  # 客户端可能在运行中拒绝交互
-            logger.warning("elicitation 失败: %s", exc)
+        except Exception as exc:  # İstemci çalışma sırasında etkileşimi reddedebilir
+            logger.warning("elicitation başarısız: %s", exc)
             return False
         return result.action == "accept" and bool(result.data.approve)
 
 
 def allowed_reason(ledger: ApprovalLedger, name: str, arguments: dict[str, Any],
                    effect: policy.Effect, subject: str | None = None) -> str:
-    """未批准时返回给模型的阻塞说明，包含可执行的人工批准步骤。"""
+    """Onaylanmadığında modele döndürülen engelleme açıklaması; yürütülebilir insan onayı adımlarını içerir."""
     try:
         request = ledger.request(name, arguments, effect.value, subject=subject)
         request_id = request["id"]
-        detail = f"审批请求 {request_id}（{int(request['expires_at'] - request['created_at'])} 秒内有效）"
-    except ApprovalError as exc:  # 账本不可写时不能假装只是"等待批准"
-        return f"工具 {name} 需要人工批准，但审批账本不可用：{exc}"
+        detail = f"Onay isteği {request_id} ({int(request['expires_at'] - request['created_at'])} saniye geçerli)"
+    except ApprovalError as exc:  # Defter yazılamıyorsa yalnızca "onay bekliyor" gibi davranılamaz
+        return f"Araç {name} insan onayı gerektiriyor, ancak onay defteri kullanılamıyor: {exc}"
     return (
-        f"已阻止：{name} 属于 {effect.value} 操作，需要人工批准后才会执行。\n"
+        f"Engellendi: {name} bir {effect.value} işlemidir; yalnızca insan onayından sonra yürütülür.\n"
         f"{detail}\n"
-        f"请在 MCP 服务端所在机器的安装目录打开终端，运行：python scripts/sw_mcp_approve.py approve {request_id}\n"
-        f"然后用完全相同的参数重试；参数一旦变化，原批准不再适用。"
+        f"MCP sunucusunun bulunduğu makinede kurulum dizininde bir terminal açıp şunu çalıştırın: python scripts/sw_mcp_approve.py approve {request_id}\n"
+        f"Ardından tamamen aynı parametrelerle yeniden deneyin; parametreler değişirse önceki onay geçersiz olur."
     )

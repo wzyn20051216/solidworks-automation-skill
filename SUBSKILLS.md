@@ -1,43 +1,43 @@
-# SolidWorks Automation 子技能矩阵
+# SolidWorks Automation alt yetenek matrisi
 
-本仓库采用“大仓库 + 多子技能”的组织方式。根技能 `solidworks-automation` 提供 SolidWorks 连接、文档管理、建模 API、导出、自审查和 MCP Server；专项能力放在 `subskills/` 下，每个子技能自包含 `SKILL.md`、`README.md`、`manifest.yaml`、脚本、参考文档和示例。
+Bu depo "büyük depo + çoklu alt yetenek" organizasyon biçimini benimser. Kök yetenek `solidworks-automation` SolidWorks bağlantısı, doküman yönetimi, modelleme API'si, dışa aktarma, öz-inceleme ve MCP Server sunar; özel yetenekler `subskills/` altında yer alır ve her alt yetenek kendi içinde `SKILL.md`, `README.md`, `manifest.yaml`, betikler, referans belgeleri ve örnekler barındırır.
 
-这种结构参考多技能仓库的管理方式：根 README 负责总入口、安装方式、能力地图和调用路由；每个子技能负责某一类稳定工作流。
+Bu yapı çoklu yetenek depolarının yönetim biçimini örnek alır: kök README genel giriş, kurulum yöntemi, yetenek haritası ve çağrı yönlendirmesinden sorumludur; her alt yetenek ise belirli bir istikrarlı iş akışından sorumludur.
 
-## 技能索引
+## Yetenek dizini
 
-| 子技能 | 状态 | 用途 | 入口 |
+| Alt yetenek | Durum | Kullanım | Giriş |
 |---|---|---|---|
-| `solidworks-vibecad` | experimental | 自然语言需求 -> 参数化设计计划、制造规则检查、执行摘要、审查门禁 | `subskills/solidworks-vibecad/SKILL.md` |
-| `solidworks-fillet-chamfer-cnc` | stable | CNC 安装座、参数/碰撞预检、语义选边、有界尺寸降级、孔槽和圆角口袋 | `subskills/solidworks-fillet-chamfer-cnc/SKILL.md` |
-| `solidworks-threaded-holes` | stable | M3-M12 螺纹孔、攻丝底孔、孔口倒角、螺纹属性和 STEP 输出 | `subskills/solidworks-threaded-holes/SKILL.md` |
-| `solidworks-engineering-drawing` | pilot | GB/T 第一角零件图/装配图、尺寸链、孔表、BOM、PDF/BMP 证据和制造交付审视 | `subskills/solidworks-engineering-drawing/SKILL.md` |
-| `autocad-automation` | stable | AutoCAD DWG/DXF 二维绘图、线稿矢量化、图层/文字/标注处理、导出和图纸自检 | `subskills/autocad-automation/SKILL.md` |
+| `solidworks-vibecad` | experimental | Doğal dil gereksinimi -> parametrik tasarım planı, üretim kuralı denetimi, yürütme özeti, inceleme kapısı | `subskills/solidworks-vibecad/SKILL.md` |
+| `solidworks-fillet-chamfer-cnc` | stable | CNC montaj yuvası, parametre/çarpışma ön kontrolü, anlamsal kenar seçimi, sınırlı ölçü düşürme, delik yuvaları ve yuvarlatılmış cepler | `subskills/solidworks-fillet-chamfer-cnc/SKILL.md` |
+| `solidworks-threaded-holes` | stable | M3-M12 dişli delikler, kılavuz delikleri, delik ağzı pahı, diş özellikleri ve STEP çıktısı | `subskills/solidworks-threaded-holes/SKILL.md` |
+| `solidworks-engineering-drawing` | pilot | GB/T birinci açı parça resmi/montaj resmi, ölçü zinciri, delik tablosu, BOM, PDF/BMP kanıtı ve üretim teslim incelemesi | `subskills/solidworks-engineering-drawing/SKILL.md` |
+| `autocad-automation` | stable | AutoCAD DWG/DXF iki boyutlu çizim, çizgi sanatı vektörleştirme, katman/metin/ölçülendirme işleme, dışa aktarma ve çizim öz denetimi | `subskills/autocad-automation/SKILL.md` |
 
-## 推荐路由
+## Önerilen yönlendirme
 
 ```text
-自然语言需求
+Doğal dil gereksinimi
   -> solidworks-vibecad
-  -> 结构化 design_plan.json
-  -> 按零件类型路由到专项子技能
-  -> 工程图需求连接 solidworks-engineering-drawing
-  -> 父技能 scripts/sw_*.py 执行 SolidWorks COM
-  -> sw_review.run_review() 审查
+  -> yapılandırılmış design_plan.json
+  -> parça türüne göre özel alt yeteneğe yönlendir
+  -> teknik resim gereksinimi solidworks-engineering-drawing'e bağlanır
+  -> kök yetenek scripts/sw_*.py SolidWorks COM'u yürütür
+  -> sw_review.run_review() incelemesi
 ```
 
-## 什么时候用哪个
+## Hangi durumda hangisi kullanılır
 
 ### solidworks-vibecad
 
-用户说：
+Kullanıcı şöyle der:
 
-- “把这个需求参数化”
-- “做一个 text-to-CAD 工作流”
-- “把行业知识库和提示词模板固化”
-- “先别直接建模，先出设计计划”
+- "Bu gereksinimi parametrikleştir"
+- "Bir text-to-CAD iş akışı yap"
+- "Sektör bilgi tabanını ve istem şablonlarını sabitle"
+- "Önce doğrudan modelleme yapma, önce tasarım planı çıkar"
 
-使用：
+Kullanım:
 
 ```text
 subskills/solidworks-vibecad/SKILL.md
@@ -45,14 +45,14 @@ subskills/solidworks-vibecad/SKILL.md
 
 ### solidworks-fillet-chamfer-cnc
 
-用户说：
+Kullanıcı şöyle der:
 
-- “CNC 安装座”
-- “连接块/支架”
-- “很多圆角和倒角”
-- “减重口袋/长圆槽/沉孔板”
+- "CNC montaj yuvası"
+- "Bağlantı bloğu/destek"
+- "Çok sayıda yuvarlatma ve pah"
+- "Ağırlık azaltma cebi/uzun yuvarlak yuva/havşalı plaka"
 
-使用：
+Kullanım:
 
 ```text
 subskills/solidworks-fillet-chamfer-cnc/SKILL.md
@@ -60,14 +60,14 @@ subskills/solidworks-fillet-chamfer-cnc/SKILL.md
 
 ### solidworks-threaded-holes
 
-用户说：
+Kullanıcı şöyle der:
 
-- “M6 螺纹孔”
-- “攻牙孔”
-- “攻丝底孔”
-- “Hole Wizard / ThreadFeatureData / CosmeticThread”
+- "M6 dişli delik"
+- "Diş açma deliği"
+- "Kılavuz deliği"
+- "Hole Wizard / ThreadFeatureData / CosmeticThread"
 
-使用：
+Kullanım:
 
 ```text
 subskills/solidworks-threaded-holes/SKILL.md
@@ -75,15 +75,15 @@ subskills/solidworks-threaded-holes/SKILL.md
 
 ### autocad-automation
 
-用户说：
+Kullanıcı şöyle der:
 
-- “用 AutoCAD 画这个”
-- “生成/修改 DWG 或 DXF”
-- “把这张图片线稿转成 CAD”
-- “批量检查图层、文字、块、外部参照”
-- “导出 AutoCAD 原生预览并审查”
+- "Bunu AutoCAD ile çiz"
+- "DWG veya DXF oluştur/değiştir"
+- "Bu görseldeki çizgi sanatını CAD'e dönüştür"
+- "Katmanları, metinleri, blokları, harici referansları toplu denetle"
+- "AutoCAD yerel önizlemesini dışa aktar ve incele"
 
-使用：
+Kullanım:
 
 ```text
 subskills/autocad-automation/SKILL.md
@@ -91,44 +91,44 @@ subskills/autocad-automation/SKILL.md
 
 ### solidworks-engineering-drawing
 
-用户说：
+Kullanıcı şöyle der:
 
-- “生成零件图/装配图/工程图”
-- “按 GB/T、第一角投影出图”
-- “补齐尺寸链、孔表、BOM、标题栏”
-- “审查工程图是否能交付制造”
+- "Parça resmi/montaj resmi/teknik resim oluştur"
+- "GB/T, birinci açı izdüşümüne göre çiz"
+- "Ölçü zincirini, delik tablosunu, BOM'u, başlık bloğunu tamamla"
+- "Teknik resmin üretime teslim edilip edilemeyeceğini incele"
 
-使用：
+Kullanım:
 
 ```text
 subskills/solidworks-engineering-drawing/SKILL.md
 ```
 
-该子技能可以被根技能、VibeCAD、孔槽/CNC 子技能或工程编排器按需连接；其他子技能不需要反向依赖它。
+Bu alt yetenek kök yetenek, VibeCAD, delik yuvası/CNC alt yeteneği veya mühendislik orkestratörü tarafından ihtiyaç halinde bağlanabilir; diğer alt yeteneklerin ona ters bağımlılığı yoktur.
 
-注意：普通“照图画 CAD”的最终版只保留原图矢量化线条，不保留手工猜测的外围轮廓、五官椭圆、Logo 三角线、水波线、替代文字或图内审查说明。
+Not: Sıradan "resme bakarak CAD çizme" işleminin son sürümü yalnızca orijinal görselin vektörleştirilmiş çizgilerini korur; elle tahmin edilen dış konturları, yüz elipslerini, Logo üçgen çizgilerini, su dalgası çizgilerini, yer tutucu metinleri veya görsel içi inceleme açıklamalarını korumaz.
 
-## 子技能目录规范
+## Alt yetenek dizin standardı
 
-新增子技能时保持：
+Yeni bir alt yetenek eklerken şunları koruyun:
 
 ```text
 subskills/<skill-name>/
-├── SKILL.md             # AI 调用入口和工作流
-├── README.md            # 人类阅读入口
-├── manifest.yaml        # 索引元数据
-├── scripts/             # 可复用脚本
-├── references/          # 实测经验、避坑和 API 说明
-├── examples/            # 示例输入/输出
-└── agents/              # 可选，不同客户端配置
+├── SKILL.md             # AI çağrı girişi ve iş akışı
+├── README.md            # insan okuma girişi
+├── manifest.yaml        # dizin meta verileri
+├── scripts/             # yeniden kullanılabilir betikler
+├── references/          # ölçülen deneyimler, tuzaklardan kaçınma ve API açıklamaları
+├── examples/            # örnek girdi/çıktı
+└── agents/              # isteğe bağlı, farklı istemci yapılandırmaları
 ```
 
-## 质量门禁
+## Kalite kapıları
 
-每个子技能必须说明：
+Her alt yetenek şunları açıklamalıdır:
 
-- 适用场景和不适用场景。
-- 推荐调用父技能的哪些 `scripts/sw_*.py`。
-- SolidWorks API 的稳定策略和降级策略。
-- 输出文件和审查要求。
-- 新踩坑应沉淀到 `references/`。
+- Uygun senaryolar ve uygun olmayan senaryolar.
+- Kök yeteneğin hangi `scripts/sw_*.py` betiklerinin çağrılması önerilir.
+- SolidWorks API'sinin istikrarlı stratejisi ve düşürme stratejisi.
+- Çıktı dosyaları ve inceleme gereksinimleri.
+- Yeni karşılaşılan tuzaklar `references/` altında biriktirilmelidir.

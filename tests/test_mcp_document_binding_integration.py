@@ -60,7 +60,7 @@ def _call(gate, target):
 
 def test_approval_and_locked_execution_are_bound_to_same_document(tmp_path, monkeypatch):
     gate, target, selected, changed = _fixture(tmp_path, monkeypatch)
-    with pytest.raises(ToolError, match="需要人工批准"):
+    with pytest.raises(ToolError, match="insan onayından"):
         _call(gate, target)
     request = gate.ledger.pending()[0]
     displayed = json.loads(request["summary"])
@@ -72,12 +72,12 @@ def test_approval_and_locked_execution_are_bound_to_same_document(tmp_path, monk
     selected["path"] = str(tmp_path / "other.SLDPRT")
     result = json.loads(_call(gate, target))
     assert result["status"] == "error"
-    assert "活动文档" in result["message"]
+    assert "Etkin belge" in result["message"]
     assert changed == []
 
     # 重新发起并批准后，仅目标文档一致的调用可以执行。
     selected["path"] = target["path"]
-    with pytest.raises(ToolError, match="需要人工批准"):
+    with pytest.raises(ToolError, match="insan onayından"):
         _call(gate, target)
     request = gate.ledger.pending()[0]
     gate.ledger.approve(request["id"], expected_record=request)
@@ -92,7 +92,7 @@ def test_different_document_or_process_does_not_reuse_approval(tmp_path, monkeyp
     request = gate.ledger.pending()[0]
     gate.ledger.approve(request["id"], expected_record=request)
     for other in ({**target, "process_id": 315}, {**target, "path": str(tmp_path / "other.SLDPRT")}):
-        with pytest.raises(ToolError, match="需要人工批准"):
+        with pytest.raises(ToolError, match="insan onayından"):
             _call(gate, other)
     assert changed == []
 
@@ -174,7 +174,7 @@ def test_stdio_gateway_binds_approval_to_document_and_executes_mock(tmp_path):
                 args = {"name": "solidworks_save_document", "arguments": {"params": {}},
                         "document_target": {"process_id": 314, "path": doc}}
                 blocked = await session.call_tool("sw_call_tool", args)
-                assert blocked.isError and "需要人工批准" in blocked.content[0].text
+                assert blocked.isError and "insan onayından" in blocked.content[0].text
                 ledger = ApprovalLedger(ledger_dir)
                 request = ledger.pending()[0]
                 ledger.approve(request["id"], expected_record=request)

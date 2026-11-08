@@ -4497,7 +4497,7 @@ textarea {
 
 }
 
-/* 桌面工作台：结构优先，减少网页式悬浮卡片和无效装饰。 */
+/* Masaüstü çalışma tezgahı: yapı önceliklidir; web tarzı yüzen kartlar ve gereksiz süslemeler azaltılır. */
 :root {
   --radius-xl: 8px;
   --radius-lg: 8px;
@@ -5217,7 +5217,7 @@ textarea:focus-visible {
   outline-offset: 2px;
 }
 
-/* 壁纸穿透层：壁纸始终在最底层，内容面只提供局部对比保护。 */
+/* Duvar kağıdı geçirgen katmanı: duvar kağıdı her zaman en alttadır; içerik yüzeyi yalnızca yerel kontrast koruması sağlar. */
 .capability-card,
 .project-brief,
 .project-list-panel,

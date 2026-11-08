@@ -1,4 +1,4 @@
-"""@brief 桌面端项目数据与文件结构工具。"""
+"""@brief Masaüstü proje verisi ve dosya yapısı araçları."""
 
 from __future__ import annotations
 
@@ -14,22 +14,22 @@ CN_TZ = timezone(timedelta(hours=8))
 
 
 def now_iso() -> str:
-    """@brief 返回中国时区 ISO 时间。"""
+    """@brief Çin saat diliminde ISO zamanı döndürür."""
     return datetime.now(CN_TZ).isoformat(timespec="seconds")
 
 
 def default_output_root() -> Path:
-    """@brief 返回默认项目输出根目录。"""
+    """@brief Varsayılan proje çıktı kök dizinini döndürür."""
     return Path.home() / "Documents" / "CADAutomationWorkbench"
 
 
 def repo_root() -> Path:
-    """@brief 返回 skill 仓库根目录。"""
+    """@brief Skill deposunun kök dizinini döndürür."""
     return Path(__file__).resolve().parents[3]
 
 
 def slugify_project_name(name: str) -> str:
-    """@brief 将项目名转换为适合文件夹的短名称。"""
+    """@brief Proje adını klasöre uygun kısa ada dönüştürür."""
     slug = re.sub(r"[^A-Za-z0-9_-]+", "_", name.strip()).strip("_")
     if slug:
         return slug[:60]
@@ -37,18 +37,18 @@ def slugify_project_name(name: str) -> str:
 
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
-    """@brief 以 UTF-8 写入 JSON。"""
+    """@brief JSON'u UTF-8 olarak yazar."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def read_json(path: Path) -> dict[str, Any]:
-    """@brief 读取 UTF-8 JSON。"""
+    """@brief UTF-8 JSON okur."""
     return json.loads(path.read_text(encoding="utf-8"))
 
 
 def ensure_project_tree(project_dir: Path) -> None:
-    """@brief 创建 MVP 约定的项目目录结构。"""
+    """@brief MVP sözleşmesine uygun proje dizin yapısını oluşturur."""
     for rel in [
         "inputs",
         "generated",
@@ -63,7 +63,7 @@ def ensure_project_tree(project_dir: Path) -> None:
 
 
 def build_project_payload(project_name: str, output_root: Path) -> dict[str, Any]:
-    """@brief 生成 project.json 数据。"""
+    """@brief project.json verisini üretir."""
     project_id = datetime.now(CN_TZ).strftime("%Y%m%d_%H%M%S")
     return {
         "schema_version": SCHEMA_VERSION,
@@ -80,7 +80,7 @@ def build_project_payload(project_name: str, output_root: Path) -> dict[str, Any
 
 
 def default_parameters() -> dict[str, Any]:
-    """@brief 返回外壳 MVP 的默认参数。"""
+    """@brief Kabuk MVP'si için varsayılan parametreleri döndürür."""
     return {
         "schema_version": SCHEMA_VERSION,
         "units": "mm",
@@ -105,7 +105,7 @@ def default_parameters() -> dict[str, Any]:
             "holes": [
                 {
                     "id": "H1",
-                    "name": "安装孔",
+                    "name": "Montaj deliği",
                     "hole_type": "round",
                     "face": "bottom",
                     "diameter": 3.4,
@@ -117,7 +117,7 @@ def default_parameters() -> dict[str, Any]:
                     "pitch_x": 100.0,
                     "pitch_y": 60.0,
                     "through": True,
-                    "note": "M3 螺丝通孔，FDM 建议放量",
+                    "note": "M3 vida geçiş deliği; FDM için pay bırakılması önerilir",
                 }
             ],
             "cutouts": [
@@ -154,7 +154,7 @@ def default_parameters() -> dict[str, Any]:
         "drawing": {
             "paper_size": "A3",
             "scale": "1:1",
-            "title": "3D打印外壳",
+            "title": "3D baskı kabuğu",
             "material": "PLA/PETG",
             "projection": "first_angle",
             "required_exports": ["dwg", "dxf", "pdf", "png"],
@@ -163,7 +163,7 @@ def default_parameters() -> dict[str, Any]:
 
 
 def create_project(project_name: str, output_root: Path) -> tuple[Path, dict[str, Any], dict[str, Any]]:
-    """@brief 创建项目目录并写入默认项目数据。"""
+    """@brief Proje dizinini oluşturur ve varsayılan proje verisini yazar."""
     root = Path(output_root).expanduser().resolve()
     project_dir = root / slugify_project_name(project_name)
     ensure_project_tree(project_dir)
@@ -172,7 +172,7 @@ def create_project(project_name: str, output_root: Path) -> tuple[Path, dict[str
     write_json(project_dir / "project.json", project)
     write_json(project_dir / "parameters.json", params)
     (project_dir / "inputs" / "brief.md").write_text(
-        "# 项目说明\n\n请在软件中补充结构尺寸、孔位、接口和制造要求。\n",
+        "# Proje Açıklaması\n\nLütfen yazılımda yapısal ölçüleri, delik konumlarını, arabirimleri ve imalat gereksinimlerini tamamlayın.\n",
         encoding="utf-8",
     )
     return project_dir, project, params

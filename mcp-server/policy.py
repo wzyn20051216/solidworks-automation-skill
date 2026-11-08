@@ -1,9 +1,9 @@
-"""按真实副作用对已注册 MCP 工具分级；发现模式与原生直调共用这一份判据。
+"""Kayıtlı MCP araçlarını gerçek yan etkilerine göre sınıflandırır; keşif modu ile yerel doğrudan çağrı bu tek ölçütü paylaşır.
 
-分级必须逐个工具人工确认，不能只看 annotations：例如
-``solidworks_document_units`` 的注解是只读，但它可以在同一调用里改写文档单位；
-``solidworks_review_active`` 看起来是"审视"，实际会落盘预览与报告。
-未登记的工具一律 UNKNOWN 并拒绝，逼迫新增工具先补分级。
+Sınıflandırma yalnızca annotations'a bakılarak değil, her araç için elle doğrulanmalıdır; örneğin
+``solidworks_document_units`` annotasyonu salt okunurdur, ancak aynı çağrıda belge birimlerini değiştirebilir;
+``solidworks_review_active`` "inceleme" gibi görünür, oysa önizleme ve raporları diske yazar.
+Kayıtlı olmayan araçlar her zaman UNKNOWN olur ve reddedilir; bu da yeni araçların önce sınıflandırma eklemesini zorlar.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from typing import Any, Iterable
 
 
 class Effect(str, Enum):
-    """工具调用对模型、文件或外部进程的真实影响。"""
+    """Araç çağrısının model, dosya veya harici süreç üzerindeki gerçek etkisi."""
 
     READ = "read"
     WRITE = "write"
@@ -95,7 +95,7 @@ _WRITE: frozenset[str] = frozenset({
     "solidworks_exclude_reviewed_bodies",
 })
 
-# 覆盖或批量写入：一旦参数写错，损失是"已经覆盖的文件"而不是"多一个特征"。
+# Üzerine yazma veya toplu yazma: parametre yanlış yazılırsa kayıp "bir fazla özellik" değil, "üzerine yazılmış dosyalar" olur.
 _DESTRUCTIVE: frozenset[str] = frozenset({
     "solidworks_close_documents",
     "solidworks_pack_and_go",
@@ -103,22 +103,22 @@ _DESTRUCTIVE: frozenset[str] = frozenset({
 })
 
 _NOTES: dict[str, str] = {
-    "solidworks_health_check": "start_solidworks=true 时会启动或连接 SolidWorks，需审批。",
-    "solidworks_lookup_api": "默认查询官方文档并按需配置依赖；直读失败且无缓存时使用匿名 Parallel，仅发送公开 API 标识及版本；offline=true 或 auto_install=false 可禁止安装。",
-    "cadstudio_check_dfm": "会将检查报告写入输出路径。",
-    "cadstudio_check_drc": "会将设计规则检查报告写入输出路径。",
-    "cadstudio_check_routing": "会将检查报告写入输出路径。",
-    "cadstudio_review_advanced_geometry": "会将预检报告写入输出路径。",
-    "solidworks_inspect_drawing": "会生成工程图预览和报告。",
-    "solidworks_document_units": "注解标为只读，但同一调用可改写文档单位。",
-    "solidworks_review_active": "会落盘预览图与审视报告。",
-    "solidworks_recover": "会解除阻塞对话框并重置会话状态。",
-    "solidworks_connect": "可能启动新的 SolidWorks 进程。",
-    "solidworks_close_documents": "可关闭全部文档，未保存修改会丢失。",
-    "solidworks_pack_and_go": "向目标目录批量复制，可能覆盖已有文件。",
-    "solidworks_batch_export_files": "批量落盘，可能覆盖已有输出。",
-    "solidworks_run_fea": "会启动本地求解器进程并写结果文件。",
-    "solidworks_run_fea_convergence": "会连续启动多次求解器。",
+    "solidworks_health_check": "start_solidworks=true olduğunda SolidWorks'ü başlatır veya bağlanır; onay gerektirir.",
+    "solidworks_lookup_api": "Varsayılan olarak resmi belgeleri sorgular ve gerektiğinde bağımlılıkları yapılandırır; doğrudan okuma başarısız olup önbellek yoksa yalnızca genel API tanımlayıcısını ve sürümünü gönderen anonim Parallel kullanılır; offline=true veya auto_install=false kurulumu engeller.",
+    "cadstudio_check_dfm": "İnceleme raporunu çıktı yoluna yazar.",
+    "cadstudio_check_drc": "Tasarım kuralı inceleme raporunu çıktı yoluna yazar.",
+    "cadstudio_check_routing": "İnceleme raporunu çıktı yoluna yazar.",
+    "cadstudio_review_advanced_geometry": "Ön kontrol raporunu çıktı yoluna yazar.",
+    "solidworks_inspect_drawing": "Teknik resim önizlemesi ve raporu üretir.",
+    "solidworks_document_units": "Annotasyon salt okunur olarak işaretlidir, ancak aynı çağrı belge birimlerini değiştirebilir.",
+    "solidworks_review_active": "Önizleme görüntüsünü ve inceleme raporunu diske yazar.",
+    "solidworks_recover": "Engelleyici iletişim kutularını kapatır ve oturum durumunu sıfırlar.",
+    "solidworks_connect": "Yeni bir SolidWorks süreci başlatabilir.",
+    "solidworks_close_documents": "Tüm belgeleri kapatabilir; kaydedilmemiş değişiklikler kaybolur.",
+    "solidworks_pack_and_go": "Hedef dizine toplu kopyalar; mevcut dosyaların üzerine yazabilir.",
+    "solidworks_batch_export_files": "Toplu olarak diske yazar; mevcut çıktıların üzerine yazabilir.",
+    "solidworks_run_fea": "Yerel bir çözücü süreci başlatır ve sonuç dosyalarını yazar.",
+    "solidworks_run_fea_convergence": "Çözücüyü arka arkaya birçok kez başlatır.",
 }
 
 _EFFECTS: dict[str, Effect] = {
@@ -127,8 +127,9 @@ _EFFECTS: dict[str, Effect] = {
     **{name: Effect.DESTRUCTIVE for name in _DESTRUCTIVE},
 }
 
-# 这些工具在执行时读取活动文档，现有审批记录无法绑定该文档身份。
-# 服务端审批模式下在可靠的文档身份快照和持锁复核实现前必须拒绝执行。
+# Bu araçlar yürütme sırasında etkin belgeyi okur; mevcut onay kaydı bu belge kimliğine bağlanamaz.
+# Sunucu tarafı onay modunda, güvenilir bir belge kimliği anlık görüntüsü ve kilit altında yeniden doğrulama
+# uygulanana kadar yürütme reddedilmelidir.
 _ACTIVE_DOCUMENT_WRITES: frozenset[str] = frozenset({
     "solidworks_sketch_and_extrude", "solidworks_revolve", "solidworks_fillet",
     "solidworks_chamfer", "solidworks_shell", "solidworks_pattern", "solidworks_mirror_feature",
@@ -148,7 +149,7 @@ def needs_active_document_identity(tool_name: str) -> bool:
 
 
 _UNSUPPORTED_DOCUMENT_WRITES: frozenset[str] = frozenset({
-    # 关闭全部文档需要绑定完整文档集合。原生子进程还需独立绑定 PID 与输入文件状态。
+    # Tüm belgeleri kapatmak, tam belge kümesinin bağlanmasını gerektirir. Yerel alt süreçler ayrıca PID ve giriş dosyası durumunun ayrı bağlanmasını gerektirir.
     "solidworks_close_documents", "solidworks_build_round_sweeps", "solidworks_import_step_part",
     "solidworks_replace_component_preserving_transform", "solidworks_exclude_reviewed_bodies",
     "solidworks_document_units", "solidworks_add_component", "solidworks_review_active",
@@ -159,42 +160,42 @@ _UNSUPPORTED_DOCUMENT_WRITES: frozenset[str] = frozenset({
 def supports_document_identity(tool_name: str) -> bool:
     return needs_active_document_identity(tool_name) and tool_name not in _UNSUPPORTED_DOCUMENT_WRITES
 
-# 参数名里带这些片段的字符串值视为"落盘目标"，审批范围按它绑定。
+# Parametre adında bu parçaları içeren dize değerleri "diske yazma hedefi" sayılır; onay kapsamı buna göre bağlanır.
 _PATH_HINT = re.compile(r"path|file|dir|output|target|destination", re.IGNORECASE)
 
 
 def classify(tool_name: str, arguments: Any = None) -> tuple[Effect, str]:
-    """返回工具副作用等级和可展示的原因。"""
-    # 健康检查默认不启动 SolidWorks，但可通过参数要求启动；不能仅凭工具名放行。
+    """Araç yan etkisi düzeyini ve gösterilebilir gerekçeyi döndürür."""
+    # Sağlık kontrolü varsayılan olarak SolidWorks'ü başlatmaz, ancak parametreyle başlatma istenebilir; yalnızca araç adına bakarak izin verilemez.
     if tool_name == "solidworks_health_check" and isinstance(arguments, dict):
         params = arguments.get("params", {})
         if isinstance(params, dict) and params.get("start_solidworks") not in (None, False, 0):
-            return Effect.WRITE, "请求启动或连接 SolidWorks 进行检查。"
+            return Effect.WRITE, "Kontrol için SolidWorks'ü başlatma veya bağlanma isteği."
     if tool_name == "solidworks_lookup_api":
         params = arguments.get("params", {}) if isinstance(arguments, dict) else {}
         if not isinstance(params, dict):
-            return Effect.UNKNOWN, "API 查证参数无效。"
+            return Effect.UNKNOWN, "API doğrulama parametreleri geçersiz."
         if params.get("offline") is True or params.get("auto_install") is False:
-            return Effect.READ, "本次关闭自动安装；查证可读取本地资料及历史缓存。"
+            return Effect.READ, "Bu kez otomatik kurulum kapalı; doğrulama yerel kaynakları ve geçmiş önbelleği okuyabilir."
         return Effect.WRITE, _NOTES[tool_name]
     effect = _EFFECTS.get(tool_name, Effect.UNKNOWN)
     if effect is Effect.UNKNOWN:
-        return effect, "未登记副作用的工具：默认拒绝，请先在 policy.py 补充分级。"
+        return effect, "Yan etkisi kayıtlı olmayan araç: varsayılan olarak reddedilir; lütfen önce policy.py içinde sınıflandırmayı ekleyin."
     return effect, _NOTES.get(tool_name, "")
 
 
 def registered_names() -> frozenset[str]:
-    """策略表覆盖的全部工具名，用于测试断言注册表没有漏登记。"""
+    """Policy tablosunun kapsadığı tüm araç adları; kayıt defterinde eksik kayıt olmadığını doğrulamak için kullanılır."""
     return frozenset(_EFFECTS)
 
 
 def requires_approval(effect: Effect) -> bool:
-    """只有写和破坏性操作需要人工批准；只读与未知分别放行/拒绝。"""
+    """Yalnızca yazma ve yıkıcı işlemler insan onayı gerektirir; salt okunur izin verilir, bilinmeyen reddedilir."""
     return effect in (Effect.WRITE, Effect.DESTRUCTIVE)
 
 
 def targets(arguments: Any) -> list[str]:
-    """提取参数里的落盘目标，供审批展示和范围匹配。"""
+    """Parametrelerdeki diske yazma hedeflerini çıkarır; onay gösterimi ve kapsam eşleştirmesi için kullanılır."""
     found: list[str] = []
     for key, value in _walk(arguments):
         if not _PATH_HINT.search(key):
@@ -206,7 +207,7 @@ def targets(arguments: Any) -> list[str]:
 
 
 def canonical_digest(tool_name: str, arguments: Any) -> str:
-    """把一次具体调用压成摘要；任何参数变化都会得到不同摘要。"""
+    """Belirli bir çağrıyı bir özete indirger; herhangi bir parametre değişikliği farklı bir özet üretir."""
     payload = json.dumps(
         {"tool": tool_name, "arguments": arguments},
         sort_keys=True, ensure_ascii=False, separators=(",", ":"), default=str,
@@ -215,7 +216,7 @@ def canonical_digest(tool_name: str, arguments: Any) -> str:
 
 
 def summarize(tool_name: str, arguments: Any, limit: int = 1200) -> str:
-    """给审批界面看的参数摘要，避免把超长数组整段塞进终端。"""
+    """Onay arayüzü için parametre özeti; aşırı uzun dizilerin tamamının terminale dökülmesini önler."""
     text = json.dumps(arguments, ensure_ascii=False, sort_keys=True, default=str)
     return text if len(text) <= limit else text[:limit] + "…"
 

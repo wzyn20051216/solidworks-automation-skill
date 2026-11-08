@@ -108,7 +108,7 @@ function parseDxf(source: string): PreviewScene {
     maxX: Math.max(...boxes.map((box) => box.maxX)),
     maxY: Math.max(...boxes.map((box) => box.maxY)),
   } : undefined;
-  return { schemaVersion: "1.0", kind: "dxf-scene", units: "mm", entities, layers: [...layers.values()], bounds, warnings: entities.length ? [] : ["未解析到可显示实体"] };
+  return { schemaVersion: "1.0", kind: "dxf-scene", units: "mm", entities, layers: [...layers.values()], bounds, warnings: entities.length ? [] : ["Görüntülenebilir varlık çözümlenemedi"] };
 }
 
 self.onmessage = (event: MessageEvent<string>) => {

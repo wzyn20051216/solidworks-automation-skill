@@ -12,7 +12,7 @@ fn prepare_release_resources() {
         .expect("Python 3.10+ is required to prepare the bundled skill");
     assert!(status.success(), "bundled skill synchronization failed");
 
-    // 只监视源目录；资源复制策略由 Python 共用清单唯一维护。
+    // Yalnızca kaynak dizinlerini izle; kaynak kopyalama stratejisi Python ortak bildirimiyle tek noktadan yönetilir.
     for source in [
         "README.md",
         "SKILL.md",

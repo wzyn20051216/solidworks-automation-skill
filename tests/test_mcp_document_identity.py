@@ -18,15 +18,15 @@ def test_matches_pid_and_normalized_document_path(tmp_path):
     identity = DocumentIdentity.create(123, str(path))
     with bind_document(identity):
         verify_bound_document(123, str(path.parent / "." / "part.SLDPRT"))
-        with pytest.raises(DocumentIdentityError, match="进程"):
+        with pytest.raises(DocumentIdentityError, match="süreci"):
             verify_bound_document(456, str(path))
-        with pytest.raises(DocumentIdentityError, match="活动文档"):
+        with pytest.raises(DocumentIdentityError, match="Etkin belge"):
             verify_bound_document(123, str(path.parent / "other.SLDPRT"))
 
 
 @pytest.mark.parametrize("pid", [None, 0, -1, True, "123"])
 def test_rejects_invalid_process_id(tmp_path, pid):
-    with pytest.raises(DocumentIdentityError, match="进程 ID"):
+    with pytest.raises(DocumentIdentityError, match="süreç ID"):
         DocumentIdentity.create(pid, str(tmp_path / "part.SLDPRT"))
 
 
@@ -39,20 +39,20 @@ def test_rejects_unsaved_relative_or_invalid_path(path):
 def test_requires_approved_binding_and_restores_context(tmp_path):
     first = DocumentIdentity.create(1, str(tmp_path / "a.SLDPRT"))
     second = DocumentIdentity.create(2, str(tmp_path / "b.SLDASM"))
-    with pytest.raises(DocumentIdentityError, match="没有绑定"):
+    with pytest.raises(DocumentIdentityError, match="bağlı değil"):
         verify_bound_document(1, first.path)
     with bind_document(first):
         with bind_document(second):
             verify_bound_document(2, second.path)
         verify_bound_document(1, first.path)
-    with pytest.raises(DocumentIdentityError, match="没有绑定"):
+    with pytest.raises(DocumentIdentityError, match="bağlı değil"):
         verify_bound_document(1, first.path)
 
 
 def test_document_identity_does_not_leak_into_fresh_context(tmp_path):
     identity = DocumentIdentity.create(1, str(tmp_path / "a.SLDPRT"))
     with bind_document(identity):
-        with pytest.raises(DocumentIdentityError, match="没有绑定"):
+        with pytest.raises(DocumentIdentityError, match="bağlı değil"):
             contextvars.Context().run(verify_bound_document, 1, identity.path)
 
 

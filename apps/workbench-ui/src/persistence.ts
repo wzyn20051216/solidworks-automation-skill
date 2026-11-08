@@ -10,14 +10,14 @@ export type PersistedStateWrite = {
 };
 
 /**
- * @brief 判断当前页面是否运行在 Tauri 桌面容器中。
+ * @brief Geçerli sayfanın Tauri masaüstü kapsayıcısında çalışıp çalışmadığını belirler.
  */
 export function isTauriRuntime() {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
 /**
- * @brief 安全解析旧版 localStorage 数据，损坏数据不会阻断应用启动。
+ * @brief Eski sürüm localStorage verisini güvenle ayrıştırır; bozuk veri uygulama başlangıcını engellemez.
  */
 export function parsePersistedJson(raw: string | null): unknown | null {
   if (!raw) return null;
@@ -29,7 +29,7 @@ export function parsePersistedJson(raw: string | null): unknown | null {
 }
 
 /**
- * @brief 优先读取 SQLite；不可用时保留并读取 localStorage 回退副本。
+ * @brief Önce SQLite okunur; kullanılamıyorsa localStorage yedek kopyası korunur ve okunur.
  */
 export async function readPersistedState(namespace: string, legacyKey: string): Promise<PersistedStateRead> {
   const legacyRaw = localStorage.getItem(legacyKey);
@@ -38,8 +38,8 @@ export async function readPersistedState(namespace: string, legacyKey: string): 
     return { value: legacyValue, degraded: false };
   }
 
-  // localStorage 只会在旧版迁移或 SQLite 写入失败时存在，因此它可能比数据库副本更新。
-  // 必须先回灌该副本，不能先返回数据库中的旧值，否则重启后会悄悄丢失最近一次编辑。
+  // localStorage yalnızca eski sürüm geçişinde veya SQLite yazma hatasında bulunur; bu nedenle veritabanı kopyasından daha güncel olabilir.
+  // Önce bu kopya geri yüklenmelidir; veritabanındaki eski değer önce döndürülürse yeniden başlatma sonrasında son düzenleme sessizce kaybolur.
   if (legacyRaw !== null && legacyValue !== null) {
     try {
       await invoke("write_app_store", { namespace, payload: legacyValue });
@@ -55,13 +55,13 @@ export async function readPersistedState(namespace: string, legacyKey: string): 
     const stored = await invoke<unknown | null>("read_app_store", { namespace });
     return { value: stored, degraded: false };
   } catch {
-    // SQLite 临时锁定且没有可用回退副本时，显式进入降级状态。
+    // SQLite geçici olarak kilitliyse ve kullanılabilir yedek kopya yoksa açıkça düşük (degraded) duruma geçilir.
     return { value: null, degraded: true };
   }
 }
 
 /**
- * @brief 写入 SQLite；写入失败时同步保存到 localStorage，确保重启后仍可恢复。
+ * @brief SQLite'a yazar; yazma başarısız olursa eşzamanlı olarak localStorage'a kaydeder ve yeniden başlatma sonrasında kurtarılabilirliği garanti eder.
  */
 export async function writePersistedState(namespace: string, legacyKey: string, payload: unknown): Promise<PersistedStateWrite> {
   const serialized = JSON.stringify(payload);

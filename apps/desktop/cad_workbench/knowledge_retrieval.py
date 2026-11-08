@@ -1,4 +1,4 @@
-"""@brief CAD Studio 本地优先 RAG 检索与可选云知识库连接器。"""
+"""@brief CAD Studio yerel öncelikli RAG araması ve isteğe bağlı bulut bilgi tabanı bağlayıcısı."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ TOKEN_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_+.#/-]*|[\u4e00-\u9fff]")
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """@brief 禁止云 RAG 请求携带授权头自动跳转到其他地址。"""
+    """@brief Bulut RAG isteklerinin yetkilendirme başlığıyla başka adreslere otomatik yönlenmesini engeller."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, ANN201
         return None
@@ -29,7 +29,7 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 @dataclass(frozen=True)
 class KnowledgeChunk:
-    """@brief 一段可追溯的知识库检索结果。"""
+    """@brief İzlenebilir tek bir bilgi tabanı arama sonucu."""
 
     source: str
     title: str
@@ -43,7 +43,7 @@ class KnowledgeChunk:
 
 
 def default_knowledge_roots() -> list[Path]:
-    """@brief 返回内置机械知识根目录。"""
+    """@brief Yerleşik mekanik bilgi kök dizinlerini döndürür."""
     return [
         REPO_ROOT / "SKILL.md",
         REPO_ROOT / "references",
@@ -52,7 +52,7 @@ def default_knowledge_roots() -> list[Path]:
 
 
 def _iter_documents(roots: Iterable[Path]) -> Iterable[Path]:
-    """@brief 枚举知识根目录中的受支持文本文件。"""
+    """@brief Bilgi kök dizinlerindeki desteklenen metin dosyalarını listeler."""
     seen: set[Path] = set()
     for root in roots:
         root = Path(root).expanduser().resolve()
@@ -68,7 +68,7 @@ def _iter_documents(roots: Iterable[Path]) -> Iterable[Path]:
 
 
 def _document_text(path: Path, max_bytes: int = 2 * 1024 * 1024) -> str:
-    """@brief 安全读取知识文档，拒绝异常大的输入。"""
+    """@brief Bilgi belgesini güvenle okur; anormal büyüklükteki girdileri reddeder."""
     if path.stat().st_size > max_bytes:
         return ""
     try:
@@ -84,7 +84,7 @@ def _document_text(path: Path, max_bytes: int = 2 * 1024 * 1024) -> str:
 
 
 def _chunks(text: str, max_chars: int = 1400, overlap: int = 180) -> Iterable[str]:
-    """@brief 按段落切分知识文档，并保留少量上下文重叠。"""
+    """@brief Bilgi belgesini paragraflara böler ve az miktarda bağlam örtüşmesi korur."""
     paragraphs = [item.strip() for item in re.split(r"\n\s*\n", text) if item.strip()]
     current = ""
     for paragraph in paragraphs:
@@ -103,7 +103,7 @@ def _chunks(text: str, max_chars: int = 1400, overlap: int = 180) -> Iterable[st
 
 
 def _tokens(text: str) -> list[str]:
-    """@brief 提取中英文机械检索词；中文按单字并补充相邻二元组。"""
+    """@brief Çince ve İngilizce mekanik arama terimlerini çıkarır; Çince karakter bazında alınır ve komşu ikililer eklenir."""
     raw = [item.lower() for item in TOKEN_PATTERN.findall(text)]
     chinese = [item for item in raw if "\u4e00" <= item <= "\u9fff"]
     bigrams = ["".join(chinese[index : index + 2]) for index in range(len(chinese) - 1)]
@@ -111,7 +111,7 @@ def _tokens(text: str) -> list[str]:
 
 
 def _title(path: Path, text: str) -> str:
-    """@brief 从 Markdown 标题或文件名生成结果标题。"""
+    """@brief Markdown başlığından veya dosya adından sonuç başlığı üretir."""
     for line in text.splitlines():
         if line.lstrip().startswith("#"):
             return line.lstrip("# ").strip()[:120]
@@ -119,7 +119,7 @@ def _title(path: Path, text: str) -> str:
 
 
 def retrieve_local_knowledge(query: str, roots: Iterable[Path] | None = None, top_k: int = 6) -> list[KnowledgeChunk]:
-    """@brief 对本地 Skill 知识进行轻量 BM25 风格检索。"""
+    """@brief Yerel Skill bilgisi üzerinde hafif BM25 tarzı arama yapar."""
     query_tokens = set(_tokens(query))
     if not query_tokens:
         return []
@@ -161,7 +161,7 @@ def retrieve_local_knowledge(query: str, roots: Iterable[Path] | None = None, to
 
 
 def retrieve_cloud_knowledge(query: str, config: dict[str, Any], timeout_seconds: float = 8.0) -> list[KnowledgeChunk]:
-    """@brief 调用显式配置的 HTTPS RAG 服务；令牌只从环境变量读取。"""
+    """@brief Açıkça yapılandırılmış HTTPS RAG servisini çağırır; token yalnızca ortam değişkeninden okunur."""
     endpoint = str(config.get("endpoint") or "").strip()
     parsed_endpoint = urllib.parse.urlsplit(endpoint)
     if (
@@ -171,13 +171,13 @@ def retrieve_cloud_knowledge(query: str, config: dict[str, Any], timeout_seconds
         or parsed_endpoint.password is not None
         or parsed_endpoint.fragment
     ):
-        raise ValueError("云知识库 endpoint 必须使用 HTTPS")
+        raise ValueError("Bulut bilgi tabanı endpoint'i HTTPS kullanmak zorundadır")
     token_env = str(config.get("tokenEnv") or "CAD_STUDIO_RAG_TOKEN")
     if token_env != "CAD_STUDIO_RAG_TOKEN":
-        raise ValueError("云知识库只允许从 CAD_STUDIO_RAG_TOKEN 读取令牌")
+        raise ValueError("Bulut bilgi tabanı token'ı yalnızca CAD_STUDIO_RAG_TOKEN üzerinden okuyabilir")
     token = os.environ.get(token_env, "")
     if not token:
-        raise RuntimeError(f"云知识库缺少环境变量 {token_env}")
+        raise RuntimeError(f"Bulut bilgi tabanı için {token_env} ortam değişkeni eksik")
     payload = json.dumps(
         {
             "query": query,
@@ -197,10 +197,10 @@ def retrieve_cloud_knowledge(query: str, config: dict[str, Any], timeout_seconds
         with opener.open(request, timeout=timeout_seconds) as response:
             raw = json.loads(response.read(2 * 1024 * 1024).decode("utf-8"))
     except (urllib.error.URLError, TimeoutError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RuntimeError(f"云知识库检索失败: {exc}") from exc
+        raise RuntimeError(f"Bulut bilgi tabanı araması başarısız: {exc}") from exc
     items = raw.get("chunks") if isinstance(raw, dict) else None
     if not isinstance(items, list):
-        raise RuntimeError("云知识库响应缺少 chunks 数组")
+        raise RuntimeError("Bulut bilgi tabanı yanıtında chunks dizisi eksik")
     chunks: list[KnowledgeChunk] = []
     for item in items:
         if not isinstance(item, dict) or not str(item.get("text") or "").strip():
@@ -209,7 +209,7 @@ def retrieve_cloud_knowledge(query: str, config: dict[str, Any], timeout_seconds
         chunks.append(
             KnowledgeChunk(
                 source=str(item.get("source") or endpoint),
-                title=str(item.get("title") or "云知识")[:120],
+                title=str(item.get("title") or "Bulut bilgisi")[:120],
                 text=text,
                 score=float(item.get("score") or 0.0),
                 sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
@@ -220,7 +220,7 @@ def retrieve_cloud_knowledge(query: str, config: dict[str, Any], timeout_seconds
 
 
 def _api_knowledge(query: str, config: dict[str, Any], cancelled: Callable[[], bool] | None) -> tuple[list[KnowledgeChunk], list[str]]:
-    """显式引用优先，其次从本项目已验证的操作中选择候选；不外发任务全文。"""
+    """Önce açık referansları, ardından bu projede doğrulanmış işlemlerden adayları seçer; görev tam metni dışarı gönderilmez."""
     from scripts.api_intent import task_candidates, task_years
     references, explicit_keys = task_candidates(query)
     if not references:
@@ -229,20 +229,20 @@ def _api_knowledge(query: str, config: dict[str, Any], cancelled: Callable[[], b
 
     years = task_years(query)
     if len(years) > 1:
-        return [], ["任务提到了多个 SolidWorks 年份，请明确指定目标版本后再查证 API。"]
+        return [], ["Görev birden fazla SolidWorks yılından bahsediyor; API doğrulamadan önce hedef sürümü açıkça belirtin."]
     year = next(iter(years)) if len(years) == 1 else None
     results: list[KnowledgeChunk] = []
     warnings: list[str] = []
     inferred = [f"{interface}.{member}" for interface, member in references if (interface.casefold(), member.casefold()) not in explicit_keys]
     if inferred:
-        warnings.append("根据自然语言识别的 API 查证候选：" + "、".join(inferred) + "；实际方法须由任务规划与版本证据确认。")
+        warnings.append("Doğal dilden tanınan API doğrulama adayları: " + ", ".join(inferred) + "; gerçek yöntem görev planlaması ve sürüm kanıtıyla doğrulanmalıdır.")
     online_setting = config.get("officialApiDocsEnabled", True)
     if not isinstance(online_setting, bool):
-        warnings.append("官方 API 文档联网设置无效，已使用离线查证。")
+        warnings.append("Resmi API dokümantasyonu çevrim içi ayarı geçersiz; çevrim dışı doğrulama kullanıldı.")
         online_setting = False
     parallel_setting = config.get("parallelApiFallbackEnabled", True)
     if not isinstance(parallel_setting, bool):
-        warnings.append("Parallel 备用设置无效，已关闭该服务。")
+        warnings.append("Parallel yedek ayarı geçersiz; bu servis kapatıldı.")
         parallel_setting = False
     for interface, member in references:
         result = lookup_api(interface, member, year, online=online_setting, parallel_fallback=parallel_setting,
@@ -255,7 +255,7 @@ def _api_knowledge(query: str, config: dict[str, Any], cancelled: Callable[[], b
                                "runtime_verified": False}, ensure_ascii=False)
             results.append(KnowledgeChunk(
                 source=f"{library.get('file')} (SolidWorks {target.get('year')})",
-                title=f"{interface}.{member} 本地类型库声明", text=text, score=0.0,
+                title=f"{interface}.{member} yerel tip kitaplığı bildirimi", text=text, score=0.0,
                 sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(), provider="local-api",
                 version=target.get("year"), evidence_level="type_library_declaration"))
         local_help = result.get("local_help") or {}
@@ -275,12 +275,12 @@ def _api_knowledge(query: str, config: dict[str, Any], cancelled: Callable[[], b
                 evidence_level=("cached_parallel_reference" if is_parallel else "cached_official_document")
                     if official.get("cache_status") else ("parallel_extracted_official" if is_parallel else "official_document")))
         if result.get("status") in {"unknown", "not_found", "conflict"}:
-            warnings.append(f"{interface}.{member} 的目标版本或接口尚未确认：{result.get('status')}。")
+            warnings.append(f"{interface}.{member} için hedef sürüm veya arayüz henüz doğrulanmadı: {result.get('status')}.")
     return results, warnings
 
 
 def build_job_knowledge_context(job: dict[str, Any], *, cancelled: Callable[[], bool] | None = None) -> dict[str, Any]:
-    """@brief 根据任务目标构建可注入 Codex Prompt 的可审计 RAG 上下文。"""
+    """@brief Görev hedefine göre Codex Prompt'a enjekte edilebilir, denetlenebilir RAG bağlamı oluşturur."""
     query = "\n".join(
         str(value)
         for value in (job.get("objective"), job.get("detail"), job.get("expectedOutput"), job.get("prompt"))
@@ -300,9 +300,9 @@ def build_job_knowledge_context(job: dict[str, Any], *, cancelled: Callable[[], 
     if knowledge_config.get("cloudEnabled") is True:
         capabilities = job.get("capabilities") if isinstance(job.get("capabilities"), list) else []
         if "external_network" not in capabilities:
-            warnings.append("云知识库未执行：任务未声明 external_network 能力。")
+            warnings.append("Bulut bilgi tabanı çalıştırılmadı: görev external_network yeteneğini bildirmedi.")
         elif not job.get("approvedAt"):
-            warnings.append("云知识库未执行：外部网络能力尚未人工审批。")
+            warnings.append("Bulut bilgi tabanı çalıştırılmadı: dış ağ yeteneği henüz insan onayından geçmedi.")
         else:
             try:
                 chunks.extend(retrieve_cloud_knowledge(query, knowledge_config))
@@ -317,7 +317,7 @@ def build_job_knowledge_context(job: dict[str, Any], *, cancelled: Callable[[], 
         if key in seen or remaining_chars <= 0 or len(limited) >= 12:
             continue
         seen.add(key)
-        # Prompt 每段最多展示 4000 字符；哈希必须对应实际送给 Agent 的片段。
+        # Prompt'ta her parça en fazla 4000 karakter gösterilir; karma, Agent'a fiilen gönderilen parçayla eşleşmelidir.
         text = item.text[:min(remaining_chars, 4000)]
         if not text:
             continue

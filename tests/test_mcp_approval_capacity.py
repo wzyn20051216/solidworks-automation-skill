@@ -20,7 +20,7 @@ def test_request_limit_reuses_duplicate_and_preserves_existing_records(tmp_path,
     second = ledger.request("solidworks_create_basic_part", {"n": 2}, "write", subject="a")
     before = {path.name: path.read_bytes() for path in ledger.requests_dir.glob("*.json")}
     assert ledger.request("solidworks_create_basic_part", {"n": 1}, "write", subject="a") == first
-    with pytest.raises(approval.ApprovalError, match="请求记录已达容量上限"):
+    with pytest.raises(approval.ApprovalError, match="Onay isteği kayıtları kapasite sınırına ulaştı"):
         ledger.request("solidworks_create_basic_part", {"n": 3}, "write", subject="a")
     assert {path.name: path.read_bytes() for path in ledger.requests_dir.glob("*.json")} == before
     assert {r["id"] for r in ledger.pending()} == {first["id"], second["id"]}
@@ -33,7 +33,7 @@ def test_grant_limit_does_not_change_request_or_existing_grants(tmp_path, monkey
     existing = ledger.grants_dir / "existing.json"
     existing.write_text('{"owned":"keep"}', encoding="utf-8")
     before = existing.read_bytes()
-    with pytest.raises(approval.ApprovalError, match="授权记录已达容量上限"):
+    with pytest.raises(approval.ApprovalError, match="Onay yetki kayıtları kapasite sınırına ulaştı"):
         ledger.approve(pending["id"], expected_record=pending)
     assert existing.read_bytes() == before
     assert ledger.request_record(pending["id"]) == pending

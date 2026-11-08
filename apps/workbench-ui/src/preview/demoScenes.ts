@@ -47,7 +47,7 @@ function scene(
 export const DEMO_SCENES: DemoSceneRecord[] = [
   {
     id: "installation-plate",
-    label: "安装板",
+    label: "Montaj plakası",
     scene: scene(
       [
         line("plate-outline", [[0, 0], [120, 0], [120, 70], [0, 70], [0, 0]], "OUTLINE", "#25312f", ["feature:base"]),
@@ -64,7 +64,7 @@ export const DEMO_SCENES: DemoSceneRecord[] = [
   },
   {
     id: "hole-bracket",
-    label: "带孔支架",
+    label: "Delikli braket",
     scene: scene(
       [
         line("bracket-outline", [[0, 0], [85, 0], [85, 18], [35, 18], [35, 62], [0, 62], [0, 0]], "OUTLINE", "#25312f"),
@@ -79,7 +79,7 @@ export const DEMO_SCENES: DemoSceneRecord[] = [
   },
   {
     id: "cpu-enclosure",
-    label: "CPU 外壳",
+    label: "CPU muhafazası",
     scene: scene(
       [
         line("shell", [[0, 0], [140, 0], [140, 90], [0, 90], [0, 0]], "OUTLINE", "#25312f"),
@@ -96,7 +96,7 @@ export const DEMO_SCENES: DemoSceneRecord[] = [
   },
   {
     id: "mini-assembly",
-    label: "小型装配体",
+    label: "Küçük montaj grubu",
     scene: scene(
       [
         line("base", [[0, 0], [110, 0], [110, 28], [0, 28], [0, 0]], "BASE", "#25312f", ["component:base"]),
@@ -111,7 +111,7 @@ export const DEMO_SCENES: DemoSceneRecord[] = [
   },
   {
     id: "gbt-drawing",
-    label: "GB/T 图框",
+    label: "GB/T antet çerçevesi",
     scene: scene(
       [
         line("border", [[0, 0], [210, 0], [210, 297], [0, 297], [0, 0]], "FRAME", "#25312f"),
@@ -119,17 +119,17 @@ export const DEMO_SCENES: DemoSceneRecord[] = [
         line("title-box", [[120, 10], [200, 10], [200, 48], [120, 48], [120, 10]], "TITLE", "#176c65"),
         line("title-row", [[120, 28], [200, 28]], "TITLE", "#176c65"),
         line("title-col", [[162, 10], [162, 48]], "TITLE", "#176c65"),
-        text("drawing-title", "安装板", [126, 39]),
-        text("scale", "比例 1:1", [166, 20]),
+        text("drawing-title", "Montaj plakası", [126, 39]),
+        text("scale", "Ölçek 1:1", [166, 20]),
       ],
       [layer("FRAME", "#25312f", 2), layer("TITLE", "#176c65", 3), layer("TEXT", "#42514e", 2)],
       { minX: -8, minY: -8, maxX: 218, maxY: 305 },
-      ["演示图框不替代企业模板或正式审图。"],
+      ["Demo antet çerçevesi, kurumsal şablonun veya resmi çizim onayının yerini tutmaz."],
     ),
   },
   {
     id: "fea-cloud",
-    label: "FEA 云图",
+    label: "FEA kontur grafiği",
     scene: scene(
       [
         line("beam", [[0, 20], [120, 20], [120, 48], [0, 48], [0, 20]], "MODEL", "#25312f"),
@@ -140,12 +140,12 @@ export const DEMO_SCENES: DemoSceneRecord[] = [
       ],
       [layer("MODEL", "#25312f", 1), layer("RESULT", "#c74343", 13), layer("CONSTRAINT", "#176c65", 1), layer("LOAD", "#c74343", 1)],
       { minX: -12, minY: 0, maxX: 132, maxY: 72 },
-      ["演示云图不是求解结果，不得用于安全判断。"],
+      ["Demo kontur grafiği bir çözüm sonucu değildir ve güvenlik değerlendirmesi için kullanılamaz."],
     ),
   },
   {
     id: "routing-path",
-    label: "Routing 路径",
+    label: "Routing güzergahı",
     scene: scene(
       [
         line("route-main", [[8, 14], [36, 14], [36, 46], [78, 46], [78, 22], [118, 22]], "ROUTE", "#176c65", ["route:main"]),
@@ -157,7 +157,7 @@ export const DEMO_SCENES: DemoSceneRecord[] = [
       ],
       [layer("ROUTE", "#176c65", 1), layer("ENDPOINT", "#b36b22", 2), layer("SUPPORT", "#4f7770", 2), layer("CLEARANCE", "#c74343", 1)],
       { minX: -4, minY: 0, maxX: 130, maxY: 70 },
-      ["Routing 当前为演示路径，不代表已生成原生管路或线束。"],
+      ["Routing şu anda bir demo güzergahıdır; yerel boru veya kablo demetinin üretildiği anlamına gelmez."],
     ),
   },
 ];

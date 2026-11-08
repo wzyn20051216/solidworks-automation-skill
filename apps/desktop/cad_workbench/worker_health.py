@@ -1,4 +1,4 @@
-"""@brief CAD Studio worker 健康状态记录。"""
+"""@brief CAD Studio worker sağlık durumu kaydı."""
 
 from __future__ import annotations
 
@@ -13,12 +13,12 @@ QUEUE_METADATA_FILES = {"worker_health.json", "provider_verifications.json"}
 
 
 def health_path_for(queue_dir: Path) -> Path:
-    """@brief 返回 worker 健康状态文件路径。"""
+    """@brief Worker sağlık durumu dosyası yolunu döndürür."""
     return Path(queue_dir) / "worker_health.json"
 
 
 def count_jobs(queue_dir: Path) -> dict[str, int]:
-    """@brief 统计队列中各状态任务数量。"""
+    """@brief Kuyruktaki her durumun görev sayısını hesaplar."""
     counts: dict[str, int] = {}
     for path in Path(queue_dir).glob("*.json"):
         if path.name in QUEUE_METADATA_FILES:
@@ -34,7 +34,7 @@ def count_jobs(queue_dir: Path) -> dict[str, int]:
 
 
 def health_level(counts: dict[str, int], last_error: str | None = None) -> str:
-    """@brief 根据队列状态给出粗粒度健康等级。"""
+    """@brief Kuyruk durumuna göre kaba taneli sağlık düzeyi verir."""
     if last_error:
         return "error"
     if counts.get("unreadable", 0) > 0 or counts.get("failed", 0) > 0:
@@ -52,7 +52,7 @@ def write_worker_health(
     recovered_count: int = 0,
     last_error: str | None = None,
 ) -> dict[str, Any]:
-    """@brief 写入 worker 健康心跳。"""
+    """@brief Worker sağlık kalp atışını yazar."""
     queue_dir = Path(queue_dir)
     queue_dir.mkdir(parents=True, exist_ok=True)
     counts = count_jobs(queue_dir)
@@ -73,7 +73,7 @@ def write_worker_health(
 
 
 def read_worker_health(queue_dir: Path) -> dict[str, Any] | None:
-    """@brief 读取 worker 健康状态，缺失或损坏时返回 None。"""
+    """@brief Worker sağlık durumunu okur; eksik veya bozuksa None döndürür."""
     path = health_path_for(queue_dir)
     if not path.exists():
         return None

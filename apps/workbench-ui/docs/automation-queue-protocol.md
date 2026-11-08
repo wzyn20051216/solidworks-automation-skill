@@ -1,48 +1,48 @@
-# CAD Studio 本地自动化队列协议
+# CAD Studio Yerel Otomasyon Kuyruğu Protokolü
 
-## 目标
+## Amaç
 
-CAD Studio 桌面端通过 Tauri 把任务保存为本机 JSON 文件，Python worker 读取队列并调用本机 Codex。正式桌面启动只启用 Codex handler；mock handler 仅供显式开发测试。
+CAD Studio masaüstü tarafı, görevleri Tauri üzerinden yerel JSON dosyaları olarak kaydeder; Python worker kuyruğu okur ve yerel Codex'i çağırır. Resmi masaüstü başlatma yalnızca Codex handler'ı etkinleştirir; mock handler yalnızca açık geliştirme testleri içindir.
 
-## 队列目录
+## Kuyruk dizini
 
-Rust 侧以 `app.path().app_data_dir()/queue` 为准。当前 Tauri 标识为:
+Rust tarafı `app.path().app_data_dir()/queue` değerini esas alır. Geçerli Tauri tanımlayıcısı:
 
 ```text
 com.wzyn.cadstudio
 ```
 
-Windows 常见路径:
+Windows'ta yaygın yol:
 
 ```text
 %APPDATA%\com.wzyn.cadstudio\queue
 ```
 
-worker 默认也会读取该目录。调试时可以显式指定:
+worker varsayılan olarak bu dizini de okur. Hata ayıklarken açıkça belirtilebilir:
 
 ```powershell
-python -m apps.desktop.cad_workbench.queue_worker --queue-dir "<队列目录>"
+python -m apps.desktop.cad_workbench.queue_worker --queue-dir "<kuyruk-dizini>"
 ```
 
-桌面集成测试可在启动前设置 `CAD_STUDIO_QUEUE_DIR` 覆盖 Tauri 队列目录；正式运行不设置时仍使用应用数据目录。
+Masaüstü entegrasyon testleri başlatmadan önce `CAD_STUDIO_QUEUE_DIR` ayarlayarak Tauri kuyruk dizinini geçersiz kılabilir; resmi çalıştırmada ayarlanmadığında yine uygulama veri dizini kullanılır.
 
-持续监听:
+Sürekli dinleme:
 
 ```powershell
-python -m apps.desktop.cad_workbench.queue_worker --watch --queue-dir "<队列目录>"
+python -m apps.desktop.cad_workbench.queue_worker --watch --queue-dir "<kuyruk-dizini>"
 ```
 
-桌面端也提供 Worker Control，队列面板右上角可以启动/停止由软件托管的 Python worker。浏览器预览模式不会启动 worker。
+Masaüstü tarafı ayrıca Worker Control sunar; kuyruk panelinin sağ üst köşesinden yazılımın yönettiği Python worker başlatılıp/durdurulabilir. Tarayıcı önizleme modu worker'ı başlatmaz.
 
-## 任务 JSON
+## Görev JSON
 
-每个任务一个文件，文件名来自安全化后的 `id`:
+Her görev için bir dosya; dosya adı güvenli hale getirilmiş `id` değerinden gelir:
 
 ```text
 {id}.json
 ```
 
-字段:
+Alanlar:
 
 ```json
 {
@@ -50,8 +50,8 @@ python -m apps.desktop.cad_workbench.queue_worker --watch --queue-dir "<队列�
   "id": "job-1721900000000-a1b2c3",
   "runId": "run-1721900000000-a1b2c3",
   "kind": "create_shell",
-  "title": "新建 CAD 任务",
-  "detail": "生成零件、装配、外壳、孔槽和基础检查任务",
+  "title": "Yeni CAD görevi",
+  "detail": "Parça, montaj, muhafaza, delik/kanal ve temel kontrol görevleri oluştur",
   "status": "queued",
   "progress": 0,
   "createdAt": "2026-07-25T12:00:00.000Z",
@@ -72,29 +72,29 @@ python -m apps.desktop.cad_workbench.queue_worker --watch --queue-dir "<队列�
 }
 ```
 
-机器可读 Schema:
+Makine tarafından okunabilir Schema:
 
 ```text
 apps/desktop/cad_workbench/schemas/automation_job.schema.json
 ```
 
-任务类型:
+Görev türleri:
 
-- `create_shell`: 兼容旧命名的新建 CAD 任务，覆盖零件、装配、外壳、孔槽和基础检查。
-- `import_model`: 导入本地 CAD 模型并建立项目上下文。
-- `delivery_package`: 生成 STEP、STL、PDF、DWG 等交付包。
-- `codex_task`: 图形化配置生成的 Codex 非交互执行任务。
+- `create_shell`: Eski adlandırmayla uyumlu yeni CAD görevi; parça, montaj, muhafaza, delik/kanal ve temel kontrolleri kapsar.
+- `import_model`: Yerel CAD modelini içe aktarır ve proje bağlamını oluşturur.
+- `delivery_package`: STEP, STL, PDF, DWG vb. teslim paketleri üretir.
+- `codex_task`: Grafiksel yapılandırma ile oluşturulan Codex etkileşimsiz yürütme görevi.
 
-Codex Bridge 扩展字段:
+Codex Bridge uzantı alanları:
 
 ```json
 {
   "executor": "codex",
-  "objective": "根据用户输入自动判断最佳 CAD 任务类型、制造方式、材料和交付格式",
-  "target": "AI 自动判断",
-  "expectedOutput": "AI 自动选择输出",
-  "strictRules": ["未指定字段由 AI 自动选择最佳工程方案", "孔槽必须真实几何切除", "必须按中国机械制图常用格式复核 CAD 图纸"],
-  "prompt": "你是 Codex，请执行由 CAD Studio 图形化界面生成的任务...",
+  "objective": "Kullanıcı girdisine göre en iyi CAD görev türünü, üretim yöntemini, malzemeyi ve teslim biçimini otomatik belirle",
+  "target": "AI otomatik belirler",
+  "expectedOutput": "AI otomatik çıktı seçer",
+  "strictRules": ["Belirtilmeyen alanlar için AI en iyi mühendislik çözümünü otomatik seçer", "Delik/kanallar gerçek geometri kesimi olmalıdır", "CAD teknik resimleri Çin'de yaygın mekanik teknik resim biçimine göre incelenmelidir"],
+  "prompt": "Sen Codex'sin; CAD Studio grafik arayüzü tarafından oluşturulan görevi yürüt...",
   "cwd": "C:/path/to/solidworks-automation-skill",
   "skillPath": "C:/path/to/solidworks-automation-skill/SKILL.md",
   "uiConfig": {
@@ -104,20 +104,20 @@ Codex Bridge 扩展字段:
       "autoOutput": true,
       "autoProcess": true,
       "autoMaterial": true,
-      "instruction": "未指定字段由 AI 自动选择最佳工程方案，并说明理由。"
+      "instruction": "Belirtilmeyen alanlar için AI en iyi mühendislik çözümünü otomatik seçer ve gerekçesini açıklar."
     }
   }
 }
 ```
 
-默认选择语义:
+Varsayılan seçim anlamları:
 
-- 用户没有指定任务类型、工艺、材料、输出格式或尺寸细节时，UI 会写入 `selection.mode = "auto_best"`。
-- Codex 必须根据工程目标、输入文件、制造方式、成本、强度、可加工性和交付要求自动选择最佳方案。
-- 自动选择后必须在最终结果中说明选择理由和残余风险。
-- 用户点击具体模板或具体选项后，该字段视为用户指定，Codex 应优先遵守。
+- Kullanıcı görev türünü, süreci, malzemeyi, çıktı biçimini veya ölçü ayrıntılarını belirtmediğinde UI `selection.mode = "auto_best"` yazar.
+- Codex, mühendislik hedefine, giriş dosyalarına, üretim yöntemine, maliyete, mukavemete, işlenebilirliğe ve teslim gereksinimlerine göre en iyi çözümü otomatik seçmelidir.
+- Otomatik seçimden sonra nihai sonuçta seçim gerekçesi ve kalan riskler açıklanmalıdır.
+- Kullanıcı belirli bir şablona veya belirli bir seçeneğe tıkladığında o alan kullanıcı tarafından belirtilmiş sayılır ve Codex buna öncelikli olarak uymalıdır.
 
-状态流转:
+Durum akışı:
 
 ```text
 queued -> running -> passed | review_required | failed | cancelled
@@ -127,93 +127,93 @@ queued -> approval_required -> queued | cancelled
 review_required -> passed | failed
 ```
 
-约定:
+Kurallar:
 
-- UI 通过只创建接口写入新任务；取消、执行前审批和执行后人工复核分别走专用命令，不能用通用保存覆盖任务状态。
-- worker 只处理 `status == "queued"` 的任务。
-- `passed`、`failed`、`cancelled` 是终态；`review_required` 必须由用户明确“通过复核”或“驳回”。
-- worker 回写 `workerLog`、`lastMessage`、`result` 或 `error`，前端可以直接展示这些字段。
-- 成功任务会回写 `artifactLedgerPath` 和 `artifacts`，用于展示交付物存在性、大小和 hash。
-- 成功任务会回写 `reviewGatePath` 和 `reviewGate`，用于展示交付物复核状态。
-- Reviewer Gate 为 `warning` 时写入 `review_required`，不能显示“完成”；只有门禁为 `pass` 才写入 `passed`。
-- 真实 CAD handler 必须在写入 `passed` 前完成文件存在性检查，不能把占位文件、AI JSON 回执或旧文件标为可制造交付。
-- `save_queue_job` 仅接受不存在的 `queued` 新任务；已存在任务一律拒绝覆盖。
+- UI yeni görevleri yalnızca oluşturma arayüzü üzerinden yazar; iptal, yürütme öncesi onay ve yürütme sonrası manuel inceleme ayrı özel komutlardan geçer; genel kaydetme ile görev durumu üzerine yazılamaz.
+- worker yalnızca `status == "queued"` olan görevleri işler.
+- `passed`, `failed`, `cancelled` terminal durumlardır; `review_required` için kullanıcının açıkça "incelemeyi onayla" veya "reddet" demesi gerekir.
+- worker `workerLog`, `lastMessage`, `result` veya `error` alanlarını geri yazar; ön uç bu alanları doğrudan gösterebilir.
+- Başarılı görevler `artifactLedgerPath` ve `artifacts` alanlarını geri yazar; teslimatların varlığını, boyutunu ve hash'ini göstermek için kullanılır.
+- Başarılı görevler `reviewGatePath` ve `reviewGate` alanlarını geri yazar; teslimat inceleme durumunu göstermek için kullanılır.
+- Reviewer Gate `warning` olduğunda `review_required` yazılır ve "tamamlandı" gösterilemez; yalnızca kapı `pass` olduğunda `passed` yazılır.
+- Gerçek CAD handler'ı `passed` yazmadan önce dosya varlığı kontrolünü tamamlamalıdır; yer tutucu dosyaları, AI JSON makbuzlarını veya eski dosyaları üretilebilir teslimat olarak işaretleyemez.
+- `save_queue_job` yalnızca var olmayan yeni `queued` görevleri kabul eder; var olan görevlerin üzerine yazılması her zaman reddedilir.
 
-人工复核通过前必须填写具体说明并完成当前任务要求的复核清单。通过后会写入 `reviewedBy`、`reviewedAt`、`reviewDecision = "approved"`，并把人工检查项、告警列表及交付物路径/大小/SHA-256 快照写入 `reviewGate.manualReview` 和审计事件 `review.manual_approved`；驳回必须填写问题说明，并写入 `reviewDecision = "rejected"`、明确错误和 `review.manual_rejected`。
+Manuel inceleme onaylanmadan önce somut açıklama doldurulmalı ve geçerli görevin gerektirdiği inceleme kontrol listesi tamamlanmalıdır. Onaydan sonra `reviewedBy`, `reviewedAt`, `reviewDecision = "approved"` yazılır ve manuel kontrol maddeleri, uyarı listesi ile teslimat yolu/boyut/SHA-256 anlık görüntüsü `reviewGate.manualReview` ve `review.manual_approved` denetim olayına yazılır; reddetme durumunda sorun açıklaması doldurulmalı ve `reviewDecision = "rejected"`, belirgin hata ile `review.manual_rejected` yazılmalıdır.
 
 ## Policy Gate
 
-Policy Gate 是 worker/control-plane 层的强制门禁，不能只依赖前端提示。Codex 任务在执行前会先检查策略和能力声明，命中风险则写回:
+Policy Gate, worker/control-plane katmanının zorunlu kapısıdır; yalnızca ön uç uyarısına bağlı olamaz. Codex görevleri yürütülmeden önce ilke ve yetenek bildirimleri kontrol edilir; risk eşleşirse geri yazılır:
 
 ```json
 {
   "status": "approval_required",
-  "approvalReasons": ["任务请求 Git push，需要人工审批。"],
-  "lastMessage": "任务需要人工审批: ..."
+  "approvalReasons": ["Görev Git push talep ediyor, manuel onay gerekiyor."],
+  "lastMessage": "Görev manuel onay gerektiriyor: ..."
 }
 ```
 
-当前会要求人工审批的情况:
+Şu anda manuel onay gerektiren durumlar:
 
-- `policy.approval == "manual-required"`。
-- `policy.requirePush == true` 或 `uiConfig.gates.commitAndPush == true`。
-- `policy.sandbox == "danger-full-access"`。
-- `capabilities` 包含 `git_push`、`full_access`、`cad_macro`、`external_network`、`cross_workspace`、`delete_files`。
+- `policy.approval == "manual-required"`.
+- `policy.requirePush == true` veya `uiConfig.gates.commitAndPush == true`.
+- `policy.sandbox == "danger-full-access"`.
+- `capabilities` şunlardan birini içeriyor: `git_push`, `full_access`, `cad_macro`, `external_network`, `cross_workspace`, `delete_files`.
 
-桌面端点击“批准”后，会写入:
+Masaüstünde "Onayla"ya tıklandıktan sonra şunlar yazılır:
 
 ```json
 {
   "approvedAt": "unix:1784970000",
   "approvedBy": "local-user",
-  "approvedPolicyReasons": ["任务请求 Git push，需要人工审批。"],
+  "approvedPolicyReasons": ["Görev Git push talep ediyor, manuel onay gerekiyor."],
   "status": "queued"
 }
 ```
 
-worker 会重新计算当前任务的审批原因，并要求它与 `approvedPolicyReasons` 完全一致；如果批准后又把任务改成全权限、CAD 宏或其他危险能力，审批会失效并重新进入 `approval_required`。这不是最终的防篡改方案，后续 Artifact Ledger 会补 HMAC 签名和不可变审计记录。
+worker geçerli görevin onay nedenlerini yeniden hesaplar ve bunların `approvedPolicyReasons` ile tam olarak eşleşmesini ister; onaydan sonra görev tam yetkiye, CAD makrosuna veya başka tehlikeli yeteneklere değiştirilirse onay geçersiz olur ve görev yeniden `approval_required` durumuna girer. Bu nihai kurcalamaya karşı koruma çözümü değildir; ileride Artifact Ledger HMAC imzası ve değiştirilemez denetim kayıtları ekleyecektir.
 
-## 可靠队列状态机
+## Güvenilir kuyruk durum makinesi
 
-当前仍使用本地 JSON 文件队列，但 worker 已具备最小可靠性语义:
+Hâlâ yerel JSON dosya kuyruğu kullanılır, ancak worker artık asgari güvenilirlik semantiğine sahiptir:
 
-- 领取任务前打开 `{job}.json.lock`，Windows 使用 `msvcrt.locking`、Unix 使用 `fcntl.flock` 获取操作系统排他锁，避免多 worker 重复接单。
-- 领取后写入 `runnerId`、`workerPid`、`attempt`、`heartbeatAt`、`leaseUntil`。
-- 运行中 worker 会定期刷新 `heartbeatAt` 和 `leaseUntil`，防止长任务被误判为 stale。
-- worker 结束后释放操作系统锁；`.lock` 文件作为诊断记录保留，进程异常退出时操作系统也会自动释放锁。
-- UI 可把任务写为 `status: "cancelled"` 或 `cancelRequested: true`，worker 会终止托管中的 Codex 子进程。
-- 启动或轮询时会恢复 `leaseUntil` 过期的 `running` 任务，将其重新置为 `queued`。
-- 软件主动停止 Worker、Alt+F4、系统关闭或原生退出时，会先终止 Worker 进程树，再按 `workerPid` 把该 Worker 未完成的 `running` 任务立即恢复为 `queued`；已有取消请求的任务保持 `cancelled`。
-- 损坏 JSON 会被移动到 `queue/quarantine`，并生成同名 `.error.txt`，不会中断 watch 循环。
-- 每个任务会写入 `queue/events/{job_id}.jsonl` 事件流。
-- 托管子进程 stdout/stderr 会写入 `queue/logs/{job_id}.stdout.log` 与 `queue/logs/{job_id}.stderr.log`。
-- 成功任务会写入 `queue/ledgers/{job_id}.ledger.json` 交付物账本。
-- 成功任务会写入 `queue/reviews/{job_id}.review.json` Reviewer Gate 报告。
-- worker 会写入 `queue/worker_health.json` 健康心跳。
+- Görevi almadan önce `{job}.json.lock` açılır; Windows `msvcrt.locking`, Unix `fcntl.flock` ile işletim sistemi özel kilidi alınır ve birden çok worker'ın aynı görevi tekrar alması önlenir.
+- Alma sonrası `runnerId`, `workerPid`, `attempt`, `heartbeatAt`, `leaseUntil` yazılır.
+- Çalışan worker `heartbeatAt` ve `leaseUntil` değerlerini düzenli olarak yeniler; uzun görevlerin yanlışlıkla stale sayılmasını önler.
+- worker bittiğinde işletim sistemi kilidini serbest bırakır; `.lock` dosyası tanılama kaydı olarak kalır, süreç anormal çıkış yaptığında işletim sistemi kilidi otomatik serbest bırakır.
+- UI görevi `status: "cancelled"` veya `cancelRequested: true` olarak yazabilir; worker yönettiği Codex alt sürecini sonlandırır.
+- Başlatma veya yoklamada `leaseUntil` süresi dolmuş `running` görevler kurtarılır ve yeniden `queued` yapılır.
+- Yazılımın Worker'ı aktif olarak durdurması, Alt+F4, sistem kapanması veya yerel çıkış durumunda önce Worker süreç ağacı sonlandırılır, ardından `workerPid` ile o Worker'ın tamamlanmamış `running` görevleri hemen `queued` durumuna geri alınır; iptal talebi olan görevler `cancelled` kalır.
+- Bozuk JSON `queue/quarantine` dizinine taşınır ve aynı adlı bir `.error.txt` oluşturulur; watch döngüsü kesilmez.
+- Her görev için `queue/events/{job_id}.jsonl` olay akışı yazılır.
+- Yönetilen alt sürecin stdout/stderr çıktısı `queue/logs/{job_id}.stdout.log` ve `queue/logs/{job_id}.stderr.log` dosyalarına yazılır.
+- Başarılı görevler `queue/ledgers/{job_id}.ledger.json` teslimat defterini yazar.
+- Başarılı görevler `queue/reviews/{job_id}.review.json` Reviewer Gate raporunu yazar.
+- worker `queue/worker_health.json` sağlık sinyalini yazar.
 
-这些字段是 worker 管理字段，UI 可展示但不要手动修改。
+Bu alanlar worker yönetim alanlarıdır; UI gösterebilir ancak elle değiştirmemelidir.
 
 ## Worker Health
 
-worker 每轮队列扫描后会写入:
+worker her kuyruk taramasından sonra şunu yazar:
 
 ```text
 queue/worker_health.json
 ```
 
-字段包括:
+Alanlar şunları içerir:
 
-- `status`: `healthy`、`attention`、`warning` 或 `error`。
-- `heartbeatAt`: 最近一次心跳时间。
-- `processedCount`: 本轮处理任务数量。
-- `recoveredCount`: 本轮恢复 stale running 任务数量。
-- `queue`: 按任务状态统计的队列数量。
+- `status`: `healthy`, `attention`, `warning` veya `error`.
+- `heartbeatAt`: En son sinyal zamanı.
+- `processedCount`: Bu turda işlenen görev sayısı.
+- `recoveredCount`: Bu turda kurtarılan stale running görev sayısı.
+- `queue`: Görev durumuna göre sayılan kuyruk sayısı.
 
-桌面端 `worker_status` 会同时返回托管进程 PID 和最近健康心跳。浏览器预览模式不会启动 worker。
+Masaüstü tarafındaki `worker_status` aynı anda yönetilen süreç PID'sini ve en son sağlık sinyalini döndürür. Tarayıcı önizleme modu worker'ı başlatmaz.
 
 ## Artifact Ledger
 
-Artifact Ledger 用于把 Agent 交付结果变成可审计的机器记录。worker 在任务成功后收集 `result.outputPath`、`result.outputs`、`result.artifacts` 和任务自身 `artifacts` 字段，生成:
+Artifact Ledger, Agent teslim sonuçlarını denetlenebilir makine kayıtlarına dönüştürmek için kullanılır. worker görev başarılı olduktan sonra `result.outputPath`, `result.outputs`, `result.artifacts` ve görevin kendi `artifacts` alanlarını toplayıp şunu üretir:
 
 ```json
 {
@@ -232,96 +232,96 @@ Artifact Ledger 用于把 Agent 交付结果变成可审计的机器记录。wor
     }
   ],
   "verification": [],
-  "resultMessage": "任务完成"
+  "resultMessage": "Görev tamamlandı"
 }
 ```
 
-写入路径:
+Yazma yolu:
 
 ```text
 queue/ledgers/{job_id}.ledger.json
 ```
 
-相对输出路径会优先按任务 `cwd` 解析；没有 `cwd` 时按 `projectPath` 所在目录或项目目录解析。同一信息会摘要回写到任务 JSON 的 `artifactLedgerPath` 和 `artifacts` 字段，并追加 `artifact.ledger_written` 事件。真实 CAD handler 仍然必须自己判断 P0 交付物是否齐全；Ledger 负责记录事实，不替代制造级验收。
+Göreli çıktı yolları önce görevin `cwd` değerine göre çözümlenir; `cwd` yoksa `projectPath` dizinine veya proje dizinine göre çözümlenir. Aynı bilgi özet olarak görev JSON'unun `artifactLedgerPath` ve `artifacts` alanlarına geri yazılır ve `artifact.ledger_written` olayı eklenir. Gerçek CAD handler'ı yine de P0 teslimatlarının eksiksiz olup olmadığına kendisi karar vermelidir; Ledger gerçekleri kaydetmekle sorumludur ve üretim seviyesi kabulün yerini almaz.
 
 ## Reviewer Gate
 
-Reviewer Gate 基于 Artifact Ledger 生成最小交付物复核报告:
+Reviewer Gate, Artifact Ledger'a dayalı olarak asgari teslimat inceleme raporu üretir:
 
 ```text
 queue/reviews/{job_id}.review.json
 ```
 
-当前规则:
+Geçerli kurallar:
 
-- 没有声明交付物: `warning`，说明只能确认流程完成，不能确认制造文件齐全。
-- 声明的交付物不存在: `fail`。
-- 交付物为空文件: `fail`。
-- 交付物是目录: `warning`，当前不递归校验目录内容。
-- 普通文件存在且有 SHA-256: `pass`。
-- Codex 自报验证为 `failed` 时，Reviewer Gate 必须 `fail`；没有验证记录或存在残余风险时至少为 `warning`。
-- `SLDPRT / STEP / STL`、`DWG / DXF / PDF` 等明确格式清单按逐项门禁检查，不能用其中一个文件代替整个交付包。
-- Codex 交付物必须位于任务工作区、用户输出目录或输入文件目录内。执行前会记录 CAD 文件的大小、纳秒级修改时间和 SHA-256；执行后只有新文件或内容哈希发生变化的文件才标记 `producedThisRun = true`，仅修改时间戳不能冒充本轮产物；AI 回执和未变化旧文件不计为本轮 CAD 产物。
-- STEP/STP 必须包含 `ISO-10303-21` 和 `END-ISO-10303-21` 标记。
-- STL 必须具备可识别的 ASCII `solid/endsolid` 或 Binary STL 基础结构。
-- DXF 必须包含 `SECTION` 并以 `EOF` 结束。
-- PDF 必须包含 `%PDF-` 文件头。
-- DWG 必须包含 AutoCAD `AC10` 版本头。
-- SLDPRT、SLDASM 属于专有格式，当前只能给出 `warning`，后续由 SolidWorks 打开复核。
+- Bildirilen teslimat yok: `warning`; yalnızca sürecin tamamlandığı doğrulanabilir, üretim dosyalarının eksiksiz olduğu doğrulanamaz.
+- Bildirilen teslimat mevcut değil: `fail`.
+- Teslimat boş dosya: `fail`.
+- Teslimat bir dizin: `warning`; şu anda dizin içeriği özyinelemeli doğrulanmaz.
+- Normal dosya mevcut ve SHA-256 var: `pass`.
+- Codex kendi doğrulamasını `failed` olarak bildirirse Reviewer Gate `fail` olmalıdır; doğrulama kaydı yoksa veya kalan risk varsa en az `warning` olmalıdır.
+- `SLDPRT / STEP / STL`, `DWG / DXF / PDF` gibi belirgin biçim listeleri madde madde kapı kontrolünden geçer; bunlardan bir dosya tüm teslim paketinin yerini tutamaz.
+- Codex teslimatları görev çalışma alanı, kullanıcı çıktı dizini veya giriş dosyası dizini içinde olmalıdır. Yürütmeden önce CAD dosyalarının boyutu, nanosaniye düzeyinde değişiklik zamanı ve SHA-256'sı kaydedilir; yürütmeden sonra yalnızca yeni dosyalar veya içerik hash'i değişen dosyalar `producedThisRun = true` olarak işaretlenir; yalnızca zaman damgasını değiştirmek bu turun ürünü gibi gösterilemez; AI makbuzları ve değişmemiş eski dosyalar bu turun CAD ürünü sayılmaz.
+- STEP/STP `ISO-10303-21` ve `END-ISO-10303-21` işaretlerini içermelidir.
+- STL tanınabilir ASCII `solid/endsolid` veya Binary STL temel yapısına sahip olmalıdır.
+- DXF `SECTION` içermeli ve `EOF` ile bitmelidir.
+- PDF `%PDF-` dosya başlığını içermelidir.
+- DWG AutoCAD `AC10` sürüm başlığını içermelidir.
+- SLDPRT, SLDASM tescilli biçimlerdir; şu anda yalnızca `warning` verilebilir, ileride SolidWorks ile açılarak incelenecektir.
 
-报告摘要会回写到任务 JSON 的 `reviewGate` 和 `reviewGatePath`，并追加 `review.gate_completed` 事件。它是后续制造级 Reviewer Gate 的基础，真实 CAD 阶段还需要继续检查 STEP/STL/DWG/PDF 是否可打开、尺寸链是否完整、3D 打印真实开孔是否成立。
+Rapor özeti görev JSON'unun `reviewGate` ve `reviewGatePath` alanlarına geri yazılır ve `review.gate_completed` olayı eklenir. Bu, ilerideki üretim seviyesi Reviewer Gate'in temelidir; gerçek CAD aşamasında ayrıca STEP/STL/DWG/PDF'nin açılıp açılamadığı, ölçü zincirinin eksiksiz olup olmadığı ve 3B baskıda gerçek deliklerin oluşup oluşmadığı kontrol edilmelidir.
 
 ## Codex Bridge
 
-软件定位是“AI 辅助 CAD 自动化控制台”:
+Yazılımın konumu "AI destekli CAD otomasyon konsolu"dur:
 
 ```text
-图形化配置 -> 结构化任务 JSON -> Python worker -> codex exec -> 回写队列结果
+grafiksel yapılandırma -> yapılandırılmış görev JSON -> Python worker -> codex exec -> kuyruk sonucunu geri yazma
 ```
 
-Worker 在编译 Prompt 前会执行本地优先 RAG：默认检索主 Skill、`references/` 和子技能知识文件，并把来源、SHA-256 与片段注入 Prompt。`uiConfig.knowledgeBase.cloudEnabled=true` 时，Tauri 会服务端派生 `external_network` 能力；只有人工审批完成后才允许调用 HTTPS 云检索端点。
+Worker, Prompt'u derlemeden önce yerel öncelikli RAG çalıştırır: varsayılan olarak ana Skill'i, `references/` ve alt beceri bilgi dosyalarını arar ve kaynak, SHA-256 ve parçacıkları Prompt'a enjekte eder. `uiConfig.knowledgeBase.cloudEnabled=true` olduğunda Tauri sunucu tarafında `external_network` yeteneğini türetir; HTTPS bulut arama uç noktası yalnızca manuel onay tamamlandıktan sonra çağrılabilir.
 
-任务中明确出现 `接口.方法` / `接口::方法`，或命中本项目已验证的自然语言操作候选时，Worker 使用共享 API 查证核心（显式引用优先、最多两个候选）。默认访问官方文档，直读失败且无历史缓存时使用匿名 Parallel。请求只包含公开年份、接口、成员和官方链接。`uiConfig.knowledgeBase.officialApiDocsEnabled=false` 禁止本工具联网及下载依赖，并向受控子进程传递 `SW_API_LOOKUP_NETWORK=off`；`parallelApiFallbackEnabled=false` 单独关闭 Parallel 并传递 `SW_API_LOOKUP_PARALLEL=off`。两者不改变 Agent 客户端自身的网络权限。历史缓存标注获取时间，Parallel 和本机帮助的版本证据有各自限制，不等于真机验证。原有云 RAG 的配置和审批规则保持独立。
+Görevde açıkça `arayüz.yöntem` / `arayüz::yöntem` geçtiğinde veya bu projede doğrulanmış doğal dil işlem adayları eşleştiğinde Worker, paylaşılan API doğrulama çekirdeğini kullanır (açık referanslar öncelikli, en fazla iki aday). Varsayılan olarak resmi belgelere erişilir; doğrudan okuma başarısız olur ve geçmiş önbellek yoksa anonim Parallel kullanılır. İstek yalnızca genel yıl, arayüz, üye ve resmi bağlantıları içerir. `uiConfig.knowledgeBase.officialApiDocsEnabled=false` bu aracın ağa bağlanmasını ve bağımlılık indirmesini yasaklar ve denetlenen alt sürece `SW_API_LOOKUP_NETWORK=off` aktarır; `parallelApiFallbackEnabled=false` yalnızca Parallel'i kapatır ve `SW_API_LOOKUP_PARALLEL=off` aktarır. Her ikisi de Agent istemcisinin kendi ağ izinlerini değiştirmez. Geçmiş önbellek alma zamanını belirtir; Parallel ve yerel yardımın sürüm kanıtları kendi sınırlamalarına sahiptir ve gerçek makine doğrulamasıyla eşdeğer değildir. Mevcut bulut RAG yapılandırması ve onay kuralları bağımsız kalır.
 
-启用 Codex 执行:
+Codex yürütmeyi etkinleştirme:
 
 ```powershell
-python -m apps.desktop.cad_workbench.queue_worker --watch --enable-codex --queue-dir "<队列目录>"
+python -m apps.desktop.cad_workbench.queue_worker --watch --enable-codex --queue-dir "<kuyruk-dizini>"
 ```
 
-软件内点击“启动”时等价于启动:
+Yazılım içinde "Başlat"a tıklamak şunu başlatmakla eşdeğerdir:
 
 ```powershell
-python -m apps.desktop.cad_workbench.queue_worker --watch --enable-codex --queue-dir "<Tauri 队列目录>"
+python -m apps.desktop.cad_workbench.queue_worker --watch --enable-codex --queue-dir "<Tauri kuyruk dizini>"
 ```
 
-该入口默认不会加 `--codex-full-access`，全权限仍需要人工审批和显式命令开关。
+Bu giriş varsayılan olarak `--codex-full-access` eklemez; tam yetki yine manuel onay ve açık komut anahtarı gerektirir.
 
-worker 会调用:
+worker şunu çağırır:
 
 ```powershell
-node.exe "<npm>/node_modules/@openai/codex/bin/codex.js" exec -C "<cwd>" -s workspace-write -c "approval_policy=\"never\"" -o "<输出文件>" --output-schema "<schema>" "<prompt>"
+node.exe "<npm>/node_modules/@openai/codex/bin/codex.js" exec -C "<cwd>" -s workspace-write -c "approval_policy=\"never\"" -o "<çıktı dosyası>" --output-schema "<schema>" "<prompt>"
 ```
 
-注意:
+Notlar:
 
-- `--enable-codex` 是显式开关，避免普通 mock 调试误触发真实 Codex 执行。
-- 默认只允许 `workspace-write`。若确需全权限，任务必须先经过 Policy Gate 审批，并且 worker 启动时额外传 `--codex-full-access`。
-- Windows npm 安装优先使用 `node.exe + codex.js`，不经 `cmd.exe` 解析用户 prompt。
-- Codex 版本、登录状态和 SolidWorks preflight 健康检测均有 5～10 秒超时；超时会终止进程树并返回明确错误，不阻塞桌面界面。
-- worker 会校验 `cwd` 必须位于仓库白名单内，并强制输出到 `<cwd>/ai_team/{job_id}_codex_result.json`；执行前删除同名旧回执，缺失或非法 JSON 直接失败。
-- UI 负责生成 prompt 和执行约束，Codex 负责实际读写文件、调用 skill、运行验证、提交推送。
-- Worker 在执行前运行本地机械知识检索，并将带来源路径、SHA-256 和评分的片段注入企业 Prompt。
-- 设置页可添加本地标准库；云 RAG 默认关闭，启用后由 Tauri 服务端派生 `external_network` 危险能力并要求审批。
-- Codex 输出会写入 `ai_team/{job_id}_codex_result.json`，同时在任务 JSON 的 `result.outputPath` 中回写路径。
+- `--enable-codex` açık bir anahtardır; sıradan mock hata ayıklamasının gerçek Codex yürütmeyi yanlışlıkla tetiklemesini önler.
+- Varsayılan olarak yalnızca `workspace-write` izin verilir. Gerçekten tam yetki gerekiyorsa görev önce Policy Gate onayından geçmeli ve worker başlatılırken ek olarak `--codex-full-access` verilmelidir.
+- Windows npm kurulumunda öncelikli olarak `node.exe + codex.js` kullanılır; kullanıcı prompt'u `cmd.exe` ile ayrıştırılmaz.
+- Codex sürümü, oturum açma durumu ve SolidWorks preflight sağlık kontrolleri için 5～10 saniyelik zaman aşımı vardır; zaman aşımında süreç ağacı sonlandırılır ve belirgin bir hata döndürülür, masaüstü arayüzü bloke edilmez.
+- worker `cwd` değerinin depo beyaz listesi içinde olmasını doğrular ve çıktıyı `<cwd>/ai_team/{job_id}_codex_result.json` olarak zorlar; yürütmeden önce aynı adlı eski makbuz silinir; eksik veya geçersiz JSON doğrudan başarısız olur.
+- UI prompt'u ve yürütme kısıtlarını üretmekten sorumludur; Codex gerçek dosya okuma/yazma, skill çağırma, doğrulama çalıştırma, commit ve push işlemlerinden sorumludur.
+- Worker yürütmeden önce yerel mekanik bilgi aramasını çalıştırır ve kaynak yolu, SHA-256 ve puanlama içeren parçacıkları kurumsal Prompt'a enjekte eder.
+- Ayarlar sayfasından yerel standart kitaplıkları eklenebilir; bulut RAG varsayılan olarak kapalıdır, etkinleştirildiğinde Tauri sunucu tarafı `external_network` tehlikeli yeteneğini türetir ve onay gerektirir.
+- Codex çıktısı `ai_team/{job_id}_codex_result.json` dosyasına yazılır ve aynı anda görev JSON'unun `result.outputPath` alanına yol geri yazılır.
 
-### CAD 软件路由
+### CAD yazılımı yönlendirmesi
 
-UI 会把目标软件写入 `targetSoftware` 和 `uiConfig.cadRuntime`:
+UI hedef yazılımı `targetSoftware` ve `uiConfig.cadRuntime` alanlarına yazar:
 
 ```json
 {
-  "targetSoftware": "AI 自动选软件",
+  "targetSoftware": "AI otomatik yazılım seçer",
   "capabilities": ["cad_macro"],
   "policy": {
     "sandbox": "danger-full-access",
@@ -330,7 +330,7 @@ UI 会把目标软件写入 `targetSoftware` 和 `uiConfig.cadRuntime`:
   "uiConfig": {
     "cadRuntime": {
       "application": "auto",
-      "applicationLabel": "AI 自动选软件",
+      "applicationLabel": "AI otomatik yazılım seçer",
       "localCadAutomation": true,
       "solidworksSkillPath": "C:/path/to/solidworks-automation-skill/SKILL.md",
       "autocadSkillPath": "C:/path/to/solidworks-automation-skill/subskills/autocad-automation/SKILL.md"
@@ -339,30 +339,30 @@ UI 会把目标软件写入 `targetSoftware` 和 `uiConfig.cadRuntime`:
 }
 ```
 
-路由规则:
+Yönlendirme kuralları:
 
-- 三维实体、装配、真实开孔、钣金、STEP/STL/SLDPRT 导出优先调用 SolidWorks。
-- DWG/DXF/PDF、国标工程图、图层、尺寸链、孔表、标题栏和 AutoCAD 原生预览优先调用 AutoCAD。
-- 交付包、装配图和制造复核可以先用 SolidWorks 生成三维与中间文件，再用 AutoCAD 完成二维图纸和导出。
-- `application == "auto"` 时，Codex 必须根据任务目标自动选择 SolidWorks、AutoCAD 或两者联动，并在结果中说明选择理由。
-- `localCadAutomation == true` 时任务会声明 `cad_macro` 能力和 `danger-full-access` 沙箱，因此 Policy Gate 会要求人工审批；worker 也必须以 `--codex-full-access` 启动后，审批过的任务才会真正具备桌面软件调用能力。
+- Üç boyutlu katı, montaj, gerçek delikler, sac metal, STEP/STL/SLDPRT dışa aktarımı için öncelikli olarak SolidWorks çağrılır.
+- DWG/DXF/PDF, ulusal standart teknik resim, katmanlar, ölçü zinciri, delik tablosu, başlık bloğu ve AutoCAD yerel önizlemesi için öncelikli olarak AutoCAD çağrılır.
+- Teslim paketi, montaj resmi ve üretim incelemesi için önce SolidWorks ile üç boyutlu ve ara dosyalar üretilebilir, ardından AutoCAD ile iki boyutlu teknik resim ve dışa aktarım tamamlanabilir.
+- `application == "auto"` olduğunda Codex, görev hedefine göre SolidWorks, AutoCAD veya her ikisinin birlikte kullanımını otomatik seçmeli ve sonuçta seçim gerekçesini açıklamalıdır.
+- `localCadAutomation == true` olduğunda görev `cad_macro` yeteneğini ve `danger-full-access` sandbox'ını bildirir; bu nedenle Policy Gate manuel onay ister; worker da `--codex-full-access` ile başlatılmalıdır ki onaylanan görev gerçekten masaüstü yazılımı çağırma yeteneğine sahip olsun.
 
-## 接入真实执行器
+## Gerçek yürütücüye bağlanma
 
-Python worker 的扩展点在:
+Python worker'ın uzantı noktası:
 
 ```text
 apps/desktop/cad_workbench/queue_worker.py
 ```
 
-替换或注入 handler:
+handler'ı değiştirme veya enjekte etme:
 
-- `create_shell` -> SolidWorks 建模、实体开孔、STL/STEP 导出。
-- `import_model` -> 文件解析、缩略图、项目目录初始化。
-- `delivery_package` -> AutoCAD 图纸导出、PDF/DWG/DXF、交付清单和规范复核。
+- `create_shell` -> SolidWorks modelleme, katı delik açma, STL/STEP dışa aktarma.
+- `import_model` -> dosya ayrıştırma, küçük resim, proje dizini başlatma.
+- `delivery_package` -> AutoCAD teknik resim dışa aktarma, PDF/DWG/DXF, teslim listesi ve standart incelemesi.
 
-执行器必须遵守 P0 门禁:
+Yürütücü P0 kapılarına uymalıdır:
 
-- 3D 打印开孔必须是真实几何切除，不允许只画线或只写注释。
-- 图纸必须保留完整尺寸链、孔表、技术要求、图框标题栏和 GB/T 风格标注。
-- 失败时写回 `failed` 和明确 `error`，不要静默跳过。
+- 3B baskı delikleri gerçek geometri kesimi olmalıdır; yalnızca çizgi çizmek veya yalnızca yorum yazmak kabul edilmez.
+- Teknik resimler eksiksiz ölçü zincirini, delik tablosunu, teknik gereksinimleri, çerçeve başlık bloğunu ve GB/T tarzı anotasyonu korumalıdır.
+- Başarısızlık durumunda `failed` ve belirgin `error` geri yazılmalıdır; sessizce atlanmamalıdır.

@@ -148,7 +148,7 @@ def test_health_check_with_start_requires_approval(tmp_path):
 
     server.add_tool(health, name="solidworks_health_check")
     gate = ToolGate(server._tool_manager, approval_mode="server", ledger=ApprovalLedger(tmp_path / "ledger"))
-    with pytest.raises(ToolError, match="需要人工批准"):
+    with pytest.raises(ToolError, match="insan onayı"):
         asyncio.run(gate.call_tool("solidworks_health_check", {"params": {"start_solidworks": True}}))
     assert called == []
 
@@ -178,7 +178,7 @@ def test_write_tool_is_blocked_until_human_approves(tmp_path):
     with pytest.raises(ToolError) as blocked:
         _save(gate)
     message = str(blocked.value)
-    assert "需要人工批准" in message
+    assert "insan onayı" in message
     pending = gate.ledger.pending()
     assert len(pending) == 1 and pending[0]["tool"] == "solidworks_create_basic_part"
 
@@ -199,7 +199,7 @@ def test_changed_arguments_do_not_reuse_approval(tmp_path):
 
     with pytest.raises(ToolError) as blocked:
         _save(gate, "D:/work/b.SLDPRT")
-    assert "需要人工批准" in str(blocked.value)
+    assert "insan onayı" in str(blocked.value)
     grants = [json.loads(path.read_text(encoding="utf-8"))
               for path in (tmp_path / "approvals" / "grants").glob("*.json")]
     assert grants and all(grant["used"] == 0 for grant in grants)  # 原批准没有被这次调用消耗
@@ -225,7 +225,7 @@ def test_approval_rejects_malformed_request_id(tmp_path):
 
 def test_scope_grants_are_disabled_until_targets_can_be_verified(tmp_path):
     gate = _gate(tmp_path)
-    with pytest.raises(ApprovalError, match="范围授权已停用"):
+    with pytest.raises(ApprovalError, match="Kapsam yetkilendirmesi devre dışı"):
         gate.ledger.grant_scope(["solidworks_save_document"], ["D:/work"], ttl_seconds=600)
     with pytest.raises(ToolError):
         _save(gate, "D:/work/sub/part.SLDPRT")
@@ -248,7 +248,7 @@ def test_full_mode_can_enforce_server_approval(tmp_path):
 
 def test_active_document_write_fails_closed_without_document_binding(tmp_path):
     gate = _gate(tmp_path, approval="server")
-    with pytest.raises(ToolError, match="需要 document_target"):
+    with pytest.raises(ToolError, match="document_target gerektirir"):
         asyncio.run(gate.call_tool("solidworks_save_document", {"params": {"path": "D:/work/a.SLDPRT"}}))
     assert gate.ledger.pending() == []
 
@@ -267,8 +267,8 @@ def test_discovery_reports_unsupported_document_operation(tmp_path):
     gate = _gate(tmp_path, approval="server")
     detail = gate.describe("solidworks_close_documents")
     assert detail["available"] is False
-    assert "无法绑定并复核文档身份" in detail["blocked_reason"]
-    with pytest.raises(ToolError, match="无法绑定并复核文档身份"):
+    assert "belge kimliğini bağlayıp doğrulayamaz" in detail["blocked_reason"]
+    with pytest.raises(ToolError, match="belge kimliğini bağlayıp doğrulayamaz"):
         asyncio.run(gate.call_tool("solidworks_close_documents", {"params": {}}))
 
 
@@ -373,11 +373,11 @@ def test_unknown_tool_is_denied(tmp_path):
     gate = _gate(tmp_path)
     with pytest.raises(ToolError) as blocked:
         asyncio.run(gate.call_tool("not_a_real_tool", {}))
-    assert "未登记" in str(blocked.value)
+    assert "kayıtlı değil" in str(blocked.value)
 
 
 def test_search_mode_rejects_inapplicable_client_approval(tmp_path):
-    with pytest.raises(ValueError, match="发现模式不能使用 client"):
+    with pytest.raises(ValueError, match="Keşif modu client onayını kullanamaz"):
         _gate(tmp_path, mode="search", approval="client")
 
 
@@ -386,7 +386,7 @@ def test_discovery_entries_cannot_recurse():
 
     with pytest.raises(ToolError) as blocked:
         asyncio.run(server.sw_call_tool("sw_call_tool", {}))
-    assert "不能调用发现入口自身" in str(blocked.value)
+    assert "keşif giriş noktasının kendisini çağıramaz" in str(blocked.value)
 
 
 def test_full_mode_hides_discovery_entries_and_search_mode_hides_tools(tmp_path):
@@ -448,7 +448,7 @@ def test_stdio_search_mode_exposes_three_entries_and_blocks_writes(tmp_path):
             {"name": "solidworks_create_basic_part", "arguments": {"params": {"path": "D:/work/a.SLDPRT"}}},
         )
         assert blocked.isError is True
-        assert "需要人工批准" in blocked.content[0].text
+        assert "insan onayı" in blocked.content[0].text
 
     asyncio.run(_with_session(_stdio_env(tmp_path, "search"), handler))
 
@@ -469,7 +469,7 @@ def test_stdio_design_audit_is_discoverable_and_respects_approval(tmp_path):
         result = await session.call_tool("sw_call_tool", {"name": "cadstudio_check_drc", "arguments": {"params": {
             "input_path": str(source), "output_path": str(output)
         }}})
-        assert result.isError and "需要人工批准" in result.content[0].text
+        assert result.isError and "insan onayı" in result.content[0].text
         assert not output.exists()
 
     asyncio.run(_with_session(_stdio_env(tmp_path, "search"), handler))
@@ -535,7 +535,7 @@ def test_stdio_auto_install_respects_explicit_server_approval_mode(tmp_path):
                 "task": "SolidWorks 2026 画圆", "auto_install": True}},
         })
         assert called.isError
-        assert "需要人工批准" in called.content[0].text
+        assert "insan onayı" in called.content[0].text
     asyncio.run(_with_session(_stdio_env(tmp_path, "search"), handler))
 
 
@@ -571,7 +571,7 @@ def test_stdio_hidden_tools_are_still_checked_when_called_by_name(tmp_path):
             {"params": {"path": "D:/work/bypass-attempt.SLDPRT"}},
         )
         assert blocked.isError is True
-        assert "需要人工批准" in blocked.content[0].text
+        assert "insan onayı" in blocked.content[0].text
 
     asyncio.run(_with_session(_stdio_env(tmp_path, "search"), handler))
 
@@ -580,13 +580,13 @@ def test_stdio_approval_can_be_consumed_only_in_the_same_session(tmp_path):
     async def handler(session):
         args = {"name": "cadstudio_check_dfm", "arguments": {"params": {}}}
         blocked = await session.call_tool("sw_call_tool", args)
-        assert blocked.isError and "需要人工批准" in blocked.content[0].text
+        assert blocked.isError and "insan onayı" in blocked.content[0].text
         ledger = ApprovalLedger(tmp_path / "approvals")
         request = ledger.pending()[0]
         ledger.approve(request["id"], expected_record=request)
         # 缺少必填参数，授权后仍会由原工具校验拒绝，不执行任何文件或 CAD 写操作。
         result = await session.call_tool("sw_call_tool", args)
-        assert result.isError and "需要人工批准" not in result.content[0].text
+        assert result.isError and "insan onayı" not in result.content[0].text
 
     asyncio.run(_with_session(_stdio_env(tmp_path, "search"), handler))
 
@@ -599,7 +599,7 @@ def test_stdio_active_document_writes_are_blocked_in_both_call_paths(tmp_path):
         })
         for result in (direct, wrapped):
             assert result.isError
-            assert "需要 document_target" in result.content[0].text
+            assert "document_target gerektirir" in result.content[0].text
 
     asyncio.run(_with_session(_stdio_env(tmp_path, "search"), handler))
 
@@ -635,6 +635,6 @@ def test_cli_lists_pending_and_refuses_non_interactive_approval(tmp_path):
 
     refused = _cli(tmp_path, "approve", request_id)
     assert refused.returncode == 1
-    assert "拒绝" in refused.stderr
+    assert "Reddedildi" in refused.stderr
     assert len(gate.ledger.pending()) == 1  # 没有产生任何批准记录
     assert not list((tmp_path / "approvals" / "grants").glob("*.json"))

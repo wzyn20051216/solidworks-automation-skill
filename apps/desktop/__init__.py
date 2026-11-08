@@ -1,1 +1,1 @@
-"""@brief CAD Studio 桌面执行包。"""
+"""@brief CAD Studio masaüstü yürütme paketi."""

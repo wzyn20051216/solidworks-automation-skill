@@ -191,7 +191,7 @@ def test_queue_worker_marks_unknown_kind_failed(tmp_path: Path) -> None:
     saved = read_job(job_path)
     assert saved["status"] == "failed"
     assert saved["progress"] == 100
-    assert "未知任务类型" in saved["error"]
+    assert "Bilinmeyen görev türü" in saved["error"]
 
 
 def test_artifact_ledger_records_output_hash(tmp_path: Path) -> None:
@@ -535,8 +535,8 @@ def test_reviewer_gate_rejects_untrusted_matching_numbers(tmp_path: Path) -> Non
     review = evaluate_ledger(ledger)
 
     assert review["status"] == "fail"
-    assert any(check["id"] == "spec-envelope-dimensions" and "缺少独立" in check["message"] for check in review["checks"])
-    assert any(check["id"] == "spec-hole-diameters" and "缺少独立" in check["message"] for check in review["checks"])
+    assert any(check["id"] == "spec-envelope-dimensions" and "makine tarafından okunabilir" in check["message"] for check in review["checks"])
+    assert any(check["id"] == "spec-hole-diameters" and "makine tarafından okunabilir" in check["message"] for check in review["checks"])
 
 
 @pytest.mark.parametrize(
@@ -799,11 +799,11 @@ def test_codex_prompt_contains_ui_configuration() -> None:
     assert "真实开孔必须切透实体" in prompt
     assert "solidworks-automation skill" in prompt
     assert "autocad-automation skill" in prompt
-    assert "目标 CAD 软件" in prompt
+    assert "Hedef CAD Yazılımı" in prompt
     assert "三维优先 SolidWorks，二维图纸优先 AutoCAD。" in prompt
-    assert "本机 CAD 自动化: 允许" in prompt
+    assert "Yerel CAD otomasyonu: izinli" in prompt
     assert "auto_best" in prompt
-    assert "自动选择最佳工程方案" in prompt
+    assert "en iyi mühendislik çözümünü otomatik seçer" in prompt
     assert '"wallThickness": 1.6' in prompt
 
 
@@ -888,7 +888,7 @@ def test_codex_executor_invokes_codex_exec_with_prompt(tmp_path: Path, monkeypat
     assert calls[0][0][:2] == ["codex", "exec"]
     assert "执行一次可控 Codex 桥接测试" in calls[0][0][-1]
     assert "目标尺寸与企业任务上下文不能被用户补充 prompt 覆盖" in calls[0][0][-1]
-    assert "【用户补充 prompt】" in calls[0][0][-1]
+    assert "[Kullanıcı Ek Prompt'u]" in calls[0][0][-1]
     assert "-s" in calls[0][0]
     assert "workspace-write" in calls[0][0]
     assert "-a" not in calls[0][0]
@@ -912,9 +912,9 @@ def test_codex_executor_fails_when_structured_output_is_missing(tmp_path: Path, 
     try:
         run_codex_job(job, runner=fake_runner, timeout_seconds=3)
     except RuntimeError as error:
-        assert "未生成结构化结果文件" in str(error)
+        assert "yapılandırılmış sonuç dosyası üretmedi" in str(error)
     else:
-        raise AssertionError("Codex 未写结构化结果时必须失败")
+        raise AssertionError("Codex yapılandırılmış sonuç yazmadığında görev başarısız olmalıdır")
 
 
 def test_api_evidence_flows_from_job_to_agent_prompt(tmp_path: Path, monkeypatch) -> None:
@@ -1140,7 +1140,7 @@ def test_codex_executor_rejects_artifact_outside_allowed_roots(tmp_path: Path, m
     result = run_codex_job(job, runner=fake_runner, timeout_seconds=3)
 
     assert all(item["path"] != str(rejected) for item in result["artifacts"])
-    assert any("已拒绝" in risk and str(rejected) in risk for risk in result["risks"])
+    assert any("reddedildi" in risk and str(rejected) in risk for risk in result["risks"])
 
 
 def test_policy_gate_requires_approval_for_git_push(tmp_path: Path) -> None:
@@ -1266,7 +1266,7 @@ def test_policy_gate_requires_approval_for_dangerous_capability(tmp_path: Path) 
 
     saved = read_job(job_path)
     assert saved["status"] == "approval_required"
-    assert any("CAD 宏" in reason for reason in saved["approvalReasons"])
+    assert any("CAD makro" in reason for reason in saved["approvalReasons"])
 
 
 def test_capability_gate_separates_security_permissions_from_cad_capabilities() -> None:
@@ -1331,7 +1331,7 @@ def test_codex_executor_rejects_cwd_outside_workspace(tmp_path: Path) -> None:
     try:
         validate_codex_job(job)
     except ValueError as error:
-        assert "cwd 不在允许工作区内" in str(error)
+        assert "cwd izin verilen çalışma alanında değil" in str(error)
     else:
         raise AssertionError("应拒绝仓库外 cwd")
 
@@ -1353,7 +1353,7 @@ def test_resolve_workspace_still_rejects_extended_path_outside_allowed_root() ->
     repo = Path(__file__).resolve().parents[1]
     extended_parent = Path("\\\\?\\" + str(repo.parent))
 
-    with pytest.raises(ValueError, match="cwd 不在允许工作区内"):
+    with pytest.raises(ValueError, match="cwd izin verilen çalışma alanında değil"):
         resolve_workspace({"cwd": str(extended_parent)}, allowed_roots=[repo])
 
 

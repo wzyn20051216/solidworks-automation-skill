@@ -1,4 +1,4 @@
-"""@brief CAD Studio 任务交付物账本。"""
+"""@brief CAD Studio görev teslimat defteri."""
 
 from __future__ import annotations
 
@@ -20,19 +20,19 @@ DELIVERY_FILE_EXTENSIONS = frozenset({
 })
 
 def ledger_dir(queue_dir: Path) -> Path:
-    """@brief 返回交付物账本目录。"""
+    """@brief Teslimat defteri dizinini döndürür."""
     directory = Path(queue_dir) / "ledgers"
     directory.mkdir(parents=True, exist_ok=True)
     return directory
 
 
 def ledger_path_for(queue_dir: Path, job_id: Any) -> Path:
-    """@brief 返回指定任务的交付物账本路径。"""
+    """@brief Belirtilen görevin teslimat defteri yolunu döndürür."""
     return ledger_dir(queue_dir) / f"{safe_job_id(job_id)}.ledger.json"
 
 
 def sha256_file(path: Path) -> str:
-    """@brief 计算文件 SHA-256。"""
+    """@brief Dosyanın SHA-256 değerini hesaplar."""
     digest = hashlib.sha256()
     with Path(path).open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
@@ -41,7 +41,7 @@ def sha256_file(path: Path) -> str:
 
 
 def _candidate_paths(value: Any) -> list[tuple[str, Path]]:
-    """@brief 从 result/artifacts 字段提取可能的交付物路径。"""
+    """@brief result/artifacts alanlarından olası teslimat yollarını çıkarır."""
     paths: list[tuple[str, Path]] = []
     if isinstance(value, str):
         paths.append(("artifact", Path(value)))
@@ -65,7 +65,7 @@ def _candidate_paths(value: Any) -> list[tuple[str, Path]]:
 
 
 def _artifact_base_dir(job: dict[str, Any]) -> Path:
-    """@brief 返回相对交付物路径的解析基准目录。"""
+    """@brief Göreli teslimat yollarının çözümleneceği temel dizini döndürür."""
     if job.get("cwd"):
         return Path(str(job["cwd"]))
     if job.get("projectPath"):
@@ -77,17 +77,17 @@ def _artifact_base_dir(job: dict[str, Any]) -> Path:
 
 
 def _artifact_key(path: Path) -> str:
-    """@brief 返回跨 Windows 大小写和相对路径一致的文件键。"""
+    """@brief Windows büyük/küçük harf ve göreli yol farklarından bağımsız tutarlı dosya anahtarı döndürür."""
     return os.path.normcase(os.path.normpath(str(Path(path).expanduser().resolve())))
 
 
 def _recorded_path_key(path: str) -> str:
-    """@brief 历史扫描路径只做词法规范化，不能随本轮目录链接变化重新解析。"""
+    """@brief Geçmiş tarama yolları yalnızca sözcüksel olarak normalleştirilir; bu turun dizin bağlantısı değişikliklerine göre yeniden çözümlenemez."""
     return os.path.normcase(os.path.abspath(os.path.normpath(os.path.expanduser(path))))
 
 
 def normalize_artifact_baseline(value: Any) -> dict[str, Any]:
-    """@brief 兼容旧纯字典基线，并返回可判断完整性的统一结构。"""
+    """@brief Eski saf sözlük taban çizgisiyle uyumludur ve bütünlüğü değerlendirilebilir birleşik yapı döndürür."""
     if isinstance(value, dict) and isinstance(value.get("entries"), dict):
         entries = {
             _recorded_path_key(str(path)): metadata
@@ -115,8 +115,8 @@ def normalize_artifact_baseline(value: Any) -> dict[str, Any]:
             "legacy": False,
         }
     if isinstance(value, dict):
-        # 旧版本只保存 path -> metadata，没有完整性字段。旧条目仍可做 hash
-        # 比较，但“基线中不存在”不能证明文件是执行后新建的。
+        # Eski sürüm yalnızca path -> metadata saklar; bütünlük alanı yoktur. Eski girdiler yine hash
+        # karşılaştırmasında kullanılabilir, ancak "taban çizgisinde yok" dosyanın yürütme sonrasında oluşturulduğunu kanıtlamaz.
         return {
             "schemaVersion": "1.0",
             "entries": {
@@ -146,13 +146,13 @@ def normalize_artifact_baseline(value: Any) -> dict[str, Any]:
 
 
 def artifact_requires_current_run_proof(artifact: dict[str, Any]) -> bool:
-    """@brief 判断交付物是否必须证明由本轮生成。"""
-    # 不能仅凭调用方提供的 kind 豁免真实 CAD/预览/BOM 文件。
+    """@brief Teslimatın bu turda üretildiğinin kanıtlanmasının zorunlu olup olmadığına karar verir."""
+    # Gerçek CAD/önizleme/BOM dosyaları yalnızca çağıranın sağladığı kind değerine dayanarak muaf tutulamaz.
     return Path(str(artifact.get("path") or "")).suffix.lower() in DELIVERY_FILE_EXTENSIONS
 
 
 def _covered_by_baseline(path: Path, baseline: dict[str, Any]) -> bool:
-    """@brief 未记录文件只有处于明确扫描过的范围内，才可能是本轮新增。"""
+    """@brief Kaydedilmemiş bir dosya ancak açıkça taranmış kapsam içindeyse bu turda yeni eklenmiş olabilir."""
     key = Path(_artifact_key(path))
     for root in baseline["roots"]:
         root_path = Path(root["path"])
@@ -162,7 +162,7 @@ def _covered_by_baseline(path: Path, baseline: dict[str, Any]) -> bool:
 
 
 def collect_artifact_paths(job: dict[str, Any], result: dict[str, Any]) -> list[tuple[str, Path]]:
-    """@brief 从任务和执行结果中收集交付物路径。"""
+    """@brief Görev ve yürütme sonucundan teslimat yollarını toplar."""
     collected: list[tuple[str, Path]] = []
     if result.get("outputPath"):
         collected.append(("codex_output", Path(str(result["outputPath"]))))
@@ -185,7 +185,7 @@ def collect_artifact_paths(job: dict[str, Any], result: dict[str, Any]) -> list[
 
 
 def _describe_artifact(kind: str, path: Path, baseline: dict[str, Any]) -> dict[str, Any]:
-    """@brief 使用已规范化的基线描述单个产物。"""
+    """@brief Normalleştirilmiş taban çizgisini kullanarak tek bir ürünü tanımlar."""
     resolved = Path(path).expanduser()
     exists = resolved.exists()
     item: dict[str, Any] = {
@@ -209,12 +209,12 @@ def _describe_artifact(kind: str, path: Path, baseline: dict[str, Any]) -> dict[
 
 
 def describe_artifact(kind: str, path: Path, artifact_baseline: dict[str, Any] | None = None) -> dict[str, Any]:
-    """@brief 返回交付物事实，并以 true/false/null 表示本轮新鲜度。"""
+    """@brief Teslimat gerçeklerini döndürür; bu turun tazeliğini true/false/null ile ifade eder."""
     return _describe_artifact(kind, path, normalize_artifact_baseline(artifact_baseline))
 
 
 def build_artifact_ledger(queue_dir: Path, job: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
-    """@brief 构建任务交付物账本对象。"""
+    """@brief Görev teslimat defteri nesnesini oluşturur."""
     baseline = normalize_artifact_baseline(result.get("artifactBaseline"))
     artifacts = [_describe_artifact(kind, path, baseline) for kind, path in collect_artifact_paths(job, result)]
     return {
@@ -254,7 +254,7 @@ def build_artifact_ledger(queue_dir: Path, job: dict[str, Any], result: dict[str
 
 
 def write_artifact_ledger(queue_dir: Path, job: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
-    """@brief 写入任务交付物账本并返回账本对象。"""
+    """@brief Görev teslimat defterini yazar ve defter nesnesini döndürür."""
     ledger = build_artifact_ledger(queue_dir, job, result)
     path = ledger_path_for(queue_dir, job.get("id"))
     path.write_text(json.dumps(ledger, ensure_ascii=False, indent=2), encoding="utf-8")

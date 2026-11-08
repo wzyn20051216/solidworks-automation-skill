@@ -1,5 +1,5 @@
 export type PreviewMode = "mesh" | "dxf" | "image" | "manifest" | "unsupported";
-export type PreviewPhase = "等待文件" | "正在检查" | "正在读取文件" | "正在解码" | "正在建立场景" | "可交互" | "预览失败";
+export type PreviewPhase = "Dosya bekleniyor" | "Denetleniyor" | "Dosya okunuyor" | "Kod çözülüyor" | "Sahne oluşturuluyor" | "Etkileşime hazır" | "Önizleme başarısız";
 export type PreviewSourceMode = "delivery-preview" | "demo-showcase";
 
 export type PreviewManifest = {
