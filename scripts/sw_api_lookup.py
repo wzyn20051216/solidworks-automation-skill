@@ -1,7 +1,7 @@
-"""按目标 SolidWorks 版本只读查证类型库与可选官方 API 文档。
+"""Hedef SolidWorks sürümüne göre tip kitaplığını ve isteğe bağlı resmi API dokümantasyonunu salt okunur doğrular.
 
-默认不启动 CAD、不修改文档；已知版本时可查询官方文档，支持显式离线。接口声明、官方说明和真机行为分别记录，
-类型库中存在某个方法并不意味着它已在当前文档、许可证或服务包上验证通过。
+Varsayılan olarak CAD başlatmaz, belgeyi değiştirmez; sürüm bilindiğinde resmi dokümantasyon sorgulanabilir, açık çevrim dışı desteklenir. Arayüz bildirimleri, resmi açıklamalar ve gerçek makine davranışı ayrı ayrı kaydedilir;
+bir yöntemin tip kitaplığında bulunması, geçerli belge, lisans veya service pack üzerinde doğrulandığı anlamına gelmez.
 """
 from __future__ import annotations
 
@@ -43,20 +43,20 @@ _CACHE_LOCK = threading.Lock()
 
 
 class LookupCancelled(Exception):
-    """用户在查证期间取消任务。"""
+    """Kullanıcı doğrulama sırasında görevi iptal etti."""
 
 
 def _identifier(value: str, label: str) -> str:
     if not isinstance(value, str) or not _IDENTIFIER.fullmatch(value):
-        raise ValueError(f"{label} 必须是 1 至 128 位 ASCII 接口/成员标识符")
+        raise ValueError(f"{label} 1 ile 128 karakter arası ASCII arayüz/üye tanımlayıcı olmalıdır")
     return value
 
 
 def official_api_url(version: int, interface: str, member: str) -> str:
-    """为指定版本构造候选官方页面；URL 不是接口存在的证据。"""
+    """Belirtilen sürüm için aday resmi sayfa oluşturur; URL arayüzün varlığının kanıtı değildir."""
     interface, member = _identifier(interface, "interface"), _identifier(member, "member")
     if isinstance(version, bool) or not isinstance(version, int) or not 2010 <= version <= 2035:
-        raise ValueError("version 必须是 2010 至 2035 的年份")
+        raise ValueError("version 2010 ile 2035 arasında bir yıl olmalıdır")
     if interface.casefold().startswith("sw") and not interface.startswith("I"):
         return (f"https://help.solidworks.com/{version}/english/api/swconst/"
                 f"SolidWorks.Interop.swconst~SolidWorks.Interop.swconst.{interface}.html?format=P&value=")
@@ -65,7 +65,7 @@ def official_api_url(version: int, interface: str, member: str) -> str:
 
 
 def _process_executable(pid: int) -> Path:
-    """只读取指定进程的可执行文件路径，不启动、关闭或切换 SolidWorks。"""
+    """Yalnızca belirtilen sürecin yürütülebilir dosya yolunu okur; SolidWorks'ü başlatmaz, kapatmaz veya değiştirmez."""
     import win32api  # type: ignore
     import win32con  # type: ignore
     import win32process  # type: ignore
@@ -76,12 +76,12 @@ def _process_executable(pid: int) -> Path:
     finally:
         win32api.CloseHandle(handle)
     if path.name.casefold() != "sldworks.exe":
-        raise RuntimeError("目标进程不是 SLDWORKS.exe")
+        raise RuntimeError("Hedef süreç SLDWORKS.exe değil")
     return path
 
 
 def _executable_version(path: Path) -> tuple[int | None, str | None]:
-    """读取可执行文件自身的版本；不能识别时不根据文件夹名称猜测。"""
+    """Yürütülebilir dosyanın kendi sürümünü okur; tanınamadığında klasör adından tahmin etmez."""
     try:
         import win32api  # type: ignore
         info = win32api.GetFileVersionInfo(str(path), "\\")
@@ -98,19 +98,19 @@ def _executable_year(path: Path) -> int | None:
 
 
 def _running_target(version: int | None, process_id: int | None) -> dict[str, Any] | None:
-    """只核验运行进程的 PID、可执行文件和文件版本，不向 CAD 发 COM 调用。"""
+    """Yalnızca çalışan sürecin PID'ini, yürütülebilir dosyasını ve dosya sürümünü doğrular; CAD'e COM çağrısı göndermez."""
     if os.name != "nt":
         return None
     processes = solidworks_processes()
     if processes is None:
-        raise RuntimeError("无法枚举 SolidWorks 进程，不能确定目标版本")
+        raise RuntimeError("SolidWorks süreçleri numaralandırılamadı; hedef sürüm belirlenemiyor")
     if not processes:
         return None
     if process_id is not None and process_id not in processes:
-        raise RuntimeError("指定的 SolidWorks 进程不存在")
+        raise RuntimeError("Belirtilen SolidWorks süreci mevcut değil")
     candidates = [pid for pid, year in processes.items() if version is None or year in (None, version)]
     if process_id is None and len(candidates) > 1:
-        raise RuntimeError("发现多个可能的 SolidWorks 实例，请明确指定进程 ID 和版本")
+        raise RuntimeError("Birden fazla olası SolidWorks örneği bulundu; lütfen süreç ID ve sürümü açıkça belirtin")
     if not candidates and process_id is None:
         return None
     try:
@@ -118,19 +118,19 @@ def _running_target(version: int | None, process_id: int | None) -> dict[str, An
         executable = _process_executable(pid)
         year = _executable_year(executable)
         if year is None or (processes[pid] is not None and processes[pid] != year):
-            raise RuntimeError("SolidWorks 进程文件版本与进程枚举不一致或无法确认")
+            raise RuntimeError("SolidWorks süreç dosyası sürümü ile süreç numaralandırması tutarsız veya doğrulanamıyor")
         if version is not None and year != version:
-            raise RuntimeError(f"指定版本为 {version}，目标进程版本为 {year}")
+            raise RuntimeError(f"Belirtilen sürüm {version}, hedef süreç sürümü {year}")
         return {"year": year, "revision": None, "file_version": _executable_version(executable)[1], "process_id": pid,
                 "executable": executable, "source": "running_process"}
     except RuntimeError:
         raise
     except Exception as exc:
-        raise RuntimeError(f"运行中的 SolidWorks 无法可靠识别: {type(exc).__name__}") from exc
+        raise RuntimeError(f"Çalışan SolidWorks güvenilir şekilde tanınamadı: {type(exc).__name__}") from exc
 
 
 def _installed_target(version: int | None) -> dict[str, Any] | None:
-    """没有运行实例时只从已识别安装中选择，不把安装版本冒充运行版本。"""
+    """Çalışan örnek yoksa yalnızca tanınan kurulumlardan seçer; kurulum sürümünü çalışma sürümü olarak göstermez."""
     items = discover_installations("solidworks") if os.name == "nt" else []
     matches = []
     for item in items:
@@ -149,12 +149,12 @@ def _installed_target(version: int | None) -> dict[str, Any] | None:
         matches.append({"year": year, "revision": None, "file_version": _executable_version(path)[1], "process_id": None,
                         "executable": path, "source": "installed_version"})
     if len(matches) > 1:
-        raise RuntimeError("发现多个匹配安装，请先连接目标 SolidWorks 实例")
+        raise RuntimeError("Birden fazla eşleşen kurulum bulundu; önce hedef SolidWorks örneğine bağlanın")
     return matches[0] if matches else None
 
 
 def _type_text(info: Any, value: Any, depth: int = 0) -> str:
-    """将 COM 类型描述转换为可读名称；无法解码的部分明确保留原始值。"""
+    """COM tip açıklamasını okunabilir ada dönüştürür; çözülemeyen kısımlar ham değer olarak açıkça korunur."""
     if depth > 5:
         return "unknown"
     import pythoncom  # type: ignore
@@ -266,7 +266,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class _SemanticPage(HTMLParser):
-    """备用解析：仅接受同时明确包含年份和 API 产品元数据的正文。"""
+    """Yedek ayrıştırma: yalnızca hem yılı hem API ürün meta verisini açıkça içeren gövdeyi kabul eder."""
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.meta: dict[str, str] = {}
@@ -299,30 +299,30 @@ class _SemanticPage(HTMLParser):
 def retrieve_official_document(version: int, interface: str, member: str, *,
                                timeout: float = 15.0,
                                cancelled: Callable[[], bool] | None = None) -> dict[str, Any]:
-    """明确授权后只访问固定官方域名；不发送任务描述、路径或凭据。"""
+    """Açık yetkilendirmeden sonra yalnızca sabit resmi alan adına erişir; görev açıklaması, yol veya kimlik bilgisi göndermez."""
     url = official_api_url(version, interface, member)
     if cancelled and cancelled():
-        raise LookupCancelled("用户已取消 API 查证")
+        raise LookupCancelled("Kullanıcı API doğrulamasını iptal etti")
     request = urllib.request.Request(url, headers={"User-Agent": "SolidWorks-API-Lookup/1.0", "Accept": "text/html"})
     try:
         deadline = time.monotonic() + timeout
         opener = urllib.request.build_opener(_NoRedirect())
         with opener.open(request, timeout=timeout) as response:
             if response.geturl() != url:
-                raise RuntimeError("官方文档地址发生变化，已停止读取")
+                raise RuntimeError("Resmi dokümantasyon adresi değişti; okuma durduruldu")
             chunks, size = [], 0
             while True:
                 if cancelled and cancelled():
-                    raise LookupCancelled("用户已取消 API 查证")
+                    raise LookupCancelled("Kullanıcı API doğrulamasını iptal etti")
                 if time.monotonic() > deadline:
-                    raise TimeoutError("官方文档读取超时")
+                    raise TimeoutError("Resmi dokümantasyon okuma zaman aşımı")
                 chunk = response.read(min(65536, _MAX_RESPONSE + 1 - size))
                 if not chunk:
                     break
                 chunks.append(chunk)
                 size += len(chunk)
                 if size > _MAX_RESPONSE:
-                    raise RuntimeError("官方文档响应超过大小限制")
+                    raise RuntimeError("Resmi dokümantasyon yanıtı boyut sınırını aştı")
         html = b"".join(chunks).decode("utf-8")
         parser = _NextDataParser()
         parser.feed(html)
@@ -335,7 +335,7 @@ def retrieve_official_document(version: int, interface: str, member: str, *,
         help_data = None
         if isinstance(props, dict):
             if str(props.get("version")) != str(version) or props.get("product") != "api":
-                raise RuntimeError("官方页面版本或产品与请求不一致")
+                raise RuntimeError("Resmi sayfa sürümü veya ürünü istek ile tutarsız")
             help_data = props.get("helpContentData")
         if isinstance(help_data, dict) and isinstance(help_data.get("helpText"), str):
             title = str(help_data.get("title") or "")[:200]
@@ -346,16 +346,16 @@ def retrieve_official_document(version: int, interface: str, member: str, *,
             semantic = _SemanticPage()
             semantic.feed(html)
             if semantic.meta.get("solidworks-version") != str(version) or semantic.meta.get("solidworks-product") != "api":
-                raise RuntimeError("官方页面版本或产品与请求不一致")
+                raise RuntimeError("Resmi sayfa sürümü veya ürünü istek ile tutarsız")
             title = "".join(semantic.title).strip()[:200]
             body = "".join(semantic.body)
         enum_page = interface.casefold().startswith("sw") and not interface.startswith("I")
         if interface.casefold() not in title.casefold() or (not enum_page and member.casefold() not in title.casefold()):
-            raise RuntimeError("官方页面标题与请求的接口不一致")
+            raise RuntimeError("Resmi sayfa başlığı istenen arayüz ile tutarsız")
         text = re.sub(r"\n{3,}", "\n\n", body).strip()
         match_at = text.casefold().find(member.casefold())
         if match_at < 0:
-            raise RuntimeError("官方页面正文缺少请求的方法")
+            raise RuntimeError("Resmi sayfa gövdesinde istenen yöntem yok")
         if match_at > 5000:
             text = text[max(0, match_at - 800):]
         text = text[:6000]
@@ -366,16 +366,16 @@ def retrieve_official_document(version: int, interface: str, member: str, *,
     except LookupCancelled:
         raise
     except urllib.error.HTTPError as exc:
-        raise RuntimeError(f"官方文档读取失败: HTTP {exc.code}") from exc
+        raise RuntimeError(f"Resmi dokümantasyon okunamadı: HTTP {exc.code}") from exc
     except (urllib.error.URLError, TimeoutError, OSError, UnicodeError, ValueError, RecursionError) as exc:
-        raise RuntimeError(f"官方文档读取失败: {type(exc).__name__}") from exc
+        raise RuntimeError(f"Resmi dokümantasyon okunamadı: {type(exc).__name__}") from exc
 
 
 def _cached_official_document(version: int, interface: str, member: str, *,
                               cancelled: Callable[[], bool] | None = None) -> dict[str, Any]:
-    """仅缓存公开官方片段；进程内有界缓存不包含任务内容或会话标识。"""
+    """Yalnızca genel resmi parçaları önbelleğe alır; süreç içi sınırlı önbellek görev içeriği veya oturum kimliği barındırmaz."""
     if cancelled and cancelled():
-        raise LookupCancelled("用户已取消 API 查证")
+        raise LookupCancelled("Kullanıcı API doğrulamasını iptal etti")
     key = (version, interface.casefold(), member.casefold())
     now = time.monotonic()
     with _CACHE_LOCK:
@@ -397,14 +397,14 @@ def lookup_api(interface: str, member: str, version: int | None = None, *,
                process_id: int | None = None, online: bool = True,
                parallel_fallback: bool = True, auto_install: bool = True,
                cancelled: Callable[[], bool] | None = None) -> dict[str, Any]:
-    """默认查官方文档；直读失败时可使用匿名 Parallel 备用提取。"""
+    """Varsayılan olarak resmi dokümantasyonu sorgular; doğrudan okuma başarısız olursa anonim Parallel yedek çıkarımı kullanılabilir."""
     interface, member = _identifier(interface, "interface"), _identifier(member, "member")
     if version is not None:
         official_api_url(version, interface, member)
     if process_id is not None and (isinstance(process_id, bool) or not isinstance(process_id, int) or process_id <= 0):
-        raise ValueError("process_id 必须是正整数")
+        raise ValueError("process_id pozitif tam sayı olmalıdır")
     if cancelled and cancelled():
-        raise LookupCancelled("用户已取消 API 查证")
+        raise LookupCancelled("Kullanıcı API doğrulamasını iptal etti")
     result: dict[str, Any] = {"interface": interface, "member": member, "status": "unknown",
                               "target": None, "typelib": None, "local_help": None, "official": None, "warnings": [],
                               "runtime_verified": False}
@@ -416,15 +416,15 @@ def lookup_api(interface: str, member: str, version: int | None = None, *,
         if setup_warning:
             result["warnings"].append(setup_warning)
         if cancelled and cancelled():
-            raise LookupCancelled("用户已取消 API 查证")
+            raise LookupCancelled("Kullanıcı API doğrulamasını iptal etti")
     try:
         target = _running_target(version, process_id)
         if target is None and process_id is not None:
-            raise RuntimeError("指定的 SolidWorks 进程未运行或无法附着")
+            raise RuntimeError("Belirtilen SolidWorks süreci çalışmıyor veya eklenemiyor")
         if target is None:
             target = _installed_target(version)
         if target is None:
-            result["warnings"].append("未找到可确认版本的 SolidWorks 安装；没有启动软件。")
+            result["warnings"].append("Sürümü doğrulanabilen SolidWorks kurulumu bulunamadı; yazılım başlatılmadı.")
         else:
             result["target"] = {key: target.get(key) for key in ("year", "revision", "file_version", "process_id", "source")}
             version = int(target["year"])
@@ -433,18 +433,18 @@ def lookup_api(interface: str, member: str, version: int | None = None, *,
                                                     allow_install=setup_allowed, warnings=result["warnings"],
                                                     cancelled=cancelled)
             if cancelled and cancelled():
-                raise LookupCancelled("用户已取消 API 查证")
+                raise LookupCancelled("Kullanıcı API doğrulamasını iptal etti")
             if result["local_help"]:
                 if result["local_help"].get("version_evidence") == "signed_installer_product_and_file_hash":
-                    result["warnings"].append("本地 API Help 已按签名安装包、产品版本和文件哈希恢复；不代表运行时验证。")
+                    result["warnings"].append("Yerel API Help imzalı kurulum paketi, ürün sürümü ve dosya karmasıyla geri yüklendi; çalışma zamanı doğrulaması anlamına gelmez.")
                 else:
-                    result["warnings"].append("本机 API Help 来自目标安装目录，文件内部版本尚未独立确认。")
+                    result["warnings"].append("Yerel API Help hedef kurulum dizininden geldi; dosya iç sürümü henüz bağımsız olarak doğrulanmadı.")
             library_names = ("swconst.tlb",) if interface.lower().startswith("sw") and not interface.startswith("I") else (
                 "sldworks.tlb", "swmotionstudy.tlb", "SWRoutingLib.tlb", "cmotionswapi.tlb")
             libraries = []
             for library_name in library_names:
                 if cancelled and cancelled():
-                    raise LookupCancelled("用户已取消 API 查证")
+                    raise LookupCancelled("Kullanıcı API doğrulamasını iptal etti")
                 path = target["executable"].parent / library_name
                 if not path.is_file():
                     continue
@@ -453,14 +453,14 @@ def lookup_api(interface: str, member: str, version: int | None = None, *,
                     libraries.append({"file": library_name, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                                       **declaration})
                 except Exception as exc:
-                    result["warnings"].append(f"无法读取 {library_name}: {type(exc).__name__}")
+                    result["warnings"].append(f"{library_name} okunamadı: {type(exc).__name__}")
             matching = [item for item in libraries if item["interface_found"]]
             if target.get("process_id") and (_process_executable(target["process_id"]) != target["executable"] or
                                               _executable_year(target["executable"]) != version):
-                raise RuntimeError("查证过程中目标进程已变化，类型库结果未采用")
+                raise RuntimeError("Doğrulama sırasında hedef süreç değişti; tip kitaplığı sonucu kullanılmadı")
             if len(matching) > 1:
                 result["status"] = "conflict"
-                result["warnings"].append("多个类型库包含同名接口，无法确定应使用哪一个。")
+                result["warnings"].append("Birden fazla tip kitaplığı aynı ada sahip arayüz içeriyor; hangisinin kullanılacağı belirlenemiyor.")
             elif matching:
                 result["typelib"] = matching[0]
                 result["status"] = "found" if matching[0]["member_found"] else "not_found"
@@ -470,7 +470,7 @@ def lookup_api(interface: str, member: str, version: int | None = None, *,
                                      "searched_libraries": [item["file"] for item in libraries]}
                 result["status"] = "not_found"
             else:
-                result["warnings"].append("目标版本没有可读取的对应类型库。")
+                result["warnings"].append("Hedef sürüm için okunabilir ilgili tip kitaplığı yok.")
     except LookupCancelled:
         raise
     except (ImportError, OSError, RuntimeError, ValueError) as exc:
@@ -482,7 +482,7 @@ def lookup_api(interface: str, member: str, version: int | None = None, *,
             result["status"] = "documented"
         elif result["typelib"] is not None and result["typelib"]["member_found"] is False:
             result["status"] = "conflict"
-            result["warnings"].append("本机 API Help 与类型库不一致，请核对安装和文档版本。")
+            result["warnings"].append("Yerel API Help ile tip kitaplığı tutarsız; kurulum ve dokümantasyon sürümlerini kontrol edin.")
     if version is not None:
         result["official_url"] = official_api_url(version, interface, member)
         if network_enabled:
@@ -492,18 +492,18 @@ def lookup_api(interface: str, member: str, version: int | None = None, *,
                 result["warnings"].append(str(exc))
                 result["official"] = load_document(version, interface, member)
                 if result["official"]:
-                    result["warnings"].append("官方网页不可用，使用上次获取的本地缓存；不保证是最新内容。")
+                    result["warnings"].append("Resmi web sayfası kullanılamıyor, son alınan yerel önbellek kullanıldı; güncel olduğu garanti edilmez.")
                 elif parallel_fallback and os.environ.get("SW_API_LOOKUP_PARALLEL", "on").strip().lower() not in {"off", "false", "0"}:
                     try:
                         setup_warning = ensure_python_packages(("mcp>=1.27,<2", "httpx>=0.27.1,<1"), ("mcp", "httpx"),
                                                                allow_network=setup_allowed, cancelled=cancelled)
                         if cancelled and cancelled():
-                            raise LookupCancelled("用户已取消 API 查证")
+                            raise LookupCancelled("Kullanıcı API doğrulamasını iptal etti")
                         if setup_warning:
                             raise RuntimeError(setup_warning)
                         result["official"] = retrieve_parallel_document(version, interface, member,
                                                                           result["official_url"], cancelled=cancelled)
-                        result["warnings"].append("官方网页直读失败，已使用匿名 Parallel 提取官方页面；版本仅依据链接和标题，需进一步核对。")
+                        result["warnings"].append("Resmi web sayfası doğrudan okunamadı; resmi sayfa anonim Parallel ile çıkarıldı; sürüm yalnızca bağlantı ve başlığa dayanıyor, ayrıca doğrulanmalı.")
                     except ParallelLookupCancelled as cancel:
                         raise LookupCancelled(str(cancel)) from cancel
                     except RuntimeError as fallback_error:
@@ -515,32 +515,32 @@ def lookup_api(interface: str, member: str, version: int | None = None, *,
                     result["status"] = "documented"
                 elif result["typelib"] is not None and result["typelib"]["member_found"] is False:
                     result["status"] = "conflict"
-                    result["warnings"].append("官方页面与本机类型库结果不一致，不能据此宣称运行时可用。")
+                    result["warnings"].append("Resmi sayfa ile yerel tip kitaplığı sonucu tutarsız; buna dayanarak çalışma zamanı kullanılabilirliği iddia edilemez.")
         else:
             result["official"] = load_document(version, interface, member)
             if result["official"]:
-                result["warnings"].append("离线使用上次获取的本地缓存；不保证是最新内容。")
+                result["warnings"].append("Çevrim dışı olarak son alınan yerel önbellek kullanıldı; güncel olduğu garanti edilmez.")
                 if result["typelib"] is None and result["status"] != "conflict": result["status"] = "documented"
                 elif result["typelib"] is not None and result["typelib"]["member_found"] is False:
                     result["status"] = "conflict"
-                    result["warnings"].append("缓存文档与本机类型库不一致，不能据此宣称运行时可用。")
+                    result["warnings"].append("Önbellek belgesi ile yerel tip kitaplığı tutarsız; buna dayanarak çalışma zamanı kullanılabilirliği iddia edilemez.")
             if online:
-                result["warnings"].append("环境配置已关闭本工具的官方文档联网查询。")
+                result["warnings"].append("Ortam yapılandırması bu aracın resmi dokümantasyon çevrim içi sorgusunu kapattı.")
     elif online:
-        result["warnings"].append("版本未知，未访问官方网页。")
+        result["warnings"].append("Sürüm bilinmiyor; resmi web sayfasına erişilmedi.")
     return result
 
 
 def lookup_task(task: str, version: int | None = None, *, process_id: int | None = None,
                 online: bool = True, parallel_fallback: bool = True, auto_install: bool = True,
                 cancelled: Callable[[], bool] | None = None) -> dict[str, Any]:
-    """本地识别自然语言候选；只向外部发送候选 API 标识。"""
+    """Doğal dil adaylarını yerel olarak tanır; dışarıya yalnızca aday API kimliklerini gönderir."""
     if not isinstance(task, str) or not task.strip() or len(task) > 10000:
-        raise ValueError("task 必须是 1 至 10000 字符的任务描述")
+        raise ValueError("task 1 ile 10000 karakter arası bir görev açıklaması olmalıdır")
     if version is not None and (isinstance(version, bool) or not isinstance(version, int) or not 2010 <= version <= 2035):
-        raise ValueError("version 必须是 2010 至 2035 的年份")
+        raise ValueError("version 2010 ile 2035 arasında bir yıl olmalıdır")
     if process_id is not None and (isinstance(process_id, bool) or not isinstance(process_id, int) or process_id <= 0):
-        raise ValueError("process_id 必须是正整数")
+        raise ValueError("process_id pozitif tam sayı olmalıdır")
     try:
         from .api_intent import task_candidates, task_years
     except ImportError:
@@ -548,37 +548,37 @@ def lookup_task(task: str, version: int | None = None, *, process_id: int | None
     candidates, _ = task_candidates(task)
     years = task_years(task)
     if len(years) > 1 or (version is not None and years and version not in years):
-        raise ValueError("任务包含多个或不一致的 SolidWorks 版本，请明确目标版本")
+        raise ValueError("Görev birden fazla veya tutarsız SolidWorks sürümü içeriyor; hedef sürümü açıkça belirtin")
     year = version if version is not None else next(iter(years), None)
     results = [lookup_api(interface, member, year, process_id=process_id, online=online,
                           parallel_fallback=parallel_fallback, auto_install=auto_install, cancelled=cancelled)
                for interface, member in candidates]
     return {"status": "candidates" if results else "no_candidate", "results": results,
-            "warning": "候选仅供查证，实际方法须由任务规划与目标版本证据确认。"}
+            "warning": "Adaylar yalnızca doğrulama içindir; gerçek yöntem görev planlaması ve hedef sürüm kanıtıyla onaylanmalıdır."}
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="只读查询目标 SolidWorks 版本的 API 接口")
-    parser.add_argument("interface", nargs="?", help="例如 ISketchManager")
-    parser.add_argument("member", nargs="?", help="例如 CreateCircleByRadius")
-    parser.add_argument("--task", help="根据自然语言识别候选，最多查询两个；任务全文不会发送到在线查证服务")
-    parser.add_argument("--version", type=int, help="目标 SolidWorks 年份")
-    parser.add_argument("--process-id", type=int, help="目标运行实例 PID")
-    parser.add_argument("--offline", action="store_true", help="不访问网络，使用本地资料及历史缓存")
-    parser.add_argument("--no-parallel", action="store_true", help="仅访问官方网页，不使用 Parallel 备用服务")
-    parser.add_argument("--no-auto-install", action="store_true", help="不自动安装依赖或恢复本地帮助")
+    parser = argparse.ArgumentParser(description="Hedef SolidWorks sürümünün API arayüzünü salt okunur sorgular")
+    parser.add_argument("interface", nargs="?", help="örn. ISketchManager")
+    parser.add_argument("member", nargs="?", help="örn. CreateCircleByRadius")
+    parser.add_argument("--task", help="Doğal dilden aday tanır, en fazla iki sorgu; görev tam metni çevrim içi doğrulama servisine gönderilmez")
+    parser.add_argument("--version", type=int, help="Hedef SolidWorks yılı")
+    parser.add_argument("--process-id", type=int, help="Hedef çalışan örnek PID")
+    parser.add_argument("--offline", action="store_true", help="Ağa erişmez, yerel kaynakları ve geçmiş önbelleği kullanır")
+    parser.add_argument("--no-parallel", action="store_true", help="Yalnızca resmi web sayfasına erişir, Parallel yedek servisini kullanmaz")
+    parser.add_argument("--no-auto-install", action="store_true", help="Bağımlılıkları otomatik kurmaz veya yerel yardımı geri yüklemez")
     args = parser.parse_args()
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     try:
         if args.task:
             if args.interface or args.member:
-                raise ValueError("--task 与接口/成员位置参数不能同时使用")
+                raise ValueError("--task ile arayüz/üye konum argümanları birlikte kullanılamaz")
             output = lookup_task(args.task, args.version, process_id=args.process_id, online=not args.offline,
                                  parallel_fallback=not args.no_parallel, auto_install=not args.no_auto_install)
         else:
             if not args.interface or not args.member:
-                raise ValueError("请提供接口和成员，或使用 --task 输入自然语言任务")
+                raise ValueError("Lütfen arayüz ve üye belirtin veya --task ile doğal dil görevi girin")
             output = lookup_api(args.interface, args.member, args.version, process_id=args.process_id,
                                 online=not args.offline, parallel_fallback=not args.no_parallel,
                                 auto_install=not args.no_auto_install)

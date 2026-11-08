@@ -1,45 +1,45 @@
-# 多 Agent Provider 架构
+# Çoklu Agent Provider Mimarisi
 
-## 目标
+## Amaç
 
-CAD Studio 面向不同用户环境，不绑定单一模型或 CLI。所有 Provider 共用一份 CAD 任务协议、审批策略、知识检索、产物账本和复核门禁，差异只保留在命令编译与结果解析层。
+CAD Studio farklı kullanıcı ortamlarını hedefler ve tek bir modele veya CLI'ye bağlı değildir. Tüm Provider'lar tek bir CAD görev protokolünü, onay politikasını, bilgi erişimini, ürün kayıt defterini ve inceleme kapısını paylaşır; farklar yalnızca komut derleme ve sonuç ayrıştırma katmanında kalır.
 
 ```text
-用户任务
+Kullanıcı görevi
   -> UnifiedAutomationJob
   -> Policy Gate
   -> Provider Adapter
-  -> Codex / Claude Code / Gemini CLI / OpenCode
+  -> Codex / Claude Code / Gemini CLI / OpenCode / LM Studio
   -> UnifiedAgentResult
   -> Artifact Ledger
   -> CAD/B-Rep/Motion Reviewer Gate
-  -> 本地交付目录
+  -> yerel teslimat dizini
 ```
 
-## Provider 状态不能混用
+## Provider durumları karıştırılamaz
 
-界面和日志必须分别表达以下状态：
+Arayüz ve günlükler aşağıdaki durumları ayrı ayrı ifade etmelidir:
 
-| 状态 | 证据 | 能否表述为已连接 |
+| Durum | Kanıt | Bağlı olarak ifade edilebilir mi |
 |---|---|---|
-| 未安装 | 找不到 CLI 入口或 `--version` 失败 | 否 |
-| 已安装 | `--version` 成功 | 否 |
-| 认证失败 | 官方认证状态命令返回失败 | 否 |
-| 认证待验证 | CLI 没有低成本认证查询命令 | 否，首个真实任务验证 |
-| 认证已验证 | 官方认证命令成功 | 可以表述为认证已验证 |
-| 执行已验证 | 真实任务按统一协议返回结构化结果 | 可以表述为该次任务执行成功 |
+| Kurulu değil | CLI girişi bulunamıyor veya `--version` başarısız | Hayır |
+| Kurulu | `--version` başarılı | Hayır |
+| Kimlik doğrulama başarısız | Resmi kimlik doğrulama durum komutu başarısız | Hayır |
+| Kimlik doğrulama doğrulanacak | CLI'nin düşük maliyetli kimlik sorgu komutu yok | Hayır, ilk gerçek görevde doğrulanır |
+| Kimlik doğrulama doğrulandı | Resmi kimlik komutu başarılı | Kimlik doğrulama doğrulandı olarak ifade edilebilir |
+| Yürütme doğrulandı | Gerçek görev birleşik protokolle yapılandırılmış sonuç döndürdü | O görev yürütmesi başarılı olarak ifade edilebilir |
 
-CLI 存在、环境变量存在、CC Switch 中有 Provider 配置，都不能单独证明模型请求可用。Provider 自报成功也不能证明 SolidWorks/AutoCAD 产物正确。
+CLI'nin varlığı, ortam değişkeninin varlığı veya CC Switch'te Provider yapılandırması tek başına model isteğinin kullanılabilir olduğunu kanıtlamaz. Provider'ın kendi başarı bildirimi de SolidWorks/AutoCAD ürününün doğru olduğunu kanıtlamaz.
 
-## 统一任务协议
+## Birleşik görev protokolü
 
-任务类型使用 `agent_task`，执行器使用 `agent`：
+Görev türü `agent_task`, yürütücü `agent` kullanır:
 
 ```json
 {
   "kind": "agent_task",
   "executor": "agent",
-  "objective": "创建带沉孔和半圆槽的安装板",
+  "objective": "Havşa ve yarım daire kanal içeren montaj plakası oluştur",
   "skillPath": "C:/Users/user/.codex/skills/solidworks-automation/SKILL.md",
   "uiConfig": {
     "agentRuntime": {
@@ -52,15 +52,15 @@ CLI 存在、环境变量存在、CC Switch 中有 Provider 配置，都不能�
 }
 ```
 
-旧的 `codex_task`、`executor=codex` 只作为兼容入口，进入 Worker 后仍归一到同一执行流程。
+Eski `codex_task` ve `executor=codex` yalnızca uyumluluk girişi olarak kullanılır; Worker'a girdikten sonra yine aynı yürütme akışına normalleştirilir.
 
-## 统一结果协议
+## Birleşik sonuç protokolü
 
-每个 Provider 最终必须生成以下字段：
+Her Provider sonunda aşağıdaki alanları üretmelidir:
 
 ```json
 {
-  "summary": "本轮做了什么",
+  "summary": "Bu turda ne yapıldı",
   "changedFiles": [],
   "verification": [],
   "risks": [],
@@ -68,41 +68,47 @@ CLI 存在、环境变量存在、CC Switch 中有 Provider 配置，都不能�
 }
 ```
 
-统一结果只是 Agent 执行记录，不是 CAD 验收证据。机械交付仍需独立的文件哈希、B-Rep 尺寸、孔槽定位、预览图、Motion 结果和人工复核记录。
+Birleşik sonuç yalnızca Agent yürütme kaydıdır, CAD kabul kanıtı değildir. Mekanik teslimat yine bağımsız dosya karması, B-Rep ölçüleri, delik/kanal konumlandırması, önizleme görüntüsü, Motion sonucu ve insan inceleme kaydı gerektirir.
 
-## 当前 Adapter
+## Mevcut Adapter
 
-| Provider | 协议 ID | 非交互入口 | 结构化输出来源 |
+| Provider | Protokol ID | Etkileşimsiz giriş | Yapılandırılmış çıktı kaynağı |
 |---|---|---|---|
-| Codex | `codex-exec-v1` | `codex exec` | `--output-schema` + 输出文件 |
+| Codex | `codex-exec-v1` | `codex exec` | `--output-schema` + çıktı dosyası |
 | Claude Code | `claude-print-v1` | `claude -p` | `--output-format json` + `--json-schema` |
-| Gemini CLI | `gemini-headless-v1` | `gemini -p` | JSON response 包装层 |
-| OpenCode | `opencode-jsonl-v1` | `opencode run` | JSONL 文本事件 |
+| Gemini CLI | `gemini-headless-v1` | `gemini -p` | JSON response sarmalayıcısı |
+| OpenCode | `opencode-jsonl-v1` | `opencode run` | JSONL metin olayları |
+| LM Studio | `lmstudio-openai-v1` | `lmstudio_client.py` | OpenAI uyumlu `/chat/completions` yanıtı |
 
-实现位于：
+Uygulama şu dosyalarda bulunur:
 
 - `apps/desktop/cad_workbench/agent_providers.py`
+- `apps/desktop/cad_workbench/lmstudio_client.py`
 - `apps/desktop/cad_workbench/queue_worker.py`
 - `apps/workbench-ui/src-tauri/src/lib.rs`
 
-## 新增 Provider 的步骤
+### LM Studio uç noktası
 
-1. 在 `SUPPORTED_PROVIDER_IDS` 和前端 `AgentProviderId` 中登记稳定 ID。
-2. 只使用该 CLI 官方文档确认的非交互参数，不凭记忆猜选项。
-3. 在 `build_provider_command()` 中把统一任务编译为 Provider 命令。
-4. 在 `parse_provider_result()` 中解析原生包装层，最终强制收敛到统一结果字段。
-5. 增加安装、认证、超时、非 JSON、缺字段和取消任务测试。
-6. 在桌面健康检查中区分安装、认证和执行验证，不新增含糊的“已连接”布尔值。
-7. 真实执行最小探针，确认退出码、stdout/stderr、取消和超时行为。
+LM Studio harici bir CLI gerektirmez; yerel OpenAI uyumlu REST API'si üzerinden çalışır. Varsayılan uç nokta `http://127.0.0.1:1234/v1` olup `LMSTUDIO_BASE_URL` ortam değişkeniyle değiştirilebilir. `LMSTUDIO_API_KEY` ayarlanırsa istek `Authorization: Bearer` başlığıyla gönderilir; yerel sunucu genelde bunu istemez. Model açıkça seçilmezse `/models` listesindeki ilk yüklü model kullanılır.
 
-## 可观察执行过程
+## Yeni Provider ekleme adımları
 
-软件可以展示计划、公开步骤、工具调用、审批、日志、文件变化和复核结果。不要承诺或伪造模型隐藏思维链；用户真正需要的是可审计的执行轨迹和可继续追问的对话上下文。
+1. Kararlı ID'yi `SUPPORTED_PROVIDER_IDS` ve ön yüzdeki `AgentProviderId` içinde kaydet.
+2. Yalnızca o CLI'nin resmi dokümantasyonunda doğrulanmış etkileşimsiz parametreleri kullan; seçenekleri ezberden tahmin etme.
+3. `build_provider_command()` içinde birleşik görevi Provider komutuna derle.
+4. `parse_provider_result()` içinde yerel sarmalayıcıyı ayrıştır ve sonunda birleşik sonuç alanlarına zorla yakınsa.
+5. Kurulum, kimlik doğrulama, zaman aşımı, JSON olmayan, eksik alan ve iptal görevi testleri ekle.
+6. Masaüstü sağlık kontrolünde kurulum, kimlik doğrulama ve yürütme doğrulamasını ayır; belirsiz bir "bağlı" boolean değeri ekleme.
+7. Gerçek minimum sonda yürüt; çıkış kodu, stdout/stderr, iptal ve zaman aşımı davranışını doğrula.
 
-## 安全边界
+## Gözlemlenebilir yürütme süreci
 
-- Provider Adapter 不直接暴露任意 Python、PowerShell 或 VBA 工具。
-- CAD COM 调用串行化，避免多个 Agent 同时操作同一桌面会话。
-- 外部网络、云 RAG 和危险本地 CAD 操作进入 Policy Gate。
-- API Key 不写入任务 JSON、日志或前端持久化；只记录脱敏状态或环境变量名。
-- Provider 输出必须经过 schema、Artifact Ledger 和 Reviewer Gate，不能直接宣布交付成功。
+Yazılım planı, genel adımları, araç çağrılarını, onayları, günlükleri, dosya değişikliklerini ve inceleme sonuçlarını gösterebilir. Modelin gizli düşünce zincirini vaat etme veya uydurma; kullanıcının gerçekten ihtiyaç duyduğu şey denetlenebilir yürütme izi ve üzerine soru sorulabilen konuşma bağlamıdır.
+
+## Güvenlik sınırları
+
+- Provider Adapter rastgele Python, PowerShell veya VBA araçlarını doğrudan açığa çıkarmaz.
+- CAD COM çağrıları seri hale getirilir; birden fazla Agent'ın aynı masaüstü oturumunu eşzamanlı işletmesi önlenir.
+- Dış ağ, bulut RAG ve tehlikeli yerel CAD işlemleri Policy Gate'e girer.
+- API Key görev JSON'una, günlüklere veya ön yüz kalıcı depolamasına yazılmaz; yalnızca gizliliği temizlenmiş durum veya ortam değişkeni adı kaydedilir.
+- Provider çıktısı schema, Artifact Ledger ve Reviewer Gate'ten geçmelidir; doğrudan teslimat başarısı ilan edilemez.

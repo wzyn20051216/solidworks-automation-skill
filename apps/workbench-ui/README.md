@@ -1,140 +1,140 @@
-# CAD Studio 桌面工作台
+# CAD Studio Masaüstü Workbench
 
-这是 CAD Studio 的正式 React + Tauri 桌面客户端。
+Bu, CAD Studio'nun resmi React + Tauri masaüstü istemcisidir.
 
-设计方向:
+Tasarım yönü:
 
 ```text
-Apple-style 本地工程软件，浅色悬浮窗口、外观中心、本地壁纸导入、右侧 Inspector、清晰 P0 门禁和可执行工作流。
+Apple tarzı yerel mühendislik yazılımı; açık renkli yüzen pencereler, görünüm merkezi, yerel duvar kağıdı içe aktarma, sağ tarafta Inspector, net P0 kapıları ve uygulanabilir iş akışları.
 ```
 
-当前运行方式支持两种:
+Mevcut çalıştırma biçimleri iki tanedir:
 
-- Vite 浏览器预览，用于快速调 UI。
-- Tauri 桌面软件，用于生成 Windows `.exe`。
+- Hızlı UI ayarı için Vite tarayıcı önizlemesi.
+- Windows `.exe` üretmek için Tauri masaüstü uygulaması.
 
-当前界面包含:
+Mevcut arayüz şunları içerir:
 
-- 右上角外观浮层，支持导入本地图片、GIF、视频壁纸，并可调节亮度、模糊和暗角。
-- 本地配置持久化，自动记住当前壁纸、最近壁纸、亮度、模糊、暗角和最近导入模型路径。
-- 本地自动化队列，桌面端把新建 CAD 任务、导入模型、生成交付包任务保存为 JSON。
-- Agent Bridge 面板，把图形化配置转换为 Codex、Claude Code、Gemini CLI 或 OpenCode 可执行任务。
-- CC Switch 同步读取当前用户的 SQLite/旧版 JSON 配置，按所选 Agent 显示模型路由，不读取或展示密钥。
-- 默认 `AI 自动选择最佳方案`，用户不指定时自动判断任务类型、工艺、材料、输出格式和检查项。
-- Policy Gate 审批门禁，危险任务会先进入待审批状态。
-- Artifact Ledger 交付物账本，记录输出文件存在性、大小、SHA-256 和本轮新鲜度；旧文件不能进入可交付状态，无法确认时进入人工复核。
-- 队列面板可在桌面端启动/停止本地 Python worker，并显示运行状态和 PID。
-- Worker Health 健康心跳和 Reviewer Gate 交付物/格式特征复核。
-- 待复核任务支持人工“通过复核/驳回”，并记录复核人、时间、结论和审计事件。
-- 默认樱花动态壁纸（已移除音轨和定位元数据），另有 Aurora、Blueprint、Studio、Mist；支持任意本地图片/GIF/视频导入与切换。
-- 本地优先专业知识库：自动检索 SolidWorks、制造和图纸规范；可添加企业标准目录。
-- 可选 HTTPS 云 RAG：仅在显式启用并通过外部网络审批后调用，令牌只从环境变量读取。
-- macOS 风格窗口栏、浅色 Dock 导航、项目工作台和右侧 Inspector 参数面板。
-- 项目入口支持搜索、归档/恢复、复制和删除；任务历史支持终态记录批量清理，所有操作只清理应用元数据，不删除 CAD 交付文件。
-- SQLite 迁移会保留旧快照并建立项目、对话、消息和任务索引；设置页显示索引数量一致性。
-- 按钮 hover、按压反馈和主按钮光泽扫过效果。
-- 桌面与移动端响应式预览截图。
+- Sağ üst köşede görünüm katmanı; yerel resim, GIF ve video duvar kağıdı içe aktarmayı destekler, parlaklık, bulanıklık ve vinyet ayarlanabilir.
+- Yerel yapılandırma kalıcılığı; geçerli duvar kağıdını, son duvar kağıtlarını, parlaklığı, bulanıklığı, vinyeti ve son içe aktarılan model yollarını otomatik hatırlar.
+- Yerel otomasyon kuyruğu; masaüstü tarafı yeni CAD görevi oluşturma, model içe aktarma ve teslim paketi üretme görevlerini JSON olarak kaydeder.
+- Agent Bridge paneli; grafiksel yapılandırmayı Codex, Claude Code, Gemini CLI veya OpenCode tarafından çalıştırılabilir görevlere dönüştürür.
+- CC Switch, geçerli kullanıcının SQLite/eski sürüm JSON yapılandırmasını eşzamanlı okur, seçilen Agent'a göre model yönlendirmesini gösterir; anahtarları okumaz veya göstermez.
+- Varsayılan olarak `AI otomatik olarak en iyi çözümü seçer`; kullanıcı belirtmediğinde görev türünü, süreci, malzemeyi, çıktı biçimini ve kontrol maddelerini otomatik belirler.
+- Policy Gate onay kapısı; tehlikeli görevler önce onay bekleyen duruma girer.
+- Artifact Ledger teslimat defteri; çıktı dosyalarının varlığını, boyutunu, SHA-256'sını ve bu turdaki güncelliğini kaydeder; eski dosyalar teslim edilebilir duruma giremez, doğrulanamadığında manuel incelemeye girer.
+- Kuyruk paneli, masaüstü tarafında yerel Python worker'ı başlatıp/durdurur ve çalışma durumu ile PID'yi gösterir.
+- Worker Health sağlık sinyali ve Reviewer Gate teslimat/biçim özelliği incelemesi.
+- İncelenecek görevler manuel "incelemeyi onayla/reddet" işlemini destekler; inceleyeni, zamanı, sonucu ve denetim olaylarını kaydeder.
+- Varsayılan kiraz çiçeği hareketli duvar kağıdı (ses kanalı ve konum meta verileri kaldırılmıştır); ayrıca Aurora, Blueprint, Studio, Mist. Herhangi bir yerel resim/GIF/video içe aktarma ve geçiş desteklenir.
+- Yerel öncelikli profesyonel bilgi bankası: SolidWorks, üretim ve teknik resim standartlarını otomatik arar; kurumsal standart dizinleri eklenebilir.
+- İsteğe bağlı HTTPS bulut RAG: yalnızca açıkça etkinleştirildiğinde ve harici ağ onayı geçildiğinde çağrılır; token yalnızca ortam değişkeninden okunur.
+- macOS tarzı pencere çubuğu, açık renkli Dock navigasyonu, proje workbench'i ve sağ tarafta Inspector parametre paneli.
+- Proje girişi arama, arşivleme/geri yükleme, kopyalama ve silmeyi destekler; görev geçmişi son durum kayıtlarının toplu temizliğini destekler; tüm işlemler yalnızca uygulama meta verilerini temizler, CAD teslim dosyalarını silmez.
+- SQLite taşıma işlemi eski anlık görüntüleri korur ve proje, konuşma, mesaj ve görev dizinleri oluşturur; ayarlar sayfası dizin sayısı tutarlılığını gösterir.
+- Düğme hover, basma geri bildirimi ve ana düğme parıltı geçiş efekti.
+- Masaüstü ve mobil uyumlu önizleme ekran görüntüleri.
 
-发布版安装包会内置 skill、Python worker 和机械知识文档。用户仍需安装 Python、至少一个 Agent CLI，以及真实操作所需的 SolidWorks/AutoCAD。
+Yayın sürümü yükleyicisi skill, Python worker ve mekanik bilgi belgelerini içerir. Kullanıcının yine de Python, en az bir Agent CLI ve gerçek işlem için SolidWorks/AutoCAD kurması gerekir.
 
-完整用户说明：[CAD Studio 用户说明书](../../docs/CAD_STUDIO_USER_MANUAL.md)。
+Tam kullanıcı belgesi: [CAD Studio Kullanıcı Kılavuzu](../../docs/CAD_STUDIO_USER_MANUAL.md).
 
-说明:
+Notlar:
 
-- 浏览器预览模式只能临时预览用户导入的本地图片，因为浏览器刷新后无法重新访问原文件路径。
-- Tauri 桌面模式会使用原生文件选择器，能保存本地文件路径并在下次启动时恢复壁纸。
+- Tarayıcı önizleme modu, kullanıcının içe aktardığı yerel resmi yalnızca geçici olarak önizleyebilir; çünkü tarayıcı yenilendikten sonra özgün dosya yoluna yeniden erişemez.
+- Tauri masaüstü modu yerel dosya seçiciyi kullanır; yerel dosya yolunu kaydedebilir ve sonraki başlatmada duvar kağıdını geri yükleyebilir.
 
-## 安装
+## Kurulum
 
 ```powershell
 cd apps\workbench-ui
 npm install
 ```
 
-## 开发预览
+## Geliştirme önizlemesi
 
 ```powershell
 npm run dev
 ```
 
-## 桌面开发
+## Masaüstü geliştirme
 
 ```powershell
 npm run desktop:dev
 ```
 
-## 构建
+## Derleme
 
 ```powershell
 npm run build
 ```
 
-## 生成桌面程序
+## Masaüstü uygulaması oluşturma
 
 ```powershell
 npm run desktop:build
 ```
 
-该命令会生成可运行 `.exe`，暂不打安装包。
+Bu komut çalıştırılabilir bir `.exe` üretir, ancak henüz yükleyici paketlemez.
 
-如需生成安装包:
+Yükleyici üretmek isterseniz:
 
 ```powershell
 npm run desktop:bundle
 ```
 
-输出程序:
+Çıktı programı:
 
 ```text
 apps\workbench-ui\src-tauri\target\release\cad-studio.exe
 ```
 
-## 本地自动化队列
+## Yerel otomasyon kuyruğu
 
-协议文档:
+Protokol belgesi:
 
 ```text
 apps\workbench-ui\docs\automation-queue-protocol.md
 ```
 
-桌面端任务保存到 Tauri 应用数据目录的 `queue` 文件夹。Python worker 原型:
+Masaüstü görevleri Tauri uygulama veri dizinindeki `queue` klasörüne kaydedilir. Python worker prototipi:
 
 ```powershell
-python -m apps.desktop.cad_workbench.queue_worker --queue-dir "<队列目录>"
+python -m apps.desktop.cad_workbench.queue_worker --queue-dir "<kuyruk-dizini>"
 ```
 
-持续监听:
+Sürekli dinleme:
 
 ```powershell
-python -m apps.desktop.cad_workbench.queue_worker --watch --queue-dir "<队列目录>"
+python -m apps.desktop.cad_workbench.queue_worker --watch --queue-dir "<kuyruk-dizini>"
 ```
 
-正式桌面启动启用统一 Agent handler，不加载 mock。`create_shell`、`import_model`、`delivery_package` 的 mock 仅能通过 `--enable-mock` 显式开启，用于队列协议开发测试，不能作为产品交付结果。
+Resmi masaüstü başlatma, birleşik Agent handler'ı etkinleştirir ve mock yüklemez. `create_shell`, `import_model`, `delivery_package` için mock yalnızca `--enable-mock` ile açıkça etkinleştirilebilir; kuyruk protokolü geliştirme testleri için kullanılır ve ürün teslim sonucu olarak kullanılamaz.
 
-启用统一 Agent 执行器：
+Birleşik Agent yürütücüsünü etkinleştirme:
 
 ```powershell
-python -m apps.desktop.cad_workbench.queue_worker --watch --enable-codex --queue-dir "<队列目录>"
+python -m apps.desktop.cad_workbench.queue_worker --watch --enable-codex --queue-dir "<kuyruk-dizini>"
 ```
 
-桌面端可以直接在“设置 -> 本地执行”点击启动。开发版优先使用当前仓库，安装版使用内置 skill 资源。点击停止会终止软件托管的 worker 进程树，并把未完成任务重新排队；Alt+F4 和系统退出执行同样清理。
+Masaüstü tarafı doğrudan "Ayarlar -> Yerel yürütme" üzerinden başlatabilir. Geliştirme sürümü öncelikli olarak mevcut depoyu kullanır, kurulu sürüm gömülü skill kaynaklarını kullanır. Durdur'a tıklandığında yazılımın yönettiği worker süreç ağacı sonlandırılır ve tamamlanmamış görevler yeniden kuyruğa alınır; Alt+F4 ve sistem çıkışı da aynı temizliği yapar.
 
-Agent Bridge 的职责边界:
+Agent Bridge'in sorumluluk sınırları:
 
-- UI 负责收集点击配置、工程规则、目标输出和 prompt 预览。
-- 队列负责把任务持久化为 JSON，并通过 `.lock`、lease、stale 恢复、quarantine、Worker Health、Artifact Ledger 和 Reviewer Gate 保证本地可靠执行。
-- worker 负责校验任务、执行 Policy Gate、限制工作区、固定输出路径并调用 `codex exec`。
-- 所选 Agent 负责执行 skill、调用本机 CAD、运行验证并返回统一结构化结果。
+- UI, tıklama yapılandırmasını, mühendislik kurallarını, hedef çıktıyı ve prompt önizlemesini toplamaktan sorumludur.
+- Kuyruk, görevleri JSON olarak kalıcı hale getirmekten ve `.lock`, lease, stale kurtarma, quarantine, Worker Health, Artifact Ledger ve Reviewer Gate aracılığıyla yerel güvenilir yürütmeyi garanti etmekten sorumludur.
+- worker, görevleri doğrulamak, Policy Gate'i çalıştırmak, çalışma alanını sınırlamak, çıktı yolunu sabitlemek ve `codex exec` çağırmaktan sorumludur.
+- Seçilen Agent, skill'i yürütmek, yerel CAD'i çağırmak, doğrulamayı çalıştırmak ve birleşik yapılandırılmış sonucu döndürmekten sorumludur.
 
-危险能力会进入 `approval_required`，包括 Git push、`danger-full-access`、CAD 宏、外部网络、跨工作区写入和删除文件。桌面端点击“批准”后，任务才会回到 `queued`。
+Tehlikeli yetenekler `approval_required` durumuna girer: Git push, `danger-full-access`, CAD makroları, harici ağ, çalışma alanları arası yazma ve dosya silme. Masaüstünde "Onayla"ya tıklandıktan sonra görev `queued` durumuna döner.
 
-默认 Codex 沙箱为 `workspace-write`。如确需全权限，需要任务先通过审批，并在 worker 启动时显式增加:
+Varsayılan Codex sandbox'ı `workspace-write`'dır. Gerçekten tam yetki gerekiyorsa, görev önce onaydan geçmeli ve worker başlatılırken açıkça eklenmelidir:
 
 ```powershell
-python -m apps.desktop.cad_workbench.queue_worker --watch --enable-codex --codex-full-access --queue-dir "<队列目录>"
+python -m apps.desktop.cad_workbench.queue_worker --watch --enable-codex --codex-full-access --queue-dir "<kuyruk-dizini>"
 ```
 
-企业控制平面说明:
+Kurumsal kontrol düzlemi belgesi:
 
 ```text
 docs\agent-framework\enterprise-agent-control-plane.md

@@ -1,4 +1,4 @@
-//! @brief 使用客户端内置公钥验证 Windows 更新安装包签名。
+//! @brief İstemciye gömülü ortak anahtarla Windows güncelleme paketi imzasını doğrula.
 
 use minisign_verify::{PublicKey, Signature};
 use std::{env, fs, path::Path};
@@ -7,7 +7,7 @@ fn main() -> Result<(), String> {
     let arguments: Vec<String> = env::args().collect();
     if arguments.len() != 4 {
         return Err(
-            "用法: verify_updater_signature <public-key-file> <artifact> <signature>".into(),
+            "Kullanım: verify_updater_signature <public-key-file> <artifact> <signature>".into(),
         );
     }
 

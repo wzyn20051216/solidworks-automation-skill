@@ -39,7 +39,7 @@ type ProjectSwitcherProps = {
   onDelete: (project: ProjectRecord) => void;
 };
 
-/** @brief ChatGPT 风格的项目选择、搜索和项目元数据管理入口。 */
+/** @brief ChatGPT tarzı proje seçimi, arama ve proje meta verisi yönetimi girişi. */
 export function ProjectSwitcher({
   activeProjectId,
   projectName,
@@ -79,7 +79,7 @@ export function ProjectSwitcher({
             autoFocus
             value={projectNameDraft}
             maxLength={48}
-            aria-label="项目名称"
+            aria-label="Proje adı"
             onChange={(event) => onDraftChange(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") onCommitName();
@@ -90,7 +90,7 @@ export function ProjectSwitcher({
           <button
             className="project-switcher-trigger"
             type="button"
-            aria-label={`切换项目，当前为 ${projectName}`}
+            aria-label={`Projeyi değiştir; geçerli proje ${projectName}`}
             aria-expanded={menuOpen}
             onClick={onToggleMenu}
           >
@@ -102,8 +102,8 @@ export function ProjectSwitcher({
         <button
           className="project-name-action"
           type="button"
-          aria-label={editing ? "确认项目名称" : "修改项目名称"}
-          title={editing ? "确认项目名称" : "修改项目名称"}
+          aria-label={editing ? "Proje adını onayla" : "Proje adını düzenle"}
+          title={editing ? "Proje adını onayla" : "Proje adını düzenle"}
           onClick={editing ? onCommitName : onStartEdit}
         >
           {editing ? <Check size={15} weight="bold" /> : <PencilSimple size={15} weight="duotone" />}
@@ -119,17 +119,17 @@ export function ProjectSwitcher({
             exit={reducedMotion ? undefined : { opacity: 0, y: -5 }}
             transition={{ duration: 0.16 }}
           >
-            <div className="project-switcher-tabs" role="tablist" aria-label="项目范围">
+            <div className="project-switcher-tabs" role="tablist" aria-label="Proje kapsamı">
               <button type="button" role="tab" aria-selected={!showArchived} onClick={() => setShowArchived(false)}>
-                项目 {activeCount}
+                Projeler {activeCount}
               </button>
               <button type="button" role="tab" aria-selected={showArchived} onClick={() => setShowArchived(true)}>
-                归档 {archivedCount}
+                Arşiv {archivedCount}
               </button>
             </div>
             <label className="project-search">
               <MagnifyingGlass size={14} />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索项目或目录" />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Proje veya dizin ara" />
             </label>
             <div className="project-switcher-list">
               {visibleProjects.map((project) => {
@@ -140,21 +140,21 @@ export function ProjectSwitcher({
                       <FolderOpen size={15} weight="duotone" />
                       <span>
                         <strong>{project.name}</strong>
-                        <small>{taskCount ? `${taskCount} 条任务` : "空项目"}</small>
+                        <small>{taskCount ? `${taskCount} görev` : "Boş proje"}</small>
                       </span>
                       {project.id === activeProjectId ? <Check size={14} weight="bold" /> : null}
                     </button>
                     <div className="project-option-actions">
                       {!project.archivedAt ? (
-                        <button type="button" aria-label={`复制项目 ${project.name}`} title="复制项目结构" onClick={() => onDuplicate(project)}>
+                        <button type="button" aria-label={`${project.name} projesini kopyala`} title="Proje yapısını kopyala" onClick={() => onDuplicate(project)}>
                           <Copy size={14} />
                         </button>
                       ) : null}
                       <button
                         type="button"
                         disabled={project.id === activeProjectId}
-                        aria-label={`${project.archivedAt ? "恢复" : "归档"}项目 ${project.name}`}
-                        title={project.id === activeProjectId ? "当前项目不能归档" : project.archivedAt ? "恢复项目" : "归档项目"}
+                        aria-label={`${project.name} projesini ${project.archivedAt ? "geri yükle" : "arşivle"}`}
+                        title={project.id === activeProjectId ? "Geçerli proje arşivlenemez" : project.archivedAt ? "Projeyi geri yükle" : "Projeyi arşivle"}
                         onClick={() => onToggleArchive(project)}
                       >
                         {project.archivedAt ? <ArrowCounterClockwise size={14} /> : <Archive size={14} />}
@@ -163,8 +163,8 @@ export function ProjectSwitcher({
                         className={deleteCandidateProjectId === project.id ? "project-delete-button confirm" : "project-delete-button"}
                         type="button"
                         disabled={(!project.archivedAt && activeCount <= 1) || deletingProjectId !== null}
-                        aria-label={deleteCandidateProjectId === project.id ? `确认删除项目 ${project.name}` : `删除项目 ${project.name}`}
-                        title={!project.archivedAt && activeCount <= 1 ? "至少保留一个未归档项目" : deleteCandidateProjectId === project.id ? "再次点击确认删除项目" : "删除项目"}
+                        aria-label={deleteCandidateProjectId === project.id ? `${project.name} projesinin silinmesini onayla` : `${project.name} projesini sil`}
+                        title={!project.archivedAt && activeCount <= 1 ? "En az bir arşivlenmemiş proje kalmalı" : deleteCandidateProjectId === project.id ? "Projeyi silmeyi onaylamak için tekrar tıklayın" : "Projeyi sil"}
                         onClick={() => onDelete(project)}
                       >
                         {deletingProjectId === project.id ? <SpinnerGap className="spin" size={14} /> : deleteCandidateProjectId === project.id ? <Check size={14} weight="bold" /> : <Trash size={14} weight="duotone" />}
@@ -173,11 +173,11 @@ export function ProjectSwitcher({
                   </div>
                 );
               })}
-              {!visibleProjects.length ? <div className="project-search-empty">没有匹配的{showArchived ? "归档" : "项目"}</div> : null}
+              {!visibleProjects.length ? <div className="project-search-empty">Eşleşen {showArchived ? "arşiv" : "proje"} yok</div> : null}
             </div>
             <button className="create-project-button" type="button" role="menuitem" onClick={onCreate}>
               <FilePlus size={15} weight="bold" />
-              新建项目
+              Yeni proje
             </button>
           </motion.div>
         ) : null}

@@ -1,7 +1,7 @@
-# runtime 配置模板
+# runtime yapılandırma şablonu
 
-`config/runtime.example.json` 是 Golden 工作流的可选运行配置模板。复制到任意位置后按需修改，
-用 `--runtime-config <path>` 传给用例脚本。
+`config/runtime.example.json`, Golden iş akışı için isteğe bağlı çalışma yapılandırma şablonudur. Herhangi bir konuma kopyalayıp gerektiği gibi değiştirin,
+ve `--runtime-config <path>` ile test senaryosu betiğine iletin.
 
 ```bash
 python tests/solidworks_golden_workflow.py \
@@ -11,30 +11,30 @@ python tests/solidworks_golden_workflow.py \
   --runtime-config config/runtime.example.json
 ```
 
-## 字段白名单
+## Alan beyaz listesi
 
-配置只允许下面这些字段。**任何未知字段都会被拒绝**（`BLOCKED: runtime-config 含未知或禁止的字段`），
-这是刻意的：该文件不能用于修改 SolidWorks 版本、几何公差或跳过审查。
+Yapılandırma yalnızca aşağıdaki alanlara izin verir. **Bilinmeyen her alan reddedilir** (`BLOCKED: runtime-config bilinmeyen veya yasak alan içeriyor`),
+bu bilinçli bir tercihtir: bu dosya SolidWorks sürümünü değiştirmek, geometrik toleransları ayarlamak veya incelemeyi atlamak için kullanılamaz.
 
-| 字段 | 类型 | 缺省 | 说明 |
+| Alan | Tür | Varsayılan | Açıklama |
 | --- | --- | --- | --- |
-| `part_template` | string \| null | `null` | 零件模板 `.prtdot`；`null` 表示从 SolidWorks 用户偏好自动探测 |
-| `assembly_template` | string \| null | `null` | 装配模板 `.asmdot`；**仅装配类用例（`native_extension=SLDASM`）接受该字段** |
-| `material_database` | string \| null | `null` | 材料库 `.sldmat`；`null` 表示从安装目录自动探测 |
-| `connect_timeout_seconds` | int | `60` | 连接 SolidWorks 超时，允许 `5..120` |
-| `cleanup_timeout_seconds` | int | `30` | 关闭与清理超时，允许 `5..60` |
+| `part_template` | string \| null | `null` | Parça şablonu `.prtdot`; `null`, SolidWorks kullanıcı tercihlerinden otomatik algılanacağı anlamına gelir |
+| `assembly_template` | string \| null | `null` | Montaj şablonu `.asmdot`; **yalnızca montaj türü senaryolar (`native_extension=SLDASM`) bu alanı kabul eder** |
+| `material_database` | string \| null | `null` | Malzeme kitaplığı `.sldmat`; `null`, kurulum dizininden otomatik algılanacağı anlamına gelir |
+| `connect_timeout_seconds` | int | `60` | SolidWorks bağlantı zaman aşımı, `5..120` aralığına izin verilir |
+| `cleanup_timeout_seconds` | int | `30` | Kapatma ve temizleme zaman aşımı, `5..60` aralığına izin verilir |
 
-## 路径解析规则
+## Yol çözümleme kuralları
 
-- **相对路径**以**配置文件所在目录**为基准解析，便于随项目一起搬运；
-- **绝对路径**原样使用；
-- 非 `null` 的模板与材料库路径必须是**真实存在的文件**且扩展名匹配，否则立即 `BLOCKED`，
-  不会静默回退。
+- **Göreli yollar**, projeyle birlikte taşınabilmesi için **yapılandırma dosyasının bulunduğu dizin** temel alınarak çözümlenir;
+- **Mutlak yollar** olduğu gibi kullanılır;
+- `null` olmayan şablon ve malzeme kitaplığı yolları **gerçekten var olan dosyalar** olmalı ve uzantıları eşleşmelidir, aksi halde derhal `BLOCKED` olur,
+  sessizce geri dönüş yapılmaz.
 
-因此本模板默认全部写 `null`——即"全部自动探测"，这在任何一台正确安装 SolidWorks 的机器上都应可用。
-只有自动探测失败时，才需要填成具体路径。
+Bu nedenle bu şablon varsayılan olarak tamamen `null` yazar — yani "tümünü otomatik algıla" — bu, SolidWorks'ün doğru kurulu olduğu her makinede çalışmalıdır.
+Yalnızca otomatik algılama başarısız olduğunda belirli bir yol girilmesi gerekir.
 
-## 填写示例（请替换为你的实际路径）
+## Doldurma örneği (lütfen gerçek yollarınızla değiştirin)
 
 ```jsonc
 {
@@ -46,22 +46,22 @@ python tests/solidworks_golden_workflow.py \
 }
 ```
 
-> 模板里的 SolidWorks 版本号目录（如 `SOLIDWORKS 2026`）随安装而异，不要直接照抄。
-> 本仓库此前使用的本机配置含开发者专属盘符，**不会**以任何形式写入公开示例。
+> Şablondaki SolidWorks sürüm numarası dizini (örneğin `SOLIDWORKS 2026`) kurulumdan kuruluma değişir, doğrudan kopyalamayın.
+> Bu depoda daha önce kullanılan yerel yapılandırma geliştiriciye özel sürücü harfleri içeriyordu, **hiçbir** biçimde genel örneklere yazılmayacaktır.
 
-## 自动探测的兜底逻辑
+## Otomatik algılamanın yedek mantığı
 
-| 项 | 兜底顺序 |
+| Öğe | Yedek sırası |
 | --- | --- |
-| 模板 | 配置值 → SolidWorks 用户偏好中的默认模板 |
-| 材料库 | 配置值 → 安装目录下 `lang/english/sldmaterials` → `lang/chinese-simplified/sldmaterials` |
-| 类型库 | 见 `docs/architecture/` 与 `scripts/sw_capability_probe.py`：注册表/快捷方式发现 → `SOLIDWORKS_TYPELIB_DIRS` → 通用安装路径 |
+| Şablon | Yapılandırma değeri → SolidWorks kullanıcı tercihlerindeki varsayılan şablon |
+| Malzeme kitaplığı | Yapılandırma değeri → kurulum dizini altındaki `lang/english/sldmaterials` → `lang/chinese-simplified/sldmaterials` |
+| Tür kitaplığı | Bkz. `docs/architecture/` ve `scripts/sw_capability_probe.py`: kayıt defteri/kısayol keşfi → `SOLIDWORKS_TYPELIB_DIRS` → genel kurulum yolları |
 
-## 环境变量
+## Ortam değişkenleri
 
-| 变量 | 用途 |
+| Değişken | Kullanım |
 | --- | --- |
-| `SOLIDWORKS_TYPELIB_DIRS` | 非标准安装位置下，显式指定类型库与模板所在目录（`os.pathsep` 分隔） |
-| `CADSTUDIO_SOLVER_DIRS` | 显式指定 CalculiX 求解器根目录（`os.pathsep` 分隔） |
+| `SOLIDWORKS_TYPELIB_DIRS` | Standart olmayan kurulum konumlarında, tür kitaplığı ve şablonların bulunduğu dizini açıkça belirtir (`os.pathsep` ile ayrılır) |
+| `CADSTUDIO_SOLVER_DIRS` | CalculiX çözücü kök dizinini açıkça belirtir (`os.pathsep` ile ayrılır) |
 
-这两个变量只影响**发现顺序**，不改变任何几何、公差或验收判据。
+Bu iki değişken yalnızca **keşif sırasını** etkiler; herhangi bir geometriyi, toleransı veya kabul ölçütünü değiştirmez.

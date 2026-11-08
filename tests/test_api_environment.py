@@ -1,4 +1,4 @@
-"""自动配置的离线、失败、哈希和不覆盖边界。"""
+"""Otomatik yapılandırmanın çevrim dışı, hata, karma ve üzerine yazmama sınırları."""
 from pathlib import Path
 import subprocess
 import sys
@@ -22,9 +22,9 @@ def reset_setup_state(monkeypatch, tmp_path):
 def test_offline_or_disabled_never_installs_python(monkeypatch):
     monkeypatch.setattr(env, "_missing", lambda modules: True)
     monkeypatch.setattr(env, "_run_setup", lambda *a, **k: pytest.fail("unexpected install"))
-    assert "关闭" in env.ensure_python_packages(("httpx>=0.27.1,<1",), ("httpx",), allow_network=False)
+    assert "kapalı" in env.ensure_python_packages(("httpx>=0.27.1,<1",), ("httpx",), allow_network=False)
     monkeypatch.setenv("SW_API_LOOKUP_AUTO_INSTALL", "off")
-    assert "关闭" in env.ensure_python_packages(("httpx>=0.27.1,<1",), ("httpx",), allow_network=True)
+    assert "kapalı" in env.ensure_python_packages(("httpx>=0.27.1,<1",), ("httpx",), allow_network=True)
 
 
 def test_python_packages_install_only_when_missing_and_recheck(monkeypatch):
@@ -46,7 +46,7 @@ def test_invalid_existing_portable_sevenzip_is_never_overwritten(monkeypatch):
         pytest.skip("Windows portable setup")
     monkeypatch.setattr(env.platform, "machine", lambda: "AMD64")
     path, warning = env.ensure_sevenzip(allow_network=True)
-    assert path is None and "未覆盖" in warning
+    assert path is None and "üzerine yazılmadı" in warning
     assert (root / "7z.exe").read_bytes() == b"existing-user-data"
 
 
@@ -57,7 +57,7 @@ def test_7zip_download_checks_hash_and_size(monkeypatch, tmp_path):
         def read(self, size): return b"tampered"
     monkeypatch.setattr(env.urllib.request, "urlopen", lambda *a, **k: Response())
     target = tmp_path / "binary.exe"
-    with pytest.raises(ValueError, match="哈希"):
+    with pytest.raises(ValueError, match="karmasıyla"):
         env._download("https://example.test/file", "0" * 64, target)
     assert not target.exists()
 
@@ -68,7 +68,7 @@ def test_unavailable_sevenzip_reports_disabled_without_network(monkeypatch):
     monkeypatch.setattr(env.platform, "machine", lambda: "AMD64")
     monkeypatch.setattr(env, "_download", lambda *a: pytest.fail("unexpected download"))
     path, warning = env.ensure_sevenzip(allow_network=False)
-    assert path is None and "离线" in warning
+    assert path is None and "çevrim dışı" in warning
 
 
 def test_cancelled_setup_terminates_child(monkeypatch):
@@ -128,7 +128,7 @@ def test_help_restore_rejects_wrong_product_and_requires_hash(monkeypatch, tmp_p
             return [["937", "HelpFi~2.cab"], ["847", "HelpFi~1.cab"]]
         return [["sldworksapi.chm", "-1", "2", "3", "4"]]
     monkeypatch.setattr(restore, "_msi_rows", rows)
-    with pytest.raises(ValueError, match="产品或版本"):
+    with pytest.raises(ValueError, match="ürün veya sürüm"):
         restore._msi_metadata(msi, "{WRONG}", "34.111.0011", "sldworksapi.chm")
     cabinet, key, digest, size = restore._msi_metadata(msi, "{RIGHT}", "34.111.0011", "sldworksapi.chm")
     assert cabinet.name == "HelpFi~1.cab" and key == "sldworksapi.chm"
@@ -143,7 +143,7 @@ def test_missing_help_does_not_download_7zip_when_install_source_missing(monkeyp
     warnings = []
     result = local.read_local_help(tmp_path / "SLDWORKS.exe", 2026, "ISketchManager", "CreateCircleByRadius",
         "https://help.solidworks.com/2026/english/api/a.html", allow_install=True, warnings=warnings)
-    assert result is None and any("安装源" in warning for warning in warnings)
+    assert result is None and any("kurulum kaynağı" in warning for warning in warnings)
 
 
 def test_offline_missing_help_never_verifies_installer_signature(monkeypatch, tmp_path):
@@ -153,7 +153,7 @@ def test_offline_missing_help_never_verifies_installer_signature(monkeypatch, tm
     warnings = []
     result = local.read_local_help(tmp_path / "SLDWORKS.exe", 2026, "ISketchManager", "CreateCircleByRadius",
         "https://help.solidworks.com/2026/english/api/a.html", allow_install=False, warnings=warnings)
-    assert result is None and any("离线" in warning for warning in warnings)
+    assert result is None and any("çevrim dışı" in warning for warning in warnings)
 
 
 def test_help_restore_refuses_unsigned_installer_without_extracting(monkeypatch, tmp_path):
@@ -164,7 +164,7 @@ def test_help_restore_refuses_unsigned_installer_without_extracting(monkeypatch,
     monkeypatch.setattr(restore, "_signed_by_solidworks", lambda *a: False)
     monkeypatch.setattr(restore, "_msi_metadata", lambda *a: pytest.fail("unsigned installer used"))
     path, warning = restore.restore_local_help(tmp_path / "SLDWORKS.exe", 2026, "sldworksapi.chm", "7z.exe")
-    assert path is None and "无法" in warning
+    assert path is None and "doğrulanamıyor" in warning
     assert not (tmp_path / "solidworks-automation").exists()
 
 
@@ -180,6 +180,6 @@ def test_help_extract_stops_when_exceeding_signed_size(monkeypatch, tmp_path):
     target = tmp_path / "topic.tmp"
     target.write_bytes(b"too large")
     with target.open("rb") as handle:
-        with pytest.raises(ValueError, match="大小"):
+        with pytest.raises(ValueError, match="boyutu"):
             restore._extract_bounded("7z", tmp_path / "help.cab", "api.chm", target, handle, 4, None)
     assert process.returncode == -1

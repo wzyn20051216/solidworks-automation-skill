@@ -7,14 +7,14 @@
   "properties": {
     "summary": {
       "type": "string",
-      "description": "中文总结本次任务完成情况。"
+      "description": "Bu görevin tamamlanma durumunu özetler."
     },
     "changedFiles": {
       "type": "array",
       "items": {
         "type": "string"
       },
-      "description": "本次修改或生成的关键文件路径。"
+      "description": "Bu turda değiştirilen veya üretilen anahtar dosya yolları."
     },
     "verification": {
       "type": "array",
@@ -41,14 +41,14 @@
       "items": {
         "type": "string"
       },
-      "description": "仍需人工关注的风险。"
+      "description": "Hâlâ insan dikkati gerektiren riskler."
     },
     "nextSteps": {
       "type": "array",
       "items": {
         "type": "string"
       },
-      "description": "建议的下一步动作。"
+      "description": "Önerilen sonraki adımlar."
     }
   }
 }

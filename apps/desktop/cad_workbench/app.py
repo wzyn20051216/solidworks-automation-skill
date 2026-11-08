@@ -1,4 +1,4 @@
-"""@brief CAD 自动化交付工作台主界面。"""
+"""@brief CAD otomasyonu teslimat çalışma tezgâhı ana arayüzü."""
 
 from __future__ import annotations
 
@@ -40,12 +40,12 @@ from .style import APP_STYLE
 
 
 class MainWindow(QMainWindow):
-    """@brief 桌面软件主窗口。"""
+    """@brief Masaüstü yazılımının ana penceresi."""
 
     def __init__(self) -> None:
         super().__init__()
         self.project_dir: Path | None = None
-        self.setWindowTitle("CAD 自动化交付工作台")
+        self.setWindowTitle("CAD Otomasyonu Teslimat Çalışma Tezgâhı")
         self.resize(1320, 820)
         self.setMinimumSize(1120, 720)
         self.setStyleSheet(APP_STYLE)
@@ -72,30 +72,30 @@ class MainWindow(QMainWindow):
 
         title_row = QHBoxLayout()
         title_box = QVBoxLayout()
-        self.title = QLabel("3D 打印外壳自动交付")
+        self.title = QLabel("3D baskı kabuğu otomatik teslimatı")
         self.title.setObjectName("PageTitle")
-        self.subtitle = QLabel("先跑顺本地交付，后续接真实 CAD。")
+        self.subtitle = QLabel("Önce yerel teslimatı sorunsuz çalıştırın; gerçek CAD daha sonra bağlanacak.")
         self.subtitle.setObjectName("Muted")
         title_box.addWidget(self.title)
         title_box.addWidget(self.subtitle)
         title_row.addLayout(title_box)
         title_row.addStretch()
 
-        self.open_button = QPushButton("打开")
+        self.open_button = QPushButton("Aç")
         self.open_button.setObjectName("QuietButton")
-        self.open_button.setToolTip("打开已有项目")
+        self.open_button.setToolTip("Mevcut projeyi aç")
         self.open_button.clicked.connect(self.pick_project_file)
-        self.save_button = QPushButton("保存")
+        self.save_button = QPushButton("Kaydet")
         self.save_button.setObjectName("QuietButton")
-        self.save_button.setToolTip("保存当前参数")
+        self.save_button.setToolTip("Geçerli parametreleri kaydet")
         self.save_button.clicked.connect(self.save_project)
-        self.check_button = QPushButton("检查")
+        self.check_button = QPushButton("Denetle")
         self.check_button.setObjectName("QuietButton")
-        self.check_button.setToolTip("检查参数完整性")
+        self.check_button.setToolTip("Parametre bütünlüğünü denetle")
         self.check_button.clicked.connect(self.check_parameters_only)
-        self.run_button = QPushButton("执行 Mock")
+        self.run_button = QPushButton("Mock Çalıştır")
         self.run_button.setObjectName("PrimaryButton")
-        self.run_button.setToolTip("运行当前 mock 交付流水线")
+        self.run_button.setToolTip("Geçerli mock teslimat hattını çalıştır")
         self.run_button.clicked.connect(self.run_mock_pipeline)
         title_row.addWidget(self.open_button)
         title_row.addWidget(self.save_button)
@@ -121,7 +121,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(22, 24, 22, 20)
         layout.setSpacing(11)
 
-        brand = QLabel("CAD 工作台")
+        brand = QLabel("CAD Çalışma Tezgâhı")
         brand.setObjectName("BrandTitle")
         sub = QLabel("SolidWorks / AutoCAD Skill")
         sub.setObjectName("BrandSub")
@@ -134,12 +134,12 @@ class MainWindow(QMainWindow):
         layout.addSpacing(12)
 
         nav_actions = [
-            ("项目", lambda: self.tabs.setCurrentIndex(0)),
-            ("外壳参数", lambda: self.tabs.setCurrentIndex(1)),
-            ("孔槽与螺丝柱", lambda: self.tabs.setCurrentIndex(2)),
-            ("执行与复核", lambda: self.tabs.setCurrentIndex(3)),
-            ("输出交付", self.open_project_dir),
-            ("Skills 管理", self.open_repo_dir),
+            ("Proje", lambda: self.tabs.setCurrentIndex(0)),
+            ("Kabuk Parametreleri", lambda: self.tabs.setCurrentIndex(1)),
+            ("Delikler, Kanallar ve Vida Bosları", lambda: self.tabs.setCurrentIndex(2)),
+            ("Yürütme ve İnceleme", lambda: self.tabs.setCurrentIndex(3)),
+            ("Çıktı ve Teslimat", self.open_project_dir),
+            ("Skills Yönetimi", self.open_repo_dir),
         ]
         for text, action in nav_actions:
             button = QPushButton(text)
@@ -149,7 +149,7 @@ class MainWindow(QMainWindow):
             layout.addWidget(button)
 
         layout.addStretch()
-        foot = QLabel("本地运行 · 数据不出电脑")
+        foot = QLabel("Yerel çalışır · Veriler bilgisayardan çıkmaz")
         foot.setObjectName("BrandSub")
         layout.addWidget(foot)
         return sidebar
@@ -161,10 +161,10 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(10)
         for label, value in [
-            ("运行方式", "本地桌面"),
-            ("图纸门禁", "GB/T P0"),
-            ("制造场景", "3D 打印外壳"),
-            ("当前引擎", "Mock 流水线"),
+            ("Çalışma şekli", "Yerel masaüstü"),
+            ("Çizim kapısı", "GB/T P0"),
+            ("İmalat senaryosu", "3D baskı kabuğu"),
+            ("Geçerli motor", "Mock hattı"),
         ]:
             layout.addWidget(self._summary_item(label, value))
         return strip
@@ -196,10 +196,10 @@ class MainWindow(QMainWindow):
 
     def _build_tabs(self) -> QTabWidget:
         tabs = QTabWidget()
-        tabs.addTab(self._build_project_tab(), "项目")
-        tabs.addTab(self._build_shell_tab(), "外壳")
-        tabs.addTab(self._build_feature_tab(), "孔槽")
-        tabs.addTab(self._build_execution_tab(), "执行")
+        tabs.addTab(self._build_project_tab(), "Proje")
+        tabs.addTab(self._build_shell_tab(), "Kabuk")
+        tabs.addTab(self._build_feature_tab(), "Delik/Kanal")
+        tabs.addTab(self._build_execution_tab(), "Yürütme")
         return tabs
 
     def _build_project_tab(self) -> QWidget:
@@ -208,7 +208,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
 
-        panel, form_host = self._panel("项目设置")
+        panel, form_host = self._panel("Proje Ayarları")
         form = QFormLayout()
         form.setLabelAlignment(Qt.AlignRight)
         form.setFormAlignment(Qt.AlignTop)
@@ -216,9 +216,9 @@ class MainWindow(QMainWindow):
         form.setVerticalSpacing(12)
 
         self.project_name = QLineEdit()
-        self.project_name.setPlaceholderText("例如: ai_cpu_cooling_shell")
+        self.project_name.setPlaceholderText("Örnek: ai_cpu_cooling_shell")
         self.output_root = QLineEdit()
-        browse = QPushButton("选择目录")
+        browse = QPushButton("Dizin Seç")
         browse.setObjectName("QuietButton")
         browse.clicked.connect(self.pick_output_root)
         output_row = QHBoxLayout()
@@ -241,19 +241,19 @@ class MainWindow(QMainWindow):
         exports.addStretch()
 
         self.standard = QComboBox()
-        self.standard.addItems(["GB/T 风格", "企业模板优先"])
+        self.standard.addItems(["GB/T tarzı", "Kurumsal şablon öncelikli"])
         self.material = QLineEdit("PLA/PETG")
 
-        form.addRow("项目名称", self.project_name)
-        form.addRow("输出根目录", output_row)
-        form.addRow("图纸风格", self.standard)
-        form.addRow("材料/工艺假设", self.material)
-        form.addRow("交付格式", exports)
+        form.addRow("Proje adı", self.project_name)
+        form.addRow("Çıktı kök dizini", output_row)
+        form.addRow("Çizim tarzı", self.standard)
+        form.addRow("Malzeme/proses varsayımı", self.material)
+        form.addRow("Teslimat biçimi", exports)
         form_host.addLayout(form)
         layout.addWidget(panel)
 
-        note_panel, note_layout = self._panel("设计原则")
-        note = QLabel("所有孔、槽、接口和螺丝柱都必须同时填写规格、数量和定位尺寸；图纸阶段不允许用长引线代替关键尺寸链。")
+        note_panel, note_layout = self._panel("Tasarım İlkeleri")
+        note = QLabel("Tüm delikler, kanallar, arabirimler ve vida bosları için spesifikasyon, adet ve konumlandırma ölçüleri birlikte doldurulmalıdır; çizim aşamasında kritik ölçü zinciri yerine uzun kılavuz çizgileri kullanılamaz.")
         note.setWordWrap(True)
         note.setObjectName("Muted")
         note_layout.addWidget(note)
@@ -276,7 +276,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
 
-        shell_panel, shell_layout = self._panel("外形尺寸")
+        shell_panel, shell_layout = self._panel("Dış Ölçüler")
         shell_form = QFormLayout()
         shell_form.setHorizontalSpacing(16)
         shell_form.setVerticalSpacing(10)
@@ -290,19 +290,19 @@ class MainWindow(QMainWindow):
         self.open_direction = QComboBox()
         self.open_direction.addItems(["top", "bottom", "side"])
         for label, widget in [
-            ("长度", self.outer_length),
-            ("宽度", self.outer_width),
-            ("高度", self.outer_height),
-            ("壁厚", self.wall_thickness),
-            ("底厚", self.bottom_thickness),
-            ("圆角", self.corner_radius),
-            ("倒角", self.edge_chamfer),
-            ("开口方向", self.open_direction),
+            ("Uzunluk", self.outer_length),
+            ("Genişlik", self.outer_width),
+            ("Yükseklik", self.outer_height),
+            ("Duvar kalınlığı", self.wall_thickness),
+            ("Taban kalınlığı", self.bottom_thickness),
+            ("Radyus", self.corner_radius),
+            ("Pah", self.edge_chamfer),
+            ("Açıklık yönü", self.open_direction),
         ]:
             shell_form.addRow(label, widget)
         shell_layout.addLayout(shell_form)
 
-        print_panel, print_layout = self._panel("3D 打印参数")
+        print_panel, print_layout = self._panel("3D Baskı Parametreleri")
         print_form = QFormLayout()
         print_form.setHorizontalSpacing(16)
         print_form.setVerticalSpacing(10)
@@ -313,11 +313,11 @@ class MainWindow(QMainWindow):
         self.fit_clearance = self._spin(0.3, 0, 3)
         self.min_wall_warning = self._spin(1.2, 0.1, 5)
         for label, widget in [
-            ("打印工艺", self.print_process),
-            ("喷嘴直径", self.nozzle_diameter),
-            ("孔径放量", self.hole_compensation),
-            ("装配间隙", self.fit_clearance),
-            ("壁厚警戒", self.min_wall_warning),
+            ("Baskı prosesi", self.print_process),
+            ("Nozül çapı", self.nozzle_diameter),
+            ("Delik çapı payı", self.hole_compensation),
+            ("Montaj boşluğu", self.fit_clearance),
+            ("Duvar kalınlığı uyarısı", self.min_wall_warning),
         ]:
             print_form.addRow(label, widget)
         print_layout.addLayout(print_form)
@@ -344,18 +344,18 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
 
-        holes_panel, holes_layout = self._panel("孔")
-        self.holes_table = self._table(["id", "名称", "类型", "面", "直径", "数量", "X基准", "Y基准", "X定位", "Y定位", "X节距", "Y节距", "通孔"])
+        holes_panel, holes_layout = self._panel("Delikler")
+        self.holes_table = self._table(["id", "Ad", "Tür", "Yüz", "Çap", "Adet", "X referansı", "Y referansı", "X konumu", "Y konumu", "X adımı", "Y adımı", "Boydan boya"])
         holes_layout.addWidget(self.holes_table)
         holes_layout.addLayout(self._table_buttons(self.holes_table, "hole"))
 
-        cutouts_panel, cutouts_layout = self._panel("接口开孔")
-        self.cutouts_table = self._table(["id", "类型", "面", "宽", "高", "直径", "圆角", "X定位", "Y定位", "数量", "间隙"])
+        cutouts_panel, cutouts_layout = self._panel("Arabirim Açıklıkları")
+        self.cutouts_table = self._table(["id", "Tür", "Yüz", "Genişlik", "Yükseklik", "Çap", "Radyus", "X konumu", "Y konumu", "Adet", "Boşluk"])
         cutouts_layout.addWidget(self.cutouts_table)
         cutouts_layout.addLayout(self._table_buttons(self.cutouts_table, "cutout"))
 
-        bosses_panel, bosses_layout = self._panel("螺丝柱")
-        self.bosses_table = self._table(["id", "螺丝", "外径", "孔径", "高度", "面", "X定位", "Y定位", "数量", "加强筋"])
+        bosses_panel, bosses_layout = self._panel("Vida Bosları")
+        self.bosses_table = self._table(["id", "Vida", "Dış çap", "Delik çapı", "Yükseklik", "Yüz", "X konumu", "Y konumu", "Adet", "Takviye federi"])
         bosses_layout.addWidget(self.bosses_table)
         bosses_layout.addLayout(self._table_buttons(self.bosses_table, "boss"))
 
@@ -366,10 +366,10 @@ class MainWindow(QMainWindow):
 
     def _table_buttons(self, table: QTableWidget, kind: str) -> QHBoxLayout:
         row = QHBoxLayout()
-        add = QPushButton("添加")
+        add = QPushButton("Ekle")
         add.setObjectName("QuietButton")
         add.clicked.connect(lambda: self.add_default_row(table, kind))
-        remove = QPushButton("删除选中")
+        remove = QPushButton("Seçileni Sil")
         remove.setObjectName("QuietButton")
         remove.clicked.connect(lambda: self.remove_selected_rows(table))
         row.addWidget(add)
@@ -382,7 +382,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(14)
-        panel, panel_layout = self._panel("执行日志")
+        panel, panel_layout = self._panel("Yürütme Günlüğü")
         self.log_box = QTextEdit()
         self.log_box.setObjectName("LogBox")
         self.log_box.setReadOnly(True)
@@ -398,45 +398,45 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(14)
 
-        title = QLabel("复核状态")
+        title = QLabel("İnceleme Durumu")
         title.setObjectName("SectionTitle")
         layout.addWidget(title)
-        self.overall_status = QLabel("尚未执行")
+        self.overall_status = QLabel("Henüz yürütülmedi")
         self.overall_status.setObjectName("StatusWarn")
         layout.addWidget(self.overall_status)
 
         self.status_labels: dict[str, QLabel] = {}
-        for key, label in [("model", "模型"), ("drawing", "图纸"), ("printing", "打印"), ("package", "交付")]:
-            item = QLabel(f"{label}: 等待")
+        for key, label in [("model", "Model"), ("drawing", "Çizim"), ("printing", "Baskı"), ("package", "Teslimat")]:
+            item = QLabel(f"{label}: bekliyor")
             item.setObjectName("Muted")
             self.status_labels[key] = item
             layout.addWidget(item)
 
         layout.addSpacing(8)
-        checks_title = QLabel("关键问题")
+        checks_title = QLabel("Kritik Sorunlar")
         checks_title.setObjectName("SectionTitle")
         layout.addWidget(checks_title)
         self.review_summary = QTextEdit()
         self.review_summary.setObjectName("ReviewSummary")
         self.review_summary.setReadOnly(True)
         self.review_summary.setFixedHeight(160)
-        self.review_summary.setPlaceholderText("检查后显示 P0/P1 复核结果")
+        self.review_summary.setPlaceholderText("Denetimden sonra P0/P1 inceleme sonuçları gösterilir")
         layout.addWidget(self.review_summary)
 
         layout.addSpacing(8)
-        output_title = QLabel("输出")
+        output_title = QLabel("Çıktı")
         output_title.setObjectName("SectionTitle")
         layout.addWidget(output_title)
-        self.project_path_label = QLabel("未创建项目")
+        self.project_path_label = QLabel("Proje oluşturulmadı")
         self.project_path_label.setObjectName("Muted")
         self.project_path_label.setWordWrap(True)
         layout.addWidget(self.project_path_label)
 
-        open_dir = QPushButton("打开输出目录")
+        open_dir = QPushButton("Çıktı Dizinini Aç")
         open_dir.setObjectName("QuietButton")
         open_dir.clicked.connect(self.open_project_dir)
         layout.addWidget(open_dir)
-        open_review = QPushButton("打开 final_review.json")
+        open_review = QPushButton("final_review.json Dosyasını Aç")
         open_review.setObjectName("QuietButton")
         open_review.clicked.connect(self.open_final_review)
         layout.addWidget(open_review)
@@ -449,16 +449,16 @@ class MainWindow(QMainWindow):
         self.add_default_row(self.holes_table, "hole")
         self.add_default_row(self.cutouts_table, "cutout")
         self.add_default_row(self.bosses_table, "boss")
-        self.append_log("原型已就绪。先保存参数，再执行 mock 流水线。")
+        self.append_log("Prototip hazır. Önce parametreleri kaydedin, sonra mock hattını çalıştırın.")
 
     def pick_output_root(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "选择输出根目录", self.output_root.text())
+        folder = QFileDialog.getExistingDirectory(self, "Çıktı kök dizinini seç", self.output_root.text())
         if folder:
             self.output_root.setText(folder)
 
     def pick_project_file(self) -> None:
         start = self.output_root.text() or str(default_output_root())
-        file_path, _ = QFileDialog.getOpenFileName(self, "打开项目", start, "Project JSON (project.json)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "Proje aç", start, "Project JSON (project.json)")
         if file_path:
             self.load_project(Path(file_path).parent)
 
@@ -475,7 +475,7 @@ class MainWindow(QMainWindow):
 
     def add_default_row(self, table: QTableWidget, kind: str) -> None:
         if kind == "hole":
-            self._set_table_row(table, ["H1", "安装孔", "round", "bottom", "3.4", "4", "left", "bottom", "10", "10", "100", "60", "true"])
+            self._set_table_row(table, ["H1", "Montaj deliği", "round", "bottom", "3.4", "4", "left", "bottom", "10", "10", "100", "60", "true"])
         elif kind == "cutout":
             self._set_table_row(table, ["I1", "USB-C", "front", "10", "4", "0", "1", "60", "15", "1", "0.3"])
         else:
@@ -496,7 +496,7 @@ class MainWindow(QMainWindow):
             return float(text) if text else 0.0
         except ValueError as exc:
             header = table.horizontalHeaderItem(column).text()
-            raise ValueError(f"第 {row + 1} 行「{header}」必须是数字") from exc
+            raise ValueError(f"Satır {row + 1} '{header}' bir sayı olmalıdır") from exc
 
     def _int_cell(self, table: QTableWidget, row: int, column: int) -> int:
         text = self._cell(table, row, column)
@@ -504,10 +504,10 @@ class MainWindow(QMainWindow):
             return int(float(text)) if text else 0
         except ValueError as exc:
             header = table.horizontalHeaderItem(column).text()
-            raise ValueError(f"第 {row + 1} 行「{header}」必须是整数") from exc
+            raise ValueError(f"Satır {row + 1} '{header}' bir tam sayı olmalıdır") from exc
 
     def _bool_cell(self, table: QTableWidget, row: int, column: int) -> bool:
-        return self._cell(table, row, column).lower() in {"true", "1", "yes", "是"}
+        return self._cell(table, row, column).lower() in {"true", "1", "yes", "evet", "是"}
 
     def collect_parameters(self) -> dict[str, Any]:
         holes = []
@@ -602,7 +602,7 @@ class MainWindow(QMainWindow):
             "drawing": {
                 "paper_size": "A3",
                 "scale": "1:1",
-                "title": "3D打印外壳",
+                "title": "3D baskı kabuğu",
                 "material": self.material.text().strip() or "PLA/PETG",
                 "projection": "first_angle",
                 "required_exports": exports,
@@ -610,7 +610,7 @@ class MainWindow(QMainWindow):
         }
 
     def check_parameters_only(self) -> None:
-        """@brief 仅检查当前表单参数，不生成任何文件。"""
+        """@brief Yalnızca geçerli form parametrelerini denetler; hiçbir dosya üretmez."""
         try:
             parameters = self.collect_parameters()
             checks = validate_parameters(parameters)
@@ -619,15 +619,15 @@ class MainWindow(QMainWindow):
                 "checks": checks,
             }
             self.update_status(review)
-            self.append_log("参数检查完成。右侧会显示最关键的 P0/P1 结果。")
+            self.append_log("Parametre denetimi tamamlandı. En kritik P0/P1 sonuçları sağda gösterilir.")
         except Exception as exc:
-            QMessageBox.critical(self, "检查失败", str(exc))
+            QMessageBox.critical(self, "Denetim başarısız", str(exc))
 
     def save_project(self) -> None:
         try:
             name = self.project_name.text().strip()
             if not name:
-                raise ValueError("项目名称不能为空")
+                raise ValueError("Proje adı boş olamaz")
             output_root = Path(self.output_root.text().strip()).expanduser()
             if self.project_dir is None:
                 self.project_dir, _, _ = create_project(name, output_root)
@@ -641,9 +641,9 @@ class MainWindow(QMainWindow):
             project["drawing_standard"] = "GB_T_style" if self.standard.currentIndex() == 0 else "enterprise_template_first"
             write_json(self.project_dir / "project.json", project)
             self.project_path_label.setText(str(self.project_dir))
-            self.append_log(f"已保存参数: {self.project_dir / 'parameters.json'}")
+            self.append_log(f"Parametreler kaydedildi: {self.project_dir / 'parameters.json'}")
         except Exception as exc:
-            QMessageBox.critical(self, "保存失败", str(exc))
+            QMessageBox.critical(self, "Kaydetme başarısız", str(exc))
 
     def run_mock_pipeline(self) -> None:
         if self.project_dir is None:
@@ -654,60 +654,60 @@ class MainWindow(QMainWindow):
             self.save_project()
             review = run_mock(self.project_dir, self.append_log)
             self.update_status(review)
-            self.append_log(f"最终复核: {review['overall_status']}")
+            self.append_log(f"Nihai inceleme: {review['overall_status']}")
         except Exception as exc:
-            QMessageBox.critical(self, "执行失败", str(exc))
+            QMessageBox.critical(self, "Yürütme başarısız", str(exc))
 
     def update_status(self, review: dict[str, Any]) -> None:
         status = review.get("overall_status", "unknown")
         if status == "fail":
-            self.overall_status.setText("不可交付")
+            self.overall_status.setText("Teslim edilemez")
             self.overall_status.setObjectName("StatusBad")
         elif status == "warning":
-            self.overall_status.setText("需人工确认")
+            self.overall_status.setText("İnsan onayı gerekli")
             self.overall_status.setObjectName("StatusWarn")
         else:
-            self.overall_status.setText("可交付")
+            self.overall_status.setText("Teslim edilebilir")
             self.overall_status.setObjectName("StatusGood")
         self.overall_status.style().unpolish(self.overall_status)
         self.overall_status.style().polish(self.overall_status)
 
         checks = review.get("checks", [])
-        targets = {"model": "通过", "drawing": "通过", "printing": "通过", "package": "通过"}
+        targets = {"model": "geçti", "drawing": "geçti", "printing": "geçti", "package": "geçti"}
         for check in checks:
             if check.get("status") == "fail":
-                targets[check.get("target", "package")] = "失败"
-            elif check.get("status") == "warning" and targets.get(check.get("target")) != "失败":
-                targets[check.get("target", "package")] = "提醒"
-        labels = {"model": "模型", "drawing": "图纸", "printing": "打印", "package": "交付"}
+                targets[check.get("target", "package")] = "başarısız"
+            elif check.get("status") == "warning" and targets.get(check.get("target")) != "başarısız":
+                targets[check.get("target", "package")] = "uyarı"
+        labels = {"model": "Model", "drawing": "Çizim", "printing": "Baskı", "package": "Teslimat"}
         for key, label in labels.items():
-            self.status_labels[key].setText(f"{label}: {targets.get(key, '等待')}")
+            self.status_labels[key].setText(f"{label}: {targets.get(key, 'bekliyor')}")
         self.render_review_summary(review.get("checks", []))
 
     def render_review_summary(self, checks: list[dict[str, Any]]) -> None:
-        """@brief 在右侧摘要区展示最需要用户处理的复核结果。"""
+        """@brief Sağdaki özet alanında kullanıcının en çok ilgilenmesi gereken inceleme sonuçlarını gösterir."""
         if not checks:
-            self.review_summary.setPlainText("暂无检查结果。")
+            self.review_summary.setPlainText("Henüz denetim sonucu yok.")
             return
         priority = {"fail": 0, "warning": 1, "pass": 2}
         sorted_checks = sorted(checks, key=lambda item: priority.get(item.get("status", "pass"), 3))
-        status_labels = {"fail": "失败", "warning": "提醒", "pass": "通过"}
+        status_labels = {"fail": "başarısız", "warning": "uyarı", "pass": "geçti"}
         lines: list[str] = []
         for check in sorted_checks[:8]:
-            status = status_labels.get(check.get("status"), "未知")
+            status = status_labels.get(check.get("status"), "bilinmiyor")
             lines.append(f"[{status}] {check.get('message', '')}")
             suggestion = check.get("suggestion")
             if suggestion:
-                lines.append(f"  建议: {suggestion}")
+                lines.append(f"  Öneri: {suggestion}")
         self.review_summary.setPlainText("\n".join(lines))
 
     def load_project(self, project_dir: Path) -> None:
-        """@brief 从已有项目目录载入 project.json 和 parameters.json。"""
+        """@brief Mevcut proje dizininden project.json ve parameters.json dosyalarını yükler."""
         try:
             project_path = project_dir / "project.json"
             parameter_path = project_dir / "parameters.json"
             if not project_path.exists() or not parameter_path.exists():
-                raise ValueError("请选择包含 project.json 和 parameters.json 的项目目录")
+                raise ValueError("Lütfen project.json ve parameters.json içeren bir proje dizini seçin")
             project = read_json(project_path)
             parameters = read_json(parameter_path)
             self.project_dir = project_dir
@@ -716,12 +716,12 @@ class MainWindow(QMainWindow):
             self.standard.setCurrentIndex(0 if project.get("drawing_standard") == "GB_T_style" else 1)
             self.apply_parameters(parameters)
             self.project_path_label.setText(str(project_dir))
-            self.append_log(f"已打开项目: {project_dir}")
+            self.append_log(f"Proje açıldı: {project_dir}")
         except Exception as exc:
-            QMessageBox.critical(self, "打开失败", str(exc))
+            QMessageBox.critical(self, "Açma başarısız", str(exc))
 
     def apply_parameters(self, parameters: dict[str, Any]) -> None:
-        """@brief 将 parameters.json 内容回填到表单。"""
+        """@brief parameters.json içeriğini forma geri doldurur."""
         shell = parameters.get("shell", {})
         self.outer_length.setValue(float(shell.get("outer_length", self.outer_length.value())))
         self.outer_width.setValue(float(shell.get("outer_width", self.outer_width.value())))
@@ -809,7 +809,7 @@ class MainWindow(QMainWindow):
         )
 
     def fill_table(self, table: QTableWidget, rows: list[list[Any]]) -> None:
-        """@brief 用二维数组刷新表格内容。"""
+        """@brief Tablo içeriğini iki boyutlu dizi ile yeniler."""
         table.setRowCount(0)
         for row in rows:
             self._set_table_row(table, row)
@@ -828,7 +828,7 @@ class MainWindow(QMainWindow):
             return
         review = self.project_dir / "reviews" / "final_review.json"
         if not review.exists():
-            QMessageBox.information(self, "还没有复核报告", "请先执行 mock 流水线。")
+            QMessageBox.information(self, "Henüz inceleme raporu yok", "Lütfen önce mock hattını çalıştırın.")
             return
         if os.name == "nt":
             subprocess.Popen(["notepad.exe", str(review)])

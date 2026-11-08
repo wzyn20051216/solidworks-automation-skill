@@ -1,4 +1,4 @@
-//! @brief 四种 Agent、配置读取与链接边界的回归用例。
+//! @brief Dört Agent, yapılandırma okuma ve bağlantı sınırları için regresyon testleri.
 use super::{
     cc_switch_file_path, command_summary_with_prefix, read_cc_switch_file, supported_program_name,
 };
@@ -21,7 +21,7 @@ impl Fixture {
     }
 
     fn with_timestamp(stamp: u128) -> Self {
-        // 时钟分辨率不能保证并行测试唯一；独立序号和原子创建避免复用/误删目录。
+        // Saat çözünürlüğü paralel testler için benzersizliği garanti etmez; bağımsız sıra numarası ve atomik oluşturma dizinlerin yeniden kullanılmasını/yanlışlıkla silinmesini önler.
         let sequence = FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
             "cadstudio-boundary-{}-{stamp}-{sequence}",
@@ -50,7 +50,7 @@ fn fixtures_with_identical_timestamps_remain_isolated() {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
-        // 递归清理前确认目标仍在本轮命名的临时根内。
+        // Özyinelemeli temizlikten önce hedefin hâlâ bu turda adlandırılan geçici kök içinde olduğunu doğrula.
         if let (Ok(target), Ok(parent)) =
             (self.0.canonicalize(), std::env::temp_dir().canonicalize())
         {
@@ -108,7 +108,7 @@ fn fixed_json_and_database_paths_share_the_same_boundary() {
 #[test]
 fn explicit_cli_with_spaces_and_chinese_path_still_runs() {
     let fixture = Fixture::new();
-    let folder = fixture.0.join("CLI 工具");
+    let folder = fixture.0.join("CLI Araçları");
     fs::create_dir_all(&folder).unwrap();
     let script = folder.join("probe.cmd");
     fs::write(
@@ -140,10 +140,10 @@ fn config_symlink_outside_root_is_rejected() {
         Err(error) if error.raw_os_error() == Some(1314) => {
             assert!(
                 std::env::var("GITHUB_ACTIONS").ok().as_deref() != Some("true"),
-                "CI 必须实际验证配置符号链接边界"
+                "CI yapılandırma sembolik bağlantı sınırını gerçekten doğrulamalıdır"
             );
-            // 普通 Windows 用户可能没有建链接权限；CI 管理员环境必须另验证该分支。
-            eprintln!("链接用例未执行：当前用户没有创建文件符号链接的权限");
+            // Normal Windows kullanıcılarının bağlantı oluşturma izni olmayabilir; CI yönetici ortamı bu dalı ayrıca doğrulamalıdır.
+            eprintln!("Bağlantı testi çalıştırılmadı: geçerli kullanıcının dosya sembolik bağlantısı oluşturma izni yok");
         }
         Err(error) => panic!("cannot create controlled symlink: {error}"),
     }

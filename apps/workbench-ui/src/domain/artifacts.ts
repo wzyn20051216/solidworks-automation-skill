@@ -13,23 +13,23 @@ export function artifactRequiresCurrentRunProof(artifact: ArtifactRecord) {
 }
 
 export function fileNameFromPath(path?: string) {
-  if (!path) return "未命名文件";
+  if (!path) return "Adsız dosya";
   return path.split(/[\\/]/).pop() || path;
 }
 
 export function artifactKindLabel(kind?: string, path?: string) {
   const normalized = (kind || fileNameFromPath(path).split(".").pop() || "artifact").toLowerCase();
-  if (normalized.includes("sldprt")) return "SolidWorks 零件";
-  if (normalized.includes("sldasm")) return "SolidWorks 装配";
+  if (normalized.includes("sldprt")) return "SolidWorks parçası";
+  if (normalized.includes("sldasm")) return "SolidWorks montajı";
   if (normalized.includes("step") || normalized.includes("stp")) return "STEP";
   if (normalized.includes("stl")) return "STL";
   if (normalized.includes("dwg")) return "DWG";
   if (normalized.includes("dxf")) return "DXF";
   if (normalized.includes("pdf")) return "PDF";
-  if (normalized.includes("dfm")) return "DFM 复核报告";
-  if (normalized.includes("png") || normalized.includes("preview")) return "预览图";
-  if (normalized.includes("codex")) return "AI 结果";
-  return kind || "交付物";
+  if (normalized.includes("dfm")) return "DFM inceleme raporu";
+  if (normalized.includes("png") || normalized.includes("preview")) return "Önizleme görseli";
+  if (normalized.includes("codex")) return "AI sonucu";
+  return kind || "Teslimat";
 }
 
 export type ArtifactGroup = "model" | "drawing" | "bom" | "preview" | "report" | "other";
@@ -38,9 +38,9 @@ export function artifactGroup(artifact: ArtifactRecord): ArtifactGroup {
   const text = `${artifact.kind ?? ""} ${artifact.path ?? ""}`.toLowerCase();
   if (/sldprt|sldasm|step|stp|stl|obj|glb|gltf/.test(text)) return "model";
   if (/slddrw|dwg|dxf/.test(text)) return "drawing";
-  if (/bom|bill|物料/.test(text)) return "bom";
-  if (/png|bmp|jpg|jpeg|webp|preview|预览/.test(text)) return "preview";
-  if (/review|report|ledger|dfm|复核|报告/.test(text)) return "report";
+  if (/bom|bill|物料|malzeme/.test(text)) return "bom";
+  if (/png|bmp|jpg|jpeg|webp|preview|预览|önizleme/.test(text)) return "preview";
+  if (/review|report|ledger|dfm|复核|报告|inceleme|rapor/.test(text)) return "report";
   return "other";
 }
 
@@ -58,17 +58,17 @@ export function formatBytes(value?: number) {
 }
 
 export function artifactStatusLabel(artifact: ArtifactRecord) {
-  if (artifact.exists === false) return "缺失";
-  if (artifact.isDirectory) return "目录";
-  if (artifact.producedThisRun === true) return "本轮生成";
-  if (artifact.producedThisRun === false) return "非本轮文件";
-  if (artifact.exists) return "新鲜度未确认";
-  return "待确认";
+  if (artifact.exists === false) return "Eksik";
+  if (artifact.isDirectory) return "Dizin";
+  if (artifact.producedThisRun === true) return "Bu çalıştırmada üretildi";
+  if (artifact.producedThisRun === false) return "Bu çalıştırmaya ait değil";
+  if (artifact.exists) return "Güncelliği doğrulanmadı";
+  return "Doğrulama bekliyor";
 }
 
 export function deliveryFormatStatus(format: string, job: AutomationJob | undefined, artifacts: ArtifactRecord[]) {
-  if (format === "复核报告") return job?.reviewGatePath ? "ready" : job ? "missing" : "optional";
-  if (format === "DFM 报告") {
+  if (format === "İnceleme raporu") return job?.reviewGatePath ? "ready" : job ? "missing" : "optional";
+  if (format === "DFM raporu") {
     const ready = artifacts.some((artifact) => artifact.kind?.toLowerCase().includes("dfm") && artifact.exists !== false && artifact.producedThisRun === true);
     return ready ? "ready" : job?.dfmEvidence ? "missing" : "optional";
   }
@@ -87,7 +87,7 @@ export function deliveryFormatStatus(format: string, job: AutomationJob | undefi
   return (job?.expectedOutput ?? "").toUpperCase().includes(format) ? "missing" : "optional";
 }
 
-/** @brief 合并任务各来源产物并按路径去重，不将旧文件自动视为本轮产物。 */
+/** @brief Görevin tüm kaynaklarındaki çıktıları birleştirir ve yola göre tekilleştirir; eski dosyaları otomatik olarak bu çalıştırmanın çıktısı saymaz. */
 export function collectJobArtifacts(job?: AutomationJob): ArtifactRecord[] {
   if (!job) return [];
   const items: ArtifactRecord[] = [];

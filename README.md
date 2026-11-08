@@ -2,15 +2,15 @@
 
 **AI Skill + MCP toolkit for reliable desktop CAD automation.**
 
-让 Codex、Claude、Cursor 等 Agent 通过自然语言调用真实 CAD 软件，并对执行结果进行验证与追踪。
+Codex, Claude, Cursor ve diğer Agent'ların doğal dil aracılığıyla gerçek CAD yazılımını çağırmasını ve yürütme sonuçlarını doğrulayıp izlemesini sağlar.
 
 > Tool success is not treated as task success.
 
-工具调用成功，不代表任务真的完成；需要 Review 的任务会经过结果验证后再交付。
+Araç çağrısının başarılı olması, görevin gerçekten tamamlandığı anlamına gelmez; Review gerektiren görevler, sonuç doğrulandıktan sonra teslim edilir.
 
-当前发布版本为 **v2.0.1**：技能 ZIP、CAD Studio 安装版与便携版统一版本并包含同版运行时。下载入口和升级说明见 [v2.0.1 发布说明](docs/releases/v2.0.1.md)。
+Mevcut yayın sürümü **v2.0.1**'dir: yetenek ZIP'i, CAD Studio kurulum sürümü ve taşınabilir sürüm aynı sürüm numarasını taşır ve aynı sürümdeki çalışma zamanını içerir. İndirme girişi ve yükseltme talimatları için bkz. [v2.0.1 sürüm notları](docs/releases/v2.0.1.md).
 
-CAD Studio 会对各生产执行器统一检查交付文件是否为本轮新增或内容已变化；旧文件拒绝交付，证据不足转为待复核。扫描范围、兼容性与验证方法见[本轮交付门禁](references/delivery-freshness.md)。
+CAD Studio, tüm üretim yürütücüleri için teslim dosyalarının bu turda yeni oluşturulup oluşturulmadığını veya içeriğinin değişip değişmediğini tek biçimde denetler; eski dosyaların teslimi reddedilir, kanıtı yetersiz olanlar yeniden incelemeye alınır. Tarama kapsamı, uyumluluk ve doğrulama yöntemi için bkz. [bu turun teslim kapısı](references/delivery-freshness.md).
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -23,61 +23,61 @@ CAD Studio 会对各生产执行器统一检查交付文件是否为本轮新增
 User → Agent (Codex / Claude / Cursor) → Skill / MCP → Execution Core → CAD → Artifacts + Evidence
 ```
 
-AI 负责理解意图、查证 API、规划步骤；Execution Core 保证执行过程可追踪、可验证、失败可恢复。
+AI, amacı anlamaktan, API'yi doğrulamaktan ve adımları planlamaktan sorumludur; Execution Core ise yürütme sürecinin izlenebilir, doğrulanabilir ve hatalardan kurtarılabilir olmasını garanti eder.
 
 ---
 
 ## See It In Action
 
 <p align="center">
-  <img src="assets/showcase/solidworks-engineering-drawing-demo.gif" alt="代码驱动 SolidWorks 生成复杂测试件与 GB/T 工程图" width="900">
+  <img src="assets/showcase/solidworks-engineering-drawing-demo.gif" alt="Kodla yönlendirilen SolidWorks karmaşık test parçası ve GB/T teknik resmi üretir" width="900">
 </p>
 
-一个真实流程：自然语言需求 → Agent 调用 Skill → SolidWorks 生成原生 `SLDPRT + SLDDRW` → 导出 PDF → 自动复核尺寸与证据。
+Gerçek bir akış: doğal dil gereksinimi → Agent Skill'i çağırır → SolidWorks yerel `SLDPRT + SLDDRW` üretir → PDF dışa aktarılır → ölçüler ve kanıtlar otomatik olarak yeniden incelenir.
 
-| 案例 | 能力 | 状态 |
+| Senaryo | Yetenek | Durum |
 |---|---|---|
-| [M6×1 真实螺纹孔](subskills/solidworks-threaded-holes/README.md) | Metric Tap Thread，重建后回读 | `verified` |
-| [CNC 多圆角/倒角安装座](subskills/solidworks-fillet-chamfer-cnc/README.md) | 语义选边、可变半径、face/full-round/setback | `stable` |
-| [标准渐开线直齿轮](references/gears.md) | 模数/齿数/压力角驱动实体 | `pilot` |
+| [M6×1 gerçek dişli delik](subskills/solidworks-threaded-holes/README.md) | Metric Tap Thread, yeniden oluşturma sonrası geri okuma | `verified` |
+| [CNC çok yuvarlatmalı/pahlı montaj yuvası](subskills/solidworks-fillet-chamfer-cnc/README.md) | anlamsal kenar seçimi, değişken yarıçap, face/full-round/setback | `stable` |
+| [Standart involüt düz dişli](references/gears.md) | modül/diş sayısı/basınç açısıyla sürülen katı model | `pilot` |
 
 ---
 
 ## Prerequisites
 
-| 项 | 要求 | 检查方法 |
+| Öğe | Gereksinim | Denetim yöntemi |
 |---|---|---|
-| 操作系统 | Windows 10/11 x64 | 原生 `SLDPRT` / `SLDASM` / `SLDDRW` 依赖 SolidWorks COM，其他系统仅可用开放格式能力 |
-| Python | 3.10+（本机真机验收使用 3.12） | `python -V` |
-| Node.js | 20+（工作台、MCP 注册与 Skill 安装器） | `node -v` |
-| Git | 任意较新版本（安装器通过 `git clone` / `git pull` 获取与更新仓库） | `git --version` |
-| SolidWorks | 2024 或 2026，需合法许可 | `python scripts/cad_doctor.py` |
-| AutoCAD | 可选，仅 DWG/DXF 子技能需要 | — |
+| İşletim sistemi | Windows 10/11 x64 | Yerel `SLDPRT` / `SLDASM` / `SLDDRW` SolidWorks COM'a bağlıdır; diğer sistemlerde yalnızca açık format yetenekleri kullanılabilir |
+| Python | 3.10+ (bu makinedeki gerçek donanım kabulü 3.12 kullanır) | `python -V` |
+| Node.js | 20+ (workbench, MCP kaydı ve Skill yükleyicisi) | `node -v` |
+| Git | Herhangi bir yeni sürüm (yükleyici `git clone` / `git pull` ile depoyu alır ve günceller) | `git --version` |
+| SolidWorks | 2024 veya 2026, geçerli lisans gerekir | `python scripts/cad_doctor.py` |
+| AutoCAD | İsteğe bağlı, yalnızca DWG/DXF alt yeteneği için gerekir | — |
 
-安装 Python 依赖：
+Python bağımlılıklarını yükleyin:
 
 ```powershell
 python -m pip install -r requirements.txt
-# 只有开放格式（OCCT）能力才需要：
+# Yalnızca açık format (OCCT) yetenekleri için gereklidir:
 python -m pip install -r requirements-occt.txt
 ```
 
-只读环境自检（不会打开或关闭 CAD）：
+Salt okunur ortam öz denetimi (CAD'i açmaz veya kapatmaz):
 
 ```powershell
-python scripts/cad_doctor.py           # 发现的安装路径、版本、COM 注册状态
-python scripts/sw_capability_probe.py  # 类型库与能力清单
+python scripts/cad_doctor.py           # algılanan kurulum yolları, sürüm, COM kayıt durumu
+python scripts/sw_capability_probe.py  # tür kitaplığı ve yetenek listesi
 ```
 
-模板与材料库**默认自动探测**，不需要写死路径。只有非标准安装位置才需要
-[`config/runtime.example.json`](config/runtime.example.json) 与 `SOLIDWORKS_TYPELIB_DIRS`，
-见 [`config/README.md`](config/README.md)。
+Şablonlar ve malzeme kitaplığı **varsayılan olarak otomatik algılanır**, sabit yol yazılmasına gerek yoktur. Yalnızca standart olmayan kurulum konumları için
+[`config/runtime.example.json`](config/runtime.example.json) ve `SOLIDWORKS_TYPELIB_DIRS` gerekir;
+bkz. [`config/README.md`](config/README.md).
 
 ---
 
 ## Quick Start
 
-三种入口**任选其一**即可，不需要同时启动。
+Üç giriş noktasından **herhangi birini seçmeniz yeterlidir**, aynı anda başlatmanız gerekmez.
 
 ### Option 1 — Skill
 
@@ -85,30 +85,30 @@ python scripts/sw_capability_probe.py  # 类型库与能力清单
 npx github:wzyn20051216/solidworks-automation-skill --target claude
 ```
 
-该命令获取本仓库并执行根目录的 `install.js`（`package.json` 的 `bin` 入口）。
+Bu komut bu depoyu alır ve kök dizindeki `install.js` dosyasını yürütür (`package.json`'ın `bin` girişi).
 
-**默认行为（安全优先，2026-10-28 起）**：
+**Varsayılan davranış (güvenlik öncelikli, 2026-10-28'den itibaren)**:
 
-- 只装到**已经存在** skills 目录的客户端（`.agents` / `.claude` / `.codex` / `.cursor` / `.openclaw`）；
-  一个都没检测到时**不会替你创建目录**，而是提示改用 `--target` 显式指定。
-- 目标目录已存在但**不是本仓库的 git 检出**（手动放置、解压、或其他来源）时，
-  **拒绝安装且不删除任何文件**。
-- 由本仓库安装的目录用 `git pull --ff-only` 更新；无法快进时**只报告，不删除**。
-- 默认自动安装 Python 依赖；Windows 上没有 Python 3.10+ 时尝试使用 winget 为当前用户安装 Python 3.12。失败时给出提示；`--no-install-deps` 可关闭此行为。
-- 非 Windows 平台默认拒绝（SolidWorks COM 不可用）；确需使用开放格式能力加 `--allow-non-windows`。
+- Yalnızca skills dizini **zaten var olan** istemcilere kurulur (`.agents` / `.claude` / `.codex` / `.cursor` / `.openclaw`);
+  hiçbiri algılanmazsa **sizin yerinize dizin oluşturmaz**, bunun yerine `--target` ile açıkça belirtmenizi önerir.
+- Hedef dizin zaten var ancak **bu deponun git çalışma kopyası değilse** (elle yerleştirilmiş, arşivden çıkarılmış veya başka kaynaklı),
+  **kurulum reddedilir ve hiçbir dosya silinmez**.
+- Bu depo tarafından kurulan dizinler `git pull --ff-only` ile güncellenir; hızlı ileri alınamıyorsa **yalnızca rapor edilir, silinmez**.
+- Varsayılan olarak Python bağımlılıkları otomatik yüklenir; Windows'ta Python 3.10+ yoksa winget ile geçerli kullanıcı için Python 3.12 yüklenmeye çalışılır. Başarısız olursa uyarı verilir; `--no-install-deps` bu davranışı kapatır.
+- Windows dışı platformlarda varsayılan olarak reddedilir (SolidWorks COM kullanılamaz); açık format yeteneklerini kullanmanız gerçekten gerekiyorsa `--allow-non-windows` ekleyin.
 
-| 参数 | 作用 |
+| Parametre | İşlev |
 |---|---|
-| `--target claude,codex` | 装到指定客户端；`all` 表示全部支持项 |
-| `--dry-run` | 只打印将要执行的动作，不写盘 |
-| `--install-deps` | 安装 `requirements.txt` + `mcp-server/requirements.txt`（默认） |
-| `--no-install-deps` | 不自动安装 Python 和 Python 依赖 |
-| `--no-register-mcp` | 跳过 MCP 配置注册（默认注册，覆盖前自动备份 `.bak-<时间戳>`） |
-| `--force-reinstall` | 旧目录先改名为 `.bak-<时间戳>` 再重装（**不删除**） |
+| `--target claude,codex` | Belirtilen istemcilere kurar; `all` desteklenen tüm öğeler anlamına gelir |
+| `--dry-run` | Yalnızca yürütülecek eylemleri yazdırır, diske yazmaz |
+| `--install-deps` | `requirements.txt` + `mcp-server/requirements.txt` yükler (varsayılan) |
+| `--no-install-deps` | Python'u ve Python bağımlılıklarını otomatik yüklemez |
+| `--no-register-mcp` | MCP yapılandırma kaydını atlar (varsayılan olarak kaydeder, üzerine yazmadan önce otomatik `.bak-<zaman damgası>` yedeği alır) |
+| `--force-reinstall` | Eski dizini önce `.bak-<zaman damgası>` olarak yeniden adlandırır, sonra yeniden kurar (**silmez**) |
 
-安装使用 `git clone --depth 1`，只取工作树、不拉完整历史。仓库完整工作树约 13 MB，
-其中 `apps/`（桌面端源码，约 6 MB）与 Skill 运行无关。
-若 `npx` 在当前网络环境不可用，改用下方 Option 2 的克隆方式，再执行 `node install.js`。
+Kurulum `git clone --depth 1` kullanır; yalnızca çalışma ağacını alır, tam geçmişi çekmez. Deponun tam çalışma ağacı yaklaşık 13 MB'tır;
+bunun içindeki `apps/` (masaüstü kaynak kodu, yaklaşık 6 MB) Skill çalışmasıyla ilgisizdir.
+`npx` mevcut ağ ortamında kullanılamıyorsa aşağıdaki Option 2'deki klonlama yöntemine geçin ve ardından `node install.js` komutunu çalıştırın.
 
 ### Option 2 — MCP
 
@@ -116,50 +116,50 @@ npx github:wzyn20051216/solidworks-automation-skill --target claude
 git clone https://github.com/wzyn20051216/solidworks-automation-skill.git
 cd solidworks-automation-skill
 python -m pip install -r requirements.txt -r mcp-server/requirements.txt
-node mcp-server/register_all_ai_mcp.js --help          # 查看全部参数
+node mcp-server/register_all_ai_mcp.js --help          # tüm parametreleri görüntüle
 node mcp-server/register_all_ai_mcp.js --clients codex,claude-code,cursor
 ```
 
-注册脚本会写入对应客户端的 MCP 配置，并在写入前生成 `.bak` 备份；加 `--strict` 可让任一客户端失败时非零退出。
+Kayıt betiği ilgili istemcinin MCP yapılandırmasına yazar ve yazmadan önce `.bak` yedeği oluşturur; `--strict` eklemek herhangi bir istemci başarısız olduğunda sıfır olmayan çıkış kodu vermesini sağlar.
 
-### Option 3 — CAD Studio 桌面版
+### Option 3 — CAD Studio masaüstü sürümü
 
-从 [GitHub Releases](https://github.com/wzyn20051216/solidworks-automation-skill/releases) 下载 Windows 安装包。
+Windows kurulum paketini [GitHub Releases](https://github.com/wzyn20051216/solidworks-automation-skill/releases) adresinden indirin.
 
-桌面端启动本地执行器时，如果 Windows 没有可用的 Python 3.10+，会尝试通过 winget 为当前用户安装 Python 3.12；无法安装时显示错误。环境诊断仍只读。SolidWorks 必须由用户另行安装并具备许可；API 查证所需的 7-Zip、Python 包和可验证的本地 API Help 按需自动配置，详情见 [`references/api-lookup.md`](references/api-lookup.md)。
+Masaüstü uygulaması yerel yürütücüyü başlatırken Windows'ta kullanılabilir bir Python 3.10+ yoksa, winget ile geçerli kullanıcı için Python 3.12 yüklemeye çalışır; yüklenemezse hata gösterir. Ortam tanılaması yine salt okunurdur. SolidWorks ayrıca kullanıcı tarafından yüklenmeli ve lisanslı olmalıdır; API doğrulaması için gereken 7-Zip, Python paketleri ve doğrulanabilir yerel API Help ihtiyaç halinde otomatik yapılandırılır, ayrıntılar için bkz. [`references/api-lookup.md`](references/api-lookup.md).
 
 > **Choose one entry point. You do not need to run all three.**
 
-| 入口 | 适合谁 | 需要 GUI | 典型用法 |
+| Giriş | Kimler için uygun | GUI gerekir | Tipik kullanım |
 |---|---|---|---|
-| **Skill** | 支持 skill 导入的 Agent 客户端 | 否 | 自然语言驱动 SolidWorks |
-| **MCP** | Codex / Claude / Cursor / Windsurf 等 MCP 客户端 | 否 | Agent 自动 Tool Calling |
-| **CAD Studio** | 需要图形界面管理项目/任务/预览/交付 | 是 | 桌面端提交任务 |
+| **Skill** | skill içe aktarmayı destekleyen Agent istemcileri | Hayır | Doğal dille SolidWorks'ü yönlendirme |
+| **MCP** | Codex / Claude / Cursor / Windsurf gibi MCP istemcileri | Hayır | Agent otomatik Tool Calling |
+| **CAD Studio** | Projeleri/görevleri/önizlemeleri/teslimatları grafik arayüzle yönetmesi gerekenler | Evet | Masaüstünden görev gönderme |
 
-三者是**平级入口**，共用同一套能力清单（`capabilities.yaml`）、脚本与证据系统。安装后可用 `python scripts/cad_doctor.py` 做环境诊断；详细安装与 CLI 见 [`docs/CAD_STUDIO_USER_MANUAL.md`](docs/CAD_STUDIO_USER_MANUAL.md)。
+Bu üçü **eşit düzeyde giriş noktalarıdır** ve aynı yetenek listesini (`capabilities.yaml`), betikleri ve kanıt sistemini paylaşır. Kurulumdan sonra ortam tanılaması için `python scripts/cad_doctor.py` kullanabilirsiniz; ayrıntılı kurulum ve CLI için bkz. [`docs/CAD_STUDIO_USER_MANUAL.md`](docs/CAD_STUDIO_USER_MANUAL.md).
 
 ---
 
 ## Why This Project
 
-LLM 会规划，但常见的 AI CAD 自动化有几个真实问题：
+LLM planlar, ancak yaygın AI CAD otomasyonunda birkaç gerçek sorun vardır:
 
-- LLM 会规划，但不会真正操作桌面 CAD 软件
-- Tool 返回 `success` 不代表任务真的完成
-- CAD API 版本、环境、Backend 差异复杂
-- 固定 Tool 集合覆盖不完所有工程需求
-- Agent 执行过程通常不可追踪、不可审计
+- LLM planlar, ancak masaüstü CAD yazılımını gerçekten kullanmaz
+- Tool'un `success` döndürmesi görevin gerçekten tamamlandığı anlamına gelmez
+- CAD API sürümleri, ortamlar ve Backend farklılıkları karmaşıktır
+- Sabit Tool kümesi tüm mühendislik gereksinimlerini kapsayamaz
+- Agent yürütme süreci genellikle izlenemez ve denetlenemez
 
-本项目的解法：
+Bu projenin çözümü:
 
-| 问题 | 方案 |
+| Sorun | Çözüm |
 |---|---|
-| 自然语言 → 真实操作 | Skill / MCP 接入真实 COM 与后端 |
+| Doğal dil → gerçek işlem | Skill / MCP gerçek COM ve backend'e bağlanır |
 | Tool success ≠ Task success | Verification-first completion |
-| Backend 失败 | Backend Router + Recovery Decision |
-| 能力缺失 | Capability Gap → 交还 Agent 查证 |
-| 执行不可追踪 | 结构化 Trace |
-| 是否可靠 | Golden Workflow Eval |
+| Backend hatası | Backend Router + Recovery Decision |
+| Yetenek eksikliği | Capability Gap → doğrulama için Agent'a geri verilir |
+| Yürütme izlenemez | Yapılandırılmış Trace |
+| Güvenilir mi | Golden Workflow Eval |
 
 ---
 
@@ -170,7 +170,7 @@ User / Agent
   ↓
 Skill / MCP
   ↓
-Execution Core（Capability · Verification · Recovery Decision · Trace）
+Execution Core(Capability · Verification · Recovery Decision · Trace)
   ↓
 Backend Router
   ↓
@@ -181,116 +181,116 @@ CAD Software
 Artifacts + Evidence
 ```
 
-- **Root Skill** = 通用能力、规则与执行基础设施（连接、建模、审查、MCP）。
-- **Subskills** = 专项领域工作流（工程图、螺纹孔、CNC 圆角、VibeCAD、AutoCAD），由 Root Skill 按需调用，不需要用户手动启动。
-- **Execution Core** = 内部可靠执行层：统一状态、结果验证、失败恢复决策与执行追踪。它是内部实现，**不是独立服务、不需要用户启动**。
-- **Capability Gap** = 找不到能力时结构化返回 `CAPABILITY_GAP`，交还 Agent 查证，而不是「做不了」：
+- **Root Skill** = genel yetenekler, kurallar ve yürütme altyapısı (bağlantı, modelleme, inceleme, MCP).
+- **Subskills** = özel alan iş akışları (teknik resim, dişli delikler, CNC yuvarlatma, VibeCAD, AutoCAD); Root Skill tarafından ihtiyaç halinde çağrılır, kullanıcının elle başlatması gerekmez.
+- **Execution Core** = iç güvenilir yürütme katmanı: birleşik durum, sonuç doğrulama, hata kurtarma kararları ve yürütme izleme. Bir iç uygulamadır, **bağımsız bir servis değildir ve kullanıcının başlatması gerekmez**.
+- **Capability Gap** = bir yetenek bulunamadığında yapılandırılmış olarak `CAPABILITY_GAP` döndürür ve "yapılamaz" demek yerine doğrulama için Agent'a geri verir:
 
   ```text
   Existing Tools → Tool Composition → Backend Fallback → Capability Gap
-    → Agent 查 references / 官方 API / SDK → 最小实现 → Verification
+    → Agent references / resmî API / SDK'yi doğrular → asgari uygulama → Verification
   ```
 
-  Execution Core 自身**不会自动联网执行未知代码**。
+  Execution Core kendisi **bilinmeyen kodu otomatik olarak ağ üzerinden yürütmez**.
 
-详细：[`docs/architecture/execution-core.md`](docs/architecture/execution-core.md)
+Ayrıntılar: [`docs/architecture/execution-core.md`](docs/architecture/execution-core.md)
 
 ---
 
 ## Reliability
 
-当前附带 **43 个 deterministic reliability scenarios**（12 nominal + 31 robustness），
-覆盖正常执行、故障注入、后端回退、能力缺口与策略门禁；由 `golden-workflows.yaml` 的 12 个 workflow 派生。
+Şu anda **43 deterministik güvenilirlik senaryosu** (12 nominal + 31 robustness) içermektedir;
+normal yürütme, hata enjeksiyonu, backend geri dönüşü, yetenek boşlukları ve politika kapılarını kapsar; `golden-workflows.yaml` içindeki 12 workflow'dan türetilmiştir.
 
 | Metric | Current baseline |
 |---|---|
-| Nominal workflow | 12/12 first-pass（baseline v4，warning 归 guardrail，等待人工复核） |
+| Nominal workflow | 12/12 ilk geçiş(baseline v4, warning guardrail'e atanır, elle inceleme beklenir) |
 | Injected false-completion cases | all detected |
 | Escaped false completion | 0 in current deterministic benchmark |
-| Regression suite | 当前方案 B 验证记录见 [可靠性修复与验收](docs/architecture/scheme-b-reliability.md) |
+| Regression suite | Mevcut plan B doğrulama kaydı için bkz. [Güvenilirlik onarımı ve kabul](docs/architecture/scheme-b-reliability.md) |
 
-> 这是 **deterministic engineering benchmark**（Fake Handler/Reviewer + 故障注入），
-> 不是生产 SLA 或真实用户成功率。详见 [`docs/architecture/v2-evaluation.md`](docs/architecture/v2-evaluation.md)。
+> Bu bir **deterministic engineering benchmark**'tır (Fake Handler/Reviewer + hata enjeksiyonu),
+> üretim SLA'sı veya gerçek kullanıcı başarı oranı değildir. Ayrıntılar için bkz. [`docs/architecture/v2-evaluation.md`](docs/architecture/v2-evaluation.md).
 
-### 验证边界（Verification Boundary）
+### Doğrulama Sınırı(Verification Boundary)
 
-本项目的验证分三层，**结论不能跨层套用**：
+Bu projede doğrulama üç katmana ayrılır ve **sonuçlar katmanlar arasında aktarılamaz**:
 
-| 层 | 在哪里跑 | 覆盖什么 | 不覆盖什么 |
+| Katman | Nerede çalışır | Neyi kapsar | Neyi kapsamaz |
 |---|---|---|---|
-| L1 离线回归 | 任意机器 | `pytest`（全量，当前 1045 项）、`evals/runner.py`（12 workflow / 43 scenario）、治理单测（当前 93 项） | 需要 SolidWorks / AutoCAD 进程的一切 |
-| L2 托管 CI | GitHub 托管 `windows-2022` | 与 L1 相同，外加前端/ Rust 构建与发布契约检查；作业名 `test-and-build`，是 `main` 的**唯一必需状态检查** | 真实 CAD 执行 |
-| L3 真实 CAD 验收 | **仅维护者本机**（Windows 11 + SolidWorks 2026 SP01.1） | Golden 五轮真机、装配/工程图/运动算例等真机回归 | 其它机器、其它版本 |
+| L1 çevrimdışı regresyon | Herhangi bir makine | `pytest` (tam, şu anda 1045 öğe), `evals/runner.py` (12 workflow / 43 scenario), yönetişim birim testleri (şu anda 93 öğe) | SolidWorks / AutoCAD süreci gerektiren her şey |
+| L2 barındırılan CI | GitHub tarafından barındırılan `windows-2022` | L1 ile aynı, ayrıca ön uç/Rust derlemesi ve yayın sözleşmesi denetimi; iş adı `test-and-build`, `main`'in **tek zorunlu durum denetimidir** | Gerçek CAD yürütmesi |
+| L3 gerçek CAD kabulü | **Yalnızca bakımcının kendi makinesi** (Windows 11 + SolidWorks 2026 SP01.1) | Golden beş turlu gerçek donanım, montaj/teknik resim/hareket simülasyonu gibi gerçek donanım regresyonları | Diğer makineler, diğer sürümler |
 
-必须明确的三点：
+Açıkça belirtilmesi gereken üç nokta:
 
-1. **远端不存在 CAD 真机执行证据。** 仓库没有自托管 Runner，`Windows CAD Regression` 工作流为手动触发、
-   **不是必需检查**，当前无法执行。任何"远程 CAD CI 已通过"的表述都是错的。
-2. **本机通过 ≠ 跨机器通过。** 换一台机器请按 `Prerequisites` 与 `docs/CAD_STUDIO_USER_MANUAL.md` 重新自检，
-   不要直接引用维护者的验收结论。
-3. **L2 通过 ≠ 治理闭环。** 必需检查只保护 `main`；指向特性分支的 PR（含 stacked PR）不受该规则约束。
+1. **Uzakta CAD gerçek donanım yürütme kanıtı yoktur.** Depoda kendi barındırılan Runner yoktur, `Windows CAD Regression` iş akışı elle tetiklenir ve
+   **zorunlu denetim değildir**, şu anda çalıştırılamaz. "Uzaktaki CAD CI geçti" şeklindeki her ifade yanlıştır.
+2. **Kendi makinede geçmek ≠ başka makinede geçmek.** Başka bir makineye geçerken `Prerequisites` ve `docs/CAD_STUDIO_USER_MANUAL.md` uyarınca yeniden öz denetim yapın,
+   bakımcının kabul sonucuna doğrudan atıfta bulunmayın.
+3. **L2'nin geçmesi ≠ yönetişim döngüsünün kapanması.** Zorunlu denetim yalnızca `main`'i korur; özellik dallarına yönelik PR'lar (stacked PR'lar dahil) bu kurala tabi değildir.
 
-原生 SolidWorks 操作当前以 **2026** 为支持与验收目标。方案 B 保留现有执行架构，修复失败状态、原生阵列、草图可编辑性和文档归属，并提供可选 HTTP 与可验证的产物取回。
+Yerel SolidWorks işlemleri şu anda destek ve kabul hedefi olarak **2026**'yı alır. Plan B mevcut yürütme mimarisini korur; hata durumlarını, yerel dizileri, kroki düzenlenebilirliğini ve belge aidiyetini onarır ve isteğe bağlı HTTP ile doğrulanabilir ürün geri alımı sunar.
 
-**完整模式暴露 69 个命名工具；默认发现模式只暴露 3 个检索入口**（`sw_search_tools` /
-`sw_describe_tool` / `sw_call_tool`）。原有命名工具保持兼容；发现模式
-按需检索；写操作经过策略检查，审批行为与信任边界取决于配置。模式切换、审批与回滚见
-[`mcp-server/README.md`](mcp-server/README.md)。
+**Tam mod 69 adlandırılmış araç sunar; varsayılan keşif modu yalnızca 3 arama girişi sunar** (`sw_search_tools` /
+`sw_describe_tool` / `sw_call_tool`). Mevcut adlandırılmış araçlar uyumluluğunu korur; keşif modu
+ihtiyaç halinde arama yapar; yazma işlemleri politika denetiminden geçer, onay davranışı ve güven sınırları yapılandırmaya bağlıdır. Mod değiştirme, onay ve geri alma için bkz.
+[`mcp-server/README.md`](mcp-server/README.md).
 
 ---
 
 ## Capabilities & Status
 
-| Category | 你能做什么 | 状态 |
+| Category | Neler yapabilirsiniz | Durum |
 |---|---|---|
-| Modeling | 零件建模、草图/拉伸/旋转、齿轮、钣金、焊件 | `verified` + `pilot` |
-| Assembly | 装配、Mate、干涉检查、爆炸视图 | `verified` |
-| Drawing | GB/T 工程图、尺寸链、孔表、BOM | `verified` + `pilot` |
+| Modeling | Parça modelleme, kroki/ekstrüzyon/döndürme, dişli, sac metal, kaynaklı parça | `verified` + `pilot` |
+| Assembly | Montaj, Mate, girişim denetimi, patlatılmış görünüm | `verified` |
+| Drawing | GB/T teknik resim, ölçü zinciri, delik tablosu, BOM | `verified` + `pilot` |
 | Export | STEP / STL / IGES / PDF / DXF / DWG | `verified` |
-| Motion | 运动算例、旋转马达、结果门禁 | `pilot` |
-| Design Audit | 中性文档设计规则、基线对比、丝杠/皮带电机扭矩初筛 | `pilot` |
-| Drilling Panel | 面板孔位识别、基准及图纸规格候选 | `pilot` |
-| Tolerances | 已显示尺寸公差只读提取，CSV 输出 | `pilot` |
-| Rename Preview / Copy | 属性改名预览；受限独立零件和单配置嵌套装配复制到新名称 | `pilot` |
-| Sprocket | 近似链轮几何演示实体，非生产齿形 | `pilot` |
-| Spring | 开放端等螺距圆线弹簧实体 | `pilot` |
-| FEA | CalculiX 线性/非线性求解编排与审计 | `pilot` |
-| DFM / Routing | 制造复核、路由复核 | `pilot` |
-| Surface / Mold | 受限 Loft/Sweep/Thicken、模具计划 | `pilot` |
-| AutoCAD | DWG/DXF 二维绘图、图层/标注/预览 | `verified` / `pilot` / `blocked` |
-| Open-format | OCCT 无头写入 STEP/BREP/STL/OBJ/GLB 等 | `verified` |
+| Motion | Hareket simülasyonu, döner motor, sonuç kapısı | `pilot` |
+| Design Audit | Nötr belge tasarım kuralları, temel karşılaştırma, vidalı mil/kayış motoru torku ön taraması | `pilot` |
+| Drilling Panel | Panel delik konumu tanıma, referans ve teknik resim spesifikasyonu adayları | `pilot` |
+| Tolerances | Görüntülenen ölçü toleranslarının salt okunur çıkarımı, CSV çıktısı | `pilot` |
+| Rename Preview / Copy | Özellik yeniden adlandırma önizlemesi; sınırlı bağımsız parçaların ve tek yapılandırmalı iç içe montajların yeni ada kopyalanması | `pilot` |
+| Sprocket | Yaklaşık zincir dişlisi geometri gösterim katı modeli, üretim diş profili değil | `pilot` |
+| Spring | Açık uçlu, eşit hatveli dairesel telli yay katı modeli | `pilot` |
+| FEA | CalculiX doğrusal/doğrusal olmayan çözüm orkestrasyonu ve denetimi | `pilot` |
+| DFM / Routing | Üretim incelemesi, yönlendirme incelemesi | `pilot` |
+| Surface / Mold | Sınırlı Loft/Sweep/Thicken, kalıp planı | `pilot` |
+| AutoCAD | DWG/DXF iki boyutlu çizim, katman/ölçülendirme/önizleme | `verified` / `pilot` / `blocked` |
+| Open-format | OCCT başsız olarak STEP/BREP/STL/OBJ/GLB vb. yazar | `verified` |
 
-状态等级（`capabilities.yaml` 定义）：
+Durum seviyeleri (`capabilities.yaml` tarafından tanımlanır):
 
-| Status | 含义 |
+| Status | Anlamı |
 |---|---|
-| `verified` | 真机验证完成，可按已知范围使用 |
-| `stable` | 长期回归覆盖 |
-| `pilot` | 已实现但仍需人工复核 |
-| `blocked` | 当前环境或能力不允许自动交付 |
+| `verified` | Gerçek donanım doğrulaması tamamlandı, bilinen kapsamda kullanılabilir |
+| `stable` | Uzun süreli regresyon kapsamı |
+| `pilot` | Uygulandı ancak hâlâ elle inceleme gerekiyor |
+| `blocked` | Mevcut ortam veya yetenek otomatik teslimata izin vermiyor |
 
-真机基线：SolidWorks 2024 / 2026、AutoCAD 2024。未验证能力不会被包装成无人值守交付。
+Gerçek donanım temeli: SolidWorks 2024 / 2026, AutoCAD 2024. Doğrulanmamış yetenekler gözetimsiz teslimat olarak paketlenmez.
 
-- 完整能力矩阵（每个能力的精确等级/版本/限制）→ [`capabilities.yaml`](capabilities.yaml)
-- 领域工作流 → [`subskills/`](subskills/) · [`SUBSKILLS.md`](SUBSKILLS.md)
+- Tam yetenek matrisi (her yeteneğin kesin seviyesi/sürümü/sınırları) → [`capabilities.yaml`](capabilities.yaml)
+- Alan iş akışları → [`subskills/`](subskills/) · [`SUBSKILLS.md`](SUBSKILLS.md)
 
 ---
 
 ## No SolidWorks Installed?
 
-没有 SolidWorks 时，部分开放格式任务仍可完成：
+SolidWorks yoksa bazı açık format görevleri yine de tamamlanabilir:
 
 `STEP · IGES · BREP · STL · OBJ · GLB · DXF · SVG · PDF · PNG`
 
-（通过 OCCT/OCP 隔离进程真实写入。）
+(OCCT/OCP yalıtılmış süreç üzerinden gerçek yazma.)
 
-但原生 `SLDPRT / SLDASM / SLDDRW` 仍需要合法 SolidWorks 环境。
+Ancak yerel `SLDPRT / SLDASM / SLDDRW` yine de geçerli bir SolidWorks ortamı gerektirir.
 
 ---
 
 ## Examples
 
-[`examples/`](examples/) 目录包含从基础零件到装配、工程图、Motion、FEA 的可运行示例。
+[`examples/`](examples/) dizini, temel parçalardan montaj, teknik resim, Motion ve FEA'ya kadar çalıştırılabilir örnekler içerir.
 
 ---
 
@@ -319,9 +319,9 @@ Artifacts + Evidence
 
 ## Roadmap & Contributing
 
-**Roadmap**：更广的真机验证 · 更可靠的能力路由 · 更好的 CAD Studio 可观测性 · 更多 verified 子技能 · 社区贡献工作流。
+**Roadmap**: Daha geniş gerçek donanım doğrulaması · daha güvenilir yetenek yönlendirmesi · daha iyi CAD Studio gözlemlenebilirliği · daha fazla verified alt yetenek · topluluk katkı iş akışları.
 
-**Contributing**：新增能力时，先查 `capabilities.yaml`，优先复用现有 backend，新增 tests + evidence，不要把未验证 capability 标为 `verified`。详见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+**Contributing**: Yeni yetenek eklerken önce `capabilities.yaml` dosyasına bakın, mevcut backend'i öncelikli olarak yeniden kullanın, tests + evidence ekleyin ve doğrulanmamış capability'yi `verified` olarak işaretlemeyin. Ayrıntılar için bkz. [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ---
 
@@ -331,7 +331,7 @@ Artifacts + Evidence
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=wzyn20051216/solidworks-automation-skill&amp;type=Date&amp;theme=dark">
-  <img src="https://api.star-history.com/svg?repos=wzyn20051216/solidworks-automation-skill&amp;type=Date" alt="SolidWorks Automation Skill 星标趋势" width="960">
+  <img src="https://api.star-history.com/svg?repos=wzyn20051216/solidworks-automation-skill&amp;type=Date" alt="SolidWorks Automation Skill yıldız eğilimi" width="960">
 </picture>
 
 ---
@@ -342,15 +342,15 @@ Artifacts + Evidence
 
 ---
 
-<sub>关注抖音 @balance. · 嵌入式开发、SolidWorks 自动化和 AI 辅助工程实践持续更新</sub>
+<sub>Douyin'de @balance. takip edin · Gömülü geliştirme, SolidWorks otomasyonu ve AI destekli mühendislik uygulamaları düzenli olarak güncellenir</sub>
 
-### 装配干涉检查 API
+### Montaj girişim denetimi API'si
 
-`solidworks_interference_check` 使用 `IAssemblyDoc.InterferenceDetectionManager`，
-通过 `GetInterferences()` 计算并读取 `IInterference.Components` 和体积，最后调用
-`Done()`。隐藏实体和已忽略结果参与检查；同一个多实体零件内部的相交不计入。
-计算失败、计数读取失败、数组数量不一致或结束检查失败均返回 `blocked`，不会误报零干涉。
-抑制组件不参与计算；零结果仍需核对组件解析状态和设计意图。
-离线回归覆盖调用顺序、失败处理和 SI 体积换算（26 项通过）。
-SOLIDWORKS 2026 SP4.1（34.4.1）、Python 3.10 上已通过 MCP 实测正常返回；
-该真机样例为零干涉，非零结果读取仍以离线回归为证据。
+`solidworks_interference_check`, `IAssemblyDoc.InterferenceDetectionManager` kullanır,
+`GetInterferences()` ile hesaplar ve `IInterference.Components` ile hacmi okur, sonunda `Done()` çağırır.
+Gizli katılar ve yok sayılan sonuçlar denetime katılır; aynı çok katılı parçanın kendi içindeki kesişimler hesaba katılmaz.
+Hesaplama hatası, sayım okuma hatası, dizi sayısı tutarsızlığı veya denetimi bitirme hatası `blocked` döndürür ve yanlışlıkla sıfır girişim bildirmez.
+Bastırılan bileşenler hesaplamaya katılmaz; sıfır sonuç yine de bileşen çözümleme durumunun ve tasarım amacının doğrulanmasını gerektirir.
+Çevrimdışı regresyon çağrı sırasını, hata işlemeyi ve SI hacim dönüşümünü kapsar (26 öğe geçti).
+SOLIDWORKS 2026 SP4.1 (34.4.1) ve Python 3.10 üzerinde MCP ile test edilerek normal yanıt döndürdüğü doğrulanmıştır;
+bu gerçek donanım örneği sıfır girişimdir, sıfır olmayan sonuç okuma yine çevrimdışı regresyonu kanıt olarak alır.

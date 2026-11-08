@@ -1,4 +1,4 @@
-"""读取本地 API Help 和持久化的公开文档片段，不保存任务数据。"""
+"""Yerel API Help ve kalıcı genel dokümantasyon parçalarını okur; görev verisi kaydetmez."""
 from __future__ import annotations
 
 import hashlib
@@ -23,8 +23,8 @@ except ImportError:
 
 
 def _find_sevenzip() -> str | None:
-    """优先使用 PATH；Windows 上也接受 7-Zip 安装程序登记的目录。"""
-    # 7za 的独立版本不支持 CHM；必须使用带完整格式库的 7z。
+    """Öncelikle PATH kullanılır; Windows'ta 7-Zip kurulumunun kaydettiği dizin de kabul edilir."""
+    # 7za tek başına CHM desteklemez; tam biçim kütüphanesi olan 7z kullanılmalıdır.
     executable = shutil.which("7z")
     if executable:
         return executable
@@ -60,7 +60,7 @@ def _cache_path(version: int, interface: str, member: str) -> Path:
 
 
 def save_document(version: int, interface: str, member: str, document: dict[str, Any]) -> None:
-    """只保存明确允许的公开字段；失败不影响主要查询。"""
+    """Yalnızca açıkça izin verilen genel alanları kaydeder; başarısızlık ana sorguyu etkilemez."""
     fields = ("status", "source", "version", "title", "text", "sha256", "retrieved_at", "provider", "version_evidence", "trust", "runtime_verified")
     data = {key: document[key] for key in fields if key in document}
     if not _valid_document(data, version, interface, member):
@@ -147,9 +147,9 @@ class _TitleText(HTMLParser):
 def read_local_help(executable: Path, version: int, interface: str, member: str, url: str, *,
                     allow_install: bool = False, warnings: list[str] | None = None,
                     cancelled: Any = None) -> dict[str, Any] | None:
-    """只读取已识别安装目录的 API CHM，7-Zip 缺失时安全跳过。
+    """Yalnızca tanınan kurulum dizinindeki API CHM dosyasını okur; 7-Zip yoksa güvenle atlar.
 
-    文件归属安装不保证其内部版本，结果必须标为未独立确认版本。
+    Dosyanın bir kuruluma ait olması iç sürümünü garanti etmez; sonuç bağımsız olarak doğrulanmamış sürüm olarak işaretlenmelidir.
     """
     install = executable.parent
     primary = "swconst.chm" if interface.casefold().startswith("sw") else "sldworksapi.chm"
@@ -157,15 +157,15 @@ def read_local_help(executable: Path, version: int, interface: str, member: str,
     archive = next((path for path in candidates if path.is_file()), None)
     restoring = archive is None
     if restoring:
-        # Authenticode 信任链检查可能访问证书状态服务；离线模式不运行安装源验证。
+        # Authenticode güven zinciri denetimi sertifika durum servisine erişebilir; çevrim dışı modda kurulum kaynağı doğrulaması çalışmaz.
         if not allow_install:
-            if warnings is not None: warnings.append("未发现本地 API Help；离线或自动配置关闭时不验证和恢复安装源。")
+            if warnings is not None: warnings.append("Yerel API Help bulunamadı; çevrim dışı veya otomatik yapılandırma kapalıyken kurulum kaynağı doğrulanmaz ve geri yüklenmez.")
             return None
         if os.environ.get("SW_API_LOOKUP_AUTO_INSTALL", "on").strip().lower() in {"off", "false", "0"}:
-            if warnings is not None: warnings.append("未发现本地 API Help，自动恢复已关闭。")
+            if warnings is not None: warnings.append("Yerel API Help bulunamadı, otomatik geri yükleme kapalı.")
             return None
         if _registered_source(executable, version) is None:
-            if warnings is not None: warnings.append("未发现目标安装的本地 API Help 或匹配的本地安装源，将继续使用其他资料。")
+            if warnings is not None: warnings.append("Hedef kurulumun yerel API Help veya eşleşen yerel kurulum kaynağı bulunamadı; diğer kaynaklar kullanılmaya devam edilecek.")
             return None
     sevenzip = _find_sevenzip()
     if not sevenzip:

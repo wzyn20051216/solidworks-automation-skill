@@ -1,77 +1,77 @@
 ---
 name: solidworks-automation
-description: "SolidWorks CAD 自动化技能，优先覆盖经验证的零件、孔槽、装配、工程图、导出和交付复核；所有能力等级以 capabilities.yaml 为准，未验证能力必须走人工复核。"
+description: "SolidWorks CAD otomasyon yeteneği; öncelikli olarak doğrulanmış parça, delik/kanal, montaj, teknik resim, dışa aktarma ve teslim incelemesini kapsar; tüm yetenek seviyeleri capabilities.yaml esas alınır, doğrulanmamış yetenekler mutlaka elle incelemeden geçmelidir."
 metadata: { "openclaw": { "homepage": "https://github.com/wzyn20051216/solidworks-automation-skill", "os": ["win32"], "requires": { "anyBins": ["python", "py"] } } }
 ---
 
-# SolidWorks 自动化技能
+# SolidWorks Otomasyon Yeteneği
 
-## 快速开始
+## Hızlı Başlangıç
 
-### 环境要求
+### Ortam gereksinimleri
 
-- Windows 系统；原生 SolidWorks 操作以 SolidWorks 2026 为支持与验收目标，开放格式无头写入不要求安装 CAD 软件
-- Python 3.10+；原生 Windows CAD 自动化另需 `pywin32` / `comtypes`
-- MCP/工具化调用需要 `mcp` / `pydantic`
-- 工程图最终交付审查需要 `PyMuPDF`；它从 SolidWorks 导出 PDF 回读实际尺寸文字边界，已包含在 `requirements.txt`
-- 处理 GLB/GLTF/OBJ/STL 网格参考模型时，可能还需要 `trimesh` / `pygltflib` / `numpy` / `Pillow`
-- 如果通过 OpenClaw 使用，确保技能目录位于 `~/.openclaw/skills/solidworks-automation/` 或 `~/.agents/skills/solidworks-automation/`
+- Windows sistemi; yerel SolidWorks işlemleri için destek ve kabul hedefi SolidWorks 2026'dır, açık format başsız yazma CAD yazılımı kurulumunu gerektirmez
+- Python 3.10+; yerel Windows CAD otomasyonu ayrıca `pywin32` / `comtypes` gerektirir
+- MCP/araçsallaştırılmış çağrılar `mcp` / `pydantic` gerektirir
+- Teknik resim nihai teslim incelemesi `PyMuPDF` gerektirir; SolidWorks'ten PDF dışa aktarıp gerçek ölçü metni sınırlarını geri okur, `requirements.txt` içinde yer alır
+- GLB/GLTF/OBJ/STL ağ referans modellerini işlerken ayrıca `trimesh` / `pygltflib` / `numpy` / `Pillow` gerekebilir
+- OpenClaw üzerinden kullanıyorsanız, yetenek dizininin `~/.openclaw/skills/solidworks-automation/` veya `~/.agents/skills/solidworks-automation/` altında olduğundan emin olun
 
-### 入口自检
+### Giriş öz denetimi
 
-所有代理在执行 SolidWorks 自动化前，先运行技能自检：
+Tüm Agent'lar SolidWorks otomasyonunu yürütmeden önce yetenek öz denetimini çalıştırır:
 
 ```bash
 python SKILL_DIR/scripts/sw_preflight.py
 ```
 
-桌面端或 CLI 执行前建议先运行环境诊断：
+Masaüstü veya CLI yürütmesinden önce ortam tanılamasının çalıştırılması önerilir:
 
 ```powershell
 python SKILL_DIR/scripts/cad_studio.py doctor
 ```
 
-`capabilities.yaml` 是 Skill、MCP、队列和 UI 共用的能力唯一真源。能力等级为 `verified`、`pilot`、`reference_only` 或 `not_implemented`；后两者不得作为无人值守交付。该清单还维护 Python、C# PIA/Add-in、原生 C++、SWBasic、OCCT 和外部求解器的原子操作路由；执行前可用 `python scripts/backend_router.py --list` 查询，规则见 `references/language-backend-routing.md`。
+`capabilities.yaml`, Skill, MCP, kuyruk ve UI'nin ortak kullandığı yeteneğin tek doğruluk kaynağıdır. Yetenek seviyeleri `verified`, `pilot`, `reference_only` veya `not_implemented`'tir; son ikisi gözetimsiz teslimat olarak kullanılamaz. Bu liste ayrıca Python, C# PIA/Add-in, yerel C++, SWBasic, OCCT ve harici çözücülerin atomik işlem yönlendirmesini yönetir; yürütmeden önce `python scripts/backend_router.py --list` ile sorgulanabilir, kurallar için bkz. `references/language-backend-routing.md`.
 
-### 多入口与多后端
+### Çoklu giriş ve çoklu backend
 
-- CAD Studio 与 Skill/CLI/MCP 是平级入口，共用 Automation Job、NeutralCadDocument、Preview Manifest、Evidence Graph 和能力清单。
-- 检测不到 SolidWorks/AutoCAD 时，只阻断 `SLDPRT/SLDASM/SLDDRW/DWG` 等原生格式；开放格式任务优先路由到 `headless_open_format_writing`。
-- 需要设计规则审查或丝杠/皮带电机扭矩初筛时，读取 `references/design-rule-check.md` 和 `references/drive-sizing.md`，以用户提供或经验证采集的中性文档为输入；缺失证据标为 `review_required`，结果必须由工程师复核。
-- 需要识别钻孔面板孔位或规划图纸候选时，读取 `subskills/solidworks-engineering-drawing/references/drilling-panel-gdt.md`；孔型、基准和公差不得凭几何猜定，候选规格不得冒充已验证工程图。
-- 用户要求基准、复合公差框或 GD&T 自动落图时，读取 `subskills/solidworks-engineering-drawing/references/native-gdt.md`。已有图纸先用 `scripts/sw_gdt_copy.py --source 图纸.slddrw --inspect` 查明目标，再写新副本；从模型新出图使用现有 MCP `solidworks_generate_drawing` 或 `scripts/sw_drawing_package.py`，提供结构化尺寸、基本尺寸、基准及单框/复合框要求。SW2026 保存重开核验原生关联、全部层和基准材料修饰，源文件保留，结果需目视复核；旧自由文字不猜测落图。
-- 公共基准、子基准组、投影公差带、轮廓偏置、CZ/SZ、局部范围和其他高级 GD&T，继续读取 `subskills/solidworks-engineering-drawing/references/gdt-extended-options.md`，通过同一工具提交结构化成员与 `options`；每个成员都须核对，写入后保存重开核验全部新语义。
-- 要提取已保存模型的已显示尺寸公差时，使用 `scripts/sw_tolerance_extract.py`；它只读当前配置，结果不覆盖隐藏尺寸或其他配置，角度、装配和图纸读取仍需验证。
-- 需要按属性批量改名时，先用 `scripts/sw_file_rename.py` 生成只读预览；受限独立零件可用 `scripts/sw_rename_copy.py`，单配置嵌套装配可用 `scripts/sw_assembly_rename.py` 在新目录创建副本并重开核验。源文件及外部使用位置不改；图纸、Toolbox、多配置及其他未验证引用仍受阻断，详见 `references/rename-preview.md`。
-- 需要链轮外观或几何演示时，读取 `references/sprocket.md` 并使用 `scripts/sw_sprocket.py` 在新建空零件中创建近似实体；此模型未验证链条啮合或制造要求，不能作为生产级标准链轮。
-- 需要开放端等螺距圆线弹簧实体时，读取 `references/spring.md` 并使用 `scripts/sw_spring.py`；输入高度是螺旋中心线轴向行程而非实体自由高度，材料、端部和工程性能必须复核。
-- 无头写入使用 `scripts/headless_cad_writer.py`；OCCT/OCP 隔离进程真实写入 STEP、IGES、BREP、STL、OBJ、GLB，二维后端写入 DXF、SVG、PDF、PNG，并生成几何与 SHA-256 证据。
-- DXF 交付会额外生成 `preview_scene`；已有 DXF 可通过 `python scripts/cad_studio.py preview-dxf --input drawing.dxf --output drawing.scene.json` 或 MCP `cadstudio_build_dxf_preview_scene` 转成受限 PreviewScene。该命令只读白名单实体并拒绝覆盖旧文件。
-- OCCT 当前覆盖盒体、圆柱、布尔合并、圆柱孔切除、直纹/受限平滑 Loft、直线/单圆弧 Sweep、闭壳 Knit 和开放面 Thicken；复杂路径、自交偏置或缺少 OCP 运行时时保持 `blocked`。禁止通过改扩展名或空文件伪造支持。
-- `delivery-preview` 只允许显示当前任务真实产物；固定样例必须标记 `demo-showcase` 与 `isDemo: true`，不得进入交付判断。
+- CAD Studio ile Skill/CLI/MCP eş düzeyli girişlerdir; Automation Job, NeutralCadDocument, Preview Manifest, Evidence Graph ve yetenek listesini ortak kullanır.
+- SolidWorks/AutoCAD algılanmadığında yalnızca `SLDPRT/SLDASM/SLDDRW/DWG` gibi yerel formatlar engellenir; açık format görevleri öncelikli olarak `headless_open_format_writing`'e yönlendirilir.
+- Tasarım kuralı incelemesi veya vidalı mil/kayış motoru torku ön taraması gerektiğinde `references/design-rule-check.md` ve `references/drive-sizing.md` okunur; kullanıcının sağladığı veya doğrulanmış olarak toplanan nötr belge girdi olarak alınır; eksik kanıt `review_required` olarak işaretlenir ve sonuç mühendis tarafından incelenmelidir.
+- Delme paneli delik konumlarını tanımlamak veya teknik resim adaylarını planlamak gerektiğinde `subskills/solidworks-engineering-drawing/references/drilling-panel-gdt.md` okunur; delik tipi, referans ve tolerans geometriden tahmin edilemez, aday spesifikasyonlar doğrulanmış teknik resim olarak sunulamaz.
+- Kullanıcı referans, bileşik tolerans çerçevesi veya GD&T otomatik yerleştirmesi istediğinde `subskills/solidworks-engineering-drawing/references/native-gdt.md` okunur. Mevcut teknik resimlerde önce `scripts/sw_gdt_copy.py --source resim.slddrw --inspect` ile hedef belirlenir, ardından yeni bir kopya yazılır; modelden yeni teknik resim çıkarmak için mevcut MCP `solidworks_generate_drawing` veya `scripts/sw_drawing_package.py` kullanılır ve yapılandırılmış ölçüler, temel ölçüler, referanslar ile tek çerçeve/bileşik çerçeve gereksinimleri sağlanır. SW2026 kaydedip yeniden açarak yerel ilişkililiği, tüm katmanları ve referans malzeme süslemelerini doğrular, kaynak dosya korunur ve sonuç görsel olarak incelenmelidir; eski serbest metinlerden yerleştirme tahmin edilmez.
+- Ortak referanslar, alt referans grupları, projeksiyon tolerans bölgeleri, profil ofseti, CZ/SZ, yerel kapsamlar ve diğer ileri GD&T için `subskills/solidworks-engineering-drawing/references/gdt-extended-options.md` okunmaya devam edilir ve aynı araç üzerinden yapılandırılmış üyeler ile `options` gönderilir; her üye doğrulanmalı ve yazıldıktan sonra kaydedip yeniden açarak tüm yeni anlamlar doğrulanmalıdır.
+- Kaydedilmiş bir modelde görüntülenen ölçü toleranslarını çıkarmak için `scripts/sw_tolerance_extract.py` kullanılır; yalnızca geçerli yapılandırmayı okur, sonuçlar gizli ölçüleri veya diğer yapılandırmaları kapsamaz; açı, montaj ve teknik resim okumaları hâlâ doğrulanmalıdır.
+- Özelliğe göre toplu yeniden adlandırma gerektiğinde önce `scripts/sw_file_rename.py` ile salt okunur önizleme oluşturulur; sınırlı bağımsız parçalar için `scripts/sw_rename_copy.py`, tek yapılandırmalı iç içe montajlar için `scripts/sw_assembly_rename.py` yeni dizinde kopya oluşturup yeniden açarak doğrular. Kaynak dosyalar ve harici kullanım konumları değişmez; teknik resimler, Toolbox, çoklu yapılandırma ve diğer doğrulanmamış referanslar hâlâ engellenir, ayrıntılar için bkz. `references/rename-preview.md`.
+- Zincir dişlisi görünümü veya geometri gösterimi gerektiğinde `references/sprocket.md` okunur ve yeni boş bir parça içinde yaklaşık katı model oluşturmak için `scripts/sw_sprocket.py` kullanılır; bu model zincir kavraması veya üretim gereksinimleri açısından doğrulanmamıştır ve üretim seviyesinde standart zincir dişlisi olarak kullanılamaz.
+- Açık uçlu eşit hatveli dairesel telli yay katı modeli gerektiğinde `references/spring.md` okunur ve `scripts/sw_spring.py` kullanılır; girdi yüksekliği katı serbest yüksekliği değil, helis merkez hattının eksenel hareketidir; malzeme, uçlar ve mühendislik performansı mutlaka incelenmelidir.
+- Başsız yazma `scripts/headless_cad_writer.py` kullanır; OCCT/OCP yalıtılmış süreç gerçek olarak STEP, IGES, BREP, STL, OBJ, GLB yazar, iki boyutlu backend DXF, SVG, PDF, PNG yazar ve geometri ile SHA-256 kanıtı üretir.
+- DXF teslimatı ayrıca `preview_scene` üretir; mevcut DXF, `python scripts/cad_studio.py preview-dxf --input drawing.dxf --output drawing.scene.json` veya MCP `cadstudio_build_dxf_preview_scene` ile sınırlı bir PreviewScene'e dönüştürülebilir. Bu komut yalnızca beyaz listedeki varlıkları okur ve eski dosyaların üzerine yazmayı reddeder.
+- OCCT şu anda kutu, silindir, boolean birleştirme, silindir delik kesme, kurallı/sınırlı düzgün Loft, düz çizgi/tek yay Sweep, kapalı kabuk Knit ve açık yüz Thicken kapsar; karmaşık yollar, kendiyle kesişen ofset veya eksik OCP çalışma zamanında `blocked` kalır. Uzantı değiştirerek veya boş dosyayla destek sahtelemek yasaktır.
+- `delivery-preview` yalnızca geçerli görevin gerçek ürünlerini gösterebilir; sabit örnekler `demo-showcase` ve `isDemo: true` olarak işaretlenmelidir ve teslim kararına giremez.
 
-规则：
+Kurallar:
 
-1. 检测到缺少 `comtypes` / `win32com` / `pythoncom` 时，默认执行 `python -m pip install "pywin32>=305" "comtypes>=1.2.0"` 补齐依赖；安装失败时说明原因和手动方法。
-2. 环境变量 `SW_AUTO_INSTALL_DEPENDENCIES=off` 或 `sw_preflight.py --no-install` 可关闭自动安装。
-3. 检测不到 SolidWorks 安装或 COM 注册时，停止原生 SolidWorks 操作；若原生格式并非必需且 `fallbackPolicy=allow_open_formats`，继续执行无头开放格式后端，不要把整个任务误标为失败。
+1. `comtypes` / `win32com` / `pythoncom` eksikliği algılandığında varsayılan olarak `python -m pip install "pywin32>=305" "comtypes>=1.2.0"` çalıştırılarak bağımlılıklar tamamlanır; kurulum başarısız olursa neden ve elle yöntem açıklanır.
+2. `SW_AUTO_INSTALL_DEPENDENCIES=off` ortam değişkeni veya `sw_preflight.py --no-install` otomatik kurulumu kapatabilir.
+3. SolidWorks kurulumu veya COM kaydı algılanmadığında yerel SolidWorks işlemleri durdurulur; yerel format zorunlu değilse ve `fallbackPolicy=allow_open_formats` ise başsız açık format backend'i yürütülmeye devam edilir, tüm görev başarısız olarak yanlış işaretlenmez.
 
-### Python 依赖提醒
+### Python bağımlılığı hatırlatması
 
-按任务最小化安装依赖，不要在普通零件建模时强制安装网格转换库；工程图交付需要标准 `requirements.txt` 中的 PyMuPDF：
+Bağımlılıkları göreve göre asgari düzeyde kurun; normal parça modellemede ağ dönüştürme kitaplıklarını zorla kurmayın; teknik resim teslimatı için standart `requirements.txt` içindeki PyMuPDF gerekir:
 
 ```powershell
-# 核心 SolidWorks COM 自动化依赖
+# Çekirdek SolidWorks COM otomasyon bağımlılıkları
 python -m pip install -r SKILL_DIR\requirements.txt
 
-# 仅在需要 GLB/GLTF/OBJ/STL 网格检查、缩放或转换时安装
+# Yalnızca GLB/GLTF/OBJ/STL ağ denetimi, ölçekleme veya dönüştürme gerektiğinde kurun
 python -m pip install -r SKILL_DIR\requirements-mesh.txt
 ```
 
-执行涉及 GLB/GLTF/FBX/BLEND 转 OBJ/STL 的任务前，先用 `importlib.util.find_spec()` 检查
-`trimesh`、`pygltflib`、`PIL` 是否可用；缺失时先提示用户需要安装哪些库和用途，再安装或给出手动命令。
+GLB/GLTF/FBX/BLEND'i OBJ/STL'ye dönüştüren görevleri yürütmeden önce `importlib.util.find_spec()` ile
+`trimesh`, `pygltflib`, `PIL` kullanılabilir mi diye denetleyin; eksik olduğunda önce kullanıcıya hangi kitaplıkların gerekli olduğunu ve amaçlarını bildirin, ardından kurun veya elle komut verin.
 
-### 连接 SolidWorks
+### SolidWorks'e bağlanma
 
 ```python
 import sys; sys.path.insert(0, r"SKILL_DIR/scripts")
@@ -88,71 +88,71 @@ with SolidWorksSession(version=2026) as session:
         fully_define_sketch(model)
 
     if extrude_boss(model, sketch_name, mm(50)) is None:
-        raise RuntimeError("拉伸失败")
+        raise RuntimeError("Ekstrüzyon başarısız")
     if not session.save(model, r"C:\temp\cylinder.sldprt"):
-        raise RuntimeError("保存失败")
+        raise RuntimeError("Kaydetme başarısız")
     if not session.export(model, r"C:\temp\cylinder.step"):
-        raise RuntimeError("导出失败")
+        raise RuntimeError("Dışa aktarma başarısız")
 ```
 
-> 将 `SKILL_DIR` 替换为此技能的实际安装路径。
+> `SKILL_DIR` yerine bu yeteneğin gerçek kurulum yolunu yazın.
 
-模型交付要回读草图的约束状态、尺寸与关系，禁止批量 Fix 代替设计参数；保存重开后验证草图被目标特征消费、关键尺寸可改且孔位保持正确。基础圆/矩形可用 `fully_define_sketch()`；复杂草图应明确设计尺寸和关系，再用 `inspect_model_sketches()` 验收，缺证据时保留人工复核。
+Model teslimatında krokinin kısıt durumu, ölçüleri ve ilişkileri geri okunmalıdır; toplu Fix'in tasarım parametrelerinin yerini alması yasaktır; kaydedip yeniden açtıktan sonra krokinin hedef özellik tarafından tüketildiği, kritik ölçülerin değiştirilebildiği ve delik konumlarının doğru kaldığı doğrulanmalıdır. Temel daire/dikdörtgen için `fully_define_sketch()` kullanılabilir; karmaşık krokilere tasarım ölçüleri ve ilişkileri açıkça belirtilmeli, ardından `inspect_model_sketches()` ile kabul edilmelidir; kanıt eksik olduğunda elle inceleme korunur.
 
-会话上下文只清理本轮登记的文档和确认归属的空实例；达到文档预算时先处理本轮文件。执行标记失败、重建失败、未知检查结果或人工复核尚未完成时，不得宣称任务完成。远程 MCP 通过 `artifact_refs` 取回 PNG 或原始文件并核对 SHA-256，规则见 `mcp-server/README.md`。
+Oturum bağlamı yalnızca bu turda kaydedilen belgeleri ve aidiyeti doğrulanmış boş örnekleri temizler; belge bütçesine ulaşıldığında önce bu turun dosyaları işlenir. Yürütme başarısız olarak işaretlendiğinde, yeniden oluşturma başarısız olduğunda, denetim sonucu bilinmediğinde veya elle inceleme henüz tamamlanmadığında görev tamamlandı olarak ilan edilemez. Uzak MCP `artifact_refs` üzerinden PNG veya orijinal dosyayı geri alır ve SHA-256'yı doğrular; kurallar için bkz. `mcp-server/README.md`.
 
-## 核心工作流
+## Çekirdek İş Akışları
 
-根据用户需求选择对应模块：
+Kullanıcı gereksinimine göre ilgili modülü seçin:
 
-| 需求 | 脚本 | 参考文档 |
+| Gereksinim | Betik | Referans dokümanı |
 |---|---|---|
-| 入口自检与依赖补齐 | `scripts/sw_preflight.py` | `references/troubleshooting.md` |
-| 无 CAD 开放格式写入 | `scripts/headless_cad_writer.py`、`scripts/cad_studio.py write-open-format` | `capabilities.yaml`、公共 CAD Core Schema |
-| 高级能力/类型库探测 | `scripts/sw_capability_probe.py` | `references/complex-mechanical-routing.md` |
-| Python/C#/C++/SWBasic/OCCT 后端选择 | `scripts/backend_router.py` | `references/language-backend-routing.md`、`capabilities.yaml` |
-| C# 进程内 Add-in 宿主、事件与 UI | `scripts/sw_addin_host.ps1`、`scripts/sw_addin_host.py` | `references/solidworks-addin-host.md` |
-| 多模型宏生成防护 | `scripts/sw_macro_guard.py` | `references/openclaw.md` |
-| 友好会话 API | `scripts/sw_session.py` | - |
-| 连接与文档管理 | `scripts/sw_connect.py` | - |
-| 外观与材质 | `scripts/sw_appearance.py` | `references/appearance.md` |
-| 零件建模（草图+特征） | `scripts/sw_part.py` | `references/part-modeling.md` |
-| 标准外啮合直齿轮实体 | `scripts/sw_gear.py` | `references/gears.md` |
-| 盲孔/沉孔/沉头孔/半圆端槽与孔位验收 | `scripts/sw_hole_features.py`、`scripts/sw_review.py` | `references/complex-hole-features.md`、`references/review.md` |
-| 自然语言到参数化设计计划 / VibeCAD | `subskills/solidworks-vibecad/scripts/plan_from_brief.py` | `subskills/solidworks-vibecad/SKILL.md`、`subskills/solidworks-vibecad/README.md` |
-| 多圆角/倒角 CNC 机加工件 | `subskills/solidworks-fillet-chamfer-cnc/scripts/create_cnc_mount_template.py`；高级圆角用 `verify_advanced_fillets.py` | `subskills/solidworks-fillet-chamfer-cnc/SKILL.md`、`subskills/solidworks-fillet-chamfer-cnc/references/cnc-fillet-chamfer-lessons.md` |
-| 螺丝孔/螺纹孔、攻丝底孔 | `subskills/solidworks-threaded-holes/scripts/create_threaded_hole_template.py` | `subskills/solidworks-threaded-holes/SKILL.md`、`subskills/solidworks-threaded-holes/references/threaded-hole-lessons.md` |
-| AutoCAD DWG/DXF 二维绘图、线稿转 CAD、批量改图 | `subskills/autocad-automation/scripts/acad_draw.py`、`subskills/autocad-automation/scripts/acad_review.py` | `subskills/autocad-automation/SKILL.md`、`subskills/autocad-automation/references/troubleshooting.md` |
-| 装配体操作、齿轮联动/铰链/可拖动运动配合 | `scripts/sw_assembly.py` | `references/assembly.md` |
-| Motion Study 运动算例、旋转马达与结果审计 | `scripts/sw_motion.py` | `references/motion-study.md`、`references/complex-mechanical-routing.md` |
-| 工程图出图 | `scripts/sw_drawing.py` | `references/drawing.md` |
-| 文件导出 | `scripts/sw_export.py` | `references/export.md` |
-| 配置族创建/激活、参数修改与自定义属性 | `scripts/sw_document_data.py` | `references/advanced.md` |
-| 装配 BOM CSV 与 Pack and Go | `scripts/sw_delivery.py` | `references/export.md` |
-| OBJ/STL 高还原网格参考导入 | `scripts/sw_import_mesh_reference.py` | `references/mesh-reference-import.md` |
-| 结果自审查 | `scripts/sw_review.py` | `references/review.md` |
-| 语义实体引用 | `scripts/sw_entity_reference.py` | 逐步替代 Face1/Edge1 和屏幕坐标 |
-| DFM 制造风险复核 | `scripts/dfm_review.py`、`scripts/dfm_profiles.py`、`scripts/cad_studio.py check-dfm` | 供应商 profile、B-Rep 证据、机加工、钣金、激光切割、3D 打印和注塑声明型规则检查 |
-| Routing 中性复核与前置 | `scripts/routing_review.py`、`scripts/cad_studio.py check-routing`、`scripts/cad_studio.py routing-preflight` | 端点、分段、长度、弯曲半径、碰撞/间隙、支撑、Routing BOM；原生写入必须等加载项/许可证证据 |
-| FEA 前置、输入与受限求解 | `scripts/fea_analysis.py`、`scripts/fea_convergence.py`、`scripts/cad_studio.py fea-preflight/prepare-fea/run-fea/run-fea-convergence` | CalculiX 2.23 已验证线性/非线性静力、塑性、面接触、最终步 COPEN/CPRESS/CSLIP 与线性/非线性网格收敛；全部仍需工程复核 |
-| 复杂曲面与模具 | `scripts/advanced_geometry.py`、`scripts/advanced_geometry_ocp.py`、`scripts/advanced_surface_ocp.py`、`scripts/cad_studio.py review-advanced-geometry/create-ocp-loft/create-ocp-surface` | 直纹/平滑 Loft、受限 Sweep/Knit/Thicken 可写并重开 B-Rep；G1/G2 和曲率半径只返回离散采样证据 |
-| 本地 MCP Server | `mcp-server/server.py` | `mcp-server/README.md`、`references/mcp-server.md` |
-| MCP 协议验证 | `scripts/validate_mcp.py` | `mcp-server/README.md` |
-| 版本化 API 查证 | `scripts/sw_api_lookup.py` | `references/api-lookup.md` |
-| OpenClaw 控制 SolidWorks | - | `references/openclaw.md` |
-| 钣金/焊件/仿真/属性 | - | `references/advanced.md` |
-| 企业 Agent / 本地优先与云 RAG | `apps/desktop/cad_workbench/knowledge_retrieval.py` | `references/enterprise-agent-rag.md` |
-| Codex/Claude/Gemini/OpenCode Provider Adapter | `apps/desktop/cad_workbench/agent_providers.py` | `references/agent-provider-architecture.md` |
-| 综合机械工程 DAG 自动编排 | `apps/desktop/cad_workbench/engineering_orchestrator.py` | `references/complex-mechanical-routing.md` |
-| 常见错误排查 | - | `references/troubleshooting.md` |
+| Giriş öz denetimi ve bağımlılık tamamlama | `scripts/sw_preflight.py` | `references/troubleshooting.md` |
+| CAD'siz açık format yazma | `scripts/headless_cad_writer.py`, `scripts/cad_studio.py write-open-format` | `capabilities.yaml`, ortak CAD Core Schema |
+| İleri yetenek/tip kitaplığı algılama | `scripts/sw_capability_probe.py` | `references/complex-mechanical-routing.md` |
+| Python/C#/C++/SWBasic/OCCT backend seçimi | `scripts/backend_router.py` | `references/language-backend-routing.md`, `capabilities.yaml` |
+| C# süreç içi Add-in ana makinesi, olaylar ve UI | `scripts/sw_addin_host.ps1`, `scripts/sw_addin_host.py` | `references/solidworks-addin-host.md` |
+| Çok modelli makro üretim koruması | `scripts/sw_macro_guard.py` | `references/openclaw.md` |
+| Kullanışlı oturum API'si | `scripts/sw_session.py` | - |
+| Bağlantı ve belge yönetimi | `scripts/sw_connect.py` | - |
+| Görünüm ve malzeme | `scripts/sw_appearance.py` | `references/appearance.md` |
+| Parça modelleme (kroki+özellik) | `scripts/sw_part.py` | `references/part-modeling.md` |
+| Standart dış alın düz dişli katı modeli | `scripts/sw_gear.py` | `references/gears.md` |
+| Kör delik/havşa delik/havşalı delik/yarım daire uçlu kanal ve delik konumu kabulü | `scripts/sw_hole_features.py`, `scripts/sw_review.py` | `references/complex-hole-features.md`, `references/review.md` |
+| Doğal dilden parametrik tasarım planı / VibeCAD | `subskills/solidworks-vibecad/scripts/plan_from_brief.py` | `subskills/solidworks-vibecad/SKILL.md`, `subskills/solidworks-vibecad/README.md` |
+| Çok sayıda yuvarlatma/pah CNC işlenmiş parça | `subskills/solidworks-fillet-chamfer-cnc/scripts/create_cnc_mount_template.py`; ileri yuvarlatmalar için `verify_advanced_fillets.py` | `subskills/solidworks-fillet-chamfer-cnc/SKILL.md`, `subskills/solidworks-fillet-chamfer-cnc/references/cnc-fillet-chamfer-lessons.md` |
+| Vida delikleri/dişli delikler, kılavuz çekme ön deliği | `subskills/solidworks-threaded-holes/scripts/create_threaded_hole_template.py` | `subskills/solidworks-threaded-holes/SKILL.md`, `subskills/solidworks-threaded-holes/references/threaded-hole-lessons.md` |
+| AutoCAD DWG/DXF iki boyutlu çizim, çizgiden CAD'e dönüştürme, toplu çizim değiştirme | `subskills/autocad-automation/scripts/acad_draw.py`, `subskills/autocad-automation/scripts/acad_review.py` | `subskills/autocad-automation/SKILL.md`, `subskills/autocad-automation/references/troubleshooting.md` |
+| Montaj işlemleri, dişli bağlantı/menteşe/sürüklenebilir hareket eşleştirmesi | `scripts/sw_assembly.py` | `references/assembly.md` |
+| Motion Study hareket simülasyonu, döner motor ve sonuç denetimi | `scripts/sw_motion.py` | `references/motion-study.md`, `references/complex-mechanical-routing.md` |
+| Teknik resim çıkarma | `scripts/sw_drawing.py` | `references/drawing.md` |
+| Dosya dışa aktarma | `scripts/sw_export.py` | `references/export.md` |
+| Yapılandırma ailesi oluşturma/etkinleştirme, parametre değiştirme ve özel özellikler | `scripts/sw_document_data.py` | `references/advanced.md` |
+| Montaj BOM CSV ve Pack and Go | `scripts/sw_delivery.py` | `references/export.md` |
+| OBJ/STL yüksek aslına uygun ağ referansı içe aktarma | `scripts/sw_import_mesh_reference.py` | `references/mesh-reference-import.md` |
+| Sonuç öz incelemesi | `scripts/sw_review.py` | `references/review.md` |
+| Anlamsal varlık referansı | `scripts/sw_entity_reference.py` | Face1/Edge1 ve ekran koordinatlarının kademeli olarak yerine geçer |
+| DFM üretim riski incelemesi | `scripts/dfm_review.py`, `scripts/dfm_profiles.py`, `scripts/cad_studio.py check-dfm` | Tedarikçi profili, B-Rep kanıtı, işleme, sac metal, lazer kesim, 3D baskı ve enjeksiyon bildirim tipi kural denetimi |
+| Routing nötr inceleme ve ön kontrol | `scripts/routing_review.py`, `scripts/cad_studio.py check-routing`, `scripts/cad_studio.py routing-preflight` | Uç noktalar, segmentler, uzunluk, bükme yarıçapı, çarpışma/boşluk, destek, Routing BOM; yerel yazma eklenti/lisans kanıtını beklemelidir |
+| FEA ön kontrol, girdi ve sınırlı çözüm | `scripts/fea_analysis.py`, `scripts/fea_convergence.py`, `scripts/cad_studio.py fea-preflight/prepare-fea/run-fea/run-fea-convergence` | CalculiX 2.23 doğrulanmış doğrusal/doğrusal olmayan statik, plastik, yüzey teması, son adım COPEN/CPRESS/CSLIP ve doğrusal/doğrusal olmayan ağ yakınsaması; tümü hâlâ mühendislik incelemesi gerektirir |
+| Karmaşık yüzeyler ve kalıp | `scripts/advanced_geometry.py`, `scripts/advanced_geometry_ocp.py`, `scripts/advanced_surface_ocp.py`, `scripts/cad_studio.py review-advanced-geometry/create-ocp-loft/create-ocp-surface` | Kurallı/düzgün Loft, sınırlı Sweep/Knit/Thicken yazılabilir ve B-Rep yeniden açılabilir; G1/G2 ve eğrilik yarıçapı yalnızca ayrık örnekleme kanıtı döndürür |
+| Yerel MCP Server | `mcp-server/server.py` | `mcp-server/README.md`, `references/mcp-server.md` |
+| MCP protokol doğrulaması | `scripts/validate_mcp.py` | `mcp-server/README.md` |
+| Sürümlenmiş API doğrulaması | `scripts/sw_api_lookup.py` | `references/api-lookup.md` |
+| OpenClaw ile SolidWorks kontrolü | - | `references/openclaw.md` |
+| Sac metal/kaynaklı parça/simülasyon/özellikler | - | `references/advanced.md` |
+| Kurumsal Agent / yerel öncelikli ve bulut RAG | `apps/desktop/cad_workbench/knowledge_retrieval.py` | `references/enterprise-agent-rag.md` |
+| Codex/Claude/Gemini/OpenCode/LM Studio Provider Adapter | `apps/desktop/cad_workbench/agent_providers.py` | `references/agent-provider-architecture.md` |
+| Kapsamlı makine mühendisliği DAG otomatik orkestrasyonu | `apps/desktop/cad_workbench/engineering_orchestrator.py` | `references/complex-mechanical-routing.md` |
+| Sık karşılaşılan hata giderme | - | `references/troubleshooting.md` |
 
-Pack and Go 在 SW2026 SP01.1 的基础两零件装配上已连续三次通过原生回归：`SavePackAndGo()` 实际输出装配体和两个零件，状态码均为 0，未使用暂存回退。部分版本的 `GetDocumentNames()` 仍可能在保存前只枚举顶层文件；不要用 `AddExternalDocuments` 补装配体原生零件，应先执行原生保存，再审计实际落盘依赖。若落盘仍缺依赖，`scripts/sw_delivery.py::pack_and_go()` 默认按 `GetDependencies2` 生成带 manifest 和 SHA-256 的 `pilot` 暂存包；需要严格原生语义时使用 `fallback_policy="blocked"`。外部引用、Toolbox、配置和工程图仍必须人工复核，因此总能力保持 `pilot`。
+Pack and Go, SW2026 SP01.1'deki temel iki parçalı montaj üzerinde art arda üç kez yerel regresyondan geçti: `SavePackAndGo()` gerçek olarak montajı ve iki parçayı çıkarır, durum kodlarının tümü 0'dır, geçici geri dönüş kullanılmamıştır. Bazı sürümlerde `GetDocumentNames()` kaydetmeden önce yalnızca üst düzey dosyaları numaralandırabilir; montajın yerel parçalarını tamamlamak için `AddExternalDocuments` kullanılmamalı, önce yerel kaydetme yürütülmeli, ardından gerçek diske yazılan bağımlılıklar denetlenmelidir. Diske yazma hâlâ bağımlılık eksikse, `scripts/sw_delivery.py::pack_and_go()` varsayılan olarak `GetDependencies2` ile manifest ve SHA-256 içeren bir `pilot` geçici paketi üretir; katı yerel anlam gerektiğinde `fallback_policy="blocked"` kullanın. Harici referanslar, Toolbox, yapılandırmalar ve teknik resimler yine elle incelenmelidir, bu nedenle genel yetenek `pilot` kalır.
 
-## OpenClaw 协作方式
+## OpenClaw işbirliği yöntemi
 
-1. 先确认 SolidWorks 版本、界面语言、输入文件路径、输出路径，以及目标操作（建模 / 装配 / 出图 / 导出）。
-2. 优先复用 `{baseDir}/scripts` 下已有模块，不要重复手写 COM 连接逻辑。
-3. 在 OpenClaw 的 `exec` / `shell` 能力中执行短小、一次性的 Python 脚本，最小导入集如下：
+1. Önce SolidWorks sürümünü, arayüz dilini, girdi dosyası yollarını, çıktı yollarını ve hedef işlemi (modelleme / montaj / teknik resim / dışa aktarma) doğrulayın.
+2. `{baseDir}/scripts` altındaki mevcut modülleri öncelikli olarak yeniden kullanın, COM bağlantı mantığını elle yeniden yazmayın.
+3. OpenClaw'ın `exec` / `shell` yeteneğinde kısa, tek seferlik Python betikleri çalıştırın; asgari içe aktarma kümesi aşağıdaki gibidir:
 
 ```python
 import sys
@@ -160,144 +160,144 @@ sys.path.insert(0, r"{baseDir}/scripts")
 from sw_connect import connect_solidworks, mm, deg, new_document
 ```
 
-4. 执行后检查返回对象是否为 `None`、保存/导出是否成功、输出文件是否落盘。
-5. 生成或修改模型后必须做结果自审查：导出至少一个等轴测预览图，必要时导出前/俯/右视图，并通过截图或 BMP 目视检查几何是否符合用户意图。
-6. 如果需要更完整的 OpenClaw 工作流、提示词示例和排障建议，再读取 `references/openclaw.md`。
+4. Yürütmeden sonra döndürülen nesnenin `None` olup olmadığını, kaydetme/dışa aktarmanın başarılı olup olmadığını ve çıktı dosyasının diske yazılıp yazılmadığını denetleyin.
+5. Model oluşturduktan veya değiştirdikten sonra mutlaka sonuç öz incelemesi yapın: en az bir izometrik önizleme görüntüsü dışa aktarın, gerekirse ön/üst/sağ görünümleri dışa aktarın ve ekran görüntüsü veya BMP üzerinden geometrinin kullanıcının amacına uyup uymadığını görsel olarak denetleyin.
+6. Daha eksiksiz bir OpenClaw iş akışı, istem örneği ve sorun giderme önerisi gerekiyorsa `references/openclaw.md` dosyasını okuyun.
 
-## 使用流程
+## Kullanım akışı
 
-1. 先根据原子操作运行 `backend_router.py`，再结合 `preferredBackend`、`requiredOutputs`、`nativeFormatRequired` 和 `fallbackPolicy` 判定后端；不要先假定 Python、C# 或 SolidWorks 必然可用。普通任务优先 Automation 等价接口，明确要求仅非托管 C++ 支持的原始 `I*` 指针语义时才升级到原生 C++。
-   事件订阅、PropertyManagerPage、TaskPane 或长期驻留 UI 走 `solidworks_addin_ui_events` 路由，优先 C# Add-in；必须检查 HKLM 注册、64 位 TLB 注册和 `host-status.json`，不能只凭 `LoadAddIn=0` 宣称成功。SW2026 的 PMP Handler 必须公开、COM 可见并提供 `IDispatch` class interface。
-2. 需要原生 SolidWorks 格式时运行 `sw_preflight.py`；缺依赖默认自动安装，缺 SolidWorks 则只阻断原生阶段。
-3. 不需要原生格式或允许开放格式回退时，运行 `python scripts/cad_studio.py write-open-format --input model.cadstudio.json --out-dir output`。
-4. 需要制造性快速复核时，运行 `python scripts/cad_studio.py check-dfm --input model.cadstudio.json --output output/dfm_report.json --process machining`；支持 `--profile supplier.json` 和 `--brep-evidence brep.json`。报告缺少材料、壁厚、K 因子、割缝、成型空间或要求的 B-Rep 证据时返回 `blocked`，规则通过也必须人工复核。
-5. 原生 SolidWorks 路线优先用 `SolidWorksSession()` 管理连接、打开、新建、保存、导出；需要底层控制时再组合 `sw_connect.py`、`sw_part.py` 等函数。
-6. 当用户需求偏自然语言、参数不完整或需要“行业知识库 + 提示词模板 + 参数化设计计划”时，先读取 `subskills/solidworks-vibecad/SKILL.md`，生成 `design_plan.json` 和执行摘要。
-7. 圆角/倒角很多的 CNC 件、安装座、连接块、支架，先读取 `subskills/solidworks-fillet-chamfer-cnc/SKILL.md`，按“基础体 -> 外轮廓圆角/倒角 -> 孔槽切除 -> 孔口倒角 -> 审查”的稳定顺序执行。
-8. 螺丝孔、螺纹孔、攻牙孔、M3/M4/M5/M6/M8 盲孔或贯穿孔任务，先读取 `subskills/solidworks-threaded-holes/SKILL.md`；默认按“参数/孔位校验 -> 攻丝底孔 -> Metric Tap 真实 Thread -> CosmeticThread/证据螺旋线降级 -> 孔口倒角 -> 重建后特征证据 -> 属性和审查”的稳定路线执行。Hole Wizard、外螺纹、英制/管螺纹和现有零件改孔仍按 pilot 处理。
+1. Önce atomik işleme göre `backend_router.py` çalıştırın, ardından `preferredBackend`, `requiredOutputs`, `nativeFormatRequired` ve `fallbackPolicy` ile backend'i belirleyin; Python, C# veya SolidWorks'ün kesinlikle kullanılabilir olduğunu varsaymayın. Normal görevlerde Automation eşdeğeri arayüz önceliklidir; yalnızca yalnızca yönetilmeyen C++ tarafından desteklenen ham `I*` işaretçi anlamı açıkça gerektiğinde yerel C++'a yükseltin.
+   Olay aboneliği, PropertyManagerPage, TaskPane veya uzun süreli UI `solidworks_addin_ui_events` rotasına gider, öncelikli olarak C# Add-in; HKLM kaydı, 64 bit TLB kaydı ve `host-status.json` denetlenmelidir, yalnızca `LoadAddIn=0` ile başarı iddia edilemez. SW2026'nın PMP Handler'ı public, COM görünür olmalı ve `IDispatch` class interface sunmalıdır.
+2. Yerel SolidWorks formatı gerektiğinde `sw_preflight.py` çalıştırın; eksik bağımlılıklar varsayılan olarak otomatik kurulur, SolidWorks eksikse yalnızca yerel aşama engellenir.
+3. Yerel format gerekmediğinde veya açık format geri dönüşüne izin verildiğinde `python scripts/cad_studio.py write-open-format --input model.cadstudio.json --out-dir output` çalıştırın.
+4. Hızlı üretilebilirlik incelemesi gerektiğinde `python scripts/cad_studio.py check-dfm --input model.cadstudio.json --output output/dfm_report.json --process machining` çalıştırın; `--profile supplier.json` ve `--brep-evidence brep.json` desteklenir. Rapor malzeme, duvar kalınlığı, K faktörü, kesim aralığı, şekillendirme alanı veya istenen B-Rep kanıtından yoksunsa `blocked` döndürür; kurallar geçse de elle inceleme gerekir.
+5. Yerel SolidWorks rotasında bağlantı, açma, yeni oluşturma, kaydetme ve dışa aktarmayı yönetmek için öncelikli olarak `SolidWorksSession()` kullanın; alt düzey kontrol gerektiğinde `sw_connect.py`, `sw_part.py` gibi fonksiyonları birleştirin.
+6. Kullanıcı gereksinimi doğal dile yakın olduğunda, parametreler eksik olduğunda veya "sektör bilgi tabanı + istem şablonu + parametrik tasarım planı" gerektiğinde önce `subskills/solidworks-vibecad/SKILL.md` okuyun ve `design_plan.json` ile yürütme özetini üretin.
+7. Çok sayıda yuvarlatma/pah içeren CNC parçaları, montaj yatakları, bağlantı blokları ve braketler için önce `subskills/solidworks-fillet-chamfer-cnc/SKILL.md` okuyun ve "temel gövde -> dış kontur yuvarlatma/pah -> delik/kanal kesme -> delik ağzı pahı -> inceleme" istikrarlı sırasına göre yürütün.
+8. Vida delikleri, dişli delikler, kılavuz çekme delikleri, M3/M4/M5/M6/M8 kör veya geçiş delikleri görevleri için önce `subskills/solidworks-threaded-holes/SKILL.md` okuyun; varsayılan olarak "parametre/delik konumu doğrulama -> kılavuz çekme ön deliği -> Metric Tap gerçek Thread -> CosmeticThread/kanıt helisi geri dönüşü -> delik ağzı pahı -> yeniden oluşturma sonrası özellik kanıtı -> özellikler ve inceleme" istikrarlı rotasına göre yürütün. Hole Wizard, dış diş, inç/boru dişleri ve mevcut parçada delik değiştirme hâlâ pilot olarak işlenir.
 
-**齿轮路由门禁：** 当用户说“画/建模/生成齿轮”时，先读取 `references/gears.md`，不得把实体齿轮需求替换成 Gear Mate。只有标准外啮合直齿轮且已知模数、齿数、压力角、齿宽和轴孔时，才使用 `scripts/sw_gear.py`；制造任务不得臆造参数，仅做视觉 demo 时可显式声明默认值。斜齿、锥齿、内齿、齿条、蜗轮蜗杆、变位或生产级修形/侧隙必须转专用路线或人工复核，不强套标准直齿轮脚本。“齿轮联动/传动/配合”才路由到 `sw_assembly.add_gear_mate_by_cylinders()`。
+**Dişli yönlendirme kapısı:** Kullanıcı "dişli çiz/modelle/oluştur" dediğinde önce `references/gears.md` okuyun, katı dişli gereksinimini Gear Mate ile değiştirmeyin. Yalnızca standart dış alın düz dişli ve modül, diş sayısı, basınç açısı, diş genişliği ve mil deliği biliniyorsa `scripts/sw_gear.py` kullanın; üretim görevlerinde parametreler uydurulamaz, yalnızca görsel demo yapılırken varsayılan değerler açıkça bildirilebilir. Helisel, konik, iç dişli, kremayer, sonsuz vida/sonsuz dişli, profil kaydırmalı veya üretim seviyesinde modifikasyon/boşluk mutlaka özel rotaya veya elle incelemeye yönlendirilmelidir, standart düz dişli betiğine zorla uygulanmaz. "Dişli bağlantı/aktarma/eşleştirme" ise `sw_assembly.add_gear_mate_by_cylinders()` rotasına gider.
 
-9. 普通盲孔、通孔、圆柱沉孔、锥形沉头孔、半圆端槽或孔阵列任务，读取 `references/complex-hole-features.md` 并优先调用 `scripts/sw_hole_features.py`；创建参数证据必须再与 `collect_geometry_measurements()`、`validate_hole_positions()` 和剖视图交叉复核。
-10. SolidWorks 零件图、装配图、GB/T 工程图、尺寸链、孔表、BOM、标题栏或工程图审视任务，先读取 `subskills/solidworks-engineering-drawing/SKILL.md`；该子技能消费根技能的模型、孔槽和属性证据。AutoCAD 的 DWG/DXF、二维图纸、线稿转 CAD、批量改图或 AutoCAD 原生预览任务，读取 `subskills/autocad-automation/SKILL.md`。机械/3D 打印开孔交付必须按可制造图纸处理：所有孔、槽、接口、水口、螺丝孔和螺丝柱同时给出规格、数量和定位尺寸；图面拥挤时用孔表/槽表，不得用长引线替代关键尺寸。
-11. 当用户要求真实产品“原版外观”“1:1 复刻”“不像概念版”，先读取 `references/mesh-reference-import.md`：公开网格/蓝图参考优先，不要在低保真手搓底稿上反复精修；需要导入 OBJ/STL 时优先用 `scripts/sw_import_mesh_reference.py`。
-12. 如果必须由大模型生成 VBA 宏，先使用 `sw_macro_guard.py` 做模型分流、代码校验、重试和本地模板兜底。
-13. 使用 `session.export()` 或 `sw_export.py` 保存/导出文件。
-14. 使用 `sw_review.py` 导出预览图并自审查；如果有 GUI/桌面截图能力，打开 SolidWorks 视图截图复核。
-15. 遇到钣金、焊件、复杂曲面、模具、Routing、Simulation/FEA、复杂 Motion 或配置族任务，先运行 `sw_capability_probe.py` 并读取 `references/complex-mechanical-routing.md`；Routing 使用 `routing-preflight/check-routing`，FEA 使用 `fea-preflight/prepare-fea/run-fea/run-fea-convergence`，复杂曲面使用 `review-advanced-geometry/create-ocp-loft/create-ocp-surface`。FEA 和高级曲面求解通过仍为 `review_required`。
-16. 需要企业/项目机械知识时读取 `references/enterprise-agent-rag.md`；默认只用本地知识，云 RAG 必须显式启用、声明 `external_network` 并完成人工审批。
-17. 当一个需求同时跨越零件、孔槽/圆角、装配 Mate、Motion、工程图/BOM 和多格式交付中的两个以上工程域时，调用 `apps/desktop/cad_workbench/engineering_orchestrator.py` 生成阶段 DAG。必须按依赖串行执行关键 CAD 写操作，每阶段独立保存产物和验收证据；局部修改只重规划受影响阶段及其后继，禁止把整项工程塞进一条超长 Prompt 后一次性宣称完成。
+9. Normal kör delik, geçiş deliği, silindirik havşa delik, konik havşalı delik, yarım daire uçlu kanal veya delik dizisi görevleri için `references/complex-hole-features.md` okuyun ve öncelikli olarak `scripts/sw_hole_features.py` çağırın; oluşturma parametresi kanıtı `collect_geometry_measurements()`, `validate_hole_positions()` ve kesit görünümü ile çapraz doğrulanmalıdır.
+10. SolidWorks parça resmi, montaj resmi, GB/T teknik resim, ölçü zinciri, delik tablosu, BOM, başlık bloğu veya teknik resim inceleme görevleri için önce `subskills/solidworks-engineering-drawing/SKILL.md` okuyun; bu alt yetenek kök yeteneğin model, delik/kanal ve özellik kanıtlarını tüketir. AutoCAD'in DWG/DXF, iki boyutlu çizim, çizgiden CAD'e dönüştürme, toplu çizim değiştirme veya AutoCAD yerel önizleme görevleri için `subskills/autocad-automation/SKILL.md` okuyun. Mekanik/3D baskı delikli teslimatı üretilebilir teknik resim olarak ele alınmalıdır: tüm delikler, kanallar, arayüzler, su girişleri, vida delikleri ve vida sütunları için aynı anda spesifikasyon, miktar ve konumlandırma ölçüleri verilmelidir; çizim sıkışık olduğunda delik tablosu/kanal tablosu kullanın, kritik ölçülerin yerine uzun kılavuz çizgisi kullanmayın.
+11. Kullanıcı gerçek bir ürün için "orijinal görünüm", "1:1 kopya", "konsept sürüme benzemiyor" dediğinde önce `references/mesh-reference-import.md` okuyun: herkese açık ağ/plan referansları önceliklidir, düşük aslına uygun elle yapılmış taslak üzerinde tekrar tekrar ince ayar yapmayın; OBJ/STL içe aktarmak gerektiğinde öncelikli olarak `scripts/sw_import_mesh_reference.py` kullanın.
+12. VBA makrosunun mutlaka büyük bir model tarafından üretilmesi gerekiyorsa önce `sw_macro_guard.py` ile model yönlendirmesi, kod doğrulaması, yeniden deneme ve yerel şablon geri dönüşü yapın.
+13. Dosyaları kaydetmek/dışa aktarmak için `session.export()` veya `sw_export.py` kullanın.
+14. Önizleme görüntüsü dışa aktarmak ve öz inceleme yapmak için `sw_review.py` kullanın; GUI/masaüstü ekran görüntüsü yeteneği varsa SolidWorks görünümünü açıp ekran görüntüsüyle inceleyin.
+15. Sac metal, kaynaklı parça, karmaşık yüzey, kalıp, Routing, Simulation/FEA, karmaşık Motion veya yapılandırma ailesi görevlerinde önce `sw_capability_probe.py` çalıştırın ve `references/complex-mechanical-routing.md` okuyun; Routing için `routing-preflight/check-routing`, FEA için `fea-preflight/prepare-fea/run-fea/run-fea-convergence`, karmaşık yüzeyler için `review-advanced-geometry/create-ocp-loft/create-ocp-surface` kullanın. FEA ve ileri yüzey çözümünün geçmesi hâlâ `review_required`'dır.
+16. Kurumsal/proje mekanik bilgisi gerektiğinde `references/enterprise-agent-rag.md` okuyun; varsayılan olarak yalnızca yerel bilgi kullanılır, bulut RAG açıkça etkinleştirilmeli, `external_network` bildirilmeli ve elle onay tamamlanmalıdır.
+17. Bir gereksinim aynı anda parça, delik/kanal/yuvarlatma, montaj Mate, Motion, teknik resim/BOM ve çok formatlı teslimat içindeki iki veya daha fazla mühendislik alanını kapsadığında `apps/desktop/cad_workbench/engineering_orchestrator.py` çağırarak aşamalı DAG üretin. Kritik CAD yazma işlemleri bağımlılığa göre sırayla yürütülmeli, her aşama ürünleri ve kabul kanıtlarını bağımsız olarak kaydetmelidir; yerel değişikliklerde yalnızca etkilenen aşamalar ve ardılları yeniden planlanır, tüm mühendislik işinin tek bir aşırı uzun Prompt'a sıkıştırılıp tek seferde tamamlandığının ilan edilmesi yasaktır.
 
-### 机械图纸默认底线
+### Mekanik teknik resim varsayılan temel çizgisi
 
-以后凡是本技能参与 CAD/机械结构/3D 打印项目，都默认执行这些底线：
+Bundan sonra bu yeteneğin katıldığı tüm CAD/mekanik yapı/3D baskı projelerinde bu temel çizgiler varsayılan olarak uygulanır:
 
-1. 不把“看得懂的示意图”当成“能制造的工程图”。只要涉及开孔、开槽、接口、装配孔或打印外壳，必须补齐外形尺寸、壁厚/底厚、孔槽规格和定位尺寸。
-2. 用户要求“中国常用格式”“国标风格”“严格规范”时，必须采用国内机械制图习惯：规范图幅/图框/标题栏、仿宋中文、分层线型、中心线/虚线、真实标注实体和技术要求。
-3. 长引线只能做局部说明，不能替代尺寸链；不得跨视图、压孔、压中心线、压尺寸文字或侵入标题栏。
-4. 密集孔槽必须优先用孔表、槽表或孔槽明细表，表内写清部位、规格、数量和定位；表格不能成为逃避定位尺寸的借口。
-5. 交付前必须目视复核预览图，发现漏标、重叠、压线或标题栏侵入时先返工再汇报。
+1. "Anlaşılabilir bir şema"yı "üretilebilir bir teknik resim" olarak görmeyin. Delik, kanal, arayüz, montaj deliği veya baskı muhafazası söz konusu olduğunda dış ölçüler, duvar/taban kalınlığı, delik/kanal spesifikasyonu ve konumlandırma ölçüleri mutlaka tamamlanmalıdır.
+2. Kullanıcı "Çin'de yaygın format", "GB tarzı", "katı standart" istediğinde yerel makine teknik resim alışkanlıkları benimsenmelidir: standart kağıt boyutu/çerçeve/başlık bloğu, FangSong Çince, katmanlı çizgi tipleri, merkez çizgileri/kesikli çizgiler, gerçek ölçülendirme varlıkları ve teknik gereksinimler.
+3. Uzun kılavuz çizgileri yalnızca yerel açıklama için kullanılabilir, ölçü zincirinin yerini alamaz; görünümler arası geçemez, delikleri, merkez çizgilerini, ölçü metinlerini bastıramaz veya başlık bloğuna giremez.
+4. Yoğun delik/kanallar öncelikli olarak delik tablosu, kanal tablosu veya delik/kanal ayrıntı tablosuyla verilmelidir; tablo içinde konum, spesifikasyon, miktar ve konumlandırma açıkça yazılmalıdır; tablo konumlandırma ölçülerinden kaçınmanın bahanesi olamaz.
+5. Teslimattan önce önizleme görüntüsü görsel olarak incelenmelidir; eksik ölçü, örtüşme, çizgi üzerine binme veya başlık bloğuna girme görüldüğünde önce yeniden çalışılıp sonra raporlanmalıdır.
 
-### 高还原外观/公开网格参考模型
+### Yüksek aslına uygun görünüm/herkese açık ağ referans modeli
 
-当用户要求汽车、消费电子、雕塑等真实对象外观高还原时，先区分“视觉参考模型”和“工程可制造参数模型”：
+Kullanıcı otomobil, tüketici elektroniği, heykel gibi gerçek nesnelerin yüksek aslına uygun görünümünü istediğinde önce "görsel referans modeli" ile "mühendislik açısından üretilebilir parametrik model"i ayırın:
 
-1. 若用户要“像原版”，优先索取或查找公开 3D 模型/多视图蓝图，并记录来源、作者、许可证和下载日期；不要声称生成的是官方 Class-A 或扫描级模型。
-2. `.glb/.gltf/.fbx/.blend` 先转换为 `.obj/.stl`；OBJ 优先保留材质，STL 作为无材质兜底。
-3. 导入前用包围盒确认坐标轴和尺度，再按真实公称尺寸缩放。
-4. 如果需要 Python 转换/缩放，先确认 `requirements-mesh.txt` 中的可选依赖可用；缺失时说明用途并提示安装。
-5. OBJ/STL 导入 SolidWorks 时用 `sw_import_mesh_reference.py`；关键写法是 `LoadFile4(path, "r", create_empty_dispatch_variant(), errors)`，不要用 `OpenDoc6()` 或把 `None` 传给 `LoadFile4()`。
-6. 结果审查必须看四视图和关键识别特征；“预览非空白”不能替代“像用户指定对象”。
-7. 若用户后续要工程可编辑结构，应基于网格参考分件逆向重建，并明确说明网格导入件不是参数化实体。
+1. Kullanıcı "orijinal gibi" istiyorsa öncelikli olarak herkese açık 3D model/çok görünümlü plan isteyin veya bulun, kaynak, yazar, lisans ve indirme tarihini kaydedin; üretilenin resmî Class-A veya tarama düzeyinde bir model olduğunu iddia etmeyin.
+2. `.glb/.gltf/.fbx/.blend` önce `.obj/.stl`'ye dönüştürülür; OBJ malzemeyi korumayı tercih eder, STL malzemesiz geri dönüş olarak kullanılır.
+3. İçe aktarmadan önce sınırlayıcı kutu ile koordinat eksenlerini ve ölçeği doğrulayın, ardından gerçek nominal ölçülere göre ölçekleyin.
+4. Python dönüştürme/ölçekleme gerekiyorsa önce `requirements-mesh.txt` içindeki isteğe bağlı bağımlılıkların kullanılabilir olduğunu doğrulayın; eksik olduğunda amacı açıklayın ve kurulumu önerin.
+5. OBJ/STL'yi SolidWorks'e aktarırken `sw_import_mesh_reference.py` kullanın; kilit yazım `LoadFile4(path, "r", create_empty_dispatch_variant(), errors)`'tir, `OpenDoc6()` kullanmayın veya `LoadFile4()`'e `None` geçirmeyin.
+6. Sonuç incelemesi dört görünümü ve kilit tanıma özelliklerini görmelidir; "önizleme boş değil" "kullanıcının belirttiği nesneye benziyor"un yerini alamaz.
+7. Kullanıcı sonradan mühendislik açısından düzenlenebilir bir yapı istiyorsa ağ referansına dayalı parça bazlı tersine yeniden oluşturma yapılmalı ve ağdan içe aktarılan parçanın parametrik katı model olmadığı açıkça belirtilmelidir.
 
-### 多色外观要求
+### Çok renkli görünüm gereksinimi
 
-当模型包含车身、玻璃、灯组、轮胎、轮毂或其他多种颜色时：
+Model gövde, cam, lamba grubu, lastik, jant veya başka birden çok renk içerdiğinde:
 
-1. 读取 `references/appearance.md`，统一使用 `sw_appearance.py`，禁止把普通 Python `list` 直接传给 COM 材质属性。
-2. 源零件先设置文档级颜色；装配体中需要覆盖时再用组件级颜色。
-3. 每次设置后调用 `verify_appearance()` 或 `apply_component_palette()` 回读 RGB；只检查 setter 返回值不算通过。
-4. 保存与截图前调用 `model.ClearSelection2(True)`；`sw_review.save_preview()` 已内置该清理。
-5. 目视确认至少三种预期颜色真实可见；“预览非空白”不能替代颜色检查。
-6. 外观异常时先运行 `tests/solidworks_appearance_regression.py`，再重建用户模型。
+1. `references/appearance.md` okuyun, tek biçimde `sw_appearance.py` kullanın, normal Python `list`'ini doğrudan COM malzeme özelliğine geçirmek yasaktır.
+2. Kaynak parçada önce belge düzeyi renk ayarlanır; montajda geçersiz kılmak gerektiğinde bileşen düzeyi renk kullanılır.
+3. Her ayarlamadan sonra `verify_appearance()` veya `apply_component_palette()` çağırıp RGB'yi geri okuyun; yalnızca setter dönüş değerini denetlemek geçmiş sayılmaz.
+4. Kaydetme ve ekran görüntüsünden önce `model.ClearSelection2(True)` çağırın; `sw_review.save_preview()` bu temizliği zaten içerir.
+5. En az üç beklenen rengin gerçekten görünür olduğunu görsel olarak doğrulayın; "önizleme boş değil" renk denetiminin yerini alamaz.
+6. Görünüm anormalliğinde önce `tests/solidworks_appearance_regression.py` çalıştırın, ardından kullanıcı modelini yeniden oluşturun.
 
-### MCP Server 使用
+### MCP Server kullanımı
 
-当用户要求“让 SolidWorks 支持 MCP”“接入 Codex/Claude Desktop 工具调用”“不要每次生成一大段 Python 脚本”时：
+Kullanıcı "SolidWorks'ün MCP desteklemesini sağla", "Codex/Claude Desktop araç çağrısına bağla", "her seferinde uzun bir Python betiği üretme" dediğinde:
 
-1. 读取 `mcp-server/README.md`。
-2. 若用户要求自动配置 MCP，优先运行多客户端注册器：`powershell -ExecutionPolicy Bypass -File mcp-server/register_all_ai_mcp.ps1 -InstallDependencies`；它会尝试注册 Codex、Claude Code、Claude Desktop、Cursor、Windsurf。
-3. 使用本地 `stdio` MCP server：`python mcp-server/server.py`；默认是发现模式（`SW_MCP_DISCOVERY=search`），只暴露 `sw_search_tools` / `sw_describe_tool` / `sw_call_tool`。需要全部命名工具时设 `SW_MCP_DISCOVERY=full`。
-4. 发现模式按「检索 → 读 Schema → 执行」使用：先 `sw_search_tools` 用中英文说法找候选，再 `sw_describe_tool` 确认参数，最后 `sw_call_tool`。不要凭猜测直接调用工具名。
-5. 默认发现模式信任客户端已经取得当前任务的授权；在用户授权范围内执行建模，不要逐项
-   要求额外批准。涉及用户未授权的覆盖、关闭或其他高风险操作时仍须取得明确授权。
-   可为已保存文档的活动文档写操作提供 `document_target`（绝对 `path` 和 SolidWorks
-   `process_id`），以校验目标；未提供时使用工具原有的活动文档行为。
-   如用户显式启用 `server` 逐次审批，工具返回请求 ID 时请用户在服务端运行
-   `python scripts/sw_mcp_approve.py approve <请求ID>`；目标无法核验时停止并说明限制。
-6. 无 CAD 开放格式写入优先调用 `cadstudio_write_open_format`；DFM、Routing、FEA 和复杂几何分别调用 `cadstudio_check_dfm`、`cadstudio_check_routing`、`cadstudio_routing_preflight`、`cadstudio_fea_preflight`、`cadstudio_prepare_fea`、`cadstudio_run_fea`、`cadstudio_run_fea_convergence`、`cadstudio_review_advanced_geometry`、`cadstudio_create_ocp_loft`、`cadstudio_create_ocp_surface`；SolidWorks 原生操作再调用白名单 `solidworks_*` 工具。
-7. 不要暴露任意 Python/VBA 执行工具；新增 MCP 工具时应复用 `scripts/sw_*.py` 中已验证封装。
-8. SolidWorks COM 操作必须串行执行；MCP server 内部已使用全局锁降低桌面会话冲突。
-9. 基准 demo 使用 `examples/08_mini_fan_motion_assembly.py`；它验证自动建模、装配、Mate 和 Motion Study，不承诺圆角/倒角外观完美。
+1. `mcp-server/README.md` okuyun.
+2. Kullanıcı MCP'yi otomatik yapılandırmak istiyorsa öncelikli olarak çok istemcili kayıt aracını çalıştırın: `powershell -ExecutionPolicy Bypass -File mcp-server/register_all_ai_mcp.ps1 -InstallDependencies`; Codex, Claude Code, Claude Desktop, Cursor, Windsurf kaydetmeyi dener.
+3. Yerel `stdio` MCP server kullanın: `python mcp-server/server.py`; varsayılan keşif modudur (`SW_MCP_DISCOVERY=search`), yalnızca `sw_search_tools` / `sw_describe_tool` / `sw_call_tool` sunar. Tüm adlandırılmış araçlar gerektiğinde `SW_MCP_DISCOVERY=full` ayarlayın.
+4. Keşif modu "ara -> Schema oku -> yürüt" olarak kullanılır: önce `sw_search_tools` ile Türkçe/İngilizce ifadelerle aday bulun, ardından `sw_describe_tool` ile parametreleri doğrulayın, son olarak `sw_call_tool`. Araç adlarını tahminle doğrudan çağırmayın.
+5. Varsayılan keşif modu, istemcinin geçerli görev için yetkiyi zaten aldığına güvenir; kullanıcı yetkisi kapsamında modelleme yapın, her öğe için
+   ek onay istemeyin. Kullanıcının yetkilendirmediği üzerine yazma, kapatma veya diğer yüksek riskli işlemler için yine açık yetki alınmalıdır.
+   Kaydedilmiş belgelerin etkin belge yazma işlemleri için `document_target` (mutlak `path` ve SolidWorks
+   `process_id`) sağlanabilir; sağlanmadığında aracın mevcut etkin belge davranışı kullanılır.
+   Kullanıcı `server`'ı açıkça etkinleştirirse ve araç bir istek ID'si döndürürse, kullanıcıdan sunucu tarafında
+   `python scripts/sw_mcp_approve.py approve <istek ID>` çalıştırmasını isteyin; hedef doğrulanamadığında durun ve kısıtı açıklayın.
+6. CAD'siz açık format yazma için öncelikli olarak `cadstudio_write_open_format` çağırın; DFM, Routing, FEA ve karmaşık geometri için sırasıyla `cadstudio_check_dfm`, `cadstudio_check_routing`, `cadstudio_routing_preflight`, `cadstudio_fea_preflight`, `cadstudio_prepare_fea`, `cadstudio_run_fea`, `cadstudio_run_fea_convergence`, `cadstudio_review_advanced_geometry`, `cadstudio_create_ocp_loft`, `cadstudio_create_ocp_surface` çağırın; SolidWorks yerel işlemleri için beyaz listedeki `solidworks_*` araçlarını çağırın.
+7. Rastgele Python/VBA yürütme araçları sunmayın; yeni MCP araçları eklerken `scripts/sw_*.py` içindeki doğrulanmış sarmalayıcıları yeniden kullanın.
+8. SolidWorks COM işlemleri sırayla yürütülmelidir; MCP server içinde masaüstü oturum çakışmasını azaltmak için global kilit zaten kullanılmaktadır.
+9. Temel demo `examples/08_mini_fan_motion_assembly.py` kullanır; otomatik modelleme, montaj, Mate ve Motion Study'yi doğrular, yuvarlatma/pah görünümünün kusursuz olduğunu garanti etmez.
 
-### 运动装配体要求
+### Hareketli montaj gereksinimi
 
-当用户要求“能动起来”“在 SolidWorks 里拖动”“铰链”“齿轮联动”“真实机械配合”时：
+Kullanıcı "hareket etsin", "SolidWorks içinde sürükleyeyim", "menteşe", "dişli bağlantı", "gerçek mekanik eşleştirme" dediğinde:
 
-1. 先读取 `references/assembly.md` 的运动型装配工作流；如果用户明确要求 Motion Study / 运动算例 / 马达，再读取 `references/motion-study.md`。
-2. 优先复用 `sw_assembly.py` 中的 `resolve_component()`、`get_assembly_entity()`、`find_largest_cylinder_face()`、`add_mate5_checked()`、`add_concentric_mate_by_cylinders()`、`add_gear_mate_by_cylinders()`。
-3. 旋转件用同心 Mate 且 `lock_rotation=False`，不要用三基准面把轴、齿轮、上盖完全锁死。
-4. 齿轮传动用真实 Gear Mate，不用脚本假动画冒充机械配合。
-5. 创建后用 `collect_mate_feature_summary()` 或特征树遍历验证 MateGroup 下存在 `MateConcentric`、`MateGearDim` 等真实 Mate 特征。
-6. 需要真实运动算例时，优先复用 `sw_motion.create_motion_study()`、`add_constant_speed_rotary_motor_by_cylinders()`、`calculate_and_play()` 创建 Motion Study 和马达。
-7. 计算后调用 `sw_motion.validate_motion_studies()` 或 MCP `solidworks_validate_motion_study`，检查类型、时长、马达数量、结果存在性和 `results_out_of_date=False`；只看到时间轴、动画或 `Calculate=True` 不算验收通过。
-8. 需要演示动画时可以额外脚本驱动组件位姿或 Mate Controller，但必须说明动画演示不等同于交互自由度；最终以 SolidWorks 中可拖动为准。
+1. Önce `references/assembly.md` içindeki hareket tipi montaj iş akışını okuyun; kullanıcı açıkça Motion Study / hareket simülasyonu / motor istiyorsa ayrıca `references/motion-study.md` okuyun.
+2. Öncelikli olarak `sw_assembly.py` içindeki `resolve_component()`, `get_assembly_entity()`, `find_largest_cylinder_face()`, `add_mate5_checked()`, `add_concentric_mate_by_cylinders()`, `add_gear_mate_by_cylinders()` fonksiyonlarını yeniden kullanın.
+3. Dönen parçalar için eş merkezli Mate ve `lock_rotation=False` kullanın, mili, dişliyi ve üst kapağı üç referans düzlemiyle tamamen kilitlemeyin.
+4. Dişli aktarımı için gerçek Gear Mate kullanın, betikle sahte animasyonla mekanik eşleştirmeyi taklit etmeyin.
+5. Oluşturduktan sonra `collect_mate_feature_summary()` veya özellik ağacı gezinmesiyle MateGroup altında `MateConcentric`, `MateGearDim` gibi gerçek Mate özelliklerinin bulunduğunu doğrulayın.
+6. Gerçek hareket simülasyonu gerektiğinde öncelikli olarak `sw_motion.create_motion_study()`, `add_constant_speed_rotary_motor_by_cylinders()`, `calculate_and_play()` ile Motion Study ve motor oluşturun.
+7. Hesaplamadan sonra `sw_motion.validate_motion_studies()` veya MCP `solidworks_validate_motion_study` çağırın; tip, süre, motor sayısı, sonuç varlığı ve `results_out_of_date=False` denetlenmelidir; yalnızca zaman çizelgesini, animasyonu veya `Calculate=True` görmek kabul geçişi sayılmaz.
+8. Demo animasyonu gerektiğinde ek olarak betikle bileşen konumları veya Mate Controller sürülebilir, ancak animasyon gösteriminin etkileşimli serbestlik derecesine eşdeğer olmadığı belirtilmelidir; nihai ölçüt SolidWorks içinde sürüklenebilmesidir.
 
-## GPT / Kimi / Claude 多模型策略
+## GPT / Kimi / Claude çok modelli strateji
 
-当代理需要让大模型生成 VBA 宏时，必须通过 `scripts/sw_macro_guard.py`：
+Agent'ın büyük bir modelden VBA makrosu üretmesini gerektiğinde mutlaka `scripts/sw_macro_guard.py` üzerinden yapılmalıdır:
 
-1. **模型分流**：GPT 系列使用原有简洁提示词；Kimi / Claude / 未知模型自动加载强格式约束 Prompt，强制只输出 VBA 源码。
-2. **本地模板兜底**：模型输出失败或解析失败时，不直接报错；按用户关键词（如“立方体”“圆柱”“拉伸”“草图”）选择内置 VBA 模板继续执行。
-3. **输出校验**：执行前检查 `SldWorks`、`ModelDoc2`、`Sub`、`End Sub`，通过后才允许交给 SolidWorks；不通过则重试。
-4. **超时/重试**：单次模型请求建议 `30s` 超时；解析失败自动重试 `1~2` 次，重试 Prompt 追加更强格式指令。
+1. **Model yönlendirmesi**: GPT serisi mevcut sade istemi kullanır; Kimi / Claude / bilinmeyen modeller otomatik olarak güçlü biçim kısıtlı Prompt yükler ve yalnızca VBA kaynak kodu çıktısı vermeye zorlanır.
+2. **Yerel şablon geri dönüşü**: Model çıktısı başarısız olduğunda veya ayrıştırma başarısız olduğunda doğrudan hata verilmez; kullanıcı anahtar sözcüklerine göre (örn. "küp", "silindir", "ekstrüzyon", "kroki") yerleşik VBA şablonu seçilerek yürütmeye devam edilir.
+3. **Çıktı doğrulaması**: Yürütmeden önce `SldWorks`, `ModelDoc2`, `Sub`, `End Sub` denetlenir, geçtikten sonra SolidWorks'e teslim edilmesine izin verilir; geçmezse yeniden denenir.
+4. **Zaman aşımı/yeniden deneme**: Tek bir model isteği için `30s` zaman aşımı önerilir; ayrıştırma başarısız olduğunda otomatik olarak `1~2` kez yeniden denenir ve yeniden deneme Prompt'una daha güçlü biçim yönergeleri eklenir.
 
-示例：
+Örnek:
 
 ```python
 from sw_macro_guard import build_prompt, fallback_macro_for_request, validate_vba_macro
 
-prompt = build_prompt("画一个 50mm 圆柱", model_name="claude")
-macro = fallback_macro_for_request("画一个 50mm 圆柱")
+prompt = build_prompt("50mm'lik bir silindir çiz", model_name="claude")
+macro = fallback_macro_for_request("50mm'lik bir silindir çiz")
 result = validate_vba_macro(macro)
 assert result.ok, result.issues
 ```
 
-## 未封装 API 规则
+## Sarmalanmamış API kuralları
 
-当任务需要调用 `scripts/` 中尚未封装的 SolidWorks API 时：
+Görev `scripts/` içinde henüz sarmalanmamış bir SolidWorks API'sini çağırmayı gerektirdiğinde:
 
-1. 先读取 `references/api-lookup.md`，使用 `python SKILL_DIR/scripts/sw_api_lookup.py 接口 方法` 查询目标版本的本地类型库与官方文档；已知目标年份时加 `--version 2024`，多实例时加 `--process-id`。确认签名、单位、前提和版本差异。
-2. 禁止凭记忆猜接口；尤其是长参数 COM 方法、`VARIANT` / by-ref 参数、枚举值、选择标记和 `SaveAs` 类接口。
-3. 写代码时保留最小可运行脚本，并对每一步返回值做 `None` / `False` 检查。
-4. 实现后必须真实运行，保存或导出目标文件，并使用 `sw_review.py` 生成预览图与审查报告。
-5. 新发现的坑、错误码、兼容写法或稳定封装，要补充到 `references/troubleshooting.md` 或对应模块参考文档；常用逻辑再沉淀进 `scripts/`。
+1. Önce `references/api-lookup.md` okuyun, hedef sürümün yerel tip kitaplığını ve resmî belgelerini sorgulamak için `python SKILL_DIR/scripts/sw_api_lookup.py arayüz metot` kullanın; hedef yıl biliniyorsa `--version 2024`, çok örnek varsa `--process-id` ekleyin. İmzayı, birimleri, ön koşulları ve sürüm farklarını doğrulayın.
+2. Arayüzleri ezberden tahmin etmek yasaktır; özellikle uzun parametreli COM metotları, `VARIANT` / by-ref parametreleri, enum değerleri, seçim işaretleri ve `SaveAs` benzeri arayüzler.
+3. Kod yazarken asgari çalıştırılabilir betiği koruyun ve her adımın dönüş değeri için `None` / `False` denetimi yapın.
+4. Uyguladıktan sonra gerçekten çalıştırılmalı, hedef dosya kaydedilmeli veya dışa aktarılmalı ve önizleme görüntüsü ile inceleme raporu üretmek için `sw_review.py` kullanılmalıdır.
+5. Yeni keşfedilen tuzaklar, hata kodları, uyumlu yazım veya istikrarlı sarmalayıcılar `references/troubleshooting.md` veya ilgili modül referans dokümanına eklenmelidir; yaygın mantık daha sonra `scripts/` içine yerleştirilir.
 
-查证默认可访问 SolidWorks 官方文档，官网直读失败且没有缓存时使用匿名 Parallel 备用查询；仅发送公开版本、接口、成员及官方链接。`--offline` 或 `SW_API_LOOKUP_NETWORK=off` 禁止本工具联网，`--no-parallel` 或 `SW_API_LOOKUP_PARALLEL=off` 单独关闭 Parallel。离线可用本机帮助及上次获取的缓存，须留意版本证据和获取时间。文档不足时可在客户端允许的范围内使用其自带搜索，仅搜索公开 API 标识；客户端自己的联网权限由客户端控制。接口声明、官方说明和真机行为分别判断，缺少目标版本或运行验证时不得声称已验证兼容。
+Doğrulama varsayılan olarak SolidWorks resmî belgelerine erişebilir; resmî site doğrudan okunamazsa ve önbellek yoksa anonim Parallel yedek sorgusu kullanılır; yalnızca herkese açık sürüm, arayüz, üye ve resmî bağlantılar gönderilir. `--offline` veya `SW_API_LOOKUP_NETWORK=off` bu aracın ağa erişimini yasaklar, `--no-parallel` veya `SW_API_LOOKUP_PARALLEL=off` yalnızca Parallel'i kapatır. Çevrimdışıyken yerel yardım ve son alınan önbellek kullanılabilir; sürüm kanıtına ve alma zamanına dikkat edilmelidir. Belgeler yetersiz olduğunda istemcinin izin verdiği ölçüde kendi araması kullanılabilir, yalnızca herkese açık API tanımlayıcıları aranır; istemcinin kendi ağ izni istemci tarafından denetlenir. Arayüz bildirimleri, resmî açıklamalar ve gerçek makine davranışı ayrı ayrı değerlendirilir; hedef sürüm veya çalışma doğrulaması eksik olduğunda doğrulanmış uyumluluk iddia edilemez.
 
-自然语言任务未指明 API 时，先运行 `python SKILL_DIR/scripts/sw_api_lookup.py --task "任务描述"` 自动查证常见候选；候选不是强制方案。无候选或规划中确定其他 API 时，先从现有封装确定接口与成员，再逐项查询对应版本，不要把任务全文发给第三方服务。
+Doğal dil görevi bir API belirtmediğinde önce `python SKILL_DIR/scripts/sw_api_lookup.py --task "görev açıklaması"` çalıştırılarak yaygın adaylar otomatik doğrulanır; adaylar zorunlu çözüm değildir. Aday yoksa veya planda başka bir API belirlenmişse önce mevcut sarmalayıcılardan arayüz ve üyeler belirlenir, ardından ilgili sürüm tek tek sorgulanır, görev metninin tamamı üçüncü taraf hizmete gönderilmez.
 
-## 结果自审查
+## Sonuç öz incelemesi
 
-每次生成、修改、导入或导出 CAD 后都要做自审查，除非用户明确说不需要：
+Her CAD oluşturma, değiştirme, içe aktarma veya dışa aktarmadan sonra, kullanıcı açıkça gerekmediğini söylemediği sürece öz inceleme yapılmalıdır:
 
-1. 检查 COM 返回值、特征对象、保存/导出返回值和输出文件大小。
-2. 调用 `model.ForceRebuild3(False)`、`model.ViewZoomtofit2()` 刷新模型。
-3. 用 `scripts/sw_review.py` 的 `run_review()` 导出 `isometric/front/top/right` 预览图并写入 `*_review_report.json`。
-4. 读取报告里的 `evaluation.status`、`evaluation.issues`、`checks` 和预览图；通过截图或导出的 BMP 检查：主体是否存在、比例/方位是否合理、关键部件是否缺失、是否明显重叠或悬空、文件名和输出路径是否正确。
-5. 若发现问题，先修脚本并重新生成，再汇报；不要只报告“保存成功”。
+1. COM dönüş değerlerini, özellik nesnelerini, kaydetme/dışa aktarma dönüş değerlerini ve çıktı dosyası boyutunu denetleyin.
+2. Modeli yenilemek için `model.ForceRebuild3(False)`, `model.ViewZoomtofit2()` çağırın.
+3. `scripts/sw_review.py` içindeki `run_review()` ile `isometric/front/top/right` önizleme görüntülerini dışa aktarın ve `*_review_report.json` yazın.
+4. Rapordaki `evaluation.status`, `evaluation.issues`, `checks` ve önizleme görüntüsünü okuyun; ekran görüntüsü veya dışa aktarılan BMP üzerinden denetleyin: ana gövde var mı, oran/yönelim makul mü, kritik parçalar eksik mi, belirgin örtüşme veya havada asılı kalma var mı, dosya adı ve çıktı yolu doğru mu.
+5. Sorun bulunduğunda önce betiği düzeltip yeniden oluşturun, ardından raporlayın; yalnızca "kaydetme başarılı" diye raporlamayın.
 
-示例：
+Örnek:
 
 ```python
 from sw_review import run_review
@@ -313,16 +313,16 @@ print(report_path)
 print(report["evaluation"])
 ```
 
-## 关键注意事项
+## Önemli notlar
 
-- **单位**：API 统一使用**米**。用 `mm(50)` 转换 50mm 为 0.05m，用 `deg(90)` 转换角度
-- **版本**：可指定 SolidWorks 年份并核对目标实例；不同操作的兼容性以 `capabilities.yaml` 和实际版本证据为准，不能将连接成功视为所有功能兼容
-- **选择**：能拿到 COM 对象时优先用对象级 `Select2()`；基准面可用 `SelectByID2("PLANE")`，草图不要只依赖 `SelectByID2("SKETCH")`
-- **草图**：推荐用 `with sketch(model, "Front Plane") as sketch_name:` 自动进入/退出草图；`sw_part.py` 会缓存草图对象引用，避免 SW2024 中文版按名称选择草图失败
-- **添加组件**：装配体优先用 `sw_assembly.add_component()`；SW2024 中文版下 `AddComponent4` 可能返回 `None`，封装会用 `AddComponent5`、静默打开零件、重新激活装配体后重试
-- **外观**：对颜色要求高的模型优先拆成多零件装配体；材质数组必须用 `SAFEARRAY(double)` 编组，并回读 RGB 验证
-- **VARIANT**：by-ref 参数必须用 `VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)` 包装
-- **基准面名称**：`start_sketch()` 会自动兼容英文版 "Front/Top/Right Plane" 与中文版 "前视/上视/右视基准面"
-- **草图坐标**：基于草图平面的局部坐标系，单位为米
-- **运动装配**：先解析组件再选 Mate 实体；`GetCorresponding()` 用于把零件内面/特征映射到装配体上下文；同心 Mate 默认不锁旋转
-- **Motion Study**：`swmotionstudy.tlb` 需加载；pywin32 下 `CreateMotionStudy` / `Activate` / `Calculate` 可能表现为属性，优先用 `sw_motion.motion_member()` 兼容
+- **Birimler**: API tek biçimde **metre** kullanır. 50mm'yi 0,05m'ye dönüştürmek için `mm(50)`, açıyı dönüştürmek için `deg(90)` kullanın
+- **Sürüm**: SolidWorks yılı belirtilebilir ve hedef örnek doğrulanabilir; farklı işlemlerin uyumluluğu `capabilities.yaml` ve gerçek sürüm kanıtı esas alınır, bağlantı başarısı tüm işlevlerin uyumlu olduğu anlamına gelmez
+- **Seçim**: COM nesnesi elde edilebildiğinde nesne düzeyi `Select2()` tercih edilir; referans düzlemi için `SelectByID2("PLANE")` kullanılabilir, kroki yalnızca `SelectByID2("SKETCH")` ile seçilmeye bağımlı olmamalıdır
+- **Kroki**: Krokiden otomatik girip/çıkmak için `with sketch(model, "Front Plane") as sketch_name:` kullanımı önerilir; `sw_part.py` kroki nesnesi referansını önbelleğe alır, SW2024 Çince sürümünde krokiyi adla seçme hatasını önler
+- **Bileşen ekleme**: Montajda öncelikli olarak `sw_assembly.add_component()` kullanın; SW2024 Çince sürümünde `AddComponent4` `None` döndürebilir, sarmalayıcı `AddComponent5` kullanır, parçayı sessizce açar, montajı yeniden etkinleştirip yeniden dener
+- **Görünüm**: Renk gereksinimi yüksek modellerde öncelikli olarak çok parçalı montaja bölün; malzeme dizisi `SAFEARRAY(double)` ile gruplanmalı ve RGB geri okunarak doğrulanmalıdır
+- **VARIANT**: by-ref parametreler `VARIANT(pythoncom.VT_BYREF | pythoncom.VT_I4, 0)` ile sarmalanmalıdır
+- **Referans düzlemi adları**: `start_sketch()` İngilizce "Front/Top/Right Plane" ile Çince sürümdeki ön/üst/yan referans düzlemi adlarını otomatik uyumlu hale getirir
+- **Kroki koordinatları**: Kroki düzlemine dayalı yerel koordinat sistemi, birim metre
+- **Hareketli montaj**: Önce bileşeni çözümleyip ardından Mate varlığını seçin; `GetCorresponding()` parça içi yüz/özellikleri montaj bağlamına eşlemek için kullanılır; eş merkezli Mate varsayılan olarak dönüşü kilitlemez
+- **Motion Study**: `swmotionstudy.tlb` yüklenmelidir; pywin32 altında `CreateMotionStudy` / `Activate` / `Calculate` özellik olarak davranabilir, öncelikli olarak `sw_motion.motion_member()` uyumluluğu kullanılır

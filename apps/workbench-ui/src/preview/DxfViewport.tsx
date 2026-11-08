@@ -79,7 +79,7 @@ function hitTest(scene: PreviewScene, projection: Projection, visibleLayers: Set
   return best?.entity;
 }
 
-/** @brief DXF/PreviewScene 画布视口，解析工作在 Worker 中完成。 */
+/** @brief DXF/PreviewScene tuval görünümü; ayrıştırma işi Worker içinde yapılır. */
 export const DxfViewport = forwardRef<PreviewActions, DxfViewportProps>(function DxfViewport({ url, visibleLayers, onLayers, onStats, onPhase, onSelection }, ref) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const projectionRef = useRef<Projection | undefined>(undefined);
@@ -98,16 +98,16 @@ export const DxfViewport = forwardRef<PreviewActions, DxfViewportProps>(function
   useEffect(() => {
     let disposed = false;
     let activeWorker: Worker | undefined;
-    onPhase("正在读取文件", "读取 DXF 或 PreviewScene JSON");
+    onPhase("Dosya okunuyor", "DXF veya PreviewScene JSON okunuyor");
     fetch(url).then((response) => response.ok ? response.text() : Promise.reject(new Error(`HTTP ${response.status}`))).then((source) => {
       if (disposed) return;
-      onPhase("正在解码", "DXF 解析已移入 Worker");
+      onPhase("Kod çözülüyor", "DXF ayrıştırma Worker'a taşındı");
       if (source.trim().startsWith("{")) {
         const parsed = JSON.parse(source) as PreviewScene;
         setScene(parsed);
         onLayers(parsed.layers ?? []);
         onStats({ entityCount: parsed.entities?.length ?? 0, layerCount: parsed.layers?.length ?? 0, units: parsed.units || "mm", boundsLabel: formatBounds(parsed.bounds, parsed.units || "mm"), warnings: parsed.warnings });
-        onPhase("可交互", `${parsed.entities?.length ?? 0} 个实体`);
+        onPhase("Etkileşime hazır", `${parsed.entities?.length ?? 0} varlık`);
         return;
       }
       const worker = new Worker(new URL("./dxfWorker.ts", import.meta.url), { type: "module" });
@@ -117,21 +117,21 @@ export const DxfViewport = forwardRef<PreviewActions, DxfViewportProps>(function
         activeWorker = undefined;
         if (disposed) return;
         if (!event.data.ok || !event.data.scene) {
-          onPhase("预览失败", event.data.error || "DXF 解析失败");
+          onPhase("Önizleme başarısız", event.data.error || "DXF ayrıştırma başarısız");
           return;
         }
         setScene(event.data.scene);
         onLayers(event.data.scene.layers);
         onStats({ entityCount: event.data.scene.entities.length, layerCount: event.data.scene.layers.length, units: event.data.scene.units || "mm", boundsLabel: formatBounds(event.data.scene.bounds, event.data.scene.units || "mm"), warnings: event.data.scene.warnings });
-        onPhase("可交互", `${event.data.scene.entities.length} 个实体 · ${event.data.scene.layers.length} 个图层`);
+        onPhase("Etkileşime hazır", `${event.data.scene.entities.length} varlık · ${event.data.scene.layers.length} katman`);
       };
       worker.onerror = (error) => {
         worker.terminate();
         activeWorker = undefined;
-        if (!disposed) onPhase("预览失败", error.message);
+        if (!disposed) onPhase("Önizleme başarısız", error.message);
       };
       worker.postMessage(source);
-    }).catch((error: Error) => { if (!disposed) onPhase("预览失败", `DXF 读取失败: ${error.message}`); });
+    }).catch((error: Error) => { if (!disposed) onPhase("Önizleme başarısız", `DXF okuma başarısız: ${error.message}`); });
     return () => {
       disposed = true;
       activeWorker?.terminate();

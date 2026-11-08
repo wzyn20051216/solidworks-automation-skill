@@ -7,14 +7,14 @@ type PreviewStatusProps = {
   manifest?: PreviewManifest | null;
 };
 
-/** @brief 显示预览的细粒度加载阶段和真实/演示来源。 */
+/** @brief Önizlemenin ayrıntılı yükleme aşamasını ve gerçek/demo kaynağını gösterir. */
 export function PreviewStatus({ phase, message, manifest }: PreviewStatusProps) {
   const isDemo = manifest?.isDemo || manifest?.mode === "demo-showcase";
   return (
-    <div className={`cad-preview-status-line ${phase === "预览失败" ? "error" : phase === "可交互" ? "ready" : "loading"}`}>
+    <div className={`cad-preview-status-line ${phase === "Önizleme başarısız" ? "error" : phase === "Etkileşime hazır" ? "ready" : "loading"}`}>
       <span>{phase}</span>
       <small>{message}</small>
-      <em className={isDemo ? "demo" : "delivery"}>{isDemo ? "演示数据" : "真实产物"}</em>
+      <em className={isDemo ? "demo" : "delivery"}>{isDemo ? "Demo verisi" : "Gerçek çıktı"}</em>
       {isDemo ? <WarningCircle size={15} /> : null}
     </div>
   );

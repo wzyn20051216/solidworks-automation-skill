@@ -7,12 +7,12 @@ type ManualReviewPanelProps = {
   onSubmit: (approved: boolean) => void;
 };
 
-/** @brief 强制记录原生 CAD、尺寸、特征和产物的人工复核证据。 */
+/** @brief Yerel CAD, ölçüler, unsurlar ve çıktılar için manuel inceleme kanıtlarının kaydını zorunlu kılar. */
 export function ManualReviewPanel({ draft, options, onChange, onSubmit }: ManualReviewPanelProps) {
   const ready = draft.note.trim().length >= 8 && options.every(([key]) => draft.checks.includes(key));
   return (
     <div className="manual-review-form">
-      <strong>人工复核记录</strong>
+      <strong>Manuel inceleme kaydı</strong>
       <div className="manual-review-checks">
         {options.map(([key, label]) => (
           <label className="manual-review-check" key={key}>
@@ -27,12 +27,12 @@ export function ManualReviewPanel({ draft, options, onChange, onSubmit }: Manual
           </label>
         ))}
       </div>
-      <textarea value={draft.note} onChange={(event) => onChange({ note: event.target.value })} placeholder="填写实际检查结果、发现的问题或放行依据" />
+      <textarea value={draft.note} onChange={(event) => onChange({ note: event.target.value })} placeholder="Gerçek denetim sonuçlarını, bulunan sorunları veya onay gerekçesini yazın" />
       <div className="review-action-row">
-        <button className="approval-button" type="button" disabled={!ready} title={ready ? "通过人工复核" : "请完成全部检查项并填写至少 8 个字的复核说明"} onClick={() => onSubmit(true)}>
-          通过复核
+        <button className="approval-button" type="button" disabled={!ready} title={ready ? "Manuel incelemeyi onayla" : "Lütfen tüm denetim maddelerini tamamlayın ve en az 8 karakterlik bir inceleme açıklaması yazın"} onClick={() => onSubmit(true)}>
+          İncelemeyi onayla
         </button>
-        <button className="review-reject-button" type="button" onClick={() => onSubmit(false)}>驳回</button>
+        <button className="review-reject-button" type="button" onClick={() => onSubmit(false)}>Reddet</button>
       </div>
     </div>
   );

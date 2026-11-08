@@ -5,7 +5,7 @@ export type UpdateProgress = {
 };
 
 /**
- * @brief 合并更新下载事件并计算稳定的百分比，防止超范围和除零。
+ * @brief Güncelleme indirme olaylarını birleştirir ve aralık aşımı ile sıfıra bölmeyi önleyerek kararlı bir yüzde hesaplar.
  */
 export function updateDownloadProgress(
   current: UpdateProgress,

@@ -11,31 +11,31 @@ type PreviewInspectorProps = {
   onToggleLayer: (layer: string) => void;
 };
 
-/** @brief 展示模型树、图层、尺寸范围和选中实体信息。 */
+/** @brief Model ağacını, katmanları, boyut aralığını ve seçili varlık bilgisini gösterir. */
 export function PreviewInspector({ artifactPath, manifest, stats, selection, layers, visibleLayers, onToggleLayer }: PreviewInspectorProps) {
   return (
-    <aside className="cad-preview-inspector" aria-label="预览检查器">
+    <aside className="cad-preview-inspector" aria-label="Önizleme denetçisi">
       <div className="inspector-block">
-        <span>文件</span>
+        <span>Dosya</span>
         <strong>{fileName(artifactPath)}</strong>
-        {manifest?.sourceArtifact ? <small>源: {fileName(manifest.sourceArtifact)}</small> : null}
+        {manifest?.sourceArtifact ? <small>Kaynak: {fileName(manifest.sourceArtifact)}</small> : null}
       </div>
       <div className="inspector-grid">
-        <div><span>单位</span><strong>{stats.units || manifest?.units || "mm"}</strong></div>
-        <div><span>实体</span><strong>{stats.entityCount ?? stats.meshCount ?? 0}</strong></div>
-        <div><span>图层</span><strong>{stats.layerCount ?? layers.length}</strong></div>
-        <div><span>范围</span><strong>{stats.boundsLabel || "待读取"}</strong></div>
+        <div><span>Birim</span><strong>{stats.units || manifest?.units || "mm"}</strong></div>
+        <div><span>Varlıklar</span><strong>{stats.entityCount ?? stats.meshCount ?? 0}</strong></div>
+        <div><span>Katmanlar</span><strong>{stats.layerCount ?? layers.length}</strong></div>
+        <div><span>Aralık</span><strong>{stats.boundsLabel || "Okunmayı bekliyor"}</strong></div>
       </div>
       {selection ? (
         <div className="inspector-block selected">
-          <span>当前选择</span>
+          <span>Geçerli seçim</span>
           <strong>{selection.name}</strong>
           <small>{selection.type}{selection.layer ? ` · ${selection.layer}` : ""}</small>
         </div>
-      ) : <div className="inspector-empty-mini">点击模型实体或 DXF 线条查看证据引用。</div>}
+      ) : <div className="inspector-empty-mini">Kanıt referanslarını görmek için model varlığına veya DXF çizgisine tıklayın.</div>}
       {layers.length ? (
-        <div className="layer-list" aria-label="DXF 图层">
-          <span>图层</span>
+        <div className="layer-list" aria-label="DXF katmanları">
+          <span>Katmanlar</span>
           {layers.map((layer) => (
             <label key={layer.name}>
               <input type="checkbox" checked={visibleLayers.has(layer.name)} onChange={() => onToggleLayer(layer.name)} />

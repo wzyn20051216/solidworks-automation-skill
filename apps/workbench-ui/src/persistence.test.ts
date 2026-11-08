@@ -23,18 +23,18 @@ afterEach(() => {
 });
 
 describe("parsePersistedJson", () => {
-  it("读取有效的本地回退数据", () => {
+  it("geçerli yerel yedek veriyi okur", () => {
     expect(parsePersistedJson('{"project":"fixture"}')).toEqual({ project: "fixture" });
   });
 
-  it("损坏数据不会阻断应用启动", () => {
+  it("bozuk veri uygulama başlangıcını engellemez", () => {
     expect(parsePersistedJson("{broken")).toBeNull();
     expect(parsePersistedJson(null)).toBeNull();
   });
 });
 
 describe("readPersistedState", () => {
-  it("优先回灌较新的本地回退副本，避免旧 SQLite 数据覆盖", async () => {
+  it("daha yeni yerel yedek kopyayı önce geri yükler ve eski SQLite verisinin üzerine yazmasını önler", async () => {
     const { values } = installDesktopStorage({ "cad.settings": '{"revision":2}' });
     invokeMock.mockResolvedValueOnce(undefined);
 
@@ -50,7 +50,7 @@ describe("readPersistedState", () => {
     expect(values.get("cad.settings.migration-backup")).toBe('{"revision":2}');
   });
 
-  it("SQLite 仍不可用时保留回退副本并报告降级", async () => {
+  it("SQLite hâlâ kullanılamıyorsa yedek kopyayı korur ve düşük durumu bildirir", async () => {
     const { values } = installDesktopStorage({ "cad.messages": '[{"id":"latest"}]' });
     invokeMock.mockRejectedValueOnce(new Error("database is locked"));
 
@@ -60,7 +60,7 @@ describe("readPersistedState", () => {
     expect(values.get("cad.messages")).toBe('[{"id":"latest"}]');
   });
 
-  it("没有回退副本时读取 SQLite", async () => {
+  it("yedek kopya yokken SQLite okur", async () => {
     installDesktopStorage();
     invokeMock.mockResolvedValueOnce({ revision: 3 });
 
@@ -73,7 +73,7 @@ describe("readPersistedState", () => {
 });
 
 describe("writePersistedState", () => {
-  it("SQLite 写入失败时同步保留可恢复副本", async () => {
+  it("SQLite yazma hatasında kurtarılabilir kopyayı eşzamanlı korur", async () => {
     const { values } = installDesktopStorage();
     invokeMock.mockRejectedValueOnce(new Error("disk busy"));
 

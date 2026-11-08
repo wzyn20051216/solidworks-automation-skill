@@ -1,4 +1,4 @@
-"""API 查证的版本绑定、离线模式、官方文档与任务集成回归。"""
+"""API doğrulamasının sürüm bağlama, çevrim dışı mod, resmi dokümantasyon ve görev entegrasyonu regresyonu."""
 from __future__ import annotations
 
 import io
@@ -86,11 +86,11 @@ def test_public_cache_is_bounded_and_never_used_in_offline_mode(monkeypatch, tmp
 
 
 def test_ambiguous_target_does_not_guess_or_connect(monkeypatch):
-    monkeypatch.setattr(api, "_running_target", lambda version, pid: (_ for _ in ()).throw(RuntimeError("多个实例")))
+    monkeypatch.setattr(api, "_running_target", lambda version, pid: (_ for _ in ()).throw(RuntimeError("Birden fazla olası SolidWorks örneği")))
     monkeypatch.setattr(api, "_installed_target", lambda version: pytest.fail("must not guess an installation"))
     result = api.lookup_api("ISketchManager", "CreateCircleByRadius", online=False)
     assert result["status"] == "unknown"
-    assert any("多个实例" in item for item in result["warnings"])
+    assert any("Birden fazla olası SolidWorks örneği" in item for item in result["warnings"])
 
 
 def test_changed_running_process_discards_type_library_evidence(monkeypatch, tmp_path):
@@ -100,7 +100,7 @@ def test_changed_running_process_discards_type_library_evidence(monkeypatch, tmp
     monkeypatch.setattr(api, "_process_executable", lambda pid: tmp_path / "different" / "SLDWORKS.exe")
     result = api.lookup_api("ISketchManager", "CreateCircleByRadius", 2026, online=False)
     assert result["status"] == "unknown" and result["typelib"] is None
-    assert any("目标进程已变化" in warning for warning in result["warnings"])
+    assert any("hedef süreç değişti" in warning for warning in result["warnings"])
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows installation discovery")
@@ -116,7 +116,7 @@ def test_installed_target_checks_executable_version_and_rejects_ambiguity(monkey
     monkeypatch.setattr(api, "_executable_year", lambda path: int(path.parent.name))
     assert api._installed_target(2024)["year"] == 2024
     assert api._installed_target(2026)["year"] == 2026
-    with pytest.raises(RuntimeError, match="多个匹配安装"):
+    with pytest.raises(RuntimeError, match="Birden fazla eşleşen kurulum"):
         api._installed_target(None)
     monkeypatch.setattr(api, "_executable_year", lambda path: 2026)
     assert api._installed_target(2024) is None
@@ -130,13 +130,13 @@ def test_running_target_requires_matching_pid_and_version(monkeypatch, tmp_path)
     monkeypatch.setattr(api, "_executable_year", lambda path: 2026)
     result = api._running_target(2026, 123)
     assert result["year"] == 2026 and result["revision"] is None and result["process_id"] == 123
-    with pytest.raises(RuntimeError, match="进程不存在"):
+    with pytest.raises(RuntimeError, match="SolidWorks süreci mevcut değil"):
         api._running_target(2026, 124)
     monkeypatch.setattr(api, "_executable_year", lambda path: 2024)
-    with pytest.raises(RuntimeError, match="版本与进程枚举不一致"):
+    with pytest.raises(RuntimeError, match="süreç numaralandırması tutarsız"):
         api._running_target(2026, 123)
     monkeypatch.setattr(api, "solidworks_processes", lambda: {123: 2026, 456: 2026})
-    with pytest.raises(RuntimeError, match="多个"):
+    with pytest.raises(RuntimeError, match="Birden fazla"):
         api._running_target(2026, None)
 
 
@@ -177,12 +177,12 @@ def test_official_fetch_rejects_mismatched_version_and_redirect(monkeypatch):
     class Opener:
         def open(self, request, timeout): return _Response(_official_html(version="2026"), request.full_url)
     monkeypatch.setattr(api.urllib.request, "build_opener", lambda handler: Opener())
-    with pytest.raises(RuntimeError, match="版本或产品"):
+    with pytest.raises(RuntimeError, match="sürümü veya ürünü"):
         api.retrieve_official_document(2024, "ISketchManager", "CreateCircleByRadius")
     class Redirected:
         def open(self, request, timeout): return _Response(_official_html(), "https://example.test/")
     monkeypatch.setattr(api.urllib.request, "build_opener", lambda handler: Redirected())
-    with pytest.raises(RuntimeError, match="地址发生变化"):
+    with pytest.raises(RuntimeError, match="adresi değişti"):
         api.retrieve_official_document(2024, "ISketchManager", "CreateCircleByRadius")
 
 
@@ -227,7 +227,7 @@ def test_multiple_matching_type_libraries_do_not_crash_online_lookup(monkeypatch
     monkeypatch.setattr(api, "retrieve_official_document", lambda *a, **k: {"status": "found"})
     result = api.lookup_api("ISketchManager", "CreateCircleByRadius", 2026)
     assert result["status"] == "conflict" and result["official"]["status"] == "found"
-    assert any("多个类型库" in warning for warning in result["warnings"])
+    assert any("Birden fazla tip kitaplığı" in warning for warning in result["warnings"])
 
 
 def test_cancel_stops_before_network(monkeypatch):
@@ -260,7 +260,7 @@ def test_task_context_reuses_lookup_and_preserves_online_toggle(monkeypatch):
     assert "local-api" in context["providers"]
     prompt = compile_codex_prompt({**job, "_knowledgeContext": context})
     assert "ISketchManager.CreateCircleByRadius" in prompt
-    assert "runtime_verified" in prompt and "不可信参考数据" in prompt
+    assert "runtime_verified" in prompt and "güvenilmez referans verisidir" in prompt
 
 
 def test_natural_language_task_detects_grounded_candidates_without_sending_task(monkeypatch):
@@ -274,10 +274,10 @@ def test_natural_language_task_detects_grounded_candidates_without_sending_task(
     context = build_job_knowledge_context(job)
     assert calls == [("ISketchManager", "CreateCircleByRadius", 2026, False),
                      ("IFeatureManager", "FeatureExtrusion3", 2026, False)]
-    assert any("查证候选" in item for item in context["warnings"])
+    assert any("doğrulama adayları" in item for item in context["warnings"])
     assert all("保密" not in repr(item) for item in calls)
     prompt = compile_codex_prompt({**job, "_knowledgeContext": context})
-    assert "不是强制实现方案" in prompt and "按目标版本查证" in prompt
+    assert "zorunlu uygulama şeması değildir" in prompt and "hedef sürüme göre doğrula" in prompt
 
 
 def test_natural_language_negation_and_unrelated_task_do_not_trigger(monkeypatch):
@@ -289,7 +289,7 @@ def test_natural_language_negation_and_unrelated_task_do_not_trigger(monkeypatch
 def test_natural_language_version_conflict_does_not_query(monkeypatch):
     monkeypatch.setattr(api, "lookup_api", lambda *a, **k: pytest.fail("ambiguous versions"))
     context = build_job_knowledge_context({"objective": "对比 2024版和 2026版的拉伸行为"})
-    assert any("多个 SolidWorks 年份" in warning for warning in context["warnings"])
+    assert any("birden fazla SolidWorks yılından" in warning for warning in context["warnings"])
 
 
 def test_task_cli_queries_candidates_and_respects_offline(monkeypatch, capsys):
@@ -309,7 +309,7 @@ def test_task_cli_rejects_conflicting_versions_without_lookup(monkeypatch, capsy
     monkeypatch.setattr(api, "lookup_api", lambda *a, **k: pytest.fail("must not query"))
     monkeypatch.setattr(sys, "argv", ["sw_api_lookup.py", "--task", "2024版和2026版的拉伸"])
     assert api.main() == 2
-    assert "版本" in json.loads(capsys.readouterr().err)["message"]
+    assert "sürümü" in json.loads(capsys.readouterr().err)["message"]
 
 
 def test_task_context_labels_parallel_and_cached_sources(monkeypatch):
@@ -317,7 +317,7 @@ def test_task_context_labels_parallel_and_cached_sources(monkeypatch):
     text = "CreateCircleByRadius Radius in meters"
     def lookup(*args, **kwargs):
         assert kwargs["parallel_fallback"] is False
-        return {"status": "documented", "warnings": ["使用上次获取的本地缓存"], "target": None,
+        return {"status": "documented", "warnings": ["son alınan yerel önbellek kullanıldı"], "target": None,
                 "typelib": None, "official": {"status": "found", "source": "https://help.solidworks.com/2024/",
                     "title": "CreateCircleByRadius (ISketchManager)", "text": text,
                     "sha256": hashlib.sha256(text.encode()).hexdigest(), "version": 2024,
@@ -330,13 +330,13 @@ def test_task_context_labels_parallel_and_cached_sources(monkeypatch):
     assert "parallel-api" in context["providers"]
     assert any(chunk["evidence_level"] == "cached_parallel_reference" for chunk in context["chunks"])
     prompt = compile_codex_prompt({**job, "_knowledgeContext": context})
-    assert "不可信参考数据" in prompt and "上次获取" in prompt
+    assert "güvenilmez referans verisidir" in prompt and "son alınan yerel önbellek" in prompt
 
 
 def test_task_multiple_versions_do_not_silently_select_one(monkeypatch):
     monkeypatch.setattr(api, "lookup_api", lambda *a, **k: pytest.fail("ambiguous request must not query"))
     context = build_job_knowledge_context({"objective": "比较SW2024和SW2026的ISketchManager.CreateCircleByRadius"})
-    assert any("多个 SolidWorks 年份" in warning for warning in context["warnings"])
+    assert any("birden fazla SolidWorks yılından" in warning for warning in context["warnings"])
 
 
 def test_invalid_task_network_switch_falls_back_to_offline(monkeypatch):
@@ -350,7 +350,7 @@ def test_invalid_task_network_switch_falls_back_to_offline(monkeypatch):
         "uiConfig": {"knowledgeBase": {"officialApiDocsEnabled": "false"}},
     })
     assert calls == [False]
-    assert any("联网设置无效" in warning for warning in context["warnings"])
+    assert any("çevrim içi ayarı geçersiz" in warning for warning in context["warnings"])
 
 
 def test_enum_url_uses_official_constant_library():

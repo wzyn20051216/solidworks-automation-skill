@@ -55,7 +55,7 @@ fn queue_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// @brief 监听 Python worker 写入的队列文件，并向前端推送刷新事件。
+/// @brief Python worker'ın yazdığı kuyruk dosyalarını izler ve ön uca yenileme olayları gönderir.
 fn start_queue_watcher(app: AppHandle) -> Result<(), String> {
     let directory = queue_dir(&app)?;
     thread::spawn(move || {
@@ -90,7 +90,7 @@ fn start_queue_watcher(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// @brief 返回 CAD Studio SQLite 应用数据文件路径。
+/// @brief CAD Studio SQLite uygulama verisi dosya yolunu döndürür.
 fn app_store_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app
         .path()
@@ -99,7 +99,7 @@ fn app_store_path(app: &AppHandle) -> Result<PathBuf, String> {
         .join("cad-studio.db"))
 }
 
-/// @brief 打开应用数据数据库并确保迁移表存在。
+/// @brief Uygulama verisi veritabanını açar ve taşıma tablosunun var olduğundan emin olur.
 fn open_app_store(app: &AppHandle) -> Result<Connection, String> {
     let path = app_store_path(app)?;
     if let Some(parent) = path.parent() {
@@ -110,7 +110,7 @@ fn open_app_store(app: &AppHandle) -> Result<Connection, String> {
     Ok(connection)
 }
 
-/// @brief 初始化 SQLite 架构，并从旧版状态快照一次性建立实体索引。
+/// @brief SQLite şemasını başlatır ve eski durum anlık görüntüsünden tek seferde varlık dizinini oluşturur.
 fn initialize_app_store(connection: &mut Connection) -> Result<(), String> {
     connection
         .execute_batch(
@@ -207,7 +207,7 @@ fn entity_values<'a>(
     }
 }
 
-/// @brief 在同一事务内同步一个命名空间的结构化实体索引。
+/// @brief Tek bir ad alanının yapılandırılmış varlık dizinini aynı işlem içinde eşitler.
 fn sync_entity_index(
     transaction: &Transaction<'_>,
     namespace: &str,
@@ -250,7 +250,7 @@ fn sync_entity_index(
     Ok(())
 }
 
-/// @brief 将共享队列中的任务元数据同步到 SQLite 索引，不复制 CAD 产物内容。
+/// @brief Paylaşılan kuyruktaki görev üst verisini SQLite dizinine eşitler, CAD ürün içeriğini kopyalamaz.
 fn sync_task_index(connection: &mut Connection, jobs: &[Value]) -> Result<(), String> {
     let transaction = connection
         .transaction()
@@ -319,11 +319,11 @@ fn valid_store_namespace(namespace: &str) -> bool {
         })
 }
 
-/// @brief 从 SQLite 读取一个应用状态命名空间。
+/// @brief SQLite'tan bir uygulama durumu ad alanı okur.
 #[tauri::command]
 fn read_app_store(app: AppHandle, namespace: String) -> Result<Option<Value>, String> {
     if !valid_store_namespace(&namespace) {
-        return Err("应用数据命名空间无效".to_string());
+        return Err("Uygulama verisi ad alanı geçersiz".to_string());
     }
     let connection = open_app_store(&app)?;
     let raw: Option<String> = connection
@@ -338,11 +338,11 @@ fn read_app_store(app: AppHandle, namespace: String) -> Result<Option<Value>, St
         .transpose()
 }
 
-/// @brief 将一个应用状态命名空间写入 SQLite。
+/// @brief Bir uygulama durumu ad alanını SQLite'a yazar.
 #[tauri::command]
 fn write_app_store(app: AppHandle, namespace: String, payload: Value) -> Result<(), String> {
     if !valid_store_namespace(&namespace) {
-        return Err("应用数据命名空间无效".to_string());
+        return Err("Uygulama verisi ad alanı geçersiz".to_string());
     }
     let mut connection = open_app_store(&app)?;
     let serialized = serde_json::to_string(&payload).map_err(|error| error.to_string())?;
@@ -365,7 +365,7 @@ fn write_app_store(app: AppHandle, namespace: String, payload: Value) -> Result<
     Ok(())
 }
 
-/// @brief 返回旧快照与结构化索引的数量，用于迁移验收和诊断。
+/// @brief Taşıma kabulü ve tanılama için eski anlık görüntü ile yapılandırılmış dizinin sayılarını döndürür.
 #[tauri::command]
 fn app_store_migration_status(app: AppHandle) -> Result<Value, String> {
     let mut connection = open_app_store(&app)?;
@@ -431,7 +431,7 @@ fn wallpaper_kind(path: &Path) -> Result<&'static str, String> {
         return Ok("video");
     }
     Err(
-        "不支持该壁纸格式，请选择 PNG、JPG、WEBP、GIF、BMP、MP4、WEBM、MOV、M4V 或 AVI。"
+        "Bu duvar kağıdı biçimi desteklenmiyor; lütfen PNG, JPG, WEBP, GIF, BMP, MP4, WEBM, MOV, M4V veya AVI seçin."
             .to_string(),
     )
 }
@@ -452,7 +452,7 @@ fn validate_preview_extension(path: &Path) -> Result<(), String> {
             .iter()
             .any(|token| file_name.contains(token))
     {
-        return Err("只允许预览清单、场景、证据图或 .cadstudio.json 进入预览器。".to_string());
+        return Err("Önizleyiciye yalnızca önizleme bildirimi, sahne, kanıt görseli veya .cadstudio.json girebilir.".to_string());
     }
     if ![
         "stl", "glb", "gltf", "obj", "dxf", "json", "svg", "png", "jpg", "jpeg", "webp", "bmp",
@@ -460,29 +460,29 @@ fn validate_preview_extension(path: &Path) -> Result<(), String> {
     ]
     .contains(&extension.as_str())
     {
-        return Err("该文件格式不允许进入预览器。".to_string());
+        return Err("Bu dosya biçiminin önizleyiciye girmesine izin verilmiyor.".to_string());
     }
     Ok(())
 }
 
-/// @brief 读取可预览 CAD 产物，使用二进制 IPC 避免开放任意文件资源协议。
+/// @brief Önizlenebilir CAD ürününü okur; rastgele dosya kaynak protokolünü açmamak için ikili IPC kullanır.
 #[tauri::command]
 fn read_preview_file(path: String) -> Result<tauri::ipc::Response, String> {
     let target = PathBuf::from(path);
     validate_preview_extension(&target)?;
-    let metadata = fs::metadata(&target).map_err(|error| format!("无法读取预览文件: {error}"))?;
+    let metadata = fs::metadata(&target).map_err(|error| format!("Önizleme dosyası okunamadı: {error}"))?;
     if !metadata.is_file() {
-        return Err("预览目标不是文件。".to_string());
+        return Err("Önizleme hedefi bir dosya değil.".to_string());
     }
     const MAX_PREVIEW_BYTES: u64 = 128 * 1024 * 1024;
     if metadata.len() > MAX_PREVIEW_BYTES {
-        return Err("预览文件超过 128 MB，请先导出轻量 GLB/STL 或 PNG。".to_string());
+        return Err("Önizleme dosyası 128 MB'ı aşıyor; lütfen önce hafif bir GLB/STL veya PNG dışa aktarın.".to_string());
     }
-    let bytes = fs::read(target).map_err(|error| format!("预览文件读取失败: {error}"))?;
+    let bytes = fs::read(target).map_err(|error| format!("Önizleme dosyası okunamadı: {error}"))?;
     Ok(tauri::ipc::Response::new(bytes))
 }
 
-/// @brief 将 Windows 扩展路径转换为资源协议可匹配的普通路径。
+/// @brief Windows genişletilmiş yolunu kaynak protokolünün eşleştirebileceği normal yola dönüştürür.
 fn asset_path(path: &Path) -> PathBuf {
     #[cfg(windows)]
     {
@@ -607,7 +607,7 @@ fn replace_with_retry(source: &Path, target: &Path, replace: bool) -> Result<(),
     }
     let _ = fs::remove_file(source);
     Err(format!(
-        "队列文件写入失败，Windows 暂时拒绝访问 {}。请关闭重复运行的 CAD Studio/Worker，或稍后重试。底层错误: {}",
+        "Kuyruk dosyası yazılamadı, Windows erişimi geçici olarak reddetti {}. Yinelenen çalışan CAD Studio/Worker'ı kapatın veya daha sonra tekrar deneyin. Temel hata: {}",
         target.display(),
         last_error
     ))
@@ -617,13 +617,13 @@ fn create_link_with_retry(source: &Path, target: &Path) -> Result<(), String> {
     let mut last_error = String::new();
     for attempt in 0..24 {
         if target.exists() {
-            return Err("任务已存在，拒绝通过创建接口覆盖。".to_string());
+            return Err("Görev zaten var; oluşturma arayüzü üzerinden üzerine yazılması reddedildi.".to_string());
         }
         match fs::hard_link(source, target) {
             Ok(()) => return Ok(()),
             Err(error) => {
                 if target.exists() {
-                    return Err("任务已存在，拒绝通过创建接口覆盖。".to_string());
+                    return Err("Görev zaten var; oluşturma arayüzü üzerinden üzerine yazılması reddedildi.".to_string());
                 }
                 last_error = error.to_string();
                 thread::sleep(retry_delay(attempt));
@@ -631,13 +631,13 @@ fn create_link_with_retry(source: &Path, target: &Path) -> Result<(), String> {
         }
     }
     Err(format!(
-        "原子创建任务失败，Windows 暂时拒绝访问 {}。请关闭重复运行的 CAD Studio/Worker，或稍后重试。底层错误: {}",
+        "Görev atomik olarak oluşturulamadı, Windows erişimi geçici olarak reddetti {}. Yinelenen çalışan CAD Studio/Worker'ı kapatın veya daha sonra tekrar deneyin. Temel hata: {}",
         target.display(),
         last_error
     ))
 }
 
-/// @brief 删除可能被 Windows 短暂占用的队列元数据文件。
+/// @brief Windows tarafından kısa süre kilitlenebilen kuyruk üst verisi dosyasını siler.
 fn remove_file_with_retry(path: &Path) -> Result<(), String> {
     let mut last_error = String::new();
     for attempt in 0..16 {
@@ -651,7 +651,7 @@ fn remove_file_with_retry(path: &Path) -> Result<(), String> {
         }
     }
     Err(format!(
-        "任务记录删除失败，Windows 暂时拒绝访问 {}。请稍后重试。底层错误: {}",
+        "Görev kaydı silinemedi, Windows erişimi geçici olarak reddetti {}. Lütfen daha sonra tekrar deneyin. Temel hata: {}",
         path.display(),
         last_error
     ))
@@ -678,13 +678,13 @@ fn safe_id(id: &str) -> Result<String, String> {
 fn validate_new_queue_job(job: &Value) -> Result<(), String> {
     let object = job
         .as_object()
-        .ok_or_else(|| "任务必须是 JSON 对象。".to_string())?;
+        .ok_or_else(|| "Görev bir JSON nesnesi olmalıdır.".to_string())?;
     let schema_version = object
         .get("schemaVersion")
         .and_then(Value::as_str)
-        .ok_or_else(|| "任务缺少 schemaVersion。".to_string())?;
+        .ok_or_else(|| "Görevde schemaVersion eksik.".to_string())?;
     if !matches!(schema_version, "1.0" | "2.0") {
-        return Err("任务 schemaVersion 必须为 1.0 或 2.0。".to_string());
+        return Err("Görev schemaVersion değeri 1.0 veya 2.0 olmalıdır.".to_string());
     }
     if schema_version == "2.0" {
         for field in ["projectId", "conversationId", "stage"] {
@@ -695,7 +695,7 @@ fn validate_new_queue_job(job: &Value) -> Result<(), String> {
                 .filter(|value| !value.is_empty())
                 .is_none()
             {
-                return Err(format!("任务 v2 缺少有效字段: {field}"));
+                return Err(format!("Görev v2'de geçerli alan eksik: {field}"));
             }
         }
         for field in [
@@ -705,7 +705,7 @@ fn validate_new_queue_job(job: &Value) -> Result<(), String> {
             "verificationEvidence",
         ] {
             if !object.get(field).map(Value::is_array).unwrap_or(false) {
-                return Err(format!("任务 v2 字段必须是数组: {field}"));
+                return Err(format!("Görev v2 alanı dizi olmalıdır: {field}"));
             }
         }
         if !object
@@ -713,7 +713,7 @@ fn validate_new_queue_job(job: &Value) -> Result<(), String> {
             .map(Value::is_object)
             .unwrap_or(false)
         {
-            return Err("任务 v2 capabilitySnapshot 必须是对象。".to_string());
+            return Err("Görev v2 capabilitySnapshot değeri bir nesne olmalıdır.".to_string());
         }
     }
     let id = object
@@ -746,17 +746,17 @@ fn validate_new_queue_job(job: &Value) -> Result<(), String> {
             | "codex_task"
             | "agent_task"
     ) {
-        return Err(format!("未知任务类型: {kind}"));
+        return Err(format!("Bilinmeyen görev türü: {kind}"));
     }
     if object.get("status").and_then(Value::as_str) != Some("queued") {
-        return Err("创建接口只接受 queued 新任务。".to_string());
+        return Err("Oluşturma arayüzü yalnızca queued durumundaki yeni görevleri kabul eder.".to_string());
     }
     let progress = object
         .get("progress")
         .and_then(Value::as_i64)
-        .ok_or_else(|| "progress 必须是整数。".to_string())?;
+        .ok_or_else(|| "progress bir tamsayı olmalıdır.".to_string())?;
     if !(0..=100).contains(&progress) {
-        return Err("progress 必须位于 0..100。".to_string());
+        return Err("progress 0..100 aralığında olmalıdır.".to_string());
     }
     for field in ["title", "detail", "createdAt", "updatedAt"] {
         if object
@@ -766,29 +766,29 @@ fn validate_new_queue_job(job: &Value) -> Result<(), String> {
             .filter(|value| !value.is_empty())
             .is_none()
         {
-            return Err(format!("任务缺少有效字段: {field}"));
+            return Err(format!("Görevde geçerli alan eksik: {field}"));
         }
     }
     if let Some(executor) = object.get("executor") {
         if !matches!(executor.as_str(), Some("mock" | "codex" | "agent")) {
-            return Err("executor 必须为 mock、codex 或 agent。".to_string());
+            return Err("executor mock, codex veya agent olmalıdır.".to_string());
         }
     }
     if let Some(policy) = object.get("policy") {
         let policy = policy
             .as_object()
-            .ok_or_else(|| "policy 必须是对象。".to_string())?;
+            .ok_or_else(|| "policy bir nesne olmalıdır.".to_string())?;
         if let Some(sandbox) = policy.get("sandbox") {
             if !matches!(
                 sandbox.as_str(),
                 Some("read-only" | "workspace-write" | "danger-full-access")
             ) {
-                return Err("policy.sandbox 非法。".to_string());
+                return Err("policy.sandbox geçersiz.".to_string());
             }
         }
         if let Some(approval) = policy.get("approval") {
             if !matches!(approval.as_str(), Some("never" | "manual-required")) {
-                return Err("policy.approval 非法。".to_string());
+                return Err("policy.approval geçersiz.".to_string());
             }
         }
     }
@@ -798,7 +798,7 @@ fn validate_new_queue_job(job: &Value) -> Result<(), String> {
             .map(|items| items.iter().all(Value::is_string))
             .unwrap_or(false)
         {
-            return Err("capabilities 必须是字符串数组。".to_string());
+            return Err("capabilities bir dize dizisi olmalıdır.".to_string());
         }
     }
     if let Some(knowledge) = object
@@ -807,18 +807,18 @@ fn validate_new_queue_job(job: &Value) -> Result<(), String> {
     {
         let knowledge = knowledge
             .as_object()
-            .ok_or_else(|| "uiConfig.knowledgeBase 必须是对象。".to_string())?;
+            .ok_or_else(|| "uiConfig.knowledgeBase bir nesne olmalıdır.".to_string())?;
         if knowledge
             .get("officialApiDocsEnabled")
             .is_some_and(|value| !value.is_boolean())
         {
-            return Err("officialApiDocsEnabled 必须是布尔值。".to_string());
+            return Err("officialApiDocsEnabled bir boolean olmalıdır.".to_string());
         }
         if knowledge
             .get("parallelApiFallbackEnabled")
             .is_some_and(|value| !value.is_boolean())
         {
-            return Err("parallelApiFallbackEnabled 必须是布尔值。".to_string());
+            return Err("parallelApiFallbackEnabled bir boolean olmalıdır.".to_string());
         }
         if knowledge.get("cloudEnabled").and_then(Value::as_bool) == Some(true) {
             let endpoint = knowledge
@@ -826,7 +826,7 @@ fn validate_new_queue_job(job: &Value) -> Result<(), String> {
                 .and_then(Value::as_str)
                 .unwrap_or_default();
             if !endpoint.starts_with("https://") {
-                return Err("启用云知识库时 endpoint 必须是 HTTPS 地址。".to_string());
+                return Err("Bulut bilgi tabanı etkinleştirildiğinde endpoint bir HTTPS adresi olmalıdır.".to_string());
             }
             if knowledge
                 .get("tokenEnv")
@@ -834,7 +834,7 @@ fn validate_new_queue_job(job: &Value) -> Result<(), String> {
                 .unwrap_or("CAD_STUDIO_RAG_TOKEN")
                 != "CAD_STUDIO_RAG_TOKEN"
             {
-                return Err("云知识库只允许使用 CAD_STUDIO_RAG_TOKEN。".to_string());
+                return Err("Bulut bilgi tabanı yalnızca CAD_STUDIO_RAG_TOKEN kullanabilir.".to_string());
             }
         }
         if let Some(roots) = knowledge.get("localRoots") {
@@ -851,16 +851,16 @@ fn validate_new_queue_job(job: &Value) -> Result<(), String> {
                 })
                 .unwrap_or(false)
             {
-                return Err("knowledgeBase.localRoots 必须是最多 8 个非空路径。".to_string());
+                return Err("knowledgeBase.localRoots en fazla 8 boş olmayan yol olmalıdır.".to_string());
             }
         }
     }
     if let Some(artifacts) = object.get("artifacts") {
         let artifacts = artifacts
             .as_array()
-            .ok_or_else(|| "artifacts 必须是数组。".to_string())?;
+            .ok_or_else(|| "artifacts bir dizi olmalıdır.".to_string())?;
         if !artifacts.is_empty() {
-            return Err("创建任务时不接受前端预置交付物证据。".to_string());
+            return Err("Görev oluştururken ön uç tarafından önceden ayarlanmış teslimat kanıtı kabul edilmez.".to_string());
         }
     }
     for field in [
@@ -880,7 +880,7 @@ fn validate_new_queue_job(job: &Value) -> Result<(), String> {
         "result",
     ] {
         if object.contains_key(field) {
-            return Err(format!("创建任务时禁止提交服务端字段: {field}"));
+            return Err(format!("Görev oluştururken sunucu tarafı alan gönderilemez: {field}"));
         }
     }
     Ok(())
@@ -962,34 +962,34 @@ fn approval_reasons(job: &Value) -> Vec<String> {
         .and_then(Value::as_str)
         == Some("manual-required")
     {
-        reasons.push("任务策略要求人工审批。".to_string());
+        reasons.push("Görev ilkesi manuel onay gerektiriyor.".to_string());
     }
     if policy
         .and_then(|item| item.get("requirePush"))
         .and_then(Value::as_bool)
         == Some(true)
     {
-        reasons.push("任务请求 Git push，需要人工审批。".to_string());
+        reasons.push("Görev Git push talep ediyor, manuel onay gerekiyor.".to_string());
     }
     if policy
         .and_then(|item| item.get("sandbox"))
         .and_then(Value::as_str)
         == Some("danger-full-access")
     {
-        reasons.push("任务请求 danger-full-access 沙箱，需要人工审批。".to_string());
+        reasons.push("Görev danger-full-access sandbox talep ediyor, manuel onay gerekiyor.".to_string());
     }
 
     if let Some(capabilities) = job.get("capabilities").and_then(Value::as_array) {
         for capability in capabilities.iter().filter_map(Value::as_str) {
             match capability {
-                "git_push" => reasons.push("Git 推送会把本地改动外发到远端仓库".to_string()),
-                "full_access" => reasons.push("全权限沙箱可访问工作区外文件".to_string()),
+                "git_push" => reasons.push("Git push yerel değişiklikleri uzak depoya gönderir".to_string()),
+                "full_access" => reasons.push("Tam yetkili sandbox çalışma alanı dışındaki dosyalara erişebilir".to_string()),
                 "cad_macro" => {
-                    reasons.push("CAD 宏/COM 自动化可能影响当前桌面会话和工程文件".to_string())
+                    reasons.push("CAD makro/COM otomasyonu mevcut masaüstü oturumunu ve mühendislik dosyalarını etkileyebilir".to_string())
                 }
-                "external_network" => reasons.push("外部网络访问可能泄露工程上下文".to_string()),
-                "cross_workspace" => reasons.push("跨工作区访问需要明确授权".to_string()),
-                "delete_files" => reasons.push("删除或移动文件需要人工确认".to_string()),
+                "external_network" => reasons.push("Dış ağ erişimi mühendislik bağlamını sızdırabilir".to_string()),
+                "cross_workspace" => reasons.push("Çalışma alanları arası erişim açık yetkilendirme gerektirir".to_string()),
+                "delete_files" => reasons.push("Dosya silme veya taşıma manuel onay gerektirir".to_string()),
                 _ => {}
             }
         }
@@ -1004,9 +1004,9 @@ fn approval_reasons(job: &Value) -> Vec<String> {
     if commit_and_push
         && !reasons
             .iter()
-            .any(|item| item == "任务请求 Git push，需要人工审批。")
+            .any(|item| item == "Görev Git push talep ediyor, manuel onay gerekiyor.")
     {
-        reasons.push("界面配置要求提交并推送，需要人工审批。".to_string());
+        reasons.push("Arayüz yapılandırması commit ve push gerektiriyor, manuel onay gerekiyor.".to_string());
     }
 
     reasons
@@ -1028,7 +1028,7 @@ fn retry_run_id() -> String {
     format!("retry-{nanos}")
 }
 
-/// @brief 从终态任务推断局部重跑的最早工程阶段。
+/// @brief Sonlanmış görevden kısmi yeniden çalıştırmanın en erken mühendislik aşamasını çıkarır.
 fn retry_from_stage(job: &Value) -> String {
     if let Some(phases) = job
         .get("result")
@@ -1067,7 +1067,7 @@ fn retry_from_stage(job: &Value) -> String {
     }
 }
 
-/// @brief 保存一轮只读审计快照，不递归复制历史列表或 CAD 文件内容。
+/// @brief Bir salt okunur denetim anlık görüntüsünü kaydeder; geçmiş listesini veya CAD dosya içeriğini özyinelemeli kopyalamaz.
 fn run_history_snapshot(job: &Value) -> Value {
     let mut snapshot = serde_json::Map::new();
     for field in [
@@ -1097,7 +1097,7 @@ fn run_history_snapshot(job: &Value) -> Value {
     Value::Object(snapshot)
 }
 
-/// @brief 将失败任务重置为可安全重新领取的队列状态。
+/// @brief Başarısız görevi güvenle yeniden alınabilecek kuyruk durumuna sıfırlar.
 fn prepare_job_for_retry(
     job: &mut Value,
     run_id: String,
@@ -1107,7 +1107,7 @@ fn prepare_job_for_retry(
         job.get("status").and_then(Value::as_str),
         Some("failed" | "blocked" | "cancelled" | "review_required")
     ) {
-        return Err("只有失败、阻断、取消或待复核任务可以重新执行。".to_string());
+        return Err("Yalnızca başarısız, bloke, iptal edilmiş veya inceleme bekleyen görevler yeniden çalıştırılabilir.".to_string());
     }
     let previous_run_id = job.get("runId").cloned().unwrap_or(Value::Null);
     let retry_stage = retry_from_stage(job);
@@ -1142,7 +1142,7 @@ fn prepare_job_for_retry(
     object.insert("updatedAt".to_string(), Value::String(updated_at));
     object.insert(
         "lastMessage".to_string(),
-        Value::String("用户已重新执行失败任务，等待 Worker 接单。".to_string()),
+        Value::String("Kullanıcı başarısız görevi yeniden çalıştırdı; Worker'ın görevi alması bekleniyor.".to_string()),
     );
     object.insert("artifacts".to_string(), Value::Array(Vec::new()));
     for field in [
@@ -1223,12 +1223,12 @@ fn worker_status_from_child(child: &mut Child) -> Result<Value, String> {
         Some(status) => Ok(json!({
             "running": false,
             "pid": null,
-            "message": format!("worker 已退出: {}", status)
+            "message": format!("worker çıktı: {}", status)
         })),
         None => Ok(json!({
             "running": true,
             "pid": child.id(),
-            "message": "worker 正在运行"
+            "message": "worker çalışıyor"
         })),
     }
 }
@@ -1256,18 +1256,18 @@ fn command_output_with_timeout(command: &mut Command, timeout: Duration) -> Resu
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command
         .spawn()
-        .map_err(|error| format!("启动 {label} 失败: {error}"))?;
+        .map_err(|error| format!("{label} başlatılamadı: {error}"))?;
     match child
         .wait_timeout(timeout)
-        .map_err(|error| format!("等待 {label} 失败: {error}"))?
+        .map_err(|error| format!("{label} beklenirken hata: {error}"))?
     {
         Some(_) => child
             .wait_with_output()
-            .map_err(|error| format!("读取 {label} 输出失败: {error}")),
+            .map_err(|error| format!("{label} çıktısı okunamadı: {error}")),
         None => {
             let _ = terminate_process_tree(&mut child);
             Err(format!(
-                "{label} 检测超过 {} 秒，进程已终止。",
+                "{label} kontrolü {} saniyeyi aştı; süreç sonlandırıldı.",
                 timeout.as_secs()
             ))
         }
@@ -1287,7 +1287,7 @@ fn is_queue_metadata_path(path: &Path) -> bool {
     )
 }
 
-/// @brief 固定运行时与四种 Agent 的命令名，覆盖现有 PATH 回退。
+/// @brief Çalışma zamanı ile dört Agent'ın komut adlarını sabitler; mevcut PATH geri dönüşünü geçersiz kılar.
 fn supported_program_name(program: &str) -> bool {
     matches!(
         program,
@@ -1307,7 +1307,7 @@ fn supported_program_name(program: &str) -> bool {
 }
 
 fn command_exists(program: &str, args: &[&str]) -> bool {
-    // CWE-78: 只把白名单程序名落到子进程入口（调用方全部传字面量）。
+    // CWE-78: Alt süreç girişine yalnızca beyaz listedeki program adları verilir (çağıranlar hep sabit değer geçirir).
     let mut command = match program {
         "python" => Command::new("python"),
         "py" => Command::new("py"),
@@ -1343,19 +1343,19 @@ fn user_python_path() -> Option<PathBuf> {
     }
 }
 
-/// @brief 只允许已识别的 Python 命令或固定用户安装路径，绝不经 shell 拼接。
+/// @brief Yalnızca tanınan Python komutuna veya sabit kullanıcı kurulum yoluna izin verir; asla shell ile birleştirmez.
 fn python_process(program: &str) -> Result<Command, String> {
     match program {
         "python" | "py" => Ok(Command::new(program)),
         other => {
             let expected = user_python_path()
                 .and_then(|path| path.canonicalize().ok())
-                .ok_or_else(|| "未找到用户级 Python 安装。".to_string())?;
+                .ok_or_else(|| "Kullanıcı düzeyinde Python kurulumu bulunamadı.".to_string())?;
             let actual = Path::new(other)
                 .canonicalize()
-                .map_err(|_| "无法验证 Python 路径。".to_string())?;
+                .map_err(|_| "Python yolu doğrulanamadı.".to_string())?;
             if actual != expected {
-                return Err("拒绝不受信任的 Python 路径。".to_string());
+                return Err("Güvenilmeyen Python yolu reddedildi.".to_string());
             }
             Ok(Command::new(expected))
         }
@@ -1391,25 +1391,25 @@ fn python_command() -> Result<(String, Vec<String>), String> {
         }
     }
     Err(
-        "没有找到 Python。请先安装 Python 3，或把 python/py 加入 PATH 后再启动本地执行器。"
+        "Python bulunamadı. Lütfen önce Python 3 kurun veya python/py'yi PATH'e ekleyip yerel yürütücüyü yeniden başlatın."
             .to_string(),
     )
 }
 
-/// @brief 仅在启动 worker 时按需安装 Python；环境诊断保持只读。
+/// @brief Python'ı yalnızca worker başlatılırken gerektiğinde kurar; ortam tanılaması salt okunur kalır.
 fn ensure_worker_python(cancelled: &AtomicBool) -> Result<(String, Vec<String>), String> {
     if cancelled.load(Ordering::SeqCst) {
-        return Err("已取消本地执行器启动。".to_string());
+        return Err("Yerel yürütücü başlatma iptal edildi.".to_string());
     }
     if let Ok(python) = python_command() {
         return if cancelled.load(Ordering::SeqCst) {
-            Err("已取消本地执行器启动。".to_string())
+            Err("Yerel yürütücü başlatma iptal edildi.".to_string())
         } else {
             Ok(python)
         };
     }
     if cancelled.load(Ordering::SeqCst) {
-        return Err("已取消本地执行器启动。".to_string());
+        return Err("Yerel yürütücü başlatma iptal edildi.".to_string());
     }
     if std::env::var("SW_AUTO_INSTALL_DEPENDENCIES")
         .map(|value| {
@@ -1420,7 +1420,7 @@ fn ensure_worker_python(cancelled: &AtomicBool) -> Result<(String, Vec<String>),
         })
         .unwrap_or(false)
     {
-        return Err("未找到 Python，且自动安装已关闭。".to_string());
+        return Err("Python bulunamadı ve otomatik kurulum kapalı.".to_string());
     }
     #[cfg(windows)]
     {
@@ -1445,36 +1445,36 @@ fn ensure_worker_python(cancelled: &AtomicBool) -> Result<(String, Vec<String>),
             .stderr(Stdio::null())
             .creation_flags(CREATE_NO_WINDOW);
         let mut child = installer.spawn().map_err(|_| {
-            "没有找到 Python，且无法启动 winget 自动安装。请安装 Python 3.10+ 后重试。".to_string()
+            "Python bulunamadı ve winget otomatik kurulumu başlatılamadı. Lütfen Python 3.10+ kurup tekrar deneyin.".to_string()
         })?;
         let deadline = Instant::now() + Duration::from_secs(300);
         let status = loop {
             if cancelled.load(Ordering::SeqCst) {
                 let _ = terminate_process_tree(&mut child);
-                return Err("已取消 Python 自动安装。".to_string());
+                return Err("Python otomatik kurulumu iptal edildi.".to_string());
             }
             if Instant::now() >= deadline {
                 let _ = terminate_process_tree(&mut child);
-                return Err("Python 自动安装超时，请检查网络或手动安装后重试。".to_string());
+                return Err("Python otomatik kurulumu zaman aşımına uğradı; lütfen ağı kontrol edin veya elle kurup tekrar deneyin.".to_string());
             }
             match child.wait_timeout(Duration::from_millis(200)) {
                 Ok(Some(status)) => break status,
                 Ok(None) => {}
                 Err(error) => {
                     let _ = terminate_process_tree(&mut child);
-                    return Err(format!("Python 自动安装失败: {error}"));
+                    return Err(format!("Python otomatik kurulumu başarısız: {error}"));
                 }
             }
         };
         if !status.success() {
-            return Err("Python 自动安装失败，请检查 winget、网络或用户权限。".to_string());
+            return Err("Python otomatik kurulumu başarısız; lütfen winget, ağ veya kullanıcı izinlerini kontrol edin.".to_string());
         }
         python_command()
-            .map_err(|_| "Python 安装完成但尚不能运行，请检查安装或重启应用。".to_string())
+            .map_err(|_| "Python kuruldu ancak henüz çalıştırılamıyor; lütfen kurulumu kontrol edin veya uygulamayı yeniden başlatın.".to_string())
     }
     #[cfg(not(windows))]
     {
-        Err("未找到 Python 3.10+；当前平台请先安装 Python。".to_string())
+        Err("Python 3.10+ bulunamadı; mevcut platformda lütfen önce Python kurun.".to_string())
     }
 }
 
@@ -1483,7 +1483,7 @@ fn detected_skill_root(app: &AppHandle, requested: Option<&str>) -> Result<PathB
     if let Some(path) = requested.filter(|value| !value.trim().is_empty()) {
         candidates.push(PathBuf::from(path));
     }
-    // 发布版优先使用随应用携带的受控 skill，避免被用户目录中的旧版本覆盖。
+    // Yayın sürümü, kullanıcı dizinindeki eski sürümle ezilmemek için uygulamayla gelen denetimli skill'i tercih eder.
     if let Ok(resources) = app.path().resource_dir() {
         candidates.push(resources.join("skill"));
     }
@@ -1506,13 +1506,13 @@ fn detected_skill_root(app: &AppHandle, requested: Option<&str>) -> Result<PathB
         .into_iter()
         .find(|path| path.join("SKILL.md").is_file() && path.join("apps").join("desktop").is_dir())
         .ok_or_else(|| {
-            "没有找到内置或外部 solidworks-automation skill。请重新安装 CAD Studio，或安装对应技能后重试。".to_string()
+            "Yerleşik veya harici solidworks-automation skill bulunamadı. Lütfen CAD Studio'yu yeniden kurun veya ilgili beceriyi kurup tekrar deneyin.".to_string()
         })
 }
 
-/// @brief 判断 `program` 是否为 Windows 批处理脚本（.cmd/.bat）。
-/// 这些文件只能由 cmd.exe 解释执行；CreateProcessW 对它们的隐式委托
-/// 在含非 ASCII 路径 + 非 GBK 代码页环境（如 GitHub 英文 runner）下不稳定。
+/// @brief `program` bir Windows toplu iş betiği mi (.cmd/.bat) diye belirler.
+/// Bu dosyalar yalnızca cmd.exe tarafından yorumlanarak çalıştırılabilir; CreateProcessW'nin bunlara örtük delegasyonu
+/// ASCII dışı yol + GBK dışı kod sayfası ortamında (örn. GitHub İngilizce runner) kararsızdır.
 #[cfg(windows)]
 fn is_batch_script(program: &Path) -> bool {
     program
@@ -1527,8 +1527,8 @@ fn is_batch_script(_program: &Path) -> bool {
     false
 }
 
-/// @brief 剥离 `fs::canonicalize` 产生的 `\\?\`（verbatim path）前缀，得到普通绝对路径。
-/// cmd.exe 不识别 verbatim 前缀；本函数仅用于传给 cmd.exe 的批处理路径。
+/// @brief `fs::canonicalize` tarafından üretilen `\\?\` (verbatim path) önekini soyup normal mutlak yol elde eder.
+/// cmd.exe verbatim önekini tanımaz; bu fonksiyon yalnızca cmd.exe'ye geçirilen toplu iş yolu için kullanılır.
 #[cfg(windows)]
 fn strip_verbatim_prefix(program: &Path) -> PathBuf {
     let text = program.to_string_lossy();
@@ -1541,10 +1541,10 @@ fn strip_verbatim_prefix(program: &Path) -> PathBuf {
 }
 
 fn command_summary_with_prefix(command: &(String, Vec<String>), args: &[&str]) -> Value {
-    // CWE-78: 子进程仅接受白名单命令名，或无 ".." 穿越段的绝对路径可执行文件
-    // （local_agent_command 各构造分支只产出这两类来源）。
-    // 路径来自 local_agent_command 的已安装入口或用户显式 *_BIN 配置，
-    // 不接受任务数据作为程序；绝对路径本身不是来源认证，还要验证真实文件。
+    // CWE-78: Alt süreç yalnızca beyaz liste komut adını veya ".." geçiş bölümü içermeyen mutlak yol çalıştırılabilir dosyasını kabul eder
+    // (local_agent_command'ın her yapı dalı yalnızca bu iki kaynağı üretir).
+    // Yol, local_agent_command'ın kurulu girişinden veya kullanıcının açık *_BIN yapılandırmasından gelir,
+    // program olarak görev verisi kabul edilmez; mutlak yol tek başına kaynak doğrulaması değildir, gerçek dosya da doğrulanır.
     if !(supported_program_name(command.0.as_str())
         || (Path::new(&command.0).is_absolute()
             && Path::new(&command.0).is_file()
@@ -1554,7 +1554,7 @@ fn command_summary_with_prefix(command: &(String, Vec<String>), args: &[&str]) -
     {
         return json!({
             "ok": false,
-            "message": format!("拒绝不受信任的外部程序: {}", command.0)
+            "message": format!("Güvenilmeyen harici program reddedildi: {}", command.0)
         });
     }
     let program = if supported_program_name(command.0.as_str()) {
@@ -1565,15 +1565,15 @@ fn command_summary_with_prefix(command: &(String, Vec<String>), args: &[&str]) -
             Err(error) => return json!({"ok":false,"message":error.to_string()}),
         }
     };
-    // @brief Windows 上不要依赖 CreateProcessW 对 .cmd/.bat 的隐式批处理转换：
-    // 该未文档化行为会把程序转成 `cmd.exe /c`，在含中文路径 + 非 GBK 代码页
-    // （如 GitHub 英文 runner）下偶发报 "The system cannot find the path specified."。
-    // 改为显式 `cmd.exe /d /c` 并沿用 .arg 的标准引号转义（Rust 会给含空格的
-    // program 自动加引号，cmd.exe 剥离后得到真实路径），避免隐式委托的代码页歧义。
-    // 注意：canonicalize 返回 `\\?\` 前缀的 verbatim 路径，cmd.exe 不识别该前缀，
-    // 必须剥离后再传入。
-    // 安全边界：仅对扩展名为 .cmd/.bat 的程序启用；白名单/绝对路径/is_file/无 `..`
-    // 校验已在上面完成，args 均为可信固定值（--version / login status / auth 字面量）。
+    // @brief Windows'ta CreateProcessW'nin .cmd/.bat için örtük toplu iş dönüşümüne güvenmeyin:
+    // Bu belgelenmemiş davranış programı `cmd.exe /c` biçimine çevirir; Çince yol + GBK dışı kod sayfası
+    // (örn. GitHub İngilizce runner) ortamında zaman zaman "The system cannot find the path specified." hatası verir.
+    // Bunun yerine açık `cmd.exe /d /c` kullanılır ve .arg'ın standart tırnak kaçışı korunur (Rust boşluk içeren
+    // program'a otomatik tırnak ekler, cmd.exe bunları soyup gerçek yolu elde eder), örtük delegasyonun kod sayfası belirsizliği önlenir.
+    // Not: canonicalize `\\?\` önekli verbatim yol döndürür, cmd.exe bu öneki tanımaz,
+    // geçirmeden önce önek soyulmalıdır.
+    // Güvenlik sınırı: yalnızca uzantısı .cmd/.bat olan programlar için etkinleştirilir; beyaz liste/mutlak yol/is_file/`..` yok
+    // doğrulamaları yukarıda tamamlanmıştır, args tümüyle güvenilir sabit değerlerdir (--version / login status / auth sabitleri).
     let mut process = if is_batch_script(&program) {
         let mut cmd = Command::new("cmd.exe");
         cmd.arg("/d").arg("/c").arg(strip_verbatim_prefix(&program));
@@ -1652,7 +1652,7 @@ fn codex_command() -> Result<(String, Vec<String>), String> {
     }
 
     Err(
-        "没有找到 Codex CLI。请先安装 Codex，或通过 CODEX_BIN 指定 codex.exe/codex.cmd。"
+        "Codex CLI bulunamadı. Lütfen önce Codex kurun veya CODEX_BIN ile codex.exe/codex.cmd belirtin."
             .to_string(),
     )
 }
@@ -1728,7 +1728,7 @@ fn local_agent_command(provider: &str) -> Result<(String, Vec<String>), String> 
         }
     }
     Err(format!(
-        "没有找到 {provider} CLI。可通过 {env_name} 指定入口。"
+        "{provider} CLI bulunamadı. Giriş noktası {env_name} ile belirtilebilir."
     ))
 }
 
@@ -1737,7 +1737,7 @@ fn agent_provider_health(id: &str, name: &str, auth_args: &[&str], live_verified
         Ok(command) => {
             let version = command_summary_with_prefix(&command, &["--version"]);
             let auth = if auth_args.is_empty() {
-                json!({ "ok": Value::Null, "message": "CLI 已安装；认证状态将在首次任务时验证。" })
+                json!({ "ok": Value::Null, "message": "CLI kurulu; kimlik doğrulama durumu ilk görevde doğrulanacaktır." })
             } else {
                 command_summary_with_prefix(&command, auth_args)
             };
@@ -1772,8 +1772,73 @@ fn agent_provider_health(id: &str, name: &str, auth_args: &[&str], live_verified
             "verified": false,
             "status": "not_installed",
             "version": { "ok": false, "message": error },
-            "auth": { "ok": false, "message": "CLI 未安装" },
+            "auth": { "ok": false, "message": "CLI kurulu değil" },
             "entry": ""
+        }),
+    }
+}
+
+/// @brief LMSTUDIO_BASE_URL ortam değişkenini veya varsayılan yerel uç noktayı döndürür.
+fn lmstudio_base_url() -> String {
+    std::env::var("LMSTUDIO_BASE_URL")
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "http://127.0.0.1:1234/v1".to_string())
+}
+
+/// @brief LM Studio API uç noktasına kimlik bilgisi göndermeden TCP erişilebilirlik testi yapar.
+fn lmstudio_endpoint_reachable(base_url: &str) -> Result<(), String> {
+    let without_scheme = base_url
+        .trim_start_matches("http://")
+        .trim_start_matches("https://");
+    let host_port = without_scheme.split('/').next().unwrap_or("");
+    let address = if host_port.contains(':') {
+        host_port.to_string()
+    } else if base_url.starts_with("https://") {
+        format!("{host_port}:443")
+    } else {
+        format!("{host_port}:80")
+    };
+    use std::net::ToSocketAddrs;
+    let resolved = address
+        .to_socket_addrs()
+        .map_err(|error| format!("LM Studio adresi çözümlenemedi ({address}): {error}"))?
+        .next()
+        .ok_or_else(|| format!("LM Studio adresi çözümlenemedi: {address}"))?;
+    std::net::TcpStream::connect_timeout(&resolved, Duration::from_secs(3))
+        .map(|_| ())
+        .map_err(|error| format!("LM Studio uç noktasına ulaşılamadı ({base_url}): {error}"))
+}
+
+/// @brief LM Studio, yerel CLI yerine OpenAI uyumlu HTTP API üzerinden sağlık raporlar.
+fn lmstudio_provider_health(live_verified: bool) -> Value {
+    let base_url = lmstudio_base_url();
+    match lmstudio_endpoint_reachable(&base_url) {
+        Ok(()) => {
+            let status = if live_verified { "verified" } else { "verification_required" };
+            json!({
+                "id": "lmstudio",
+                "name": "LM Studio",
+                "installed": true,
+                "ready": true,
+                "verified": live_verified,
+                "status": status,
+                "version": { "ok": true, "message": format!("LM Studio API uç noktası erişilebilir: {base_url}") },
+                "auth": { "ok": Value::Null, "message": "Yerel LM Studio sunucusu kimlik doğrulaması gerektirmez." },
+                "entry": base_url
+            })
+        }
+        Err(error) => json!({
+            "id": "lmstudio",
+            "name": "LM Studio",
+            "installed": false,
+            "ready": false,
+            "verified": false,
+            "status": "not_installed",
+            "version": { "ok": false, "message": error },
+            "auth": { "ok": false, "message": "LM Studio yerel sunucusu kapalı veya LMSTUDIO_BASE_URL hatalı." },
+            "entry": base_url
         }),
     }
 }
@@ -1818,6 +1883,7 @@ fn collect_agent_provider_health(app: &AppHandle) -> Vec<Value> {
             &[],
             is_live_verified("opencode", "opencode-jsonl-v1"),
         ),
+        lmstudio_provider_health(is_live_verified("lmstudio", "lmstudio-openai-v1")),
     ]
 }
 
@@ -1827,7 +1893,7 @@ async fn agent_provider_runtime_health(app: AppHandle) -> Result<Value, String> 
         Ok(json!({ "agentProviders": collect_agent_provider_health(&app) }))
     })
     .await
-    .map_err(|error| format!("Agent 环境检查线程异常: {error}"))?
+    .map_err(|error| format!("Agent ortam kontrolü iş parçacığı hatası: {error}"))?
 }
 
 #[cfg(windows)]
@@ -1892,7 +1958,7 @@ fn detect_autocad() -> Option<PathBuf> {
             }
         }
     }
-    // 许多中文安装包位于 D:/E:，且不会把 acad.exe 加入 PATH。
+    // Birçok Çince kurulum paketi D:/E: sürücülerinde bulunur ve acad.exe'yi PATH'e eklemez.
     for drive in [r"D:\", r"E:\"] {
         candidates.extend([
             PathBuf::from(drive).join(r"AutoCAD 2024\acad.exe"),
@@ -1931,9 +1997,9 @@ fn detect_autocad() -> Option<PathBuf> {
     candidates.into_iter().find(|path| path.is_file())
 }
 
-/// @brief 调用 Skill 的统一环境诊断，非零退出码仍允许读取结构化修复建议。
+/// @brief Skill'in birleşik ortam tanılamasını çağırır; sıfır olmayan çıkış kodu yine de yapılandırılmış düzeltme önerilerinin okunmasına izin verir.
 fn collect_doctor_report(program: &str, args: &[String], skill_root: &Path) -> Value {
-    // CWE-78: python_process 只接受白名单程序名或固定用户安装位置。
+    // CWE-78: python_process yalnızca beyaz liste program adını veya sabit kullanıcı kurulum konumunu kabul eder.
     let mut doctor = match python_process(program) {
         Ok(command) => command,
         Err(error) => {
@@ -1959,7 +2025,7 @@ fn collect_doctor_report(program: &str, args: &[String], skill_root: &Path) -> V
                 "summary": { "status": "error" },
                 "checks": [],
                 "remediations": [],
-                "error": format!("环境诊断输出无法解析: {error}")
+                "error": format!("Ortam tanılama çıktısı ayrıştırılamadı: {error}")
             })
         }),
         Err(error) => json!({
@@ -1984,7 +2050,7 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
         .unwrap_or_default();
     let (python, solidworks, doctor) = match python_command() {
         Ok((program, args)) => {
-            // CWE-78: python_process 校验命令和固定用户安装路径。
+            // CWE-78: python_process komutu ve sabit kullanıcı kurulum yolunu doğrular.
             let mut preflight = python_process(&program)?;
             preflight
                 .args(&args)
@@ -2002,7 +2068,7 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
                 json!({
                     "ok": true,
                     "entry": std::iter::once(program).chain(args).collect::<Vec<_>>().join(" "),
-                    "message": "Python 3 已就绪"
+                    "message": "Python 3 hazır"
                 }),
                 solidworks,
                 doctor,
@@ -2010,15 +2076,15 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
         }
         Err(error) => (
             json!({ "ok": false, "entry": "", "message": error }),
-            json!({ "ok": false, "message": "未检测 SolidWorks：本地 CAD worker 需要 Python 3。" }),
+            json!({ "ok": false, "message": "SolidWorks algılanmadı: yerel CAD worker Python 3 gerektirir." }),
             json!({
                 "schemaVersion": "1.0",
                 "summary": { "status": "error" },
                 "checks": [],
                 "remediations": [{
                     "id": "python",
-                    "title": "安装 Python 3.10 或更高版本",
-                    "reason": "未检测到 python/py 命令，本地任务执行器暂不可用。",
+                    "title": "Python 3.10 veya üzerini kurun",
+                    "reason": "python/py komutu algılanmadı; yerel görev yürütücü şu anda kullanılamıyor.",
                     "required": true,
                     "installCommand": "winget install -e --id Python.Python.3.12",
                     "downloadUrl": "https://www.python.org/downloads/windows/"
@@ -2072,15 +2138,15 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
     }))
 }
 
-/// @brief 在后台线程执行较慢的 CLI、注册表与 CAD 环境检查，避免阻塞窗口消息循环。
+/// @brief Yavaş CLI, kayıt defteri ve CAD ortam kontrollerini arka planda çalıştırır; pencere mesaj döngüsünü bloke etmez.
 #[tauri::command]
 async fn runtime_health(app: AppHandle) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || collect_runtime_health(app))
         .await
-        .map_err(|error| format!("CAD 环境检查线程异常: {error}"))?
+        .map_err(|error| format!("CAD ortam kontrolü iş parçacığı hatası: {error}"))?
 }
 
-/// @brief 仅允许打开环境修复清单中的官方 HTTPS 下载站点。
+/// @brief Yalnızca ortam düzeltme listesindeki resmi HTTPS indirme sitelerinin açılmasına izin verir.
 fn validate_external_download_url(value: &str) -> Result<(), String> {
     const ALLOWED_PREFIXES: &[&str] = &[
         "https://www.python.org/",
@@ -2101,11 +2167,11 @@ fn validate_external_download_url(value: &str) -> Result<(), String> {
     {
         Ok(())
     } else {
-        Err("拒绝打开不在环境修复白名单中的地址。".to_string())
+        Err("Ortam düzeltme beyaz listesinde olmayan adresin açılması reddedildi.".to_string())
     }
 }
 
-/// @brief 使用 Windows 默认浏览器打开经过白名单验证的官方环境下载页。
+/// @brief Beyaz liste ile doğrulanmış resmi ortam indirme sayfasını Windows varsayılan tarayıcısıyla açar.
 #[tauri::command]
 fn open_external_download(url: String) -> Result<(), String> {
     validate_external_download_url(&url)?;
@@ -2115,13 +2181,13 @@ fn open_external_download(url: String) -> Result<(), String> {
         command.args(["url.dll,FileProtocolHandler", &url]);
         command
             .spawn()
-            .map_err(|error| format!("打开官方下载页失败: {error}"))?;
+            .map_err(|error| format!("Resmi indirme sayfası açılamadı: {error}"))?;
         Ok(())
     }
     #[cfg(not(windows))]
     {
         let _ = url;
-        Err("CAD Studio 桌面版当前仅支持 Windows。".to_string())
+        Err("CAD Studio masaüstü sürümü şu anda yalnızca Windows'u destekler.".to_string())
     }
 }
 
@@ -2131,7 +2197,7 @@ fn redact_secret(value: &str) -> String {
         return "".to_string();
     }
     if trimmed.len() <= 8 {
-        return "已配置".to_string();
+        return "Yapılandırıldı".to_string();
     }
     format!("{}***{}", &trimmed[..4], &trimmed[trimmed.len() - 4..])
 }
@@ -2288,7 +2354,7 @@ fn database_provider_groups(connection: &Connection) -> Result<Value, String> {
              FROM providers p WHERE p.app_type IN ('codex', 'claude', 'gemini', 'opencode') \
              ORDER BY p.app_type, p.is_current DESC, COALESCE(p.sort_index, 2147483647), p.name",
         )
-        .map_err(|error| format!("读取 CC Switch provider 表失败: {error}"))?;
+        .map_err(|error| format!("CC Switch provider tablosu okunamadı: {error}"))?;
     let rows = statement
         .query_map([], |row| {
             Ok((
@@ -2303,12 +2369,12 @@ fn database_provider_groups(connection: &Connection) -> Result<Value, String> {
                 row.get::<_, String>(8)?,
             ))
         })
-        .map_err(|error| format!("查询 CC Switch provider 失败: {error}"))?;
+        .map_err(|error| format!("CC Switch provider sorgusu başarısız: {error}"))?;
 
     let mut groups = serde_json::Map::new();
     for row in rows {
         let (id, app_type, name, website, category, provider_type, active, raw, route_endpoint) =
-            row.map_err(|error| format!("解析 CC Switch provider 失败: {error}"))?;
+            row.map_err(|error| format!("CC Switch provider ayrıştırılamadı: {error}"))?;
         let settings = serde_json::from_str::<Value>(&raw).unwrap_or(Value::Null);
         let models = provider_models(&settings);
         let official = category.eq_ignore_ascii_case("official")
@@ -2316,11 +2382,11 @@ fn database_provider_groups(connection: &Connection) -> Result<Value, String> {
             || id.ends_with("-official");
         let managed_credential = has_managed_credential(&settings);
         let (credential_status, auth_label) = if official {
-            ("oauth", "OAuth / 官方登录态")
+            ("oauth", "OAuth / resmi oturum durumu")
         } else if managed_credential {
-            ("managed", "凭据由 CC Switch 托管")
+            ("managed", "Kimlik bilgileri CC Switch tarafından yönetilir")
         } else {
-            ("route", "路由由 CC Switch 管理")
+            ("route", "Yönlendirme CC Switch tarafından yönetilir")
         };
         let endpoint = if route_endpoint.trim().is_empty() {
             website
@@ -2376,21 +2442,21 @@ fn required_review_checks(job: &Value) -> Vec<&'static str> {
     )
     .to_uppercase();
     if job.get("drawingEvidence").is_some()
-        || ["DWG", "DXF", "PDF", "SLDDRW", "DRAWING", "图纸"]
+        || ["DWG", "DXF", "PDF", "SLDDRW", "DRAWING", "图纸", "ÇIZIM", "ÇİZİM", "RESIM", "RESİM"]
             .iter()
             .any(|token| descriptor.contains(token))
     {
         checks.push("drawing");
     }
     if job.get("bomEvidence").is_some()
-        || ["BOM", "物料", "明细表"]
+        || ["BOM", "物料", "明细表", "MALZEME", "MALZEMELER", "LISTE", "LİSTE"]
             .iter()
             .any(|token| descriptor.contains(token))
     {
         checks.push("bom");
     }
     if job.get("dfmEvidence").is_some()
-        || ["DFM", "制造", "CNC", "SHEET_METAL", "LASER", "3D_PRINTING"]
+        || ["DFM", "制造", "CNC", "SHEET_METAL", "LASER", "3D_PRINTING", "IMALAT", "İMALAT", "ÜRETIM", "ÜRETİM", "IMAL"]
             .iter()
             .any(|token| descriptor.contains(token))
     {
@@ -2407,7 +2473,7 @@ fn save_queue_job(app: AppHandle, mut job: Value) -> Result<(), String> {
         .ok_or_else(|| "missing job id".to_string())?;
     let path = job_path(&app, id)?;
     if path.exists() {
-        return Err("任务已存在，拒绝通过创建接口覆盖。".to_string());
+        return Err("Görev zaten var; oluşturma arayüzü üzerinden üzerine yazılması reddedildi.".to_string());
     }
     validate_new_queue_job(&job)?;
     derive_dangerous_capabilities(&mut job);
@@ -2430,12 +2496,12 @@ fn transition_review_job(
     let raw = fs::read_to_string(&path).map_err(|error| error.to_string())?;
     let mut job = serde_json::from_str::<Value>(&raw).map_err(|error| error.to_string())?;
     if job.get("status").and_then(Value::as_str) != Some("review_required") {
-        return Err("只有待复核任务可以执行人工复核。".to_string());
+        return Err("Yalnızca inceleme bekleyen görevler için manuel inceleme yapılabilir.".to_string());
     }
 
     let review_note = reason.trim().to_string();
     if review_note.chars().count() < if approved { 8 } else { 4 } {
-        return Err("请填写具体复核说明，不能使用空白或默认结论。".to_string());
+        return Err("Lütfen somut bir inceleme açıklaması girin; boş veya varsayılan sonuç kullanılamaz.".to_string());
     }
     let review_checks = checks
         .into_iter()
@@ -2449,7 +2515,7 @@ fn transition_review_job(
             .collect::<Vec<_>>();
         if !missing_checks.is_empty() {
             return Err(format!(
-                "通过复核前必须完成当前任务的全部人工检查项，缺少: {}",
+                "İnceleme onaylanmadan önce mevcut görevin tüm manuel kontrol maddeleri tamamlanmalıdır; eksik: {}",
                 missing_checks.join(", ")
             ));
         }
@@ -2488,9 +2554,9 @@ fn transition_review_job(
     let status = if approved { "passed" } else { "failed" };
     let decision = if approved { "approved" } else { "rejected" };
     let message = if approved {
-        "人工复核已通过，任务可以交付。"
+        "Manuel inceleme onaylandı; görev teslim edilebilir."
     } else {
-        "人工复核未通过，任务已驳回。"
+        "Manuel inceleme onaylanmadı; görev reddedildi."
     };
 
     let object = job
@@ -2569,7 +2635,7 @@ fn approve_queue_job(app: AppHandle, id: String) -> Result<Value, String> {
     let raw = fs::read_to_string(&path).map_err(|error| error.to_string())?;
     let mut job = serde_json::from_str::<Value>(&raw).map_err(|error| error.to_string())?;
     if job.get("status").and_then(Value::as_str) != Some("approval_required") {
-        return Err("只有待审批任务可以批准执行。".to_string());
+        return Err("Yalnızca onay bekleyen görevler yürütme için onaylanabilir.".to_string());
     }
 
     let reasons = approval_reasons(&job);
@@ -2593,7 +2659,7 @@ fn approve_queue_job(app: AppHandle, id: String) -> Result<Value, String> {
     );
     object.insert(
         "lastMessage".to_string(),
-        Value::String("人工审批已通过，任务重新进入队列。".to_string()),
+        Value::String("Manuel onay verildi; görev yeniden kuyruğa girdi.".to_string()),
     );
 
     let payload = serde_json::to_vec_pretty(&job).map_err(|error| error.to_string())?;
@@ -2602,7 +2668,7 @@ fn approve_queue_job(app: AppHandle, id: String) -> Result<Value, String> {
         &app,
         &job,
         "policy.approved",
-        "人工审批已通过",
+        "Manuel onay verildi",
         json!({ "approvedBy": "local-user" }),
     )?;
     Ok(job)
@@ -2624,7 +2690,7 @@ fn retry_queue_job(app: AppHandle, id: String) -> Result<Value, String> {
         &app,
         &job,
         "run.requeued_by_user",
-        "用户已重新执行失败任务",
+        "Kullanıcı başarısız görevi yeniden çalıştırdı",
         json!({ "previousRunId": previous_run_id, "runId": next_run_id }),
     )?;
     Ok(job)
@@ -2638,7 +2704,7 @@ fn delete_queue_job(app: AppHandle, id: String) -> Result<Value, String> {
     let raw = fs::read_to_string(&path).map_err(|error| error.to_string())?;
     let job = serde_json::from_str::<Value>(&raw).map_err(|error| error.to_string())?;
     if !can_delete_job(&job) {
-        return Err("任务仍在排队、审批或执行中，请先取消任务再删除。".to_string());
+        return Err("Görev hâlâ kuyrukta, onayda veya yürütmede; silmeden önce lütfen görevi iptal edin.".to_string());
     }
 
     for metadata_path in [
@@ -2659,17 +2725,17 @@ fn delete_queue_job(app: AppHandle, id: String) -> Result<Value, String> {
     Ok(json!({ "id": safe_id, "deleted": true }))
 }
 
-/// @brief 将用户选择的壁纸复制到应用数据目录，供受限资源协议稳定加载。
+/// @brief Kullanıcının seçtiği duvar kağıdını, kısıtlı kaynak protokolünün kararlı yükleyebilmesi için uygulama veri dizinine kopyalar.
 #[tauri::command]
 fn import_wallpaper(app: AppHandle, source_path: String) -> Result<Value, String> {
     let source = PathBuf::from(source_path.trim());
     let kind = wallpaper_kind(&source)?;
-    let metadata = fs::metadata(&source).map_err(|error| format!("壁纸文件无法读取: {error}"))?;
+    let metadata = fs::metadata(&source).map_err(|error| format!("Duvar kağıdı dosyası okunamadı: {error}"))?;
     if !metadata.is_file() {
-        return Err("选择的壁纸不是文件。".to_string());
+        return Err("Seçilen duvar kağıdı bir dosya değil.".to_string());
     }
     if metadata.len() > 256 * 1024 * 1024 {
-        return Err("壁纸文件超过 256 MB，请先压缩后再导入。".to_string());
+        return Err("Duvar kağıdı dosyası 256 MB'ı aşıyor; lütfen önce sıkıştırıp sonra içe aktarın.".to_string());
     }
 
     let cache_dir = app
@@ -2680,17 +2746,17 @@ fn import_wallpaper(app: AppHandle, source_path: String) -> Result<Value, String
     fs::create_dir_all(&cache_dir).map_err(|error| error.to_string())?;
     let canonical_source = source
         .canonicalize()
-        .map_err(|error| format!("壁纸路径无效: {error}"))?;
+        .map_err(|error| format!("Duvar kağıdı yolu geçersiz: {error}"))?;
     let canonical_cache = cache_dir
         .canonicalize()
         .map_err(|error| error.to_string())?;
     let file_name = canonical_source
         .file_name()
-        .ok_or_else(|| "壁纸文件名无效。".to_string())?;
+        .ok_or_else(|| "Duvar kağıdı dosya adı geçersiz.".to_string())?;
     let display_name = canonical_source
         .file_stem()
         .and_then(|value| value.to_str())
-        .unwrap_or("我的壁纸")
+        .unwrap_or("Duvar kağıdım")
         .to_string();
 
     let cached_path = if canonical_source.starts_with(&canonical_cache) {
@@ -2703,7 +2769,7 @@ fn import_wallpaper(app: AppHandle, source_path: String) -> Result<Value, String
             .unwrap_or("wallpaper");
         let temporary = target.with_extension(format!("{extension}.{}.tmp", std::process::id()));
         fs::copy(&canonical_source, &temporary)
-            .map_err(|error| format!("壁纸复制失败: {error}"))?;
+            .map_err(|error| format!("Duvar kağıdı kopyalanamadı: {error}"))?;
         replace_with_retry(&temporary, &target, true)?;
         target
     };
@@ -2739,7 +2805,7 @@ fn worker_status(app: AppHandle, state: State<'_, WorkerState>) -> Result<Value,
     Ok(json!({
         "running": false,
         "pid": null,
-        "message": if starting { "正在检测并配置本地环境" } else { "worker 未启动" },
+        "message": if starting { "Yerel ortam algılanıyor ve yapılandırılıyor" } else { "worker başlatılmadı" },
         "health": read_worker_health(&app)
     }))
 }
@@ -2755,7 +2821,7 @@ async fn start_worker(
         start_worker_blocking(app, repo_path, enable_codex, codex_full_access)
     })
     .await
-    .map_err(|error| format!("本地执行器启动任务失败: {error}"))?
+    .map_err(|error| format!("Yerel yürütücü başlatma görevi başarısız: {error}"))?
 }
 
 fn start_worker_blocking(
@@ -2768,7 +2834,7 @@ fn start_worker_blocking(
     let _start_guard = state
         .starting
         .try_lock()
-        .map_err(|_| "本地执行器正在启动，请稍候。".to_string())?;
+        .map_err(|_| "Yerel yürütücü başlatılıyor, lütfen bekleyin.".to_string())?;
     state.cancel_start.store(false, Ordering::SeqCst);
     {
         let mut guard = state.child.lock().map_err(|error| error.to_string())?;
@@ -2808,17 +2874,17 @@ fn start_worker_blocking(
 
     let mut guard = state.child.lock().map_err(|error| error.to_string())?;
     if state.cancel_start.load(Ordering::SeqCst) {
-        return Err("已取消本地执行器启动。".to_string());
+        return Err("Yerel yürütücü başlatma iptal edildi.".to_string());
     }
     let child = command
         .spawn()
-        .map_err(|error| format!("本地执行器启动失败: {error}"))?;
+        .map_err(|error| format!("Yerel yürütücü başlatılamadı: {error}"))?;
     let pid = child.id();
     *guard = Some(child);
     Ok(json!({
         "running": true,
         "pid": pid,
-        "message": "worker 已启动"
+        "message": "worker başlatıldı"
     }))
 }
 
@@ -2826,7 +2892,7 @@ fn start_worker_blocking(
 fn cancel_queue_job(app: AppHandle, id: String) -> Result<Value, String> {
     let path = job_path(&app, &id)?;
     atomic_write(&path.with_extension("json.cancel"), b"cancel\n")
-        .map_err(|error| format!("取消标记写入失败: {error}"))?;
+        .map_err(|error| format!("İptal işareti yazılamadı: {error}"))?;
     let raw = fs::read_to_string(&path).map_err(|error| error.to_string())?;
     let mut job = serde_json::from_str::<Value>(&raw).map_err(|error| error.to_string())?;
     let current_status = job
@@ -2854,9 +2920,9 @@ fn cancel_queue_job(app: AppHandle, id: String) -> Result<Value, String> {
         "lastMessage".to_string(),
         Value::String(
             if was_running {
-                "已请求取消，等待当前进程安全停止。"
+                "İptal istendi; mevcut sürecin güvenle durması bekleniyor."
             } else {
-                "任务已取消。"
+                "Görev iptal edildi."
             }
             .to_string(),
         ),
@@ -2878,9 +2944,9 @@ fn cancel_queue_job(app: AppHandle, id: String) -> Result<Value, String> {
             "run.cancelled"
         },
         if was_running {
-            "用户已请求取消"
+            "Kullanıcı iptal istedi"
         } else {
-            "用户已取消任务"
+            "Kullanıcı görevi iptal etti"
         },
         json!({}),
     )?;
@@ -2923,9 +2989,9 @@ fn recover_jobs_owned_by_worker(app: &AppHandle, worker_pid: u32) -> Result<u64,
             "queued"
         };
         let message = if cancel_requested {
-            "Worker 已停止，取消请求已生效。"
+            "Worker durduruldu; iptal isteği geçerli oldu."
         } else {
-            "Worker 已停止，未完成任务已重新排队。"
+            "Worker durduruldu; tamamlanmamış görevler yeniden kuyruğa alındı."
         };
         let object = job
             .as_object_mut()
@@ -2980,12 +3046,12 @@ fn stop_worker_process(app: &AppHandle) -> Result<Value, String> {
                     "running": false,
                     "pid": null,
                     "recoveredJobs": recovered,
-                    "message": format!("worker 已停止: {}；恢复任务 {} 个", status, recovered)
+                    "message": format!("worker durduruldu: {}; {} görev kurtarıldı", status, recovered)
                 }));
             }
             Err(error) => {
                 *guard = Some(child);
-                return Err(format!("worker 停止失败: {error}"));
+                return Err(format!("worker durdurulamadı: {error}"));
             }
         }
     }
@@ -2997,7 +3063,7 @@ fn stop_worker_process(app: &AppHandle) -> Result<Value, String> {
     Ok(json!({
         "running": false,
         "pid": null,
-        "message": "worker 未启动"
+        "message": "worker başlatılmadı"
     }))
 }
 
@@ -3071,21 +3137,21 @@ fn read_queue_log_tail(app: AppHandle, id: String) -> Result<Value, String> {
     }))
 }
 
-/// @brief 读取 CC Switch 根目录内的固定文件名；拒绝越界与 ".." 穿越段（CWE-22）。
+/// @brief CC Switch kök dizini içindeki sabit dosya adını okur; sınır dışı ve ".." geçiş bölümlerini reddeder (CWE-22).
 fn cc_switch_file_path(root: &Path, file_name: &str) -> Result<PathBuf, String> {
     if !matches!(file_name, "config.json" | "settings.json" | "cc-switch.db") {
-        return Err("CC Switch 文件名不在固定清单中".into());
+        return Err("CC Switch dosya adı sabit listede değil".into());
     }
-    // 根目录可以是用户配置的链接；根内文件必须留在该根的真实位置内。
+    // Kök dizin kullanıcı yapılandırmalı bir bağlantı olabilir; kök içi dosya o kökün gerçek konumu içinde kalmalıdır.
     let canonical_root = fs::canonicalize(root).map_err(|error| error.to_string())?;
     let target = fs::canonicalize(root.join(file_name)).map_err(|error| error.to_string())?;
     if !target.starts_with(&canonical_root) || !target.is_file() {
-        return Err("CC Switch 配置链接指向根目录之外或不是普通文件".into());
+        return Err("CC Switch yapılandırma bağlantısı kök dizin dışına işaret ediyor veya normal bir dosya değil".into());
     }
     Ok(target)
 }
 
-/// @brief JSON 配置有界读取，SQLite 同样复用真实文件边界。
+/// @brief JSON yapılandırmasını sınırlı okuyun; SQLite da aynı gerçek dosya sınırını kullanır.
 fn read_cc_switch_file(root: &Path, file_name: &str) -> Result<String, String> {
     use std::io::Read;
     let target = cc_switch_file_path(root, file_name)?;
@@ -3095,7 +3161,7 @@ fn read_cc_switch_file(root: &Path, file_name: &str) -> Result<String, String> {
         .read_to_string(&mut raw)
         .map_err(|error| error.to_string())?;
     if raw.len() > 4 * 1024 * 1024 {
-        return Err("CC Switch JSON 超过 4 MiB".into());
+        return Err("CC Switch JSON 4 MiB'ı aşıyor".into());
     }
     Ok(raw)
 }
@@ -3104,7 +3170,7 @@ fn read_cc_switch_file(root: &Path, file_name: &str) -> Result<String, String> {
 fn sync_cc_switch_config() -> Result<Value, String> {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
-        .map_err(|_| "无法定位用户目录，不能读取 CC Switch 配置。".to_string())?;
+        .map_err(|_| "Kullanıcı dizini bulunamadı; CC Switch yapılandırması okunamıyor.".to_string())?;
     let root = PathBuf::from(home).join(".cc-switch");
     let database_path = root.join("cc-switch.db");
     let config_path = root.join("config.json");
@@ -3115,7 +3181,7 @@ fn sync_cc_switch_config() -> Result<Value, String> {
             &database_path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
-        .map_err(|error| format!("无法只读打开 CC Switch 数据库: {error}"))?;
+        .map_err(|error| format!("CC Switch veritabanı salt okunur açılamadı: {error}"))?;
         let providers = database_provider_groups(&connection)?;
         let current_for = |group: &str| {
             providers
@@ -3162,7 +3228,7 @@ fn sync_cc_switch_config() -> Result<Value, String> {
     }
     if !config_path.exists() {
         return Err(
-            "没有找到 .cc-switch/cc-switch.db 或 config.json。请先确认 CC Switch 已安装并完成配置。".to_string(),
+            ".cc-switch/cc-switch.db veya config.json bulunamadı. Lütfen önce CC Switch'in kurulu ve yapılandırılmış olduğundan emin olun.".to_string(),
         );
     }
 
@@ -3273,8 +3339,8 @@ mod tests {
             "runId": "run-test-1",
             "kind": "codex_task",
             "executor": "codex",
-            "title": "测试任务",
-            "detail": "验证任务入口",
+            "title": "Test görevi",
+            "detail": "Görev girişini doğrula",
             "status": "queued",
             "progress": 0,
             "createdAt": "2026-07-26T00:00:00+08:00",
@@ -3404,7 +3470,7 @@ mod tests {
     fn cancelled_worker_start_never_attempts_installation() {
         let cancelled = std::sync::atomic::AtomicBool::new(true);
         let error = super::ensure_worker_python(&cancelled).expect_err("cancelled start");
-        assert!(error.contains("取消"));
+        assert!(error.contains("iptal edildi"));
     }
 
     #[test]
@@ -3413,8 +3479,8 @@ mod tests {
         job["status"] = json!("failed");
         job["progress"] = json!(100);
         job["attempt"] = json!(2);
-        job["error"] = json!("Windows 拒绝访问");
-        job["result"] = json!({"message": "旧结果"});
+        job["error"] = json!("Windows erişimi reddetti");
+        job["result"] = json!({"message": "eski sonuç"});
         job["artifacts"] = json!([{"path": "old.step"}]);
         job["artifactLedgerPath"] = json!("old-ledger.json");
         job["reviewGate"] = json!({"status": "fail"});
@@ -3423,11 +3489,11 @@ mod tests {
         job["workerPid"] = json!(1234);
         job["approvedAt"] = json!("unix:1");
         job["approvedBy"] = json!("local-user");
-        job["approvedPolicyReasons"] = json!(["已批准"]);
+        job["approvedPolicyReasons"] = json!(["onaylandı"]);
         job["drawingEvidence"] = json!({"status": "failed", "stage": "review"});
         job["reviewFindings"] = json!([{"id": "dimension-overlap", "status": "fail"}]);
-        job["prompt"] = json!("不得进入历史快照的完整 Prompt");
-        job["uiConfig"] = json!({"apiKey": "不得进入历史快照的凭据"});
+        job["prompt"] = json!("Geçmiş anlık görüntüsüne girmemesi gereken tam Prompt");
+        job["uiConfig"] = json!({"apiKey": "Geçmiş anlık görüntüsüne girmemesi gereken kimlik bilgisi"});
 
         prepare_job_for_retry(&mut job, "retry-test-1".to_string(), "unix:2".to_string())
             .expect("failed job should be retryable");
@@ -3482,7 +3548,7 @@ mod tests {
             prepare_job_for_retry(&mut job, "retry-test-2".to_string(), "unix:2".to_string())
                 .expect_err("queued job must not be retried");
 
-        assert!(error.contains("失败、阻断、取消或待复核"));
+        assert!(error.contains("başarısız, bloke, iptal edilmiş veya inceleme bekleyen"));
     }
 
     #[test]
@@ -3572,10 +3638,10 @@ mod tests {
                 );",
             )
             .expect("cc switch schema");
-        // 明确的假凭据用于验证输出不泄漏，保留可读夹具。
+        // Çıktının sızdırmadığını doğrulamak için açıkça sahte kimlik bilgisi; okunabilir fikstür korunur.
         connection
             .execute(
-                "INSERT INTO providers VALUES (?1, 'codex', '工作路由', ?2, '', 'custom', '', 1, 0)",
+                "INSERT INTO providers VALUES (?1, 'codex', 'çalışma yönlendirmesi', ?2, '', 'custom', '', 1, 0)",
                 params!["route-1", r#"{"auth":{"OPENAI_API_KEY":"secret-must-not-leak"},"config":"model = \"gpt-5.5\""}"#],
             )
             .expect("codex provider");
@@ -3598,8 +3664,8 @@ mod tests {
         assert_eq!(codex[0]["active"], true);
         assert_eq!(codex[0]["model"], "gpt-5.5");
         assert_eq!(codex[0]["endpoint"], "https://route.example/v1");
-        assert_eq!(codex[0]["authLabel"], "凭据由 CC Switch 托管");
-        assert_eq!(groups["claude"][0]["authLabel"], "OAuth / 官方登录态");
+        assert_eq!(codex[0]["authLabel"], "Kimlik bilgileri CC Switch tarafından yönetilir");
+        assert_eq!(groups["claude"][0]["authLabel"], "OAuth / resmi oturum durumu");
         assert!(!groups.to_string().contains("secret-must-not-leak"));
     }
 

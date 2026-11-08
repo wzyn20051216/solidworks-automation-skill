@@ -18,7 +18,7 @@ function boundsLabel(size: { x: number; y: number; z: number }) {
   return `${size.x.toFixed(1)} × ${size.y.toFixed(1)} × ${size.z.toFixed(1)}`;
 }
 
-/** @brief Three.js 网格视口，采用按需渲染避免预览空转。 */
+/** @brief Three.js ağ (mesh) görünümü; boşa dönen önizlemeyi önlemek için isteğe bağlı render kullanır. */
 export const ModelViewport = forwardRef<PreviewActions, ModelViewportProps>(function ModelViewport({ url, path, onPhase, onSelection, onStats, onProjection, onFailure }, ref) {
   const hostRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<PreviewActions | null>(null);
@@ -45,13 +45,13 @@ export const ModelViewport = forwardRef<PreviewActions, ModelViewportProps>(func
     actionsRef.current = null;
     host.replaceChildren();
     onSelection(null);
-    onPhase("正在检查", "检查 WebGL 能力");
+    onPhase("Denetleniyor", "WebGL yeteneği denetleniyor");
     if (!hasWebGlSupport()) {
-      const reason = "当前环境不支持 WebGL。";
+      const reason = "Geçerli ortam WebGL desteklemiyor.";
       onFailure(reason);
       return;
     }
-    onPhase("正在解码", "加载 Three.js 与模型解析器");
+    onPhase("Kod çözülüyor", "Three.js ve model ayrıştırıcı yükleniyor");
     import("three").then(async (THREE) => {
       const [{ OrbitControls }, { STLLoader }, { GLTFLoader }, { OBJLoader }] = await Promise.all([
         import("three/examples/jsm/controls/OrbitControls.js"),
@@ -60,7 +60,7 @@ export const ModelViewport = forwardRef<PreviewActions, ModelViewportProps>(func
         import("three/examples/jsm/loaders/OBJLoader.js"),
       ]);
       if (disposed) return;
-      onPhase("正在建立场景", "构建机械检视台场景");
+      onPhase("Sahne oluşturuluyor", "Mekanik inceleme tezgahı sahnesi oluşturuluyor");
       const scene = new THREE.Scene();
       scene.background = new THREE.Color("#f8faf7");
       const perspective = new THREE.PerspectiveCamera(38, host.clientWidth / Math.max(1, host.clientHeight), 0.01, 100000);
@@ -192,10 +192,10 @@ export const ModelViewport = forwardRef<PreviewActions, ModelViewportProps>(func
       controls.saveState();
       onStats({ meshCount, boundsLabel: boundsLabel(size), units: "mm" });
       onProjection(projection);
-      onPhase("可交互", `${meshCount} 个网格 · 按需渲染`);
+      onPhase("Etkileşime hazır", `${meshCount} ağ · isteğe bağlı render`);
       render();
     }).catch((error: Error) => {
-      if (!disposed) onFailure(`模型读取失败: ${error.message}`);
+      if (!disposed) onFailure(`Model okuma başarısız: ${error.message}`);
     });
     return () => {
       disposed = true;
