@@ -208,6 +208,12 @@ jobs:
       - name: Install Playwright browser
         working-directory: apps/workbench-ui
         run: npx playwright install chromium
+      - name: Test fresh installation and upgrade from v2.0.1
+        timeout-minutes: 12
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ""
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: node ai_team/release-install-upgrade-e2e.cjs
       # @brief 端到端只允许"重试 1 次"，且必须保留第 1 次诊断：
       #        重试用于吸收 WebView2/CDP 启动竞态，不允许把稳定失败掩盖成偶发。
       - name: Test portable package
