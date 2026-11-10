@@ -45,6 +45,7 @@ import { StageReviewPanel } from "./components/StageReviewPanel";
 import { TaskSequence } from "./components/TaskSequence";
 import { PreviewShowcase } from "./preview/PreviewShowcase";
 import { collectJobArtifacts, deliveryFormatStatus, groupedArtifacts } from "./domain/artifacts";
+import { classifyChatEngineeringChange } from "./domain/chatEngineeringChange";
 import {
   artifactVersionComparison,
   assessDelivery,
@@ -54,7 +55,15 @@ import {
   retryStageLabel,
 } from "./domain/delivery";
 import { conciseTaskTitle, jobDisplayTitle, jobStatusLabel } from "./domain/jobs";
-import { engineeringInputRevision, jobInputChange, restoreStageReview, updateStageReview } from "./domain/stageReview";
+import {
+  chatInputRevision,
+  engineeringInputRevision,
+  jobInputChange,
+  recordChatChange,
+  restoreQueuedChatChanges,
+  restoreStageReview,
+  updateStageReview,
+} from "./domain/stageReview";
 import { isTauriRuntime, readPersistedState, writePersistedState } from "./persistence";
 import { LocalModelPanel } from "./components/LocalModelPanel";
 import {
@@ -689,6 +698,7 @@ function buildChatPrompt(
     "CAD Studio 对话执行要求:",
     "- 你正在响应软件内的 AI 执行对话框，不要输出隐藏推理；请输出可给用户看的执行计划、关键决策、工具调用结果、文件路径和验证结论。",
     "- 如果用户说继续改、重做、调整审美或补充尺寸，需要基于上文和本地文件继续推进，而不是从零开始。",
+    "- 本次指令中明确修改的需求和尺寸优先于上面的参考配置和旧对话；普通追问应直接回答。",
     "- 面向普通用户表达，不暴露无关开发者配置；必要的命令、文件路径和失败原因要写清楚。",
     "- 若涉及 SolidWorks 或 AutoCAD，本轮仍遵循本地 skills 和中国机械制图/可制造规范。",
     `- 当前 AI 接入方式: ${apiModeLabel(api.mode)}；Provider: ${api.providerName}；Endpoint: ${api.endpoint}；Model: ${api.model}；Key: ${keyStatusLabel(api.keyStatus)}。`,
@@ -1056,7 +1066,11 @@ function App() {
     return createJob(kind, recentProjectPath, {
       ...overrides,
       projectId: activeProject.id,
-      uiConfig: { ...overrides.uiConfig, engineeringInputRevision: engineeringInputRevision(activeProject.stageReview) },
+      uiConfig: {
+        chatInputRevision: chatInputRevision(activeProject.stageReview),
+        ...overrides.uiConfig,
+        engineeringInputRevision: engineeringInputRevision(activeProject.stageReview),
+      },
     });
   }
 
@@ -1066,7 +1080,7 @@ function App() {
     const project = projects.find((item) => item.id === jobProjectId(job));
     const change = jobInputChange(job, project?.stageReview);
     if (!change) return false;
-    setWindowHint(`${change} · 请按当前输入重新提交任务`);
+    setWindowHint(`${change.reason} · 请按当前输入重新提交任务`);
     return true;
   }
 
@@ -1451,6 +1465,10 @@ function App() {
   async function submitAgentMessage() {
     const text = agentInput.trim();
     if (!text || submissionKind) return;
+    if (isTauriRuntime() && (!settingsLoaded || !queueLoaded || queueLoadError)) {
+      setWindowHint("请等待项目和任务队列就绪后再发送");
+      return;
+    }
 
     const conversation = activeConversation ?? createAgentConversation(conciseTaskTitle(text, "新对话"));
     const userMessage = createChatMessage("user", text, undefined, conversation.id, activeProject.id);
@@ -1483,6 +1501,17 @@ function App() {
     }
     const prompt = buildChatPrompt(codexConfig, apiConfig, text, [...activeConversationMessages, userMessage], recentProjectPath, activeRuntime);
     const providerMeta = agentProviderCatalog[apiConfig.agentProvider];
+    const changeRoots = classifyChatEngineeringChange(text);
+    const submittedChatRevision = chatInputRevision(activeProject.stageReview) + (changeRoots.length ? 1 : 0);
+    const conversationSourceJob = changeRoots.length ? activeProjectJobs
+      .filter((candidate) => candidate.conversationId === conversation.id && candidate.result?.engineeringPlan?.phases?.length)
+      .reduce<AutomationJob | undefined>((latest, candidate) =>
+        !latest || candidate.createdAt > latest.createdAt ? candidate : latest, undefined) : undefined;
+    const selectedFormJob = activeAgentJob && !activeAgentJob.conversationId && activeAgentJob.result?.engineeringPlan?.phases?.length
+      ? activeAgentJob : undefined;
+    const sourceJob = changeRoots.length ? conversationSourceJob ?? selectedFormJob : undefined;
+    const priorRoots = jobInputChange(sourceJob, activeProject.stageReview)?.roots ?? [];
+    const replanRoots = [...new Set([...priorRoots, ...changeRoots])];
     const job = createProjectJob("agent_task", {
       conversationId: conversation.id,
       executor: "agent",
@@ -1529,7 +1558,10 @@ function App() {
           retry: "局部修改只重规划受影响阶段及其下游",
           cadConcurrency: 1,
         },
-        sourceJobId: activeAgentJob?.id,
+        chatInputRevision: submittedChatRevision,
+        chatReviewRoots: changeRoots.length ? changeRoots : undefined,
+        chatReplanRoots: sourceJob ? replanRoots : undefined,
+        sourceJobId: sourceJob?.id,
         apiRuntime: apiConfig,
         cadRuntime: {
           application: codexConfig.cadApplication,
@@ -1546,12 +1578,19 @@ function App() {
     try {
       setWindowHint("正在写入对话任务...");
       await persistJob(job);
+      if (changeRoots.length) {
+        setProjects((items) => items.map((project) => project.id === activeProject.id
+          ? { ...project, stageReview: recordChatChange(project.stageReview, submittedChatRevision, changeRoots) }
+          : project));
+      }
       setActiveAgentJobId(job.id);
       setExpandedJobId(job.id);
       setAgentMessages((messages) => [
         ...messages,
         userMessage,
-        createChatMessage("assistant", `收到，我已经把这句话转成一条本地 ${providerMeta.name} 执行任务。你可以在下方看到公开步骤、审批、日志和结果；不满意就继续补充要求。`, job.id, conversation.id, activeProject.id),
+        createChatMessage("assistant", changeRoots.length
+          ? "变更任务已进入本地队列。当前项目旧结果中受影响的阶段已标为待复核。"
+          : `收到，我已经把这句话转成一条本地 ${providerMeta.name} 执行任务。你可以在下方看到公开步骤、审批、日志和结果；不满意就继续补充要求。`, job.id, conversation.id, activeProject.id),
       ].slice(-200));
       upsertJob(job);
       setWindowHint("对话任务已进入本地队列");
@@ -2441,6 +2480,7 @@ function App() {
         const savedJobs = await invoke<AutomationJob[]>("read_queue_jobs");
         if (disposed) return;
         setQueueLoadError(null);
+        setProjects((items) => restoreQueuedChatChanges(items, savedJobs));
         const nextJobs = savedJobs
           .filter((job) => typeof job.id === "string")
           .sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""))
@@ -2471,6 +2511,7 @@ function App() {
       }
     }
 
+    if (!settingsLoaded) return;
     void loadQueue();
     if (!isTauriRuntime()) return () => {
       disposed = true;
@@ -2495,7 +2536,7 @@ function App() {
       window.clearTimeout(debounceTimer);
       unlisten?.();
     };
-  }, [activeAgentJobId, activeProjectId, expandedJobId]);
+  }, [activeAgentJobId, activeProjectId, expandedJobId, settingsLoaded]);
 
   useEffect(() => {
     void refreshWorkerStatus();
@@ -2715,7 +2756,7 @@ function App() {
 
   function renderExportPanel() {
     const grouped = groupedArtifacts(resultArtifacts);
-    const assessment = assessDelivery(resultJob, resultInputChange);
+    const assessment = assessDelivery(resultJob, resultInputChange?.reason);
     const retryStage = retryStageForJob(resultJob);
     const versionComparison = artifactVersionComparison(resultJob);
     const diagnostics = backendDiagnosticsFor(resultJob);

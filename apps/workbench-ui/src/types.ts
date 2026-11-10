@@ -110,10 +110,12 @@ export type CodexConfig = {
 };
 export type AutomationJobKind = "create_shell" | "import_model" | "delivery_package" | "dfm_review" | "codex_task" | "agent_task";
 export type ProjectReviewInputs = Pick<CodexConfig, "objective" | "length" | "width" | "height" | "wallThickness">;
+export type EngineeringChangeRoot = "requirements" | "part-modeling" | "holes-fillet-chamfer" | "assembly-mates" | "drawing-bom";
 export type ProjectStageReview = {
   inputs: Partial<ProjectReviewInputs>;
   requirementsRevision: number;
   geometryRevision: number;
+  chatPhaseRevisions?: Partial<Record<EngineeringChangeRoot, number>>;
 };
 export type EngineeringReviewPhase = {
   id?: string;
