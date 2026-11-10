@@ -23,6 +23,18 @@ function jobWithArtifacts(artifacts: ArtifactRecord[]): AutomationJob {
 }
 
 describe("artifact freshness delivery gate", () => {
+  it("关键尺寸变化后，保留原审批和产物但撤销当前可交付判定", () => {
+    const job = jobWithArtifacts([{ kind: "step", path: "fresh.step", exists: true, producedThisRun: true }]);
+    job.reviewDecision = "approved";
+    expect(assessDelivery(job, "项目关键尺寸已修改")).toMatchObject({
+      disposition: "review_required",
+      readyArtifacts: 0,
+      currentArtifacts: 1,
+    });
+    expect(job.reviewDecision).toBe("approved");
+    expect(assessDelivery(job).disposition).toBe("ready");
+  });
+
   it("不凭格式标记推断不存在的文件已就绪", () => {
     const artifacts: ArtifactRecord[] = [{ kind: "step", path: "absent.step", producedThisRun: true }];
     expect(deliveryFormatStatus("STEP", jobWithArtifacts(artifacts), artifacts)).toBe("missing");

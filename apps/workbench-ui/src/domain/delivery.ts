@@ -70,7 +70,7 @@ function artifactMatchesRequirement(artifact: ArtifactRecord, requirement: strin
   return aliases[artifactGroup(artifact)].some((alias) => token.includes(alias));
 }
 
-export function assessDelivery(job?: AutomationJob): DeliveryAssessment {
+export function assessDelivery(job?: AutomationJob, inputChange?: string | null): DeliveryAssessment {
   if (!job) return { disposition: "idle", title: "等待任务结果", summary: "任务执行后将在这里形成交付判定。", issues: [], readyArtifacts: 0, currentArtifacts: 0 };
   const artifacts = collectJobArtifacts(job);
   const readyArtifacts = artifacts.filter((item) => item.exists === true && item.producedThisRun === true);
@@ -104,6 +104,9 @@ export function assessDelivery(job?: AutomationJob): DeliveryAssessment {
   }
   if (job.status === "cancelled") {
     return { disposition: "incomplete", title: "任务已取消", summary: "本轮执行已取消，现有文件不能自动作为最终交付。", issues: uniqueIssues, readyArtifacts: readyArtifacts.length, currentArtifacts: artifacts.length };
+  }
+  if (inputChange) {
+    return { disposition: "review_required", title: "交付待复核", summary: `${inputChange}，请按当前输入重新执行并复核。`, issues: uniqueIssues, readyArtifacts: 0, currentArtifacts: artifacts.length };
   }
   if (staleFiles.length) {
     return { disposition: "failed", title: "交付文件不是本轮生成", summary: "旧文件不能作为本轮结果，请重新生成并使用新的版本目录或文件名。", issues: uniqueIssues, readyArtifacts: readyArtifacts.length, currentArtifacts: artifacts.length };
