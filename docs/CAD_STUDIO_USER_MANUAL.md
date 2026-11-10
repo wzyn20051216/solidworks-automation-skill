@@ -252,6 +252,16 @@ CAD Studio Windows 桌面版启动后会静默检查一次 GitHub Release。发�
 
 CC Switch 不是必需依赖。不使用它时，CAD Studio 直接沿用所选 CLI 的本机登录态和配置。
 
+### LM Studio 本地问答与任务规划
+
+1. 在 [LM Studio 0.4 或更新版本](https://lmstudio.ai/download) 下载并加载对话模型。在 Developer 页启动本地 API，默认地址为 `http://127.0.0.1:1234/v1`。
+2. 在 CAD Studio 展开 **LM Studio 本地问答与任务规划**，点击 **检查连接**，选择模型。
+3. 在 **问答** 模式输入问题，也可以继续追问。切换到 **任务规划** 后，输入独立的任务目标，查看待确认事项、步骤和验收条件。规划需要模型支持 [结构化输出](https://lmstudio.ai/docs/developer/openai-compat/structured-output)。
+
+本地助手在当前项目会话中显示结果。实际 CAD 操作请通过 **AI 执行对话** 提交和审批。切换项目或关闭 CAD Studio 会清空本地助手的临时会话。
+
+如果 LM Studio 使用了其他端口，请在启动 CAD Studio 前设置 `LMSTUDIO_BASE_URL`。只接受本机回环 HTTP 地址。如果服务启用了 API 认证，请为 CAD Studio 进程设置 `LMSTUDIO_API_KEY`。模型列表为空时，加载对话模型并重新检查连接。
+
 ## 9. 审批与复核
 
 以下行为需要人工审批：

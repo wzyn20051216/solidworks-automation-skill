@@ -15,6 +15,8 @@ use std::{
 use tauri::{AppHandle, Emitter, Manager, State};
 use wait_timeout::ChildExt;
 
+mod lmstudio;
+
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
@@ -3207,6 +3209,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            lmstudio::lmstudio_models,
+            lmstudio::lmstudio_infer,
             save_queue_job,
             approve_queue_job,
             approve_review_job,
