@@ -54,6 +54,7 @@ import {
 } from "./domain/delivery";
 import { conciseTaskTitle, jobDisplayTitle, jobStatusLabel } from "./domain/jobs";
 import { isTauriRuntime, readPersistedState, writePersistedState } from "./persistence";
+import { LocalModelPanel } from "./components/LocalModelPanel";
 import {
   DEFAULT_PROJECT,
   duplicateProjectRecord,
@@ -3619,6 +3620,7 @@ function App() {
               <span>{queueLoaded ? queueSummary : "队列加载中"}</span>
             </div>
 
+            <LocalModelPanel key={activeProjectId} />
             <section className="agent-console" aria-live="polite">
               <div className="agent-head">
                 <div>

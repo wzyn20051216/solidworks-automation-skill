@@ -28,6 +28,8 @@ tauri-plugin-updater = "2.10.1"
 wait-timeout = "0.2"
 rusqlite = { version = "0.31", features = ["bundled"] }
 notify = "7"
+reqwest = { version = "0.13.4", default-features = false, features = ["json"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 
 [dev-dependencies]
 minisign-verify = "0.2.5"

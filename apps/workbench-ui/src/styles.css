@@ -3378,6 +3378,23 @@ textarea {
     var(--surface);
 }
 
+.local-model-panel summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.local-model-panel[open] > :not(summary) {
+  margin-top: 12px;
+}
+
+.local-model-panel .local-model-controls {
+  justify-content: flex-start;
+}
+
+.local-model-controls select {
+  max-width: min(100%, 24rem);
+}
+
 .agent-head,
 .queue-head {
   display: flex;
