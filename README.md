@@ -112,6 +112,8 @@ npx github:wzyn20051216/solidworks-automation-skill --target claude
 
 ### Option 2 — MCP
 
+支持 MCPB 的 Windows 桌面客户端可导入发布页的标准 `.mcpb` 扩展。若当前发行尚未附带该文件，也可从 Git 检出构建。首次安装、`uv` 准备和构建方法见 [MCPB 扩展说明](mcp-server/README.md#windows-mcpb-扩展)。
+
 ```powershell
 git clone https://github.com/wzyn20051216/solidworks-automation-skill.git
 cd solidworks-automation-skill

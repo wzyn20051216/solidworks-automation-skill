@@ -159,6 +159,10 @@ jobs:
       - name: Install frontend dependencies
         working-directory: apps/workbench-ui
         run: npm ci
+      - name: Install MCPB packaging dependencies
+        run: python -m pip install -r requirements.txt -r mcp-server/requirements.txt
+      - name: Validate standard MCPB manifest
+        run: npx --yes @anthropic-ai/mcpb@2.1.2 validate manifest.json
       - name: Configure updater signing key
         working-directory: apps/workbench-ui
         env:
@@ -309,6 +313,7 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             release-output/SolidWorks-Automation-Skill-*.zip
+            release-output/SolidWorks-Automation-Skill-*.mcpb
             release-output/CAD-Studio-*-Setup-x64.exe
             release-output/CAD-Studio-*-Setup-x64.exe.sig
             release-output/CAD-Studio-*-Portable.zip

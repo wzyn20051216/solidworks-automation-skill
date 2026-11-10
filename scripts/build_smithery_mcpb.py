@@ -30,9 +30,9 @@ def collect_tool_cards(repo_root: Path, mode: str = "search") -> list[dict[str, 
     ]
 
 
-def build_smithery_bundle(source: Path, target: Path, mode: str = "search") -> int:
+def build_smithery_bundle(source: Path, target: Path, mode: str = "search", repo_root: Path | None = None) -> int:
     """@brief 将 MCPB 工具卡和启动模式同步，避免宣告不可见的工具。"""
-    repo_root = source.resolve().parent.parent
+    repo_root = (repo_root or source.resolve().parent.parent).resolve()
     tools = collect_tool_cards(repo_root, mode=mode)
     if not tools:
         raise RuntimeError("MCP Server 未注册任何工具")
@@ -43,7 +43,7 @@ def build_smithery_bundle(source: Path, target: Path, mode: str = "search") -> i
         manifest["tools"] = tools
         manifest.setdefault("server", {}).setdefault("mcp_config", {}).setdefault("env", {})["SW_MCP_DISCOVERY"] = mode
         target.parent.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as output:
+        with zipfile.ZipFile(target, "x", compression=zipfile.ZIP_DEFLATED) as output:
             for info in archive.infolist():
                 if info.filename != "manifest.json":
                     output.writestr(info, archive.read(info.filename))
@@ -60,8 +60,9 @@ def main() -> int:
     parser.add_argument("source", type=Path, help="mcpb pack 生成的标准 MCPB")
     parser.add_argument("target", type=Path, help="供 Smithery 发布的 MCPB")
     parser.add_argument("--mode", choices=("search", "full"), default="search", help="打包的工具模式")
+    parser.add_argument("--repo-root", type=Path, help="仓库根目录，默认从包的上级目录推断")
     args = parser.parse_args()
-    count = build_smithery_bundle(args.source, args.target, mode=args.mode)
+    count = build_smithery_bundle(args.source, args.target, mode=args.mode, repo_root=args.repo_root)
     print(f"Smithery MCPB 已生成: {args.target} ({count} 个工具 schema)")
     return 0
 

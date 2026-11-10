@@ -98,6 +98,13 @@ $skillZip = Join-Path $releaseRoot "SolidWorks-Automation-Skill-$Version.zip"
 & python (Join-Path $PSScriptRoot "build_skill_release.py") --version $Version --output $skillZip
 if ($LASTEXITCODE -ne 0) { throw "Standalone skill package validation failed." }
 
+$mcpb = Join-Path $releaseRoot "SolidWorks-Automation-Skill-$Version.mcpb"
+$smitheryMcpb = Join-Path $releaseRoot "SolidWorks-Automation-Skill-$Version-smithery.mcpb"
+& python (Join-Path $PSScriptRoot "build_mcpb.py") --output $mcpb
+if ($LASTEXITCODE -ne 0) { throw "Standard MCPB build failed." }
+& python (Join-Path $PSScriptRoot "build_smithery_mcpb.py") $mcpb $smitheryMcpb --repo-root $repoRoot
+if ($LASTEXITCODE -ne 0) { throw "Smithery MCPB build failed." }
+
 $latest = [ordered]@{
     version = $Version
     notes = "CAD Studio $Version includes current SolidWorks skills, verified artifact freshness gates, and corrected edge length/diameter selection. See the release notes for upgrade instructions."
@@ -113,7 +120,7 @@ $latestPath = Join-Path $releaseRoot "latest.json"
 $latestJson = $latest | ConvertTo-Json -Depth 5
 [System.IO.File]::WriteAllText($latestPath, $latestJson, (New-Object System.Text.UTF8Encoding($false)))
 
-$checksums = @($setupPath, $signaturePath, $portableZip, $skillZip, $latestPath) | ForEach-Object {
+$checksums = @($setupPath, $signaturePath, $portableZip, $skillZip, $mcpb, $smitheryMcpb, $latestPath) | ForEach-Object {
     $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $_
     "$($hash.Hash.ToLowerInvariant())  $([System.IO.Path]::GetFileName($_))"
 }
