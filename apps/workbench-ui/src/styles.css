@@ -3595,40 +3595,41 @@ textarea {
   font-size: 11px;
 }
 
-.engineering-plan-view > div {
+.engineering-plan-view ol {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.engineering-plan-view ol > li {
+  padding: 6px 8px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.5);
+  font-size: 11px;
+}
+
+.engineering-plan-view li > div {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  justify-content: space-between;
+  gap: 4px 8px;
 }
 
-.engineering-plan-view span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 26px;
-  padding: 0 8px 0 5px;
-  border-radius: 5px;
-  color: #35424e;
-  background: rgba(255, 255, 255, 0.5);
-  font-size: 10px;
-  font-weight: 800;
+.engineering-plan-view ul {
+  margin: 4px 0 0;
+  padding-inline-start: 16px;
 }
 
-.engineering-plan-view span.human-gate {
+.engineering-plan-view p {
+  margin: 0;
+  font-size: 11px;
+}
+
+.engineering-plan-view .stage-review-notice {
   color: #805a16;
-  background: rgba(255, 244, 217, 0.64);
-}
-
-.engineering-plan-view i {
-  display: grid;
-  place-items: center;
-  width: 17px;
-  height: 17px;
-  border-radius: 4px;
-  color: #fff;
-  background: var(--accent);
-  font-size: 9px;
-  font-style: normal;
+  font-weight: 700;
 }
 
 .approval-button {
