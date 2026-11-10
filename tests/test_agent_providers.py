@@ -58,6 +58,18 @@ def test_provider_commands_compile_unified_protocol(tmp_path: Path, provider_id:
     assert command[0] == provider_id
     assert all(token in command for token in expected_tokens)
     assert "执行任务" in command
+    assert "--skip-git-repo-check" not in command
+
+
+def test_codex_accepts_packaged_runtime_without_changing_sandbox(tmp_path: Path) -> None:
+    provider = AgentProvider("codex", "Codex", "codex-exec-v1", True, True, ("codex",))
+    command = build_provider_command(
+        provider, "执行任务", tmp_path, tmp_path / "result.json", tmp_path / "schema.json", "workspace-write",
+        allow_packaged_workspace=True,
+    )
+    assert "--skip-git-repo-check" in command
+    assert command[command.index("-s") + 1] == "workspace-write"
+    assert 'approval_policy="never"' in command
 
 
 @pytest.mark.parametrize(

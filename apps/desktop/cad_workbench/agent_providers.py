@@ -102,6 +102,8 @@ def build_provider_command(
     schema_path: Path,
     sandbox: str,
     model: str | None = None,
+    *,
+    allow_packaged_workspace: bool = False,
 ) -> list[str]:
     """@brief 把统一任务协议编译成目标 CLI 的非交互命令。"""
     model = str(model or "").strip()
@@ -124,6 +126,8 @@ def build_provider_command(
         )
         if model:
             command.extend(["--model", model])
+        if allow_packaged_workspace:
+            command.append("--skip-git-repo-check")
         command.append(prompt)
     elif provider.id == "claude":
         command.extend(

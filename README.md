@@ -8,7 +8,7 @@
 
 工具调用成功，不代表任务真的完成；需要 Review 的任务会经过结果验证后再交付。
 
-当前发布版本为 **v2.1.0**：技能 ZIP、MCPB、CAD Studio 安装版与便携版使用同版运行时。CAD Studio 新增 LM Studio 本地问答与规划。下载和升级见 [v2.1.0 发布说明](docs/releases/v2.1.0.md)。
+当前发布版本为 **v2.1.1**。CAD Studio 展示工程阶段验收项，工作台和对话中的明确改动会标记受影响的旧结果。技能 ZIP、MCPB、CAD Studio 安装版与便携版使用同版运行时。下载和升级见 [v2.1.1 发布说明](docs/releases/v2.1.1.md)。
 
 CAD Studio 会对各生产执行器统一检查交付文件是否为本轮新增或内容已变化；旧文件拒绝交付，证据不足转为待复核。扫描范围、兼容性与验证方法见[本轮交付门禁](references/delivery-freshness.md)。
 

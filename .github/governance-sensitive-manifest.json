@@ -3,7 +3,7 @@
   "files": {
     ".github/CODEOWNERS": "8a0367d308c85c1a5c2e06113737d0902ab700470e7a4110b3135f658b867d81",
     ".github/workflows/windows-cad-regression.yml": "66cce09f73e5878f81a10cdf48c0e04ade6c074c0f7bcda8b56536edd266d1c8",
-    ".github/workflows/windows-release.yml": "b43cef01cd3b537f18d4eb256a565ad43e137f353aa56587f1a79a3608002dc3",
+    ".github/workflows/windows-release.yml": "c9424b65bde8af33da5d469446a26fd04423826c78a370e26e1b79e33b887238",
     "docs/architecture/evidence/governance-ruleset-attestation.json": "bb48a2a6725b54feb29e9ed332529483c61df69d96d53366b77fb31271ca4352",
     "scripts/ci/cad_ci_guard.cjs": "48fb07462d4406a5326746a5d2e51356cbe63ad7ad521b30891c1a04821ca01e",
     "scripts/ci/capture_governance_attestation.cjs": "2d24b64e69a2aff2c3ce93c8b81ede3fcdef3cfba94354aa2f06ce293a84a4eb",

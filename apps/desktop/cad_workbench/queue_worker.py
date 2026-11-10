@@ -24,6 +24,7 @@ else:
 from .agent_contracts import (
     DEFAULT_PROFILE,
     DANGEROUS_CAPABILITIES,
+    REPO_ROOT,
     agent_output_path,
     codex_output_path,
     compile_codex_prompt,
@@ -1042,6 +1043,8 @@ def run_agent_job(
         DEFAULT_PROFILE.policy.output_schema_path,
         sandbox,
         model=model,
+        # The validated runtime root can be an installed skill without Git metadata.
+        allow_packaged_workspace=cwd == REPO_ROOT and not (cwd / ".git").exists(),
     )
     if runner is None and job.get("_runtime"):
         completed = _run_command_with_runtime(command, cwd, timeout_seconds, job)
@@ -1119,6 +1122,7 @@ def _run_command(command: Sequence[str], cwd: Path, timeout_seconds: int) -> sub
         text=True,
         encoding="utf-8",
         errors="replace",
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         timeout=timeout_seconds,
         check=False,
@@ -1156,6 +1160,8 @@ def _run_command_with_runtime(
             list(command),
             cwd=str(cwd),
             text=True,
+            # Prompts are already command arguments. An inherited pipe can leave a CLI waiting for EOF.
+            stdin=subprocess.DEVNULL,
             stdout=stdout_handle,
             stderr=stderr_handle,
             env=child_env,

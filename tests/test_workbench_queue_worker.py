@@ -712,6 +712,38 @@ def test_managed_command_refreshes_heartbeat_and_writes_events(tmp_path: Path) -
     assert "codex.completed" in events
 
 
+def test_managed_agent_exits_when_worker_stdin_pipe_stays_open(tmp_path: Path) -> None:
+    job_path = tmp_path / "queue" / "job-stdin.json"
+    job = _queued_job("job-stdin")
+    job.update({"status": "running", "runnerId": "runner-stdin"})
+    write_job(job_path, job)
+    worker = """
+import sys
+from pathlib import Path
+from apps.desktop.cad_workbench.queue_worker import _run_command_with_runtime, read_job
+
+path = Path(sys.argv[1])
+job = read_job(path)
+job["_runtime"] = {"jobPath": str(path), "runnerId": "runner-stdin"}
+result = _run_command_with_runtime(
+    [sys.executable, "-c", "import sys; assert sys.stdin.read() == ''; print('eof')"],
+    path.parent, 4, job,
+)
+assert result.returncode == 0 and result.stdout.strip() == "eof"
+"""
+    with subprocess.Popen(
+        [sys.executable, "-c", worker, str(job_path)],
+        cwd=Path(__file__).resolve().parents[1],
+        stdin=subprocess.PIPE,
+    ) as process:
+        # Wait without communicate(), which would close the worker's input pipe.
+        try:
+            assert process.wait(timeout=10) == 0
+        finally:
+            if process.poll() is None:
+                process.kill()
+
+
 def test_offline_api_setting_propagates_to_agent_child(tmp_path: Path) -> None:
     queue_dir = tmp_path / "queue"
     job_path = queue_dir / "job-offline.json"
