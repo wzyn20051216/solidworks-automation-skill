@@ -178,20 +178,32 @@ python mcp-server\server.py --transport streamable-http --host 0.0.0.0 --port 80
 远端输入仍需预先放到 CAD 主机；产物读取接口只服务已有交付文件。
 工具**当前共 69 个**。发现模式下这些工具不出现在 `tools/list` 中，但检索、Schema 读取和执行行为与完整模式一致。`cadstudio_list_drc_rules` 列出设计审计规则；`cadstudio_check_drc` 检查中性文档并写报告，属于写操作，严格模式需要审批。API 查证可按需配置依赖，其权限行为见上文。
 
-## Smithery 发布
+## Windows MCPB 扩展
 
-根目录 `manifest.json` 遵循 MCPB 规范，并使用 `tools_generated: true`。先用 `mcpb pack` 生成标准包，再运行以下命令生成包含 FastMCP 实际 `inputSchema` 的 Smithery 发布包：
+在支持 MCPB 的桌面客户端中导入正式发布的 `SolidWorks-Automation-Skill-<版本>.mcpb`。
+例如，在 Claude Desktop 的扩展设置中进入高级设置，选择 **Install Extension…** 并打开该文件。
+原生 SolidWorks 工具需要已安装并获得许可的 SolidWorks。扩展沿用 MCP 服务的发现模式和写操作审批。
+
+启动器会查找 `uv` 并按包内锁文件准备 Python 3.12 环境。首次运行需要能够获取 Python 和依赖。
+如果客户端日志显示缺少 `uv`，请运行下列命令，随后完全退出并重开客户端，再启用扩展。
+没有 WinGet 时，请参照 [uv 官方安装文档](https://docs.astral.sh/uv/getting-started/installation/)。
 
 ```powershell
-mcpb pack . .\dist\solidworks-automation-skill-1.3.0.mcpb
-python .\scripts\build_smithery_mcpb.py `
-  .\dist\solidworks-automation-skill-1.3.0.mcpb `
-  .\dist\solidworks-automation-skill-1.3.0-smithery.mcpb
-smithery mcp publish .\dist\solidworks-automation-skill-1.3.0-smithery.mcpb `
-  -n wzyn20051216/solidworks-automation-skill
+winget install --id astral-sh.uv -e
 ```
 
-Smithery 当前发布接口要求工具卡包含 `inputSchema`，而 MCPB 0.4 的静态 `tools` 项不允许该字段，因此发布包由脚本从 MCP Server 注册表自动生成，避免手工维护两套 schema。工具卡来自完整注册表（72 项：69 个原生工具 + 3 个发现入口），与运行时 `SW_MCP_DISCOVERY` 的选择无关。
+从 Git 检出的仓库本地打包时，使用发布脚本生成标准包。Smithery 变体从同一个包生成，并从运行时注册表读取实际的工具输入 Schema。
+
+```powershell
+$version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+python .\scripts\build_mcpb.py
+python .\scripts\build_smithery_mcpb.py `
+  ".\release-output\SolidWorks-Automation-Skill-$version.mcpb" `
+  ".\release-output\SolidWorks-Automation-Skill-$version-smithery.mcpb" --repo-root .
+```
+
+文件名带 `-smithery` 的变体用于 Smithery 的工具清单。桌面扩展请选标准包。
+Windows 正式发布同时提供 MCPB 和带签名的 CAD Studio 安装包。
 
 ## 多客户端自动注册
 

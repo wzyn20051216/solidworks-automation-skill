@@ -188,6 +188,9 @@ def test_release_publication_is_downstream_of_all_validation():
     assert "startsWith(github.ref, 'refs/tags/v')" in publisher
     assert "draft: true" in publisher
     assert "SolidWorks-Automation-Skill-*.zip" in publisher
+    assert "SolidWorks-Automation-Skill-*.mcpb" in publisher
+    assert "CAD-Studio-*-Setup-x64.exe.sig" in publisher
+    assert "release-output/latest.json" in publisher
     assert "action-gh-release" not in _joined(jobs["package_build"])
     assert "contents: write" not in _joined(jobs["package_build"])
     assert "contents: write" in publisher
