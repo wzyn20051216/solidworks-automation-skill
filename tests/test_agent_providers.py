@@ -10,7 +10,7 @@ import pytest
 
 from apps.desktop.cad_workbench.agent_providers import AgentProvider, build_provider_command, parse_provider_result, resolve_provider
 from apps.desktop.cad_workbench.engineering_orchestrator import build_engineering_plan
-from apps.desktop.cad_workbench.queue_worker import record_provider_verification, run_agent_job
+from apps.desktop.cad_workbench.queue_worker import previous_engineering_plan, record_provider_verification, run_agent_job
 
 
 def test_codex_prefers_npm_node_entry_over_windowsapps_alias(tmp_path: Path, monkeypatch) -> None:
@@ -222,3 +222,36 @@ def test_follow_up_agent_job_replans_previous_dag_locally(tmp_path: Path, monkey
     assert result["engineeringPlan"]["phases"][0]["status"] == "completed"
     assert result["engineeringPlan"]["phases"][1]["status"] == "completed"
     assert result["engineeringPlan"]["phases"][2]["status"] == "planned"
+
+
+def test_chat_replan_keeps_pending_roots_and_isolates_source(tmp_path: Path) -> None:
+    plan = build_engineering_plan("四零件装配体，含沉孔、旋转马达、GB/T 工程图并导出 STEP/PDF").to_dict()
+    for phase in plan["phases"]:
+        phase["status"] = "completed"
+    source = {
+        "projectId": "project-a",
+        "conversationId": "chat-a",
+        "result": {"engineeringPlan": plan},
+    }
+    (tmp_path / "source.json").write_text(json.dumps(source), encoding="utf-8")
+    job = {
+        "projectId": "project-a",
+        "conversationId": "chat-a",
+        "objective": "图纸标注公差改为 ±0.05 mm",
+        "_runtime": {"jobPath": str(tmp_path / "current.json")},
+        "uiConfig": {
+            "sourceJobId": "source",
+            "chatReviewRoots": ["drawing-bom"],
+            "chatReplanRoots": ["holes-fillet-chamfer", "drawing-bom"],
+        },
+    }
+    replanned = previous_engineering_plan(job)
+    assert replanned is not None
+    statuses = {phase["id"]: phase["status"] for phase in replanned["phases"]}
+    assert statuses["requirements"] == "completed"
+    assert statuses["part-modeling"] == "completed"
+    assert statuses["holes-fillet-chamfer"] == "planned"
+    assert statuses["drawing-bom"] == "planned"
+    assert previous_engineering_plan({**job, "projectId": "project-b"}) is None
+    assert previous_engineering_plan({**job, "conversationId": "chat-b"}) is None
+    assert previous_engineering_plan({**job, "uiConfig": {"chatInputRevision": 2}}) is None

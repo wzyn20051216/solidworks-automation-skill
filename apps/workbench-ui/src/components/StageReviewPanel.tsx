@@ -1,9 +1,9 @@
-import { stagesNeedingReview, type jobInputChange } from "../domain/stageReview";
+import { stagesNeedingReview, type JobInputChange } from "../domain/stageReview";
 import type { EngineeringReviewPhase } from "../types";
 
 type Props = {
   phases: EngineeringReviewPhase[];
-  change: ReturnType<typeof jobInputChange>;
+  change: JobInputChange | null;
 };
 
 export function StageReviewPanel({ phases, change }: Props) {
@@ -13,7 +13,7 @@ export function StageReviewPanel({ phases, change }: Props) {
   return (
     <section className="engineering-plan-view" aria-label="阶段复核">
       <strong>阶段复核</strong>
-      {change ? <p className="stage-review-notice">{change}。请按新输入重新提交任务，再复核受影响阶段。原记录仍可查看。</p> : null}
+      {change ? <p className="stage-review-notice">{change.reason}。请按当前输入重新执行并复核受影响阶段。原记录仍可查看。</p> : null}
       {phases.length > 0 ? (
         <ol>
           {phases.map((phase, index) => {

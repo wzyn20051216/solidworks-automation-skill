@@ -930,13 +930,37 @@ def previous_engineering_plan(job: dict[str, Any]) -> dict[str, Any] | None:
         source_job = json.loads(source_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
-    result = source_job.get("result") if isinstance(source_job, dict) and isinstance(source_job.get("result"), dict) else {}
+    if not isinstance(source_job, dict):
+        return None
+    if (source_job.get("projectId") or "project-default") != (job.get("projectId") or "project-default"):
+        return None
+    if source_job.get("conversationId") and source_job.get("conversationId") != job.get("conversationId"):
+        return None
+    result = source_job.get("result") if isinstance(source_job.get("result"), dict) else {}
     payload = result.get("engineeringPlan") if isinstance(result.get("engineeringPlan"), dict) else None
     if payload is None:
         return None
     objective = str(job.get("objective") or job.get("detail") or "").strip()
     try:
-        return replan_for_local_change(engineering_plan_from_dict(payload), objective).to_dict()
+        plan = engineering_plan_from_dict(payload)
+        requested = ui_config.get("chatReplanRoots", ui_config.get("chatReviewRoots"))
+        affected = None
+        if isinstance(requested, list):
+            known_phases = {phase.id for phase in plan.phases}
+            affected = []
+            for root in requested:
+                if root not in ("requirements", "part-modeling", "holes-fillet-chamfer", "assembly-mates", "drawing-bom"):
+                    continue
+                candidates = [root]
+                if root == "drawing-bom":
+                    candidates.extend(["export-delivery", "final-review"])
+                candidates.extend(["part-modeling", "requirements"])
+                selected = next((candidate for candidate in candidates if candidate in known_phases), None)
+                if selected and selected not in affected:
+                    affected.append(selected)
+            if not affected:
+                return None
+        return replan_for_local_change(plan, objective, affected_phase_ids=affected).to_dict()
     except (KeyError, TypeError, ValueError):
         return None
 
