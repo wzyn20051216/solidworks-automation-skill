@@ -199,12 +199,14 @@ def _describe_artifact(kind: str, path: Path, baseline: dict[str, Any]) -> dict[
         stat = resolved.stat()
         item["sizeBytes"] = stat.st_size
         item["sha256"] = sha256_file(resolved)
+        # JSON evidence can support measurements without counting as a CAD deliverable.
+        freshness_key = "jsonEvidenceThisRun" if resolved.suffix.lower() == ".json" else "producedThisRun"
         before = baseline["entries"].get(_artifact_key(resolved))
         if isinstance(before, dict) and before.get("sha256"):
-            item["producedThisRun"] = before.get("sha256") != item["sha256"]
+            item[freshness_key] = before.get("sha256") != item["sha256"]
         elif (baseline["complete"] and _covered_by_baseline(resolved, baseline)
               and ("*" in baseline["extensions"] or resolved.suffix.lower() in baseline["extensions"])):
-            item["producedThisRun"] = True
+            item[freshness_key] = True
     return item
 
 

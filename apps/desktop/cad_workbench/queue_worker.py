@@ -55,6 +55,7 @@ TERMINAL_STATES = {"passed", "review_required", "failed", "cancelled", "blocked"
 NON_EXECUTABLE_STATES = {"approval_required", *TERMINAL_STATES}
 DEFAULT_CODEX_TIMEOUT_SECONDS = 1800
 DEFAULT_LEASE_SECONDS = 900
+BASELINE_FILE_EXTENSIONS = DELIVERY_FILE_EXTENSIONS | {".json"}
 PROVIDER_VERIFICATION_FILE = "provider_verifications.json"
 _ACTIVE_LOCKS: dict[Path, BinaryIO] = {}
 _ACTIVE_LOCKS_GUARD = threading.Lock()
@@ -759,7 +760,7 @@ def run_dfm_review_job(job: dict[str, Any]) -> dict[str, Any]:
 
 
 def _snapshot_cad_artifacts(roots: list[Path], limit: int = 10000, *,
-                            extensions: frozenset[str] | None = DELIVERY_FILE_EXTENSIONS) -> dict[str, Any]:
+                            extensions: frozenset[str] | None = BASELINE_FILE_EXTENSIONS) -> dict[str, Any]:
     """@brief 记录执行前交付文件 hash，并明确扫描是否完整。"""
     entries: dict[str, dict[str, Any]] = {}
     errors: list[str] = []

@@ -23,6 +23,7 @@ from apps.desktop.cad_workbench.queue_worker import (
     JobCancelled,
     MOCK_HANDLERS,
     _run_command_with_runtime,
+    _snapshot_cad_artifacts,
     acquire_lock,
     approve_job,
     build_handlers,
@@ -446,6 +447,33 @@ def test_reviewer_gate_accepts_matching_cad_spec_evidence(tmp_path: Path) -> Non
     assert review["status"] == "pass"
     assert any(check["id"] == "spec-envelope-dimensions" and check["status"] == "pass" for check in review["checks"])
     assert any(check["id"] == "spec-hole-diameters" and check["status"] == "pass" for check in review["checks"])
+
+
+def test_worker_baseline_proves_new_cad_measurements_without_reusing_old_json(tmp_path: Path) -> None:
+    from apps.desktop.cad_workbench.reviewer_gate import evaluate_ledger
+
+    measurement = {
+        "cad_spec": {
+            "measurement_source": "SolidWorks API test fixture",
+            "envelope_mm": {"length": 60, "width": 40, "height": 8},
+            "holes": [{"diameter_mm": 6}],
+        },
+    }
+    original = tmp_path / "old.json"
+    original.write_text(json.dumps(measurement), encoding="utf-8")
+    baseline = _snapshot_cad_artifacts([tmp_path])
+    new_report = tmp_path / "new.json"
+    new_report.write_text(original.read_text(encoding="utf-8"), encoding="utf-8")
+    job = {"id": "measurement-freshness", "executor": "agent", "objective": "固定板 60 x 40 x 8 mm，孔直径 6 mm"}
+
+    def checks_for(report: Path) -> dict[str, str]:
+        ledger = build_artifact_ledger(tmp_path, job, {"artifactBaseline": baseline, "artifacts": [str(report)]})
+        assert ledger["artifacts"][0]["producedThisRun"] is None
+        return {check["id"]: check["status"] for check in evaluate_ledger(ledger)["checks"]}
+
+    for check in ("spec-envelope-dimensions", "spec-hole-diameters"):
+        assert checks_for(original)[check] == "fail"
+        assert checks_for(new_report)[check] == "pass"
 
 
 def test_reviewer_gate_accepts_envelope_with_different_axis_order(tmp_path: Path) -> None:
