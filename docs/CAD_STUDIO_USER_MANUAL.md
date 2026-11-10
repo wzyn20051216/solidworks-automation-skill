@@ -45,7 +45,7 @@ CAD Studio 不附带模型额度，也不保存 API Key。模型账号、套餐�
 ### 2.3 真实 CAD 自动化
 
 - Python 3.10 或更高版本，推荐 64 位 Python 3.11/3.12。
-- 当前真机基线为 SolidWorks 2024、SolidWorks 2026 SP01.1 和 AutoCAD 2024；SolidWorks 2026 仅对 `capabilities.yaml` 中明确列出 2026 的能力视为已验证，SolidWorks 2025 和其余能力仍是兼容性目标。
+- 近期 SolidWorks 真机回归以 2026 SP1.1 为基线，部分能力另有 2024 记录。逐项查看 `capabilities.yaml` 的 `verified_versions`、等级和限制。SolidWorks 2025 等未列版本需单独验证。AutoCAD 真机证据覆盖对应的 2024 能力。
 - Python、SolidWorks 和 AutoCAD 应与操作系统保持 64 位一致。
 
 依赖分三层，按需安装：

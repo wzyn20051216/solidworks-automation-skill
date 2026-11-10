@@ -107,7 +107,7 @@ if ($LASTEXITCODE -ne 0) { throw "Smithery MCPB build failed." }
 
 $latest = [ordered]@{
     version = $Version
-    notes = "CAD Studio $Version includes current SolidWorks skills, verified artifact freshness gates, and corrected edge length/diameter selection. See the release notes for upgrade instructions."
+    notes = "See the v$Version release notes for changes and upgrade instructions."
     pub_date = [DateTimeOffset]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
     platforms = [ordered]@{
         "windows-x86_64" = [ordered]@{

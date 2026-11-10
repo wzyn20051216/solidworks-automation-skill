@@ -3,7 +3,7 @@
   "manifest_version": "0.4",
   "name": "solidworks-automation-skill",
   "display_name": "SolidWorks Automation Skill",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "description": "Local Windows MCP server for controlled SolidWorks, CAD Studio, DFM, routing, FEA, and open-format CAD automation.",
   "long_description": "SolidWorks Automation Skill exposes a local stdio MCP server for Windows desktop CAD workflows. It provides guarded SolidWorks COM tools for parts, assemblies, drawings, exports, reviews, mates, holes, Motion Study checks, and batch delivery, plus headless CAD Studio tools for open-format generation, DFM checks, routing review, FEA preparation, and geometry preflight. Native SolidWorks tools require a local licensed SolidWorks installation; headless open-format tools can run without SolidWorks where their Python dependencies are available.",
   "author": {
