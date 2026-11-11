@@ -12,6 +12,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from acad_dxf_checklist import check_drawing, dimension_measurement, load_template, source_sha256
+
 
 DIMENSION_TYPES = {
     "DIMENSION",
@@ -58,15 +60,10 @@ def _entity_text(entity) -> str:
 
 def _dimension_evidence(entity) -> dict[str, Any]:
     """@brief 提取真实 DXF 尺寸实体的可审计字段。"""
-    measurement = None
-    try:
-        measurement = float(entity.get_measurement())
-    except Exception:
-        pass
     return {
         "type": entity.dxftype(),
         "layer": str(entity.dxf.layer),
-        "measurement": measurement,
+        "measurement": dimension_measurement(entity),
         "dimstyle": str(entity.dxf.get("dimstyle", "")),
         "textOverride": str(entity.dxf.get("text", "")),
     }
@@ -148,7 +145,7 @@ def _engineering_evaluation(
     }
 
 
-def inspect_dxf(source: str | Path) -> dict[str, Any]:
+def inspect_dxf(source: str | Path, *, template: str | Path | None = None) -> dict[str, Any]:
     """@brief 只读检查 DXF 的图层、尺寸、图框、孔位和包围盒。"""
     try:
         import ezdxf
@@ -161,6 +158,9 @@ def inspect_dxf(source: str | Path) -> dict[str, Any]:
         raise ValueError("无头后端只接受 DXF；DWG 必须使用 AutoCAD COM 只读打开")
     if not path.is_file():
         raise FileNotFoundError(path)
+    if template is not None:
+        settings = load_template(Path(template))
+        digest = source_sha256(path)
     document = ezdxf.readfile(path)
     modelspace = document.modelspace()
     type_counts = Counter(entity.dxftype() for entity in modelspace)
@@ -192,7 +192,7 @@ def inspect_dxf(source: str | Path) -> dict[str, Any]:
     bbox_value = None
     if extents.has_data:
         bbox_value = [list(extents.extmin), list(extents.extmax)]
-    return {
+    report = {
         "schemaVersion": "2.0",
         "status": "ok",
         "backend": "ezdxf-readonly",
@@ -227,6 +227,11 @@ def inspect_dxf(source: str | Path) -> dict[str, Any]:
         ),
         "limitations": ["只读 DXF 检查", "不替代 AutoCAD 原生 DWG/PDF 复核"],
     }
+    if template is not None:
+        report["drawingChecklist"] = check_drawing(document, settings, digest=digest)
+        if source_sha256(path) != digest:
+            raise ValueError("DXF 在检查期间发生变化，请重新生成报告")
+    return report
 
 
 def render_dxf(source: str | Path, output: str | Path) -> dict[str, Any]:
@@ -284,8 +289,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("source", type=Path)
     parser.add_argument("--preview", type=Path, help="可选 PNG 预览输出")
     parser.add_argument("--json", type=Path, help="可选 JSON 报告输出")
+    parser.add_argument("--template", type=Path, help="可选 DXF 制图检查模板")
     args = parser.parse_args(argv)
-    report = inspect_dxf(args.source)
+    inputs = [path.resolve() for path in (args.source, args.template) if path is not None]
+    for output in (args.json, args.preview):
+        if output and any(output.resolve() == path or (output.exists() and path.exists() and output.samefile(path)) for path in inputs):
+            parser.error("输出路径不能覆盖输入 DXF 或检查模板")
+    try:
+        report = inspect_dxf(args.source, template=args.template)
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
     if args.preview:
         report["preview"] = render_dxf(args.source, args.preview)
     text = json.dumps(report, ensure_ascii=False, indent=2)
@@ -293,7 +306,7 @@ def main(argv: list[str] | None = None) -> int:
         args.json.parent.mkdir(parents=True, exist_ok=True)
         args.json.write_text(text + "\n", encoding="utf-8")
     print(text)
-    return 0
+    return 1 if report.get("drawingChecklist", {}).get("machineStatus") == "fail" else 0
 
 
 if __name__ == "__main__":

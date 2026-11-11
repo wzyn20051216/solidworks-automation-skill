@@ -23,6 +23,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from cad_installation import discover_installation  # noqa: E402
 
 PROJECT = Path(__file__).resolve().parents[1] / "dotnet" / "CadStudio.AutoCAD2024" / "CadStudio.AutoCAD2024.csproj"
+DXF_TEMPLATE = Path(__file__).resolve().parents[1] / "examples" / "dxf-checklist-a4.json"
 REQUIRED_CHECKS = (
     "plugin_loaded",
     "command_executed",
@@ -38,6 +39,7 @@ REQUIRED_CHECKS = (
     "viewport_checked",
     "pdf_cjk_checked",
     "png_preview_checked",
+    "dxf_checklist_checked",
 )
 SYSTEM_VARIABLES = ("SECURELOAD", "FILEDIA", "BACKGROUNDPLOT")
 
@@ -257,6 +259,8 @@ def run_regression(*, real_cad: bool = False, timeout: int = 180) -> dict[str, A
     build_dir = run_dir / "plugin"
     report_path = run_dir / "runtime-report.json"
     drawing_path = run_dir / "cad-studio-dotnet-probe.dwg"
+    dxf_path = drawing_path.with_suffix(".dxf")
+    checklist_path = run_dir / "dxf-checklist.json"
     pdf_path = run_dir / "cad-studio-dotnet-probe.pdf"
     png_path = run_dir / "cad-studio-dotnet-probe.png"
     run_dir.mkdir(parents=True, exist_ok=False)
@@ -324,6 +328,7 @@ def run_regression(*, real_cad: bool = False, timeout: int = 180) -> dict[str, A
     environment = os.environ.copy()
     environment["CAD_STUDIO_DOTNET_REPORT_PATH"] = str(report_path)
     environment["CAD_STUDIO_DOTNET_OUTPUT_DWG"] = str(drawing_path)
+    environment["CAD_STUDIO_DOTNET_OUTPUT_DXF"] = str(dxf_path)
     environment["CAD_STUDIO_DOTNET_OUTPUT_PDF"] = str(pdf_path)
     environment["CAD_STUDIO_DOTNET_OUTPUT_PNG"] = str(png_path)
     process = _run(
@@ -348,6 +353,16 @@ def run_regression(*, real_cad: bool = False, timeout: int = 180) -> dict[str, A
     checks["png_preview_checked"] = preview["png_pass"]
     checks["pdf_cjk_checked"] = preview["pdf_pass"]
     plugin_report["nativePreview"] = preview
+    checks["dxf_checklist_checked"] = False
+    if dxf_path.is_file():
+        from acad_headless import inspect_dxf
+
+        try:
+            checklist = inspect_dxf(dxf_path, template=DXF_TEMPLATE)["drawingChecklist"]
+            checklist_path.write_text(json.dumps(checklist, ensure_ascii=False, indent=2), encoding="utf-8")
+            checks["dxf_checklist_checked"] = checklist["machineStatus"] == "pass"
+        except (OSError, ValueError, RuntimeError) as exc:
+            plugin_report["dxfChecklistError"] = str(exc)
     plugin_report["checks"] = checks
     if all(checks.get(name) is True for name in REQUIRED_CHECKS):
         plugin_report["status"] = "pass"
@@ -363,8 +378,9 @@ def run_regression(*, real_cad: bool = False, timeout: int = 180) -> dict[str, A
         error_code=None if status == "pass" else plugin_report.get("error_code") or "AUTOCAD_DOTNET_RUNTIME_NOT_VERIFIED",
         limitations=[] if status == "pass" else ["真机回归尚未通过全部 DWG、中文字体、尺寸、视口和预览检查"],
     )
-    result["artifacts"].extend(str(path) for path in (report_path, drawing_path, pdf_path, png_path) if path.is_file())
-    ledger_paths = (plugin, drawing_path, pdf_path, png_path, report_path)
+    produced = (report_path, drawing_path, dxf_path, checklist_path, pdf_path, png_path)
+    result["artifacts"].extend(str(path) for path in produced if path.is_file())
+    ledger_paths = (plugin, *produced)
     result["artifactLedger"] = [_artifact_record(path) for path in ledger_paths if path.is_file()]
     return _persist_result(result, run_dir)
 

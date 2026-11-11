@@ -38,6 +38,7 @@ namespace CadStudio.AutoCAD2024
     {
         private const string ReportEnvironmentVariable = "CAD_STUDIO_DOTNET_REPORT_PATH";
         private const string OutputEnvironmentVariable = "CAD_STUDIO_DOTNET_OUTPUT_DWG";
+        private const string DxfEnvironmentVariable = "CAD_STUDIO_DOTNET_OUTPUT_DXF";
         private const string PdfEnvironmentVariable = "CAD_STUDIO_DOTNET_OUTPUT_PDF";
         private const string PngEnvironmentVariable = "CAD_STUDIO_DOTNET_OUTPUT_PNG";
         private const string ProbeLayerName = "CAD_STUDIO_PROBE";
@@ -96,6 +97,11 @@ namespace CadStudio.AutoCAD2024
                     CreateProbeEntities(document.Database);
                     viewportChecked = FitAndCheckViewport(document.Editor, document.Database);
                     document.Database.SaveAs(outputPath, DwgVersion.Current);
+                    string? dxfPath = Environment.GetEnvironmentVariable(DxfEnvironmentVariable);
+                    if (!string.IsNullOrWhiteSpace(dxfPath))
+                    {
+                        document.Database.DxfOut(Path.GetFullPath(dxfPath), 16, DwgVersion.Current);
+                    }
                 }
 
                 int reopenedEntityCount = CountSavedDrawingEntities(outputPath);
@@ -136,50 +142,59 @@ namespace CadStudio.AutoCAD2024
             using (Transaction transaction = database.TransactionManager.StartTransaction())
             {
                 LayerTable layers = (LayerTable)transaction.GetObject(database.LayerTableId, OpenMode.ForRead);
-                ObjectId layerId;
-                if (!layers.Has(ProbeLayerName))
-                {
-                    layers.UpgradeOpen();
-                    var layer = new LayerTableRecord { Name = ProbeLayerName };
-                    layerId = layers.Add(layer);
-                    transaction.AddNewlyCreatedDBObject(layer, true);
-                }
-                else
-                {
-                    layerId = layers[ProbeLayerName];
-                }
+                ObjectId layerId = EnsureLayer(layers, transaction, ProbeLayerName, LineWeight.ByLineWeightDefault);
+                ObjectId frameLayer = EnsureLayer(layers, transaction, "FRAME", LineWeight.LineWeight050);
+                ObjectId titleLayer = EnsureLayer(layers, transaction, "TITLE", LineWeight.LineWeight025);
+                ObjectId dimensionLayer = EnsureLayer(layers, transaction, "DIM", LineWeight.LineWeight025);
+                database.Insunits = UnitsValue.Millimeters;
 
                 BlockTable blocks = (BlockTable)transaction.GetObject(database.BlockTableId, OpenMode.ForRead);
                 BlockTableRecord modelSpace = (BlockTableRecord)transaction.GetObject(blocks[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
                 ObjectId textStyleId = CreateCjkTextStyle(database, transaction);
-                AppendRectangle(modelSpace, transaction, layerId, 0, 0, 180, 110);
-                AppendRectangle(modelSpace, transaction, layerId, 107, 0, 180, 19);
-                AppendRectangle(modelSpace, transaction, layerId, 30, 38, 150, 86);
+                AppendRectangle(modelSpace, transaction, frameLayer, 0, 0, 297, 210);
+                AppendRectangle(modelSpace, transaction, titleLayer, 224, 0, 297, 19);
+                AppendRectangle(modelSpace, transaction, layerId, 85, 100, 205, 148);
                 foreach (var label in new[] { (DrawingTitle, 11.0), ("图号 AC-024  单位 毫米", 4.0) })
                 {
                     AppendEntity(modelSpace, transaction, new DBText
                     {
-                        Position = new Point3d(111, label.Item2, 0),
+                        Position = new Point3d(228, label.Item2, 0),
                         Height = 3.5,
                         TextString = label.Item1,
                         TextStyleId = textStyleId,
-                        LayerId = layerId,
+                        LayerId = titleLayer,
                     });
                 }
                 AppendEntity(modelSpace, transaction, new AlignedDimension(
-                    new Point3d(30, 38, 0),
-                    new Point3d(150, 38, 0),
-                    new Point3d(30, 26, 0),
+                    new Point3d(85, 100, 0),
+                    new Point3d(205, 100, 0),
+                    new Point3d(85, 88, 0),
                     string.Empty,
                     database.Dimstyle)
                 {
-                    LayerId = layerId,
+                    LayerId = dimensionLayer,
                 });
                 AppendEntity(modelSpace, transaction, new AlignedDimension(
-                    new Point3d(30, 38, 0), new Point3d(30, 86, 0), new Point3d(17, 38, 0),
-                    string.Empty, database.Dimstyle) { LayerId = layerId });
+                    new Point3d(85, 100, 0), new Point3d(85, 148, 0), new Point3d(72, 100, 0),
+                    string.Empty, database.Dimstyle) { LayerId = dimensionLayer });
                 transaction.Commit();
             }
+        }
+
+        private static ObjectId EnsureLayer(LayerTable layers, Transaction transaction, string name, LineWeight weight)
+        {
+            if (layers.Has(name))
+            {
+                return layers[name];
+            }
+            if (!layers.IsWriteEnabled)
+            {
+                layers.UpgradeOpen();
+            }
+            var layer = new LayerTableRecord { Name = name, LineWeight = weight };
+            ObjectId id = layers.Add(layer);
+            transaction.AddNewlyCreatedDBObject(layer, true);
+            return id;
         }
 
         private static ObjectId CreateCjkTextStyle(Database database, Transaction transaction)

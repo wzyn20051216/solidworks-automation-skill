@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "sheet", "frameLayers", "titleLayers", "titleFields", "minDimensions"],
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "layout": {"type": "string", "minLength": 1, "default": "Model"},
+    "sheet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["size", "orientation"],
+      "properties": {
+        "size": {"enum": ["A0", "A1", "A2", "A3", "A4"]},
+        "orientation": {"enum": ["landscape", "portrait"]},
+        "insetsMm": {"type": "array", "items": {"type": "number", "minimum": 0}, "minItems": 4, "maxItems": 4},
+        "toleranceMm": {"type": "number", "exclusiveMinimum": 0, "maximum": 10}
+      }
+    },
+    "unitlessModelIsMm": {"type": "boolean"},
+    "frameLayers": {"$ref": "#/$defs/strings"},
+    "titleLayers": {"$ref": "#/$defs/strings"},
+    "titleFields": {"$ref": "#/$defs/strings"},
+    "titleSizeMm": {"type": "array", "items": {"type": "number", "exclusiveMinimum": 0}, "minItems": 2, "maxItems": 2},
+    "titleAnchorMm": {"type": "array", "items": {"type": "number", "minimum": 0}, "minItems": 2, "maxItems": 2},
+    "minDimensions": {"type": "integer", "minimum": 0},
+    "expectedDimensionValues": {"type": "array", "minItems": 1, "items": {"type": "number", "exclusiveMinimum": 0}},
+    "dimensionTolerance": {"type": "number", "exclusiveMinimum": 0},
+    "dimensionLayers": {"$ref": "#/$defs/strings"},
+    "allowDimensionOverrides": {"type": "boolean"},
+    "minTitleTextHeightMm": {"type": "number", "exclusiveMinimum": 0},
+    "lineweightsMm": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"minLength": 1},
+      "additionalProperties": {"type": "number", "minimum": 0, "maximum": 2.11}
+    },
+    "scaleLabel": {"type": "string", "minLength": 1},
+    "projectionLabel": {"type": "string", "minLength": 1},
+    "requiredNotes": {"$ref": "#/$defs/strings"}
+  },
+  "$defs": {
+    "strings": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+  }
+}

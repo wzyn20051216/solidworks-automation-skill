@@ -1,0 +1,14 @@
+{
+  "name": "安装板 A4 横向",
+  "sheet": {"size": "A4", "orientation": "landscape", "toleranceMm": 0.5},
+  "frameLayers": ["FRAME"],
+  "titleLayers": ["TITLE"],
+  "titleFields": ["安装板", "图号", "单位", "毫米"],
+  "titleSizeMm": [73, 19],
+  "titleAnchorMm": [224, 0],
+  "minDimensions": 2,
+  "expectedDimensionValues": [120, 48],
+  "dimensionLayers": ["DIM"],
+  "minTitleTextHeightMm": 3,
+  "lineweightsMm": {"FRAME": 0.50, "TITLE": 0.25}
+}
