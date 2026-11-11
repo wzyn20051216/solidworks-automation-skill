@@ -1,6 +1,9 @@
 import importlib.util
 from pathlib import Path
 
+import pymupdf
+import pytest
+
 
 _MODULE_PATH = Path(__file__).parents[1] / "subskills" / "autocad-automation" / "scripts" / "acad_dotnet_regression.py"
 _SPEC = importlib.util.spec_from_file_location("acad_dotnet_regression", _MODULE_PATH)
@@ -35,6 +38,27 @@ def test_runtime_pass_requires_successful_process_and_report():
     checks = {name: True for name in _MODULE.REQUIRED_CHECKS}
     assert _MODULE._runtime_status({"status": "pass", "checks": checks}, {"returncode": 0}) == ("pass", [])
     assert _MODULE._runtime_status({"status": "pass", "checks": checks}, {"returncode": 1})[0] == "failed"
+
+
+@pytest.mark.parametrize(
+    ("width", "height", "border", "passed"),
+    [(1000, 600, 30, True), (1000, 600, None, False), (320, 240, 20, False), (1000, 600, 0, False)],
+)
+def test_native_png_requires_readable_size_and_uncropped_content(tmp_path, width, height, border, passed):
+    pixels = bytearray(b"\xff" * (width * height))
+    if border is not None:
+        for y in range(border, height - border):
+            for x in range(border, width - border):
+                if min(x - border, width - border - 1 - x, y - border, height - border - 1 - y) < 2:
+                    pixels[y * width + x] = 0
+    png = tmp_path / "test.png"
+    pymupdf.Pixmap(pymupdf.csGRAY, width, height, bytes(pixels), False).save(str(png))
+    with pymupdf.open() as document:
+        document.new_page()
+        document.save(tmp_path / "blank.pdf")
+    evidence = _MODULE._inspect_native_preview(png, tmp_path / "blank.pdf")
+    assert evidence["png_pass"] is passed
+    assert evidence["pdf_pass"] is False
 
 
 def test_process_output_decodes_utf8_and_autocad_utf16():

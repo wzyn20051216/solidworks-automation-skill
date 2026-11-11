@@ -13,6 +13,7 @@ import re
 import shutil
 import subprocess
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,11 @@ REQUIRED_CHECKS = (
     "entities_checked",
     "layers_checked",
     "dimensions_checked",
+    "cjk_title_checked",
+    "cjk_font_checked",
+    "viewport_checked",
+    "pdf_cjk_checked",
+    "png_preview_checked",
 )
 SYSTEM_VARIABLES = ("SECURELOAD", "FILEDIA", "BACKGROUNDPLOT")
 
@@ -140,6 +146,64 @@ def _runtime_status(plugin_report: dict[str, Any], process_result: dict[str, Any
 def _artifact_nonempty(path: Path, minimum_size: int = 32) -> bool:
     """@brief 确认导出文件来自本轮且不是空壳。"""
     return path.is_file() and path.stat().st_size >= minimum_size
+
+
+def _inspect_native_preview(png_path: Path, pdf_path: Path) -> dict[str, Any]:
+    """检查固定回归样件的输出分辨率、图框留白及 PDF 实际文字和字体。"""
+    evidence: dict[str, Any] = {"png_pass": False, "pdf_pass": False}
+    try:
+        import pymupdf
+    except ImportError:
+        return {**evidence, "error": "缺少 PyMuPDF，请安装 requirements.txt"}
+
+    try:
+        image = pymupdf.Pixmap(str(png_path))
+        gray = pymupdf.Pixmap(pymupdf.csGRAY, image)
+        width, height = gray.width, gray.height
+        if gray.alpha:
+            gray = pymupdf.Pixmap(gray, 0)
+        samples = gray.samples
+        background = Counter(samples).most_common(1)[0][0]
+        threshold = bytes(255 if abs(value - background) >= 32 else 0 for value in range(256))
+        mask = samples.translate(threshold)
+        left, top, right, bottom = width, height, -1, -1
+        for y in range(height):
+            row = mask[y * width:(y + 1) * width]
+            start = row.find(b"\xff")
+            if start >= 0:
+                left, right = min(left, start), max(right, row.rfind(b"\xff"))
+                top, bottom = min(top, y), y
+        ink_ratio = mask.count(b"\xff") / (width * height)
+        margins = [left, top, width - 1 - right, height - 1 - bottom]
+        evidence.update(width=width, height=height, ink_ratio=round(ink_ratio, 6), margins_px=margins)
+        evidence["png_pass"] = (
+            max(width, height) >= 800 and min(width, height) >= 500
+            and ink_ratio >= 0.001 and min(margins) >= 2
+            and right - left >= width * 0.4 and bottom - top >= height * 0.4
+        )
+    except (OSError, ValueError, RuntimeError) as exc:
+        evidence["png_error"] = str(exc)
+
+    try:
+        with pymupdf.open(pdf_path) as document:
+            if len(document) != 1:
+                evidence["pdf_error"] = "固定回归样件应为单页 PDF"
+                return evidence
+            spans = [span for block in document[0].get_text("dict")["blocks"]
+                     for line in block.get("lines", []) for span in line["spans"]]
+            text = "\n".join(span["text"] for span in spans)
+            title_fonts = {span["font"] for span in spans
+                           if any("\u4e00" <= char <= "\u9fff" for char in span["text"])}
+            evidence.update(pdf_text=text, pdf_title_fonts=sorted(title_fonts))
+            evidence["pdf_pass"] = (
+                bool(title_fonts)
+                and all(font.casefold().endswith("simsun") or font == "宋体" for font in title_fonts)
+                and all(token in text for token in ("安装板", "图号", "AC-024", "单位", "毫米"))
+                and {"120", "48"}.issubset(text.split())
+            )
+    except (OSError, ValueError, RuntimeError) as exc:
+        evidence["pdf_error"] = str(exc)
+    return evidence
 
 
 def _artifact_record(path: Path) -> dict[str, Any]:
@@ -278,8 +342,12 @@ def run_regression(*, real_cad: bool = False, timeout: int = 180) -> dict[str, A
     else:
         plugin_report = {"status": "failed", "checks": {}, "error_code": "AUTOCAD_DOTNET_REPORT_MISSING"}
     checks = plugin_report.get("checks") if isinstance(plugin_report.get("checks"), dict) else {}
-    checks["pdf_generated"] = _artifact_nonempty(pdf_path)
-    checks["png_generated"] = _artifact_nonempty(png_path)
+    checks["pdf_generated"] = checks.get("pdf_generated") is True and _artifact_nonempty(pdf_path)
+    checks["png_generated"] = checks.get("png_generated") is True and _artifact_nonempty(png_path)
+    preview = _inspect_native_preview(png_path, pdf_path)
+    checks["png_preview_checked"] = preview["png_pass"]
+    checks["pdf_cjk_checked"] = preview["pdf_pass"]
+    plugin_report["nativePreview"] = preview
     plugin_report["checks"] = checks
     if all(checks.get(name) is True for name in REQUIRED_CHECKS):
         plugin_report["status"] = "pass"
@@ -290,9 +358,10 @@ def run_regression(*, real_cad: bool = False, timeout: int = 180) -> dict[str, A
         status=status,
         stage="review",
         checks=plugin_report.get("checks", {}),
+        nativePreview=preview,
         missing_checks=missing,
         error_code=None if status == "pass" else plugin_report.get("error_code") or "AUTOCAD_DOTNET_RUNTIME_NOT_VERIFIED",
-        limitations=[] if status == "pass" else ["真机回归尚未同时通过 DWG 重开、PDF/PNG、实体、图层和尺寸检查"],
+        limitations=[] if status == "pass" else ["真机回归尚未通过全部 DWG、中文字体、尺寸、视口和预览检查"],
     )
     result["artifacts"].extend(str(path) for path in (report_path, drawing_path, pdf_path, png_path) if path.is_file())
     ledger_paths = (plugin, drawing_path, pdf_path, png_path, report_path)
