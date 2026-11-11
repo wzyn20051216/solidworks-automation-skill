@@ -190,7 +190,7 @@ def test_worker_maps_freshness_failures_to_safe_terminal_states(
     snapshot = _snapshot_cad_artifacts([tmp_path]) if baseline == "stale" else None
     if baseline is None:
         monkeypatch.setattr("apps.desktop.cad_workbench.queue_worker._snapshot_cad_artifacts",
-                            lambda _roots: {"entries": {}, "complete": False, "errors": ["scan_failed"]})
+                            lambda _roots, **_options: {"entries": {}, "complete": False, "errors": ["scan_failed"]})
     job_path = queue_dir / "job.json"
     write_job(job_path, {
         "schemaVersion": "2.0",
