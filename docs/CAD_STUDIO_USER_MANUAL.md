@@ -142,6 +142,8 @@ python subskills\autocad-automation\scripts\acad_dotnet_regression.py
 python subskills\autocad-automation\scripts\acad_dotnet_regression.py --real-cad
 ```
 
+.NET 真机回归使用带中文标题栏和 120 × 48 mm 实体标注的样件。运行前需要安装宋体和 `requirements.txt` 中的 PyMuPDF。回归重开 DWG 复验文字、字体和标注，读回能包住全图的视口与打印范围，并检查 PDF 的实际中文文本及原生 PNG 的尺寸、内容和边缘留白。结果写入 `output/autocad-dotnet`，该样件用于回归，制造图纸仍须按实际项目审图。
+
 只有明确授权时才使用 `--install-sdk`；该操作会通过官方 Microsoft 安装源安装 .NET SDK，不会下载 Autodesk 专有 DLL。若系统 PATH 中的 `dotnet.exe` 只有运行时，检查器会继续探测当前用户目录中的真实 SDK。桌面 AutoCAD 加载未签名插件时仍需配置受信任路径或使用签名插件包；真机回归会先读取 `SECURELOAD/FILEDIA/BACKGROUNDPLOT` 原值，只在独占 Core Console 中临时调整，并在退出前恢复。
 
 ## 3. 安装与启动

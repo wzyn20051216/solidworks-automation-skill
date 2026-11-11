@@ -41,6 +41,9 @@ namespace CadStudio.AutoCAD2024
         private const string PdfEnvironmentVariable = "CAD_STUDIO_DOTNET_OUTPUT_PDF";
         private const string PngEnvironmentVariable = "CAD_STUDIO_DOTNET_OUTPUT_PNG";
         private const string ProbeLayerName = "CAD_STUDIO_PROBE";
+        private const string CjkStyleName = "CAD_STUDIO_CJK";
+        private const string CjkTypeface = "SimSun";
+        private const string DrawingTitle = "安装板";
 
         /// <summary>回读活动文档、数据库和本机版本，并生成结构化证据。</summary>
         [CommandMethod("CADSTUDIOPROBE", CommandFlags.Session)]
@@ -87,15 +90,18 @@ namespace CadStudio.AutoCAD2024
 
             try
             {
+                bool viewportChecked;
                 using (document.LockDocument())
                 {
                     CreateProbeEntities(document.Database);
+                    viewportChecked = FitAndCheckViewport(document.Editor, document.Database);
                     document.Database.SaveAs(outputPath, DwgVersion.Current);
                 }
 
                 int reopenedEntityCount = CountSavedDrawingEntities(outputPath);
-                bool pdfGenerated = PlotModelSpace(document.Database, pdfPath, "DWG To PDF.pc3");
-                bool pngGenerated = PlotModelSpace(document.Database, pngPath, "PublishToWeb PNG.pc3");
+                var drawingChecks = InspectSavedDrawing(outputPath);
+                bool pdfGenerated = viewportChecked && PlotModelSpace(document.Database, pdfPath, "DWG To PDF.pc3");
+                bool pngGenerated = viewportChecked && PlotModelSpace(document.Database, pngPath, "PublishToWeb PNG.pc3");
                 var checks = new Dictionary<string, bool>
                 {
                     ["plugin_loaded"] = true,
@@ -104,12 +110,16 @@ namespace CadStudio.AutoCAD2024
                     ["dwg_reopened"] = reopenedEntityCount >= 4,
                     ["entities_checked"] = reopenedEntityCount >= 4,
                     ["layers_checked"] = SavedDrawingHasLayer(outputPath, ProbeLayerName),
-                    ["dimensions_checked"] = SavedDrawingHasDimension(outputPath),
+                    ["dimensions_checked"] = drawingChecks.Dimensions,
+                    ["cjk_title_checked"] = drawingChecks.Title,
+                    ["cjk_font_checked"] = drawingChecks.Font,
+                    ["viewport_checked"] = viewportChecked,
                     ["pdf_generated"] = pdfGenerated,
                     ["png_generated"] = pngGenerated,
                 };
                 bool allPassed = checks.All(item => item.Value);
-                WriteReport(allPassed ? "pass" : "review_required", "review", allPassed ? null : "AUTOCAD_DOTNET_EXPORTS_NOT_VERIFIED", checks, document, reopenedEntityCount, outputPath);
+                WriteReport(allPassed ? "pass" : "review_required", "review", allPassed ? null : "AUTOCAD_DOTNET_EXPORTS_NOT_VERIFIED",
+                    checks, document, reopenedEntityCount, outputPath, fontTypeface: drawingChecks.Typeface);
                 document.Editor.WriteMessage(allPassed
                     ? "\nCADSTUDIOCREATE DWG/PDF/PNG PASS\n"
                     : "\nCADSTUDIOCREATE DWG PASS; PDF/PNG REVIEW REQUIRED\n");
@@ -141,27 +151,97 @@ namespace CadStudio.AutoCAD2024
 
                 BlockTable blocks = (BlockTable)transaction.GetObject(database.BlockTableId, OpenMode.ForRead);
                 BlockTableRecord modelSpace = (BlockTableRecord)transaction.GetObject(blocks[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
-                var start = new Point3d(0, 0, 0);
-                var end = new Point3d(120, 0, 0);
-                AppendEntity(modelSpace, transaction, new Line(start, end) { LayerId = layerId });
-                AppendEntity(modelSpace, transaction, new Circle(new Point3d(30, 35, 0), Vector3d.ZAxis, 8) { LayerId = layerId });
-                AppendEntity(modelSpace, transaction, new DBText
+                ObjectId textStyleId = CreateCjkTextStyle(database, transaction);
+                AppendRectangle(modelSpace, transaction, layerId, 0, 0, 180, 110);
+                AppendRectangle(modelSpace, transaction, layerId, 107, 0, 180, 19);
+                AppendRectangle(modelSpace, transaction, layerId, 30, 38, 150, 86);
+                foreach (var label in new[] { (DrawingTitle, 11.0), ("图号 AC-024  单位 毫米", 4.0) })
                 {
-                    Position = new Point3d(5, 55, 0),
-                    Height = 5,
-                    TextString = "CAD STUDIO AUTO CAD 2024 PROBE",
-                    LayerId = layerId,
-                });
+                    AppendEntity(modelSpace, transaction, new DBText
+                    {
+                        Position = new Point3d(111, label.Item2, 0),
+                        Height = 3.5,
+                        TextString = label.Item1,
+                        TextStyleId = textStyleId,
+                        LayerId = layerId,
+                    });
+                }
                 AppendEntity(modelSpace, transaction, new AlignedDimension(
-                    start,
-                    end,
-                    new Point3d(0, -15, 0),
+                    new Point3d(30, 38, 0),
+                    new Point3d(150, 38, 0),
+                    new Point3d(30, 26, 0),
                     string.Empty,
                     database.Dimstyle)
                 {
                     LayerId = layerId,
                 });
+                AppendEntity(modelSpace, transaction, new AlignedDimension(
+                    new Point3d(30, 38, 0), new Point3d(30, 86, 0), new Point3d(17, 38, 0),
+                    string.Empty, database.Dimstyle) { LayerId = layerId });
                 transaction.Commit();
+            }
+        }
+
+        private static ObjectId CreateCjkTextStyle(Database database, Transaction transaction)
+        {
+            string fontPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Fonts), "simsun.ttc");
+            if (!File.Exists(fontPath))
+            {
+                throw new FileNotFoundException("AutoCAD 2024 中文回归需要已安装的宋体。", fontPath);
+            }
+            var styles = (TextStyleTable)transaction.GetObject(database.TextStyleTableId, OpenMode.ForRead);
+            if (styles.Has(CjkStyleName))
+            {
+                return styles[CjkStyleName];
+            }
+            styles.UpgradeOpen();
+            var style = new TextStyleTableRecord
+            {
+                Name = CjkStyleName,
+                Font = new Autodesk.AutoCAD.GraphicsInterface.FontDescriptor(CjkTypeface, false, false, 134, 2),
+            };
+            ObjectId id = styles.Add(style);
+            transaction.AddNewlyCreatedDBObject(style, true);
+            return id;
+        }
+
+        private static void AppendRectangle(BlockTableRecord owner, Transaction transaction, ObjectId layer,
+            double left, double bottom, double right, double top)
+        {
+            var rectangle = new Polyline { LayerId = layer, Closed = true };
+            rectangle.AddVertexAt(0, new Point2d(left, bottom), 0, 0, 0);
+            rectangle.AddVertexAt(1, new Point2d(right, bottom), 0, 0, 0);
+            rectangle.AddVertexAt(2, new Point2d(right, top), 0, 0, 0);
+            rectangle.AddVertexAt(3, new Point2d(left, top), 0, 0, 0);
+            AppendEntity(owner, transaction, rectangle);
+        }
+
+        private static bool FitAndCheckViewport(Editor editor, Database database)
+        {
+            database.UpdateExt(true);
+            Point3d min = database.Extmin;
+            Point3d max = database.Extmax;
+            using (ViewTableRecord view = editor.GetCurrentView())
+            {
+                double aspect = view.Width / view.Height;
+                if (aspect <= 0 || double.IsNaN(aspect) || double.IsInfinity(aspect))
+                {
+                    return false;
+                }
+                view.ViewDirection = Vector3d.ZAxis;
+                view.ViewTwist = 0;
+                view.Target = Point3d.Origin;
+                view.CenterPoint = new Point2d((min.X + max.X) / 2, (min.Y + max.Y) / 2);
+                view.Height = Math.Max(max.Y - min.Y, (max.X - min.X) / aspect) * 1.10;
+                view.Width = view.Height * aspect;
+                editor.SetCurrentView(view);
+            }
+            using (ViewTableRecord actual = editor.GetCurrentView())
+            {
+                return actual.ViewDirection.IsEqualTo(Vector3d.ZAxis) && Math.Abs(actual.ViewTwist) < 1e-6
+                    && actual.Target.IsEqualTo(Point3d.Origin)
+                    && actual.CenterPoint.X - actual.Width / 2 < min.X && actual.CenterPoint.X + actual.Width / 2 > max.X
+                    && actual.CenterPoint.Y - actual.Height / 2 < min.Y && actual.CenterPoint.Y + actual.Height / 2 > max.Y;
             }
         }
 
@@ -199,16 +279,25 @@ namespace CadStudio.AutoCAD2024
             }
         }
 
-        private static bool SavedDrawingHasDimension(string path)
+        private static (bool Dimensions, bool Title, bool Font, string? Typeface) InspectSavedDrawing(string path)
         {
             using (var database = OpenSavedDrawing(path))
             using (Transaction transaction = database.TransactionManager.StartOpenCloseTransaction())
             {
                 BlockTable blocks = (BlockTable)transaction.GetObject(database.BlockTableId, OpenMode.ForRead);
                 BlockTableRecord modelSpace = (BlockTableRecord)transaction.GetObject(blocks[BlockTableRecord.ModelSpace], OpenMode.ForRead);
-                return modelSpace.Cast<ObjectId>()
-                    .Select(id => transaction.GetObject(id, OpenMode.ForRead))
-                    .Any(item => item is Dimension);
+                var entities = modelSpace.Cast<ObjectId>().Select(id => transaction.GetObject(id, OpenMode.ForRead)).ToList();
+                var measurements = entities.OfType<AlignedDimension>()
+                    .Where(item => string.IsNullOrEmpty(item.DimensionText) || item.DimensionText == "<>")
+                    .Select(item => item.Measurement).ToList();
+                var title = entities.OfType<DBText>().FirstOrDefault(item => item.TextString == DrawingTitle);
+                var notes = entities.OfType<DBText>().FirstOrDefault(item => item.TextString == "图号 AC-024  单位 毫米");
+                var style = title == null ? null : transaction.GetObject(title.TextStyleId, OpenMode.ForRead) as TextStyleTableRecord;
+                string? typeface = style?.Font.TypeFace;
+                bool font = style != null && style.Name == CjkStyleName && notes?.TextStyleId == title?.TextStyleId
+                    && (string.Equals(typeface, CjkTypeface, StringComparison.OrdinalIgnoreCase) || typeface == "宋体");
+                return (measurements.Any(value => Math.Abs(value - 120) < 1e-6)
+                    && measurements.Any(value => Math.Abs(value - 48) < 1e-6), title != null && notes != null, font, typeface);
             }
         }
 
@@ -241,7 +330,19 @@ namespace CadStudio.AutoCAD2024
                         PlotSettingsValidator validator = PlotSettingsValidator.Current;
                         validator.SetPlotConfigurationName(settings, deviceName, null);
                         validator.RefreshLists(settings);
-                        validator.SetPlotType(settings, Autodesk.AutoCAD.DatabaseServices.PlotType.Extents);
+                        // The verified plan view has zero target and twist, so WCS XY and plot DCS coincide.
+                        Point3d min = database.Extmin;
+                        Point3d max = database.Extmax;
+                        const double margin = 5;
+                        var window = new Extents2d(min.X - margin, min.Y - margin, max.X + margin, max.Y + margin);
+                        validator.SetPlotWindowArea(settings, window);
+                        validator.SetPlotType(settings, Autodesk.AutoCAD.DatabaseServices.PlotType.Window);
+                        Extents2d actual = settings.PlotWindowArea;
+                        if (!actual.MinPoint.IsEqualTo(window.MinPoint) || !actual.MaxPoint.IsEqualTo(window.MaxPoint))
+                        {
+                            AcApplication.DocumentManager.MdiActiveDocument.Editor.WriteMessage("\nPlot window readback differs: " + deviceName);
+                            return false;
+                        }
                         validator.SetUseStandardScale(settings, true);
                         validator.SetStdScaleType(settings, StdScaleType.ScaleToFit);
                         validator.SetPlotCentered(settings, true);
@@ -269,8 +370,9 @@ namespace CadStudio.AutoCAD2024
                 }
                 return File.Exists(outputPath) && new FileInfo(outputPath).Length >= 32;
             }
-            catch (System.Exception)
+            catch (System.Exception exception)
             {
+                AcApplication.DocumentManager.MdiActiveDocument.Editor.WriteMessage("\nPlot failed for " + deviceName + ": " + exception.Message);
                 return false;
             }
         }
@@ -283,7 +385,8 @@ namespace CadStudio.AutoCAD2024
             Document? document = null,
             int entityCount = -1,
             string? drawingPath = null,
-            string? error = null)
+            string? error = null,
+            string? fontTypeface = null)
         {
             string reportPath = Environment.GetEnvironmentVariable(ReportEnvironmentVariable)
                 ?? Path.Combine(Path.GetTempPath(), "cad-studio-dotnet-report.json");
@@ -300,6 +403,7 @@ namespace CadStudio.AutoCAD2024
                 + "\"document\":\"" + Escape(document?.Name ?? string.Empty) + "\","
                 + "\"drawingPath\":\"" + Escape(drawingPath ?? string.Empty) + "\","
                 + "\"entityCount\":" + entityCount.ToString(CultureInfo.InvariantCulture) + ","
+                + "\"fontTypeface\":" + JsonString(fontTypeface) + ","
                 + "\"checks\":{" + checkJson + "},"
                 + "\"error_code\":" + JsonString(errorCode) + ","
                 + "\"error\":" + JsonString(error)
