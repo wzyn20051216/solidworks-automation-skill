@@ -208,7 +208,7 @@ jobs:
       - name: Install Playwright browser
         working-directory: apps/workbench-ui
         run: npx playwright install chromium
-      - name: Test fresh installation and upgrade from v2.0.1
+      - name: Test fresh installation and upgrade from v2.1.0
         timeout-minutes: 12
         env:
           TAURI_SIGNING_PRIVATE_KEY: ""

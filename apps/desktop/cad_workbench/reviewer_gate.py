@@ -220,7 +220,7 @@ def _artifact_measurements(artifacts: list[dict[str, Any]]) -> tuple[list[tuple[
         if (
             artifact.get("exists") is not True
             or artifact.get("isDirectory") is True
-            or artifact.get("producedThisRun") is not True
+            or artifact.get("jsonEvidenceThisRun", artifact.get("producedThisRun")) is not True
             or path.suffix.lower() != ".json"
             or int(artifact.get("sizeBytes") or 0) > 1024 * 1024
         ):

@@ -46,6 +46,7 @@ import { TaskSequence } from "./components/TaskSequence";
 import { PreviewShowcase } from "./preview/PreviewShowcase";
 import { collectJobArtifacts, deliveryFormatStatus, groupedArtifacts } from "./domain/artifacts";
 import { classifyChatEngineeringChange } from "./domain/chatEngineeringChange";
+import { chatHistoryForPrompt } from "./domain/chatHistory";
 import {
   artifactVersionComparison,
   assessDelivery,
@@ -176,7 +177,7 @@ const SETTINGS_KEY = "cad-studio.settings.v1";
 const QUEUE_KEY = "cad-studio.queue.v1";
 const CHAT_KEY = "cad-studio.agent-chat.v1";
 const CONVERSATIONS_KEY = "cad-studio.agent-conversations.v1";
-const APP_VERSION = "2.1.0";
+const APP_VERSION = "2.1.1";
 const LEGACY_CONVERSATION_ID = "conversation-legacy";
 const manualReviewOptions = [
   ["native-open", "已用目标 CAD 软件原生打开并确认无报错"],
@@ -688,10 +689,7 @@ function buildChatPrompt(
   projectPath?: string,
   runtime?: RuntimeHealth | null,
 ) {
-  const recentHistory = history
-    .slice(-8)
-    .map((message) => `${message.role === "user" ? "用户" : message.role === "assistant" ? "AI" : "系统"}: ${message.content}`)
-    .join("\n");
+  const recentHistory = chatHistoryForPrompt(history);
   return [
     buildCodexPrompt(config, projectPath, runtime),
     "",

@@ -24,6 +24,7 @@ else:
 from .agent_contracts import (
     DEFAULT_PROFILE,
     DANGEROUS_CAPABILITIES,
+    REPO_ROOT,
     agent_output_path,
     codex_output_path,
     compile_codex_prompt,
@@ -758,8 +759,11 @@ def run_dfm_review_job(job: dict[str, Any]) -> dict[str, Any]:
 
 
 def _snapshot_cad_artifacts(roots: list[Path], limit: int = 10000, *,
-                            extensions: frozenset[str] | None = DELIVERY_FILE_EXTENSIONS) -> dict[str, Any]:
+                            extensions: frozenset[str] | None = DELIVERY_FILE_EXTENSIONS,
+                            include_measurement_evidence: bool = False) -> dict[str, Any]:
     """@brief 记录执行前交付文件 hash，并明确扫描是否完整。"""
+    if include_measurement_evidence and extensions is not None:
+        extensions = extensions | {".json"}
     entries: dict[str, dict[str, Any]] = {}
     errors: list[str] = []
     complete = True
@@ -839,6 +843,7 @@ def _snapshot_cad_artifacts(roots: list[Path], limit: int = 10000, *,
         "entries": entries,
         "roots": scopes,
         "extensions": sorted(extensions) if extensions is not None else ["*"],
+        "jsonEvidenceOnly": include_measurement_evidence,
         "complete": complete,
         "truncated": truncated,
         "scannedCount": len(entries),
@@ -1027,7 +1032,7 @@ def run_agent_job(
     runtime = job.get("_runtime") if isinstance(job.get("_runtime"), dict) else {}
     artifact_baseline = runtime.get("artifactBaseline")
     if not isinstance(artifact_baseline, dict):
-        artifact_baseline = _snapshot_cad_artifacts(allowed_roots)
+        artifact_baseline = _snapshot_cad_artifacts(allowed_roots, include_measurement_evidence=True)
     policy = job.get("policy") if isinstance(job.get("policy"), dict) else {}
     requested_sandbox = policy.get("sandbox")
     sandbox = "danger-full-access" if allow_full_access and requested_sandbox == "danger-full-access" else "workspace-write"
@@ -1042,6 +1047,8 @@ def run_agent_job(
         DEFAULT_PROFILE.policy.output_schema_path,
         sandbox,
         model=model,
+        # The validated runtime root can be an installed skill without Git metadata.
+        allow_packaged_workspace=cwd == REPO_ROOT and not (cwd / ".git").exists(),
     )
     if runner is None and job.get("_runtime"):
         completed = _run_command_with_runtime(command, cwd, timeout_seconds, job)
@@ -1119,6 +1126,7 @@ def _run_command(command: Sequence[str], cwd: Path, timeout_seconds: int) -> sub
         text=True,
         encoding="utf-8",
         errors="replace",
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         timeout=timeout_seconds,
         check=False,
@@ -1156,6 +1164,8 @@ def _run_command_with_runtime(
             list(command),
             cwd=str(cwd),
             text=True,
+            # Prompts are already command arguments. An inherited pipe can leave a CLI waiting for EOF.
+            stdin=subprocess.DEVNULL,
             stdout=stdout_handle,
             stderr=stderr_handle,
             env=child_env,
@@ -1337,7 +1347,10 @@ def process_job(
         baseline = None
         if job.get("executor", "mock") != "mock":
             base_dir = Path(str(job.get("cwd") or Path.cwd())).expanduser()
-            baseline = _snapshot_cad_artifacts(_artifact_roots(job, base_dir))
+            baseline = _snapshot_cad_artifacts(
+                _artifact_roots(job, base_dir),
+                include_measurement_evidence=job.get("executor") in {"agent", "codex"},
+            )
             job["_runtime"]["artifactBaseline"] = baseline
         result = _execute_handler_with_core(active_handlers[kind], kind, job, path)
         if isinstance(result, dict) and baseline is not None:
