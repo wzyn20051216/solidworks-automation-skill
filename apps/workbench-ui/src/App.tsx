@@ -46,6 +46,7 @@ import { TaskSequence } from "./components/TaskSequence";
 import { PreviewShowcase } from "./preview/PreviewShowcase";
 import { collectJobArtifacts, deliveryFormatStatus, groupedArtifacts } from "./domain/artifacts";
 import { classifyChatEngineeringChange } from "./domain/chatEngineeringChange";
+import { chatHistoryForPrompt } from "./domain/chatHistory";
 import {
   artifactVersionComparison,
   assessDelivery,
@@ -688,10 +689,7 @@ function buildChatPrompt(
   projectPath?: string,
   runtime?: RuntimeHealth | null,
 ) {
-  const recentHistory = history
-    .slice(-8)
-    .map((message) => `${message.role === "user" ? "用户" : message.role === "assistant" ? "AI" : "系统"}: ${message.content}`)
-    .join("\n");
+  const recentHistory = chatHistoryForPrompt(history);
   return [
     buildCodexPrompt(config, projectPath, runtime),
     "",
