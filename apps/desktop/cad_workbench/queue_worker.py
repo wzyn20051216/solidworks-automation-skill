@@ -55,7 +55,6 @@ TERMINAL_STATES = {"passed", "review_required", "failed", "cancelled", "blocked"
 NON_EXECUTABLE_STATES = {"approval_required", *TERMINAL_STATES}
 DEFAULT_CODEX_TIMEOUT_SECONDS = 1800
 DEFAULT_LEASE_SECONDS = 900
-BASELINE_FILE_EXTENSIONS = DELIVERY_FILE_EXTENSIONS | {".json"}
 PROVIDER_VERIFICATION_FILE = "provider_verifications.json"
 _ACTIVE_LOCKS: dict[Path, BinaryIO] = {}
 _ACTIVE_LOCKS_GUARD = threading.Lock()
@@ -760,8 +759,11 @@ def run_dfm_review_job(job: dict[str, Any]) -> dict[str, Any]:
 
 
 def _snapshot_cad_artifacts(roots: list[Path], limit: int = 10000, *,
-                            extensions: frozenset[str] | None = BASELINE_FILE_EXTENSIONS) -> dict[str, Any]:
+                            extensions: frozenset[str] | None = DELIVERY_FILE_EXTENSIONS,
+                            include_measurement_evidence: bool = False) -> dict[str, Any]:
     """@brief 记录执行前交付文件 hash，并明确扫描是否完整。"""
+    if include_measurement_evidence and extensions is not None:
+        extensions = extensions | {".json"}
     entries: dict[str, dict[str, Any]] = {}
     errors: list[str] = []
     complete = True
@@ -841,6 +843,7 @@ def _snapshot_cad_artifacts(roots: list[Path], limit: int = 10000, *,
         "entries": entries,
         "roots": scopes,
         "extensions": sorted(extensions) if extensions is not None else ["*"],
+        "jsonEvidenceOnly": include_measurement_evidence,
         "complete": complete,
         "truncated": truncated,
         "scannedCount": len(entries),
@@ -1029,7 +1032,7 @@ def run_agent_job(
     runtime = job.get("_runtime") if isinstance(job.get("_runtime"), dict) else {}
     artifact_baseline = runtime.get("artifactBaseline")
     if not isinstance(artifact_baseline, dict):
-        artifact_baseline = _snapshot_cad_artifacts(allowed_roots)
+        artifact_baseline = _snapshot_cad_artifacts(allowed_roots, include_measurement_evidence=True)
     policy = job.get("policy") if isinstance(job.get("policy"), dict) else {}
     requested_sandbox = policy.get("sandbox")
     sandbox = "danger-full-access" if allow_full_access and requested_sandbox == "danger-full-access" else "workspace-write"
@@ -1344,7 +1347,10 @@ def process_job(
         baseline = None
         if job.get("executor", "mock") != "mock":
             base_dir = Path(str(job.get("cwd") or Path.cwd())).expanduser()
-            baseline = _snapshot_cad_artifacts(_artifact_roots(job, base_dir))
+            baseline = _snapshot_cad_artifacts(
+                _artifact_roots(job, base_dir),
+                include_measurement_evidence=job.get("executor") in {"agent", "codex"},
+            )
             job["_runtime"]["artifactBaseline"] = baseline
         result = _execute_handler_with_core(active_handlers[kind], kind, job, path)
         if isinstance(result, dict) and baseline is not None:

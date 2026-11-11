@@ -109,6 +109,7 @@ def normalize_artifact_baseline(value: Any) -> dict[str, Any]:
             "complete": value.get("complete") is True and not value.get("truncated") and not errors,
             "roots": roots,
             "extensions": extensions,
+            "jsonEvidenceOnly": value.get("jsonEvidenceOnly") is True,
             "truncated": value.get("truncated") is True,
             "scannedCount": int(value.get("scannedCount") or len(entries)),
             "errors": [str(item) for item in errors] if isinstance(errors, list) else [],
@@ -200,7 +201,8 @@ def _describe_artifact(kind: str, path: Path, baseline: dict[str, Any]) -> dict[
         item["sizeBytes"] = stat.st_size
         item["sha256"] = sha256_file(resolved)
         # JSON evidence can support measurements without counting as a CAD deliverable.
-        freshness_key = "jsonEvidenceThisRun" if resolved.suffix.lower() == ".json" else "producedThisRun"
+        evidence_only = baseline.get("jsonEvidenceOnly") and resolved.suffix.lower() == ".json"
+        freshness_key = "jsonEvidenceThisRun" if evidence_only else "producedThisRun"
         before = baseline["entries"].get(_artifact_key(resolved))
         if isinstance(before, dict) and before.get("sha256"):
             item[freshness_key] = before.get("sha256") != item["sha256"]

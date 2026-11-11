@@ -461,7 +461,7 @@ def test_worker_baseline_proves_new_cad_measurements_without_reusing_old_json(tm
     }
     original = tmp_path / "old.json"
     original.write_text(json.dumps(measurement), encoding="utf-8")
-    baseline = _snapshot_cad_artifacts([tmp_path])
+    baseline = _snapshot_cad_artifacts([tmp_path], include_measurement_evidence=True)
     new_report = tmp_path / "new.json"
     new_report.write_text(original.read_text(encoding="utf-8"), encoding="utf-8")
     job = {"id": "measurement-freshness", "executor": "agent", "objective": "固定板 60 x 40 x 8 mm，孔直径 6 mm"}
