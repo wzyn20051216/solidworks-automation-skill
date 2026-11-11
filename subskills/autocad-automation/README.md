@@ -75,3 +75,17 @@ TEXT_LOGO, TEXT_BRAND, REVIEW_NOTES
 - `references/api-lookup.md`：AutoCAD API 查证路线。
 - `references/engineering-patterns.md`：图层、单位、块、标注和批处理经验。
 - `references/troubleshooting.md`：本机 COM、DXF/BMP 导出、线稿污染和复核避坑。
+## DXF 项目模板复核
+
+复制 [A4 横向样例](examples/dxf-checklist-a4.json) 为项目配置，再用同一套规则检查出图结果。
+
+```powershell
+python subskills/autocad-automation/scripts/acad_headless.py drawing.dxf --template project-drawing.json --json drawing-checklist.json
+```
+
+- `sheet.size` 支持 A0–A4，`orientation` 选横向或纵向。`insetsMm` 按左、下、右、上填写图框相对纸边的内缩量。模板从 `frameLayers` 中量测闭合矩形图框。
+- `layout` 默认是 `Model`，也可指定纸空间布局名。只检查选定空间中的实体，纸空间视口内显示的模型空间实体另行复核。支持由闭合轻量多段线组成的图框和标题栏，普通块内的文字与可见属性会参与检查。外部参照应按项目流程单独复核。
+- `titleLayers` 指定标题栏所在图层，`titleSizeMm` 和 `titleAnchorMm` 可分别配置外框宽高和相对图框左下角的位置。字段文字从该外框内部读取。
+- 按项目设置真实尺寸数量、预期尺寸数值及容差、图层线宽、最小标题字高，以及比例、投影或技术要求文字。尺寸值以实体的原始测量单位为准，比例和投影标签只核对文字是否出现。
+
+报告的 `drawingChecklist` 记录实际检查模板、输入 SHA-256、量测结论和人工复核事项。机器检查失败时退出码为 1，通过时为 0 且报告状态为 `review_required`。尺寸避让、打印可读性、尺寸链、BOM 和归档版本由人工复核。

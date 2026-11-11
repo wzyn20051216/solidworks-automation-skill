@@ -60,6 +60,8 @@ python subskills\autocad-automation\scripts\acad_preflight.py --launch
 
 ## 核心工作流
 
+项目提供图幅和标题栏规则时，可运行 `scripts/acad_headless.py drawing.dxf --template project-drawing.json --json drawing-checklist.json`。模板字段和 A4 样例见 [DXF 项目模板复核](README.md#dxf-项目模板复核)，报告保留尺寸避让与出图可读性的人工复核。
+
 1. **分类任务**：判断是新建图纸、修改既有 DWG、批处理、出图导出、API 开发、插件开发还是故障排查。
 2. **确认关键约束**：单位、版本、目标文件、输出格式、是否允许覆盖、图层/线型/标注标准、是否需要按企业模板绘图。
 3. **运行自检**：先用 `acad_preflight.py` 确认 Python COM 和 AutoCAD 状态。
