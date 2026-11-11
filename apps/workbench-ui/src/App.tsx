@@ -42,6 +42,7 @@ import { EnvironmentRemediationPanel } from "./components/EnvironmentRemediation
 import { ManualReviewPanel } from "./components/ManualReviewPanel";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
 import { StageReviewPanel } from "./components/StageReviewPanel";
+import { showsSolidWorksLivePreview, SolidWorksLivePreview } from "./components/SolidWorksLivePreview";
 import { TaskSequence } from "./components/TaskSequence";
 import { PreviewShowcase } from "./preview/PreviewShowcase";
 import { collectJobArtifacts, deliveryFormatStatus, groupedArtifacts } from "./domain/artifacts";
@@ -3756,6 +3757,9 @@ function App() {
                   <div className="live-summary">
                     <p>{activeAgentJob ? compactJobMessage(activeAgentJob, activeAgentEvents) : "输入你的要求后，这里会显示 AI 的公开执行过程、工具结果和输出文件。"}</p>
                   </div>
+                  {showsSolidWorksLivePreview(activeAgentJob) && (
+                    <SolidWorksLivePreview key={JSON.stringify([activeAgentJob.id, activeAgentJob.runId])} id={activeAgentJob.id} runId={activeAgentJob.runId} />
+                  )}
                   <StageReviewPanel phases={activeAgentJob.result?.engineeringPlan?.phases ?? []} change={activeAgentInputChange} />
                   {!activeAgentInputChange && activeAgentJob.status === "approval_required" ? (
                     <button className="approval-button" type="button" onClick={() => void approveJob(activeAgentJob.id)}>

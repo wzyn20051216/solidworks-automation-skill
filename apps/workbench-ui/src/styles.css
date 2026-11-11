@@ -3535,6 +3535,20 @@ textarea {
   padding: 14px;
 }
 
+.solidworks-live-preview {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.solidworks-live-preview img {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
 .live-head {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

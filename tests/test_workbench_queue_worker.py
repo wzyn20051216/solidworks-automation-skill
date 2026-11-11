@@ -785,6 +785,40 @@ def test_offline_api_setting_propagates_to_agent_child(tmp_path: Path) -> None:
     assert completed.returncode == 0 and completed.stdout.strip() == "off"
 
 
+@pytest.mark.skipif(os.name != "nt", reason="SolidWorks 桌面预览仅在 Windows 可用")
+@pytest.mark.parametrize(("application", "allowed"), [("solidworks", True), ("auto", True), ("autocad", False)])
+def test_solidworks_preview_is_scoped_to_worker_attempt(tmp_path, monkeypatch, application, allowed):
+    queue = tmp_path / "queue"
+    job_path = queue / "job-frame.json"
+    job = _queued_job("job-frame")
+    job.update({
+        "status": "running", "runnerId": "runner-frame", "runId": "run-current",
+        "uiConfig": {"cadRuntime": {"application": application, "localCadAutomation": True}},
+    })
+    write_job(job_path, job)
+    job["_runtime"] = {"jobPath": str(job_path), "runnerId": "runner-frame"}
+    old = queue / "solidworks-live" / "job-frame" / "run-old.png"
+    old.parent.mkdir(parents=True)
+    old.write_bytes(b"old frame")
+    monkeypatch.setenv("CAD_STUDIO_SW_PREVIEW_PATH", str(old))
+    child = """
+import os
+from pathlib import Path
+path = os.environ.get("CAD_STUDIO_SW_PREVIEW_PATH")
+if path:
+    frame = Path(path)
+    frame.write_bytes(b"new frame")
+    print(frame.name)
+else:
+    print("disabled")
+"""
+    result = _run_command_with_runtime([sys.executable, "-c", child], tmp_path, 5, job)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ("run-current.png" if allowed else "disabled")
+    assert old.read_bytes() == b"old frame"
+    assert not old.with_name("run-current.png").exists()
+
+
 def test_parallel_switch_propagates_to_agent_child(tmp_path: Path) -> None:
     queue_dir = tmp_path / "queue"
     job_path = queue_dir / "job-no-parallel.json"
