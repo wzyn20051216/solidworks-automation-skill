@@ -99,6 +99,7 @@ async function main() {
       "SKILL.md",
       "apps/desktop/cad_workbench/queue_worker.py",
       "apps/desktop/cad_workbench/schemas/automation_job.schema.json",
+      "scripts/sw_live_preview.py",
       "examples/08_mini_fan_motion_assembly.py",
       "mcp-server/server.py",
       "mcp-server/register_all_ai_mcp.ps1",
@@ -108,11 +109,60 @@ async function main() {
         throw new Error(`便携版缺少资源: ${required}`);
       }
     }
+    const previewJob = { id: "job-preview-smoke", runId: "run-preview-smoke" };
+    const previewBytes = async (args) => page.evaluate(async (input) => {
+      const response = await window.__TAURI_INTERNALS__.invoke("read_solidworks_preview", input);
+      return Array.from(new Uint8Array(response));
+    }, args);
+    const jobFile = path.join(queue, `${previewJob.id}.json`);
+    const frameDir = path.join(queue, "solidworks-live", previewJob.id);
+    const frameFile = path.join(frameDir, `${previewJob.runId}.png`);
+    const fixture = {
+      ...previewJob,
+      schemaVersion: "1.0",
+      kind: "agent_task",
+      title: "SolidWorks 预览验收",
+      projectId: (await invoke("read_app_store", { namespace: "settings" }))?.activeProjectId ?? "project-default",
+      progress: 10,
+      updatedAt: new Date().toISOString(),
+      status: "running",
+      uiConfig: { cadRuntime: { application: "solidworks", localCadAutomation: true } },
+    };
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jR6QAAAAASUVORK5CYII=", "base64");
+    fs.writeFileSync(jobFile, JSON.stringify(fixture));
+    fs.mkdirSync(frameDir, { recursive: true });
+    fs.writeFileSync(frameFile, png);
+    try {
+      const preview = page.getByRole("region", { name: "SolidWorks 实时预览" });
+      const rendered = preview.getByRole("img");
+      await rendered.waitFor({ state: "visible", timeout: 15_000 });
+      await waitUntil(() => rendered.evaluate((img) => img.naturalWidth > 0), "SolidWorks preview image decoded", 5_000, health);
+      if (!Buffer.from(await previewBytes(previewJob)).equals(png)) {
+        throw new Error("SolidWorks 实时预览没有返回当前任务的二进制帧");
+      }
+      if ((await previewBytes({ ...previewJob, runId: "run-preview-old" })).length) {
+        throw new Error("SolidWorks 实时预览接受了错误的运行 ID");
+      }
+      fs.unlinkSync(frameFile);
+      if ((await previewBytes(previewJob)).length) {
+        throw new Error("SolidWorks 实时预览在帧清理后返回了旧数据");
+      }
+      await preview.getByRole("status").filter({ hasText: "预览不可用" }).waitFor({ state: "visible", timeout: 5_000 });
+    } finally {
+      fs.rmSync(frameFile, { force: true });
+      fs.rmSync(jobFile, { force: true });
+    }
     const started = await invoke("start_worker", { repoPath: "", enableCodex: false, codexFullAccess: false });
     if (!started.running || !started.pid) throw new Error(`内置 worker 启动失败: ${JSON.stringify(started)}`);
     const stopped = await invoke("stop_worker");
     if (stopped.running) throw new Error(`worker 未停止: ${JSON.stringify(stopped)}`);
-    console.log(JSON.stringify({ skillRoot: runtime.skillRoot, python: runtime.python, workerStarted: started, workerStopped: stopped }, null, 2));
+    console.log(JSON.stringify({
+      skillRoot: runtime.skillRoot,
+      python: runtime.python,
+      solidworksPreview: { imageDecoded: true, wrongRunRejected: true, unavailableOnRemoval: true },
+      workerStarted: started,
+      workerStopped: stopped,
+    }, null, 2));
   } catch (error) {
     // @brief 只记录启动状态和自身输出，不转储含签名密钥的进程环境。
     fs.writeFileSync(path.join(releaseOutput, "e2e-diagnostics.json"), JSON.stringify({
