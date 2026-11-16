@@ -255,6 +255,27 @@ def close_owned_solidworks(sw, started_by_cad_studio, expected_pid=None):
     return False
 
 
+def _attach_existing_with_pid_check(before, requested_version):
+    """仅用于明确启用的构造器附着回退，不取得未知进程的退出所有权。"""
+    if not before or any(year is None for year in before.values()):
+        raise SolidWorksConnectionError("SW_FALLBACK_IDENTITY_UNKNOWN", "attach", "既有实例版本不明，拒绝附着回退")
+    candidates = {pid: year for pid, year in before.items()
+                  if requested_version is None or year == int(requested_version)}
+    if len(candidates) != 1:
+        raise SolidWorksConnectionError("SW_FALLBACK_AMBIGUOUS", "attach", "目标版本实例不唯一，拒绝附着回退")
+    expected_pid, expected_year = next(iter(candidates.items()))
+    candidate = win32com_client.Dispatch(_prog_id_for_version(expected_year))
+    actual_pid = int(get_com_member(candidate, "GetProcessID"))
+    if actual_pid != expected_pid:
+        raise SolidWorksConnectionError("SW_FALLBACK_PID_MISMATCH", "attach", "构造器未返回目标既有实例；停止操作且不退出身份不符的进程，请检查实例清单")
+    if get_sw_version(candidate)["year"] != expected_year:
+        raise SolidWorksConnectionError("SW_FALLBACK_VERSION_MISMATCH", "attach", "附着实例版本不符，停止操作")
+    after = solidworks_processes()
+    if after is None or set(after) != set(before):
+        raise SolidWorksConnectionError("SW_FALLBACK_PROCESS_CHANGED", "attach", "附着前后CAD实例清单变化，停止操作")
+    return candidate
+
+
 def connect_solidworks(version=None, wait_seconds=5, visible=True, return_metadata=False):
     """
     连接到 SolidWorks 实例。
@@ -266,6 +287,9 @@ def connect_solidworks(version=None, wait_seconds=5, visible=True, return_metada
 
     返回:
         (sw, model) 元组，model 可能为 None（无打开的文档时）
+
+    SW_ATTACH_EXISTING_DISPATCH=1 允许 ROT 不可用时尝试经 PID/版本核对的附着；
+    默认禁用，因为构造器在部分环境可能启动新实例。
     """
     ensure_solidworks_installed()
     prog_id = _prog_id_for_version(version)
@@ -293,7 +317,10 @@ def connect_solidworks(version=None, wait_seconds=5, visible=True, return_metada
                         except Exception:
                             time.sleep(.1)
                     if sw is None:
-                        raise SolidWorksConnectionError("SW_INSTANCE_NOT_READY", "attach", "已有实例尚不可连接，已阻止重复启动")
+                        if os.environ.get("SW_ATTACH_EXISTING_DISPATCH") == "1":
+                            sw = _attach_existing_with_pid_check(before, version)
+                        else:
+                            raise SolidWorksConnectionError("SW_INSTANCE_NOT_READY", "attach", "已有实例尚不可连接，已阻止重复启动")
                 if sw is None:
                     sw = win32com_client.Dispatch(prog_id)
                     dispatched = True

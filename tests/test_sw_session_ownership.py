@@ -41,6 +41,7 @@ def connection_fixture(monkeypatch, app, before):
     monkeypatch.setattr(sw_connect, "ensure_solidworks_installed", lambda: None)
     monkeypatch.setattr(sw_connect, "solidworks_processes", lambda: before)
     monkeypatch.setattr(sw_connect, "_LaunchGuard", contextlib.nullcontext)
+    monkeypatch.delenv("SW_ATTACH_EXISTING_DISPATCH", raising=False)
 
 
 def test_unready_existing_instance_is_not_dispatched_again(monkeypatch):
@@ -55,6 +56,76 @@ def test_unready_existing_instance_is_not_dispatched_again(monkeypatch):
         sw_connect.connect_solidworks(version=2026, wait_seconds=.01)
     assert dispatch == []
     assert app.exited is False
+
+
+def test_opt_in_rot_fallback_keeps_existing_instance_ownership(monkeypatch):
+    app = App()
+    connection_fixture(monkeypatch, app, {7: 2026})
+    monkeypatch.setenv("SW_ATTACH_EXISTING_DISPATCH", "1")
+    dispatch = []
+
+    def missing(_):
+        raise RuntimeError("ROT unavailable")
+
+    def attach(prog_id):
+        dispatch.append(prog_id)
+        return app
+
+    monkeypatch.setattr(sw_connect, "win32com_client", SimpleNamespace(
+        GetActiveObject=missing, Dispatch=attach))
+    actual, _, metadata = sw_connect.connect_solidworks(
+        version=2026, wait_seconds=.01, return_metadata=True)
+    assert actual is app
+    assert metadata["process_id"] == 7
+    assert metadata["started_by_cad_studio"] is False
+    assert dispatch == ["SldWorks.Application.34"]
+    assert app.exited is False
+
+
+@pytest.mark.parametrize("before,requested,after,pid,revision,code", [
+    ({7: None}, 2026, {7: None}, 7, "34.1.1", "SW_FALLBACK_IDENTITY_UNKNOWN"),
+    ({7: 2026, 8: 2026}, 2026, {7: 2026, 8: 2026}, 7, "34.1.1", "SW_FALLBACK_AMBIGUOUS"),
+    ({7: 2026}, 2026, {7: 2026, 8: 2026}, 8, "34.1.1", "SW_FALLBACK_PID_MISMATCH"),
+    ({7: 2026}, 2026, {7: 2026}, 7, "32.0.1", "SW_FALLBACK_VERSION_MISMATCH"),
+    ({7: 2026}, 2026, {7: 2026, 8: 2026}, 7, "34.1.1", "SW_FALLBACK_PROCESS_CHANGED"),
+    ({7: 2026}, 2026, None, 7, "34.1.1", "SW_FALLBACK_PROCESS_CHANGED"),
+    ({7: 2024, 8: 2026}, None, {7: 2024, 8: 2026}, 7, "32.0.1", "SW_FALLBACK_AMBIGUOUS"),
+])
+def test_opt_in_fallback_rejects_uncertain_identity_without_exiting_candidate(
+        monkeypatch, before, requested, after, pid, revision, code):
+    app = App()
+    app.GetProcessID = lambda: pid
+    app.RevisionNumber = lambda: revision
+    dispatch = []
+
+    def attach(prog_id):
+        dispatch.append(prog_id)
+        return app
+
+    monkeypatch.setattr(sw_connect, "win32com_client", SimpleNamespace(Dispatch=attach))
+    monkeypatch.setattr(sw_connect, "solidworks_processes", lambda: after)
+    with pytest.raises(sw_connect.SolidWorksConnectionError, match=code):
+        sw_connect._attach_existing_with_pid_check(before, requested)
+    if code in ("SW_FALLBACK_IDENTITY_UNKNOWN", "SW_FALLBACK_AMBIGUOUS"):
+        assert dispatch == []
+    assert app.exited is False
+
+
+@pytest.mark.parametrize("value", ["0", "true", ""])
+def test_constructor_fallback_requires_the_exact_opt_in(monkeypatch, value):
+    app = App()
+    connection_fixture(monkeypatch, app, {7: 2026})
+    monkeypatch.setenv("SW_ATTACH_EXISTING_DISPATCH", value)
+    dispatch = []
+
+    def missing(_):
+        raise RuntimeError("ROT unavailable")
+
+    monkeypatch.setattr(sw_connect, "win32com_client", SimpleNamespace(
+        GetActiveObject=missing, Dispatch=lambda _: dispatch.append(True)))
+    with pytest.raises(sw_connect.SolidWorksConnectionError, match="SW_INSTANCE_NOT_READY"):
+        sw_connect.connect_solidworks(version=2026, wait_seconds=.01)
+    assert dispatch == []
 
 
 def test_actual_revision_must_match_requested_year(monkeypatch):
