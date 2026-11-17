@@ -39,6 +39,7 @@ from apps.desktop.cad_workbench.queue_worker import (
     release_lock,
     request_cancel,
     resolve_codex_command,
+    run_agent_job,
     run_codex_job,
     write_job,
 )
@@ -1344,8 +1345,26 @@ def test_capability_gate_separates_security_permissions_from_cad_capabilities() 
     assert _capability_block_reasons(job) == []
 
 
-def test_codex_full_access_requires_policy_and_cli_flag(tmp_path: Path) -> None:
-    repo = Path(__file__).resolve().parents[1]
+@pytest.mark.parametrize("executor", ["codex", "agent"])
+@pytest.mark.parametrize(
+    ("requested_sandbox", "allow_full_access", "expected_sandbox"),
+    [
+        ("read-only", False, "read-only"),
+        ("read-only", True, "read-only"),
+        (None, False, "workspace-write"),
+        (None, True, "workspace-write"),
+        ("workspace-write", False, "workspace-write"),
+        ("workspace-write", True, "workspace-write"),
+        ("danger-full-access", False, "workspace-write"),
+        ("danger-full-access", True, "danger-full-access"),
+    ],
+)
+def test_codex_executor_preserves_requested_sandbox(
+    tmp_path: Path, monkeypatch, executor: str, requested_sandbox: str | None,
+    allow_full_access: bool, expected_sandbox: str,
+) -> None:
+    monkeypatch.setattr("apps.desktop.cad_workbench.queue_worker.validate_codex_job", lambda job: tmp_path)
+    monkeypatch.setattr("apps.desktop.cad_workbench.queue_worker.build_job_knowledge_context", lambda job, **kwargs: {})
     calls = []
 
     def fake_runner(command, cwd, timeout_seconds):
@@ -1359,16 +1378,24 @@ def test_codex_full_access_requires_policy_and_cli_flag(tmp_path: Path) -> None:
         )
         return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
 
-    job = _queued_job("job-full-cli", "codex_task")
-    job.update({"executor": "codex", "cwd": str(repo), "prompt": "沙箱测试", "policy": {"sandbox": "danger-full-access"}})
+    job = {
+        "id": "job-sandbox",
+        "kind": "codex_task" if executor == "codex" else "agent_task",
+        "executor": executor,
+        "cwd": str(tmp_path),
+        "prompt": "检查文件",
+        "policy": {} if requested_sandbox is None else {"sandbox": requested_sandbox},
+        "uiConfig": {"agentRuntime": {"provider": "codex"}},
+    }
+    execute = run_codex_job if executor == "codex" else run_agent_job
 
-    result_without_cli = run_codex_job(job, runner=fake_runner, allow_full_access=False)
-    result_with_cli = run_codex_job(job, runner=fake_runner, allow_full_access=True)
+    result = execute(job, runner=fake_runner, allow_full_access=allow_full_access)
 
-    assert result_without_cli["sandbox"] == "workspace-write"
-    assert result_with_cli["sandbox"] == "danger-full-access"
-    assert calls[0][calls[0].index("-s") + 1] == "workspace-write"
-    assert calls[1][calls[1].index("-s") + 1] == "danger-full-access"
+    assert len(calls) == 1
+    command = calls[0]
+    assert command[:2] == ["codex", "exec"]
+    assert command[command.index("-s") + 1] == expected_sandbox
+    assert result["sandbox"] == expected_sandbox
 
 
 def test_enterprise_profile_uses_restricted_default_sandbox() -> None:

@@ -1035,7 +1035,10 @@ def run_agent_job(
         artifact_baseline = _snapshot_cad_artifacts(allowed_roots, include_measurement_evidence=True)
     policy = job.get("policy") if isinstance(job.get("policy"), dict) else {}
     requested_sandbox = policy.get("sandbox")
-    sandbox = "danger-full-access" if allow_full_access and requested_sandbox == "danger-full-access" else "workspace-write"
+    if provider.id == "codex" and requested_sandbox == "read-only":
+        sandbox = "read-only"
+    else:
+        sandbox = "danger-full-access" if allow_full_access and requested_sandbox == "danger-full-access" else "workspace-write"
 
     agent_runtime = ui_config.get("agentRuntime") if isinstance(ui_config.get("agentRuntime"), dict) else {}
     model = str(agent_runtime.get("model") or "").strip() or None
