@@ -43,7 +43,7 @@ def test_codex_result_extracts_only_unified_protocol(tmp_path, prefix, suffix):
     output = tmp_path / "result.json"
     output.write_text(prefix + json.dumps(RESULT) + suffix, encoding="utf-8")
     assert parse_provider_result(provider, "", output) == RESULT
-    assert json.loads(output.read_text()) == RESULT
+    assert json.loads(output.read_text(encoding="utf-8")) == RESULT
 
 
 @pytest.mark.parametrize("text", ["invalid", '{"event":"done"}', '```json\n{"summary":"missing fields"}\n```'])
