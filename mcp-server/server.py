@@ -1352,6 +1352,13 @@ def _tool_error(exc: Exception, response_format: ResponseFormat = ResponseFormat
     if code:
         payload["error_code"] = str(code)
         payload["retryable"] = False
+        if str(code) == "SW_HOLE_NOT_CREATED":
+            payload["diagnostics"] = exc.diagnostics
+            payload["suggestion"] = (
+                "Retain the failed sketch and inspect its selection, plane, cut direction and body intersection. "
+                "Record the SolidWorks revision and a copy of the reproduction part; do not automatically retry "
+                "or reverse the cut direction."
+            )
         if hasattr(exc, "warnings") and hasattr(exc, "error_code"):
             payload["file_load_errors"] = exc.error_code
             payload["file_load_warnings"] = exc.warnings

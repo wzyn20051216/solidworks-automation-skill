@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import json
 from dataclasses import asdict, dataclass
 from typing import Iterable, Sequence
 
@@ -12,6 +13,38 @@ try:
 except ImportError:
     from sw_connect import get_com_member
     from sw_part import _select_com_object, extrude_cut, sketch, sketch_circle, sketch_slot
+
+
+class HoleFeatureCreationError(RuntimeError):
+    """切除返回空时提供只读诊断，不改变方向或重复执行写操作。"""
+
+    code = "SW_HOLE_NOT_CREATED"
+    stage = "cut"
+
+    def __init__(self, feature_name, diagnostics):
+        self.diagnostics = diagnostics
+        super().__init__(f"SolidWorks 未创建特征: {feature_name}; "
+                         f"diagnostics={json.dumps(diagnostics, ensure_ascii=False)}")
+
+
+def _failed_cut_diagnostics(model, sketch_ref, plane_name, depth):
+    """尽力回读失败后的状态；字段读取失败不能覆盖原始创建失败。"""
+    result = {"operation": "FeatureCut4", "state": "after_failed_cut",
+              "plane_name": str(plane_name), "sketch_name": str(sketch_ref),
+              "depth_m": depth, "direction_reversed": True, "both_directions": False}
+    reads = {
+        "selection_count": lambda: int(get_com_member(model.SelectionManager, "GetSelectedObjectCount2", -1)),
+        "editing_sketch": lambda: get_com_member(model.SketchManager, "ActiveSketch") is not None,
+        "solid_body_count": lambda: len(get_com_member(model, "GetBodies2", 0, False) or []),
+        "sketch_segment_count": lambda: len(get_com_member(sketch_ref.sketch, "GetSketchSegments") or []),
+        "sketch_contour_count": lambda: len(get_com_member(sketch_ref.sketch, "GetSketchContours") or []),
+    }
+    for key, read in reads.items():
+        try:
+            result[key] = read()
+        except Exception:
+            result[key] = None
+    return result
 
 
 @dataclass(frozen=True)
@@ -79,6 +112,9 @@ def _circle_cut(model, plane_name: str, center: tuple[float, float], diameter: f
         if segment is None:
             raise RuntimeError(f"创建圆草图失败: {feature_name}")
     feature = extrude_cut(model, sketch_name, depth)
+    if feature is None:
+        raise HoleFeatureCreationError(feature_name,
+            _failed_cut_diagnostics(model, sketch_name, plane_name, depth))
     return _feature_name(feature, feature_name)
 
 
