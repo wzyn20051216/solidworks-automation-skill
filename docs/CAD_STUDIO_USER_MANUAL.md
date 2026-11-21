@@ -50,6 +50,10 @@ CAD Studio 不附带模型额度，也不保存 API Key。模型账号、套餐�
 
 依赖分三层，按需安装：
 
+安装器及 COM 依赖自动配置首次失败后，默认向官方 PyPI 重试一次。`SW_PIP_INDEX_URL` 可指定主索引，`SW_PIP_FALLBACK_INDEX_URL` 可指定备用索引，设为空字符串可关闭回退。
+
+CAD Studio 的环境状态会握手已运行的 SolidWorks/AutoCAD，区分「已连接」「已安装，未运行」和「连接待检查」。可用 `python scripts/cad_doctor.py --live-cad` 手动检查。`--probe-cad` 允许启动 SolidWorks 自检，并只清理自检启动且没有文档的实例。
+
 | 层级 | 内容 | 何时需要 | 安装方式 |
 |---|---|---|---|
 | **最小** | `pywin32`、`comtypes` | 只想驱动 SolidWorks / AutoCAD 的 COM 接口 | `python -m pip install "pywin32>=305" "comtypes>=1.2.0"`（仅 Windows） |

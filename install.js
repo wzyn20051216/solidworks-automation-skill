@@ -290,7 +290,15 @@ function installDependencies(primaryDir, detect = detectPython, bootstrap = boot
   const args = ['-m', 'pip', 'install', '--no-input', '--disable-pip-version-check', '-r', 'requirements.txt', '-r', 'mcp-server/requirements.txt'];
   const virtualEnv = run(python, ['-c', 'import sys; print(int(sys.prefix != sys.base_prefix))'], { encoding: 'utf8', stdio: 'pipe', timeout: 5000 });
   if (virtualEnv.status === 0 && virtualEnv.stdout.trim() === '0') args.push('--user');
-  const result = run(python, args, { cwd: primaryDir, stdio: 'inherit', timeout: 300000, windowsHide: true });
+  const primaryIndex = (process.env.SW_PIP_INDEX_URL || '').trim();
+  const primaryArgs = primaryIndex ? [...args, '--index-url', primaryIndex] : args;
+  const fallbackIndex = (process.env.SW_PIP_FALLBACK_INDEX_URL ?? 'https://pypi.org/simple').trim();
+  let result = run(python, primaryArgs, { cwd: primaryDir, stdio: 'inherit', timeout: 300000, windowsHide: true });
+  if (result.status !== 0 && fallbackIndex && fallbackIndex !== primaryIndex
+      && (result.error?.code === 'ETIMEDOUT' || (!result.signal && !result.error))) {
+    console.log('  ↻ 依赖安装失败，使用配置的备用索引重试一次...');
+    result = run(python, [...args, '--index-url', fallbackIndex], { cwd: primaryDir, stdio: 'inherit', timeout: 300000, windowsHide: true });
+  }
   if (result.status !== 0) {
     console.log('  ⚠️  依赖安装未成功，请手动执行:');
     console.log(`     ${dependencyCommand(primaryDir)}`);

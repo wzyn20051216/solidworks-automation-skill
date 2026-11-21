@@ -238,7 +238,11 @@ def parse_provider_result(provider: AgentProvider, stdout: str, output_path: Pat
         if not output_path.is_file():
             raise RuntimeError(f"Codex 未生成结构化结果文件: {output_path}")
         try:
-            value = json.loads(output_path.read_text(encoding="utf-8"))
+            text = output_path.read_text(encoding="utf-8-sig").strip()
+            try:
+                value = json.loads(text)
+            except json.JSONDecodeError:
+                value = _result_from_text(text)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise RuntimeError(f"Codex 结构化结果无效: {output_path}: {exc}") from exc
         found = _result_from_value(value)

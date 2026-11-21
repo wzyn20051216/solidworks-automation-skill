@@ -60,8 +60,8 @@ async function main() {
     size: [innerWidth, innerHeight],
     overflowX: document.documentElement.scrollWidth > document.documentElement.clientWidth,
     connected: document.body.innerText.includes("Codex 已连接"),
-    solidworks: document.body.innerText.includes("SolidWorks 可用"),
-    autocad: document.body.innerText.includes("AutoCAD 可用"),
+    solidworks: document.body.innerText.includes("SolidWorks 已连接"),
+    autocad: document.body.innerText.includes("AutoCAD 已连接"),
   }));
   const originalSettingsRaw = await page.evaluate(() => localStorage.getItem("cad-studio.settings.v1"));
   const originalChatRaw = await page.evaluate(() => localStorage.getItem("cad-studio.agent-chat.v1"));

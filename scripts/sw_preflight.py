@@ -109,7 +109,19 @@ def install_com_dependencies(
     requirements: Sequence[str] = PIP_REQUIREMENTS,
 ) -> None:
     """执行 pip 安装，补齐 Python COM 依赖。"""
-    subprocess.check_call(pip_install_command(python_executable, requirements), timeout=180)
+    command = pip_install_command(python_executable, requirements)
+    primary = os.environ.get("SW_PIP_INDEX_URL", "").strip()
+    if primary:
+        command.extend(["--index-url", primary])
+    fallback = os.environ.get("SW_PIP_FALLBACK_INDEX_URL", "https://pypi.org/simple").strip()
+    try:
+        subprocess.check_call(command, timeout=180)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        # 显式空值禁用回退。中断和其他异常保持原有传播语义。
+        if not fallback or fallback == primary:
+            raise
+        retry = pip_install_command(python_executable, requirements)
+        subprocess.check_call([*retry, "--index-url", fallback], timeout=180)
     importlib.invalidate_caches()
     if python_executable is None and sys.prefix == getattr(sys, "base_prefix", sys.prefix) and not sys.flags.no_user_site:
         site.addsitedir(site.getusersitepackages())
