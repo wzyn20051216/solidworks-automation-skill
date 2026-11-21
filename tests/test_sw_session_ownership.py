@@ -89,6 +89,8 @@ def test_opt_in_rot_fallback_keeps_existing_instance_ownership(monkeypatch):
     ({7: 2026}, 2026, {7: 2026}, 7, "32.0.1", "SW_FALLBACK_VERSION_MISMATCH"),
     ({7: 2026}, 2026, {7: 2026, 8: 2026}, 7, "34.1.1", "SW_FALLBACK_PROCESS_CHANGED"),
     ({7: 2026}, 2026, None, 7, "34.1.1", "SW_FALLBACK_PROCESS_CHANGED"),
+    ({7: 2026}, 2026, {7: None}, 7, "34.1.1", "SW_FALLBACK_PROCESS_CHANGED"),
+    ({7: 2026}, 2026, {7: 2024}, 7, "34.1.1", "SW_FALLBACK_PROCESS_CHANGED"),
     ({7: 2024, 8: 2026}, None, {7: 2024, 8: 2026}, 7, "32.0.1", "SW_FALLBACK_AMBIGUOUS"),
 ])
 def test_opt_in_fallback_rejects_uncertain_identity_without_exiting_candidate(
@@ -136,6 +138,57 @@ def test_actual_revision_must_match_requested_year(monkeypatch):
     with pytest.raises(sw_connect.SolidWorksConnectionError, match="SW_VERSION_MISMATCH"):
         sw_connect.connect_solidworks(version=2024)
     assert app.exited is False
+
+
+@pytest.mark.parametrize("route", ["rot", "delayed_rot", "fallback"])
+@pytest.mark.parametrize("initial_visible", [True, False])
+def test_attachment_never_writes_existing_window_visibility(monkeypatch, route, initial_visible):
+    """即使请求相反显示参数，附着到既有实例也不能写入 Visible。"""
+    class ExistingApp(App):
+        @property
+        def Visible(self):
+            return initial_visible
+
+        @Visible.setter
+        def Visible(self, value):
+            pytest.fail("附着不应修改既有窗口状态")
+
+    app = ExistingApp()
+    connection_fixture(monkeypatch, app, {7: 2026})
+    attempts = []
+    dispatches = []
+    if route == "fallback":
+        monkeypatch.setenv("SW_ATTACH_EXISTING_DISPATCH", "1")
+
+    def active(_):
+        attempts.append(True)
+        if route == "fallback" or (route == "delayed_rot" and len(attempts) == 1):
+            raise RuntimeError("ROT unavailable")
+        return app
+
+    monkeypatch.setattr(sw_connect, "win32com_client", SimpleNamespace(
+        GetActiveObject=active, Dispatch=lambda prog: dispatches.append(prog) or app))
+    actual, _, metadata = sw_connect.connect_solidworks(version=2026, wait_seconds=.01,
+        visible=not initial_visible, return_metadata=True)
+    assert actual is app and actual.Visible is initial_visible
+    assert metadata["started_by_cad_studio"] is False
+    assert len(dispatches) == (1 if route == "fallback" else 0)
+    assert app.exited is False
+
+
+@pytest.mark.parametrize("visible", [True, False])
+def test_owned_new_instance_applies_requested_visibility(monkeypatch, visible):
+    """新建实例仍遵循显示参数，不把附着规则误用到启动路径。"""
+    app = App()
+    app.Visible = not visible
+    connection_fixture(monkeypatch, app, {})
+    def missing(_):
+        raise RuntimeError("ROT unavailable")
+    monkeypatch.setattr(sw_connect, "win32com_client", SimpleNamespace(
+        GetActiveObject=missing, Dispatch=lambda _: app))
+    _, _, metadata = sw_connect.connect_solidworks(version=2026, visible=visible, return_metadata=True)
+    assert app.Visible is visible
+    assert metadata["started_by_cad_studio"] is True
 
 
 def test_dispatch_cannot_claim_a_preexisting_pid(monkeypatch):

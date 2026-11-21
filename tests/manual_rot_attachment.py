@@ -69,7 +69,7 @@ def direct_case(app, version, enabled, force_rot_failure):
                 GetActiveObject=get_active, Dispatch=dispatch)), redirect_stdout(io.StringIO()):
             try:
                 actual, _, metadata = connection.connect_solidworks(
-                    version=version, wait_seconds=0, visible=bool(app.Visible),
+                    version=version, wait_seconds=0, visible=not bool(app.Visible),
                     return_metadata=True)
             except connection.SolidWorksConnectionError as error:
                 assert not enabled and error.code == "SW_INSTANCE_NOT_READY"
@@ -86,7 +86,7 @@ def direct_case(app, version, enabled, force_rot_failure):
             "claims_exit_ownership": False, "real_dispatch_count": len(dispatches)}
 
 
-async def mcp_case(version, enabled, expected_pid, visible):
+async def mcp_case(version, enabled, expected_pid, visible, force_rot_failure=False):
     """启动独立 MCP stdio 服务并验证真实连接。
 
     参数:
@@ -104,8 +104,19 @@ async def mcp_case(version, enabled, expected_pid, visible):
     env.pop(KEY, None)
     if enabled:
         env[KEY] = "1"
+    args = [str(ROOT / "mcp-server/server.py")]
+    if force_rot_failure:
+        # 只注入 ROT 查询失败；进程枚举、Dispatch 和后续 COM 操作保持真实。
+        bootstrap = (
+            "import runpy,sys,win32com.client; "
+            "win32com.client.GetActiveObject=lambda *a,**k: "
+            "(_ for _ in ()).throw(RuntimeError('controlled ROT lookup failure')); "
+            "path=sys.argv.pop(1); sys.argv[0]=path; "
+            "runpy.run_path(path,run_name='__main__')"
+        )
+        args = ["-c", bootstrap, *args]
     params = StdioServerParameters(command=sys.executable,
-        args=[str(ROOT / "mcp-server/server.py")], cwd=str(ROOT), env=env)
+        args=args, cwd=str(ROOT), env=env)
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
@@ -113,7 +124,7 @@ async def mcp_case(version, enabled, expected_pid, visible):
             schema = next(t.inputSchema for t in tools.tools if t.name == "solidworks_connect")
             assert "params" in schema["properties"]
             result = await session.call_tool("solidworks_connect", {"params": {
-                "version": version, "wait_seconds": 0, "visible": visible}})
+                "version": version, "wait_seconds": 0, "visible": not visible}})
             payload = json.loads(next(c.text for c in result.content if c.type == "text"))
     if payload.get("status") == "ok":
         assert payload["process_id"] == expected_pid and payload["year"] == version
@@ -184,6 +195,12 @@ def run(version, output, create_test_document=False):
             row = asyncio.run(mcp_case(version, enabled, pid, initial[2]))
             unchanged()
             report["cases"].append({"entry": "mcp_stdio", **row})
+        if report["natural_rot_available"]:
+            for enabled in [False, True]:
+                row = asyncio.run(mcp_case(version, enabled, pid, initial[2], True))
+                unchanged()
+                report["cases"].append({"entry": "mcp_stdio",
+                    "controlled_rot_failure": True, **row})
         assert any(r["enabled"] and r["status"] == "connected" for r in report["cases"])
         report["tested_document_count"] = len(initial[0])
         if scratch is not None:

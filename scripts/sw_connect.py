@@ -271,7 +271,7 @@ def _attach_existing_with_pid_check(before, requested_version):
     if get_sw_version(candidate)["year"] != expected_year:
         raise SolidWorksConnectionError("SW_FALLBACK_VERSION_MISMATCH", "attach", "附着实例版本不符，停止操作")
     after = solidworks_processes()
-    if after is None or set(after) != set(before):
+    if after != before:
         raise SolidWorksConnectionError("SW_FALLBACK_PROCESS_CHANGED", "attach", "附着前后CAD实例清单变化，停止操作")
     return candidate
 
@@ -329,10 +329,12 @@ def connect_solidworks(version=None, wait_seconds=5, visible=True, return_metada
                         launched_here = before is not None and pid > 0 and pid not in before
                     except Exception:
                         launched_here = False
-                try:
-                    sw.Visible = visible
-                except Exception:
-                    pass
+                # visible 只适用于本轮新启动的实例，附着不得改变用户窗口。
+                if launched_here:
+                    try:
+                        sw.Visible = visible
+                    except Exception:
+                        pass
                 print(f"已连接 SolidWorks（ProgID: {prog_id}）")
                 _wait_until_ready(sw, wait_seconds)
             except SolidWorksConnectionError:

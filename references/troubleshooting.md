@@ -26,7 +26,7 @@ sw = win32com.client.Dispatch("SldWorks.Application.32")  # SW 2024
 
 回退仍先等待ROT，随后核对返回PID、实际版本及前后进程清单；不符合就停止，不进行后续建模，也不取得退出既有实例的所有权。**这不是保证构造器绝不启动新实例**：不同版本或安装环境可能返回其他进程。身份不符时不会擅自退出该进程，应先检查实例清单和未保存文档，再决定如何处理；不要自动重试。此选项不修复Windows的ROT机制，目标不唯一、未知版本及清单变化仍拒绝附着。
 
-SW2024 的直接 API、MCP stdio 和未保存文档回归结果及复现方式见[可选 ROT 回退验证](../docs/rot-sw2024-regression.md)。SW2026 尚未实测。
+`visible` 只控制本轮新启动的实例，附着不会修改已有窗口状态。SW2024 的贡献者记录见[原始 ROT 回退验证](../docs/rot-sw2024-regression.md)；本轮独立的 SW2026 直接 API、MCP stdio、可见/隐藏窗口及未保存文档验收见[SW2026 验收](../docs/rot-sw2026-regression.md)。
 
 ### Python 32/64 位不匹配
 
