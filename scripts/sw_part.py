@@ -999,9 +999,26 @@ def rib(model, sketch_name, thickness, direction=True):
     参数:
         sketch_name: 筋轮廓草图名称
         thickness: 筋厚度（米）
-        direction: 拉伸方向
+        direction: 是否采用双侧厚度（Is2Sided）；历史参数名保留，不表示材料方向
+
+    返回:
+        本次新增的 Rib 特征；未创建时返回 None。InsertRib 本身返回 VOID。
     """
+    def rib_features():
+        features = {}
+        feature = get_com_member(model, "FirstFeature")
+        while feature is not None:
+            if get_com_member(feature, "GetTypeName2") == "Rib":
+                features[str(feature.Name)] = feature
+            feature = get_com_member(feature, "GetNextFeature")
+        return features
+
     _ensure_sketch_selected(model, sketch_name)
-    return model.FeatureManager.InsertRib(
-        direction, False, thickness, 0, False, False, False, 0, False
+    previous = set(rib_features())
+    model.FeatureManager.InsertRib(
+        direction, False, thickness, 0, False, False, False, 0, False, False
     )
+    created = [feature for name, feature in rib_features().items() if name not in previous]
+    if len(created) > 1:
+        raise RuntimeError("InsertRib 后新增多个筋特征，无法确定本次结果")
+    return created[0] if created else None
