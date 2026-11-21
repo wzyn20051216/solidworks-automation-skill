@@ -26,7 +26,13 @@ sw = win32com.client.Dispatch("SldWorks.Application.32")  # SW 2024
 
 回退仍先等待ROT，随后核对返回PID、实际版本及前后进程清单；不符合就停止，不进行后续建模，也不取得退出既有实例的所有权。**这不是保证构造器绝不启动新实例**：不同版本或安装环境可能返回其他进程。身份不符时不会擅自退出该进程，应先检查实例清单和未保存文档，再决定如何处理；不要自动重试。此选项不修复Windows的ROT机制，目标不唯一、未知版本及清单变化仍拒绝附着。
 
-`visible` 只控制本轮新启动的实例，附着不会修改已有窗口状态。SW2024 的贡献者记录见[原始 ROT 回退验证](../docs/rot-sw2024-regression.md)；本轮独立的 SW2026 直接 API、MCP stdio、可见/隐藏窗口及未保存文档验收见[SW2026 验收](../docs/rot-sw2026-regression.md)。
+`visible` 只控制本轮新启动的实例，附着不会修改已有窗口状态。SW2024 的贡献者记录见[原始 ROT 回退验证](https://github.com/wzyn20051216/solidworks-automation-skill/blob/main/docs/rot-sw2024-regression.md)；本轮独立的 SW2026 直接 API、MCP stdio、可见/隐藏窗口及未保存文档验收见[SW2026 验收](https://github.com/wzyn20051216/solidworks-automation-skill/blob/main/docs/rot-sw2026-regression.md)。验收文档与手工测试位于源码仓库，运行时包不包含 `docs/` 和 `tests/`。
+
+### 通孔切除返回空（Issue #82）
+
+圆孔 `FeatureCut4` 返回空时，直接 API 保留 `SolidWorks 未创建特征` 错误前缀，并附加只读诊断；MCP 返回 `error_code=SW_HOLE_NOT_CREATED`、`diagnostics` 和 `retryable=false`。诊断是失败后的状态：选择数、是否仍在编辑草图、实体数、草图实体/轮廓数、请求的平面和深度；读取失败的字段为 null，不能当作不存在。
+
+保留失败草图，检查选择、草图平面、切除方向及其与实体的相交关系；不要自动重试或反向切除。SW2026 SP1.1 的新建、重开、独立 MCP 及已有孔板回归通过；#82 原报告的 SW2024 build 32.5.0 场景尚未验证，不能因此宣称已修复。原生报告、源码回归入口和采集方法见[通孔回归与诊断](https://github.com/wzyn20051216/solidworks-automation-skill/blob/main/docs/hole-reopen-regression.md)。
 
 ### Python 32/64 位不匹配
 
