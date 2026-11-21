@@ -47,6 +47,7 @@ import { TaskSequence } from "./components/TaskSequence";
 import { PreviewShowcase } from "./preview/PreviewShowcase";
 import { collectJobArtifacts, deliveryFormatStatus, groupedArtifacts } from "./domain/artifacts";
 import { classifyChatEngineeringChange } from "./domain/chatEngineeringChange";
+import { cadConnectionLabel } from "./domain/cadHealth";
 import { chatHistoryForPrompt } from "./domain/chatHistory";
 import {
   artifactVersionComparison,
@@ -924,6 +925,8 @@ function App() {
   const [selectedPreviewArtifactPath, setSelectedPreviewArtifactPath] = useState<string | undefined>();
   const [activeHelpTopic, setActiveHelpTopic] = useState<HelpTopicId>("start");
   const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealth | null>(null);
+  const [runtimeCheckVersion, setRuntimeCheckVersion] = useState(0);
+  const [runtimeChecking, setRuntimeChecking] = useState(false);
   const [runtimeMessage, setRuntimeMessage] = useState("正在检测 Agent、skills 与 CAD 环境...");
   const [windowHint, setWindowHint] = useState("窗口控制就绪");
   const [baseCodexConfig, setCodexConfig] = useState<CodexConfig>({
@@ -2280,6 +2283,7 @@ function App() {
       return;
     }
     let disposed = false;
+    setRuntimeChecking(true);
     void invoke<RuntimeHealth>("runtime_health")
       .then((health) => {
         if (disposed) return;
@@ -2298,17 +2302,20 @@ function App() {
         });
         setRuntimeMessage(
           installedProviders.length
-            ? `已安装 ${installedProviders.map((provider) => provider.name).join("、")}；真实任务已验证 ${verifiedProviders.length ? verifiedProviders.map((provider) => provider.name).join("、") : "无"}。SolidWorks ${health.solidworks?.ok ? "可用" : "待检查"}，AutoCAD ${health.autocad?.ok ? "可用" : "未检测到"}。`
+            ? `已安装 ${installedProviders.map((provider) => provider.name).join("、")}；真实任务已验证 ${verifiedProviders.length ? verifiedProviders.map((provider) => provider.name).join("、") : "无"}。SolidWorks ${cadConnectionLabel(health.solidworks)}，AutoCAD ${cadConnectionLabel(health.autocad)}。`
             : "未检测到 Agent Provider，请在设置中检查 CLI 安装状态。",
         );
       })
       .catch((error) => {
         if (!disposed) setRuntimeMessage(`环境检测失败：${String(error)}`);
+      })
+      .finally(() => {
+        if (!disposed) setRuntimeChecking(false);
       });
     return () => {
       disposed = true;
     };
-  }, []);
+  }, [runtimeCheckVersion]);
 
   useEffect(() => {
     return () => {
@@ -3052,12 +3059,15 @@ function App() {
             </div>
           </div>
           <p>根据当前环境状态整理的本机帮助。先选择左侧主题，再按步骤检查。</p>
+          <button type="button" disabled={runtimeChecking || !isTauriRuntime()} onClick={() => setRuntimeCheckVersion((value) => value + 1)}>
+            <ArrowClockwise size={16} />{runtimeChecking ? "正在检查环境…" : "重新检查环境"}
+          </button>
         </div>
         <div className="help-status-grid">
           <div><span>AI</span><strong>{installedProviders.length ? installedProviders.join("、") : "尚未检测到可用 CLI"}</strong></div>
           <div><span>Python</span><strong>{runtimeHealth?.python?.ok ? "已就绪" : "需要安装 Python 3"}</strong></div>
-          <div><span>SolidWorks</span><strong>{runtimeHealth?.solidworks?.ok ? "可用" : "未检测到或待检查"}</strong></div>
-          <div><span>AutoCAD</span><strong>{runtimeHealth?.autocad?.ok ? "可用" : "未检测到"}</strong></div>
+          <div><span>SolidWorks</span><strong title={runtimeHealth?.solidworks?.message}>{cadConnectionLabel(runtimeHealth?.solidworks)}</strong></div>
+          <div><span>AutoCAD</span><strong title={runtimeHealth?.autocad?.message}>{cadConnectionLabel(runtimeHealth?.autocad)}</strong></div>
         </div>
         <EnvironmentRemediationPanel remediations={runtimeHealth?.remediations ?? []} onCopyCommand={copyRuntimeCommand} onOpenDownload={openRuntimeDownload} />
         <div className="help-guide">
@@ -3690,8 +3700,8 @@ function App() {
             <div className="desktop-statusbar" aria-live="polite">
               <span className={selectedProvider?.ready ? "ready" : "warning"}>{agentProviderCatalog[apiConfig.agentProvider].name} {selectedProvider?.ready ? "已连接" : "未确认"}</span>
               <span>Worker {workerStatus.running ? `运行中 · ${workerStatus.pid ?? "-"}` : "未启动"}</span>
-              <span>SolidWorks {runtimeHealth?.solidworks?.ok ? "可用" : "待检查"}</span>
-              <span>AutoCAD {runtimeHealth?.autocad?.ok ? "可用" : "未检测到"}</span>
+              <span title={runtimeHealth?.solidworks?.message}>SolidWorks {cadConnectionLabel(runtimeHealth?.solidworks)}</span>
+              <span title={runtimeHealth?.autocad?.message}>AutoCAD {cadConnectionLabel(runtimeHealth?.autocad)}</span>
               <span>{queueLoaded ? queueSummary : "队列加载中"}</span>
             </div>
 

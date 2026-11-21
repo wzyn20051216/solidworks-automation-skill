@@ -37,6 +37,23 @@ RESULT = {
     "nextSteps": [],
 }
 
+@pytest.mark.parametrize("prefix,suffix", [("\ufeff", ""), ("结果如下\n```json\n", "\n```"), ('log {"event":"done"}\n', "")])
+def test_codex_result_extracts_only_unified_protocol(tmp_path, prefix, suffix):
+    provider = AgentProvider("codex", "Codex", "codex-exec-v1", True, True, ("codex",))
+    output = tmp_path / "result.json"
+    output.write_text(prefix + json.dumps(RESULT) + suffix, encoding="utf-8")
+    assert parse_provider_result(provider, "", output) == RESULT
+    assert json.loads(output.read_text()) == RESULT
+
+
+@pytest.mark.parametrize("text", ["invalid", '{"event":"done"}', '```json\n{"summary":"missing fields"}\n```'])
+def test_codex_result_rejects_malformed_or_unrelated_objects(tmp_path, text):
+    provider = AgentProvider("codex", "Codex", "codex-exec-v1", True, True, ("codex",))
+    output = tmp_path / "result.json"
+    output.write_text(text, encoding="utf-8")
+    with pytest.raises(RuntimeError):
+        parse_provider_result(provider, "", output)
+
 
 @pytest.mark.parametrize(
     ("provider_id", "expected_tokens"),

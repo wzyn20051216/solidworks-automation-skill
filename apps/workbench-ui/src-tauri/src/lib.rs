@@ -2008,8 +2008,12 @@ fn collect_doctor_report(program: &str, args: &[String], skill_root: &Path) -> V
     };
     doctor
         .args(args)
+        .env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8")
+        .env("PYTHONDONTWRITEBYTECODE", "1")
         .current_dir(skill_root)
-        .arg(skill_root.join("scripts").join("cad_doctor.py"));
+        .arg(skill_root.join("scripts").join("cad_doctor.py"))
+        .arg("--live-cad");
     #[cfg(windows)]
     doctor.creation_flags(CREATE_NO_WINDOW);
     match command_output_with_timeout(&mut doctor, Duration::from_secs(20)) {
@@ -2042,21 +2046,8 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
         .or_else(|_| std::env::var("HOME"))
         .map(PathBuf::from)
         .unwrap_or_default();
-    let (python, solidworks, doctor) = match python_command() {
+    let (python, doctor) = match python_command() {
         Ok((program, args)) => {
-            // CWE-78: python_process 校验命令和固定用户安装路径。
-            let mut preflight = python_process(&program)?;
-            preflight
-                .args(&args)
-                .current_dir(&skill_root)
-                .arg(skill_root.join("scripts").join("sw_preflight.py"))
-                .arg("--no-install");
-            #[cfg(windows)]
-            preflight.creation_flags(CREATE_NO_WINDOW);
-            let solidworks = command_output_with_timeout(&mut preflight, Duration::from_secs(10)).map(|output| json!({
-                "ok": output.status.success(),
-                "message": String::from_utf8_lossy(if output.status.success() { &output.stdout } else { &output.stderr }).trim()
-            })).unwrap_or_else(|error| json!({ "ok": false, "message": error.to_string() }));
             let doctor = collect_doctor_report(&program, &args, &skill_root);
             (
                 json!({
@@ -2064,13 +2055,11 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
                     "entry": std::iter::once(program).chain(args).collect::<Vec<_>>().join(" "),
                     "message": "Python 3 已就绪"
                 }),
-                solidworks,
                 doctor,
             )
         }
         Err(error) => (
             json!({ "ok": false, "entry": "", "message": error }),
-            json!({ "ok": false, "message": "未检测 SolidWorks：本地 CAD worker 需要 Python 3。" }),
             json!({
                 "schemaVersion": "1.0",
                 "summary": { "status": "error" },
@@ -2086,7 +2075,24 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
             }),
         ),
     };
-    let autocad_path = detect_autocad();
+    let cad_health = |product: &str| {
+        doctor
+            .get("liveConnections")
+            .and_then(|connections| connections.get(product))
+            .cloned()
+            .unwrap_or_else(|| {
+                json!({
+                    "ok": false,
+                    "mode": "unavailable",
+                    "message": "COM 握手未完成，请重新检查环境"
+                })
+            })
+    };
+    let solidworks = cad_health("solidworks");
+    let mut autocad = cad_health("autocad");
+    autocad["path"] = json!(detect_autocad()
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_default());
 
     let codex = codex_command();
     let (codex_version, codex_login, codex_entry) = match codex {
@@ -2125,10 +2131,7 @@ fn collect_runtime_health(app: AppHandle) -> Result<Value, String> {
         "remediations": remediations,
         "capabilityManifest": capability_manifest,
         "solidworks": solidworks,
-        "autocad": {
-            "ok": autocad_path.is_some(),
-            "path": autocad_path.map(|path| path.to_string_lossy().to_string()).unwrap_or_default()
-        }
+        "autocad": autocad
     }))
 }
 

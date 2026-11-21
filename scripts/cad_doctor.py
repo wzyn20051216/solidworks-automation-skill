@@ -1,12 +1,14 @@
 """CAD Studio 环境诊断 CLI。
 
-该脚本只读取环境信息，不启动或关闭 CAD。输出适合桌面端和 CI 消费的 JSON，
+默认只读取环境信息；--probe-cad 允许启动并清理自检实例。输出适合桌面端和 CI 消费的 JSON，
 并用稳定的检查 ID/状态帮助用户定位安装、依赖和权限问题。
 """
 from __future__ import annotations
 
 import argparse
+from contextlib import redirect_stdout
 import importlib.util
+import io
 import json
 import os
 import platform
@@ -115,7 +117,41 @@ def _solidworks_installation() -> dict[str, Any]:
     }
 
 
-def run_doctor(*, probe_cad: bool = False) -> dict[str, Any]:
+def probe_running_cad(product: str, installed: bool) -> dict[str, Any]:
+    """只对已运行实例握手，失败时保留安装状态。"""
+    result = {"ok": False, "installed": installed, "mode": "unavailable"}
+    try:
+        import pythoncom
+        import win32com.client
+    except ImportError:
+        return {**result, "mode": "missing_dependency", "message": "缺少 pywin32，无法验证 COM 连接"}
+    app = None
+    initialized = False
+    try:
+        pythoncom.CoInitialize()
+        initialized = True
+        prog_id = {"solidworks": "SldWorks.Application", "autocad": "AutoCAD.Application"}[product]
+        try:
+            app = win32com.client.GetActiveObject(prog_id)
+        except Exception as error:
+            if getattr(error, "hresult", None) == -2147221021:  # MK_E_UNAVAILABLE
+                return {**result, "mode": "not_running", "message": "已安装，尚未发现运行实例" if installed else "未发现安装或运行实例"}
+            return {**result, "message": f"COM 握手不可用: {error}"}
+        member = getattr(app, "RevisionNumber" if product == "solidworks" else "Version")
+        revision = member() if callable(member) else member
+        if not isinstance(revision, str) or not revision.strip():
+            raise RuntimeError("COM 未返回版本")
+        revision = revision.strip()
+        return {**result, "ok": True, "mode": "active", "revision": revision, "message": f"COM 已连接，版本 {revision}"}
+    except Exception as error:
+        return {**result, "message": f"COM 握手失败: {error}"}
+    finally:
+        app = None
+        if initialized:
+            pythoncom.CoUninitialize()
+
+
+def run_doctor(*, probe_cad: bool = False, live_cad: bool = False) -> dict[str, Any]:
     """执行诊断并返回脱敏 JSON 数据。"""
     checks: list[dict[str, Any]] = []
     python_ready = sys.version_info >= (3, 10)
@@ -227,14 +263,33 @@ def run_doctor(*, probe_cad: bool = False) -> dict[str, Any]:
     ))
 
     if probe_cad and sw["registered"]:
+        app = None
+        metadata = {}
         try:
             sys.path.insert(0, str(ROOT / "scripts"))
-            from sw_connect import connect_solidworks
+            from sw_connect import close_owned_solidworks, connect_solidworks, get_com_member
 
-            app, _ = connect_solidworks(wait_seconds=8, visible=False)
-            checks.append(_check("cad.solidworks.com", app is not None, "SolidWorks COM 连接成功", code="SOLIDWORKS_COM_FAILED"))
+            with redirect_stdout(io.StringIO()):
+                app, _, metadata = connect_solidworks(wait_seconds=8, visible=False, return_metadata=True)
+            checks.append(_check("cad.solidworks.com", app is not None, "SolidWorks COM 连接成功", code="SOLIDWORKS_COM_READY" if app is not None else "SOLIDWORKS_COM_FAILED"))
         except Exception as exc:  # pragma: no cover - 真实 Windows 环境执行
             checks.append(_check("cad.solidworks.com", False, str(exc), code="SOLIDWORKS_COM_FAILED"))
+        finally:
+            if app is not None and metadata.get("started_by_cad_studio"):
+                try:
+                    if list(get_com_member(app, "GetDocuments") or []):
+                        checks.append(_check("cad.solidworks.com.cleanup", False, "自检实例已有文档，已保留供用户处理", severity="warning", code="SOLIDWORKS_COM_CLEANUP_SKIPPED"))
+                    elif not close_owned_solidworks(app, True, metadata.get("process_id")):
+                        raise RuntimeError("自检实例未退出")
+                except Exception as error:
+                    checks.append(_check("cad.solidworks.com.cleanup", False, str(error), severity="warning", code="SOLIDWORKS_COM_CLEANUP_FAILED"))
+
+    live_connections = {}
+    if live_cad:
+        live_connections = {
+            "solidworks": probe_running_cad("solidworks", sw_ready),
+            "autocad": probe_running_cad("autocad", autocad_ready),
+        }
 
     errors = sum(item["status"] == "error" for item in checks)
     warnings = sum(item["status"] == "warning" for item in checks)
@@ -249,17 +304,21 @@ def run_doctor(*, probe_cad: bool = False) -> dict[str, Any]:
             "autocad": autocad,
         },
         "checks": checks,
+        "liveConnections": live_connections,
         "remediations": remediations,
         "summary": {"status": "error" if errors else ("warning" if warnings else "passed"), "errors": errors, "warnings": warnings},
     }
 
 
 def main(argv: list[str] | None = None) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="诊断 CAD Studio 本地运行环境")
     parser.add_argument("--probe-cad", action="store_true", help="在 COM 已注册时尝试连接 SolidWorks")
+    parser.add_argument("--live-cad", action="store_true", help="只握手已运行的 SolidWorks/AutoCAD 实例")
     parser.add_argument("--output", type=Path, help="写入 JSON 文件")
     args = parser.parse_args(argv)
-    result = run_doctor(probe_cad=args.probe_cad)
+    result = run_doctor(probe_cad=args.probe_cad, live_cad=args.live_cad)
     text = json.dumps(result, ensure_ascii=False, indent=2)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

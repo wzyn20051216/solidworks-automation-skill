@@ -115,6 +115,41 @@ def test_com_preflight_installs_without_prompt_and_can_be_disabled(monkeypatch):
     with pytest.raises(preflight.DependencyInstallDeclined):
         preflight.ensure_com_dependencies()
 
+@pytest.mark.parametrize("failure", [subprocess.CalledProcessError(1, "pip"), subprocess.TimeoutExpired("pip", 180)])
+def test_com_install_uses_configured_fallback_once(monkeypatch, failure):
+    from scripts import sw_preflight as preflight
+    monkeypatch.setenv("SW_PIP_INDEX_URL", "https://primary.example/simple")
+    monkeypatch.setenv("SW_PIP_FALLBACK_INDEX_URL", "https://fallback.example/simple")
+    calls = []
+    def run(command, timeout):
+        calls.append(command)
+        if len(calls) == 1:
+            raise failure
+    monkeypatch.setattr(preflight.subprocess, "check_call", run)
+    preflight.install_com_dependencies(python_executable="python", requirements=("comtypes>=1.2.0",))
+    assert len(calls) == 2
+    assert calls[0][-1] == "https://primary.example/simple"
+    assert calls[1][-1] == "https://fallback.example/simple"
+    assert calls[0][:-2] == calls[1][:-2]
+
+
+def test_com_install_respects_disabled_fallback_and_reports_second_failure(monkeypatch):
+    from scripts import sw_preflight as preflight
+    monkeypatch.delenv("SW_PIP_INDEX_URL", raising=False)
+    monkeypatch.setenv("SW_PIP_FALLBACK_INDEX_URL", "")
+    calls = []
+    def run(command, timeout):
+        calls.append(command)
+        raise subprocess.CalledProcessError(1, "pip")
+    monkeypatch.setattr(preflight.subprocess, "check_call", run)
+    with pytest.raises(subprocess.CalledProcessError):
+        preflight.install_com_dependencies(python_executable="python")
+    assert len(calls) == 1
+    monkeypatch.setenv("SW_PIP_FALLBACK_INDEX_URL", "https://pypi.org/simple")
+    calls.clear()
+    with pytest.raises(subprocess.CalledProcessError):
+        preflight.install_com_dependencies(python_executable="python")
+    assert len(calls) == 2
 
 def test_help_restore_rejects_wrong_product_and_requires_hash(monkeypatch, tmp_path):
     from scripts import api_help_restore as restore

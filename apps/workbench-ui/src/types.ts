@@ -313,9 +313,16 @@ export type RuntimeHealth = {
   agentProviders?: Array<{ id: AgentProviderId; name: string; installed?: boolean; ready?: boolean; verified?: boolean; status?: "not_installed" | "auth_failed" | "verified" | "verification_required"; version?: { ok?: boolean; message?: string }; auth?: { ok?: boolean | null; message?: string }; entry?: string }>;
   doctor?: { schemaVersion?: string; summary?: { status?: "passed" | "warning" | "error"; errors?: number; warnings?: number }; checks?: Array<Record<string, unknown>>; error?: string };
   remediations?: RuntimeRemediation[];
-  solidworks?: { ok?: boolean; message?: string };
-  autocad?: { ok?: boolean; path?: string };
+  solidworks?: CadConnectionHealth;
+  autocad?: CadConnectionHealth & { path?: string };
   capabilityManifest?: { schema_version?: string; verified_versions?: Record<string, string[]>; capabilities?: Array<Record<string, unknown> & { id?: string; level?: string }> };
+};
+export type CadConnectionHealth = {
+  ok?: boolean;
+  installed?: boolean;
+  mode?: string;
+  revision?: string;
+  message?: string;
 };
 export type ImportedWallpaper = { path: string; name: string; kind: "image" | "video" };
 export type AppStoreMigrationStatus = {

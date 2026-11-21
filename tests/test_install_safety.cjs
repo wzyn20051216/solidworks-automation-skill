@@ -90,6 +90,63 @@ test('依赖安装使用用户目录并准确报告失败', () => {
   assert.ok(calls[1][1].includes('--no-input'));
 });
 
+test('依赖安装失败后只向配置的备用索引重试一次', (t) => {
+  const previous = process.env.SW_PIP_FALLBACK_INDEX_URL;
+  process.env.SW_PIP_FALLBACK_INDEX_URL = 'https://fallback.example/simple';
+  t.after(() => {
+    if (previous === undefined) delete process.env.SW_PIP_FALLBACK_INDEX_URL;
+    else process.env.SW_PIP_FALLBACK_INDEX_URL = previous;
+  });
+  const calls = [];
+  const run = (_name, args) => {
+    if (args.includes('-c')) return { status: 0, stdout: '1\n' };
+    calls.push(args);
+    return { status: calls.length === 1 ? 1 : 0 };
+  };
+  assert.equal(installDependencies('C:\\skill', () => 'python', () => null, run).ok, true);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[1].slice(-2), ['--index-url', 'https://fallback.example/simple']);
+  assert.deepEqual(calls[1].slice(0, -2), calls[0]);
+});
+
+test('备用索引关闭时或进程被中断时保留失败', (t) => {
+  const previous = process.env.SW_PIP_FALLBACK_INDEX_URL;
+  t.after(() => {
+    if (previous === undefined) delete process.env.SW_PIP_FALLBACK_INDEX_URL;
+    else process.env.SW_PIP_FALLBACK_INDEX_URL = previous;
+  });
+  for (const [fallback, failure] of [['', { status: 1 }], ['https://pypi.org/simple', { status: null, signal: 'SIGTERM' }]]) {
+    process.env.SW_PIP_FALLBACK_INDEX_URL = fallback;
+    let attempts = 0;
+    const run = (_name, args) => {
+      if (args.includes('-c')) return { status: 0, stdout: '1\n' };
+      attempts++;
+      return failure;
+    };
+    assert.equal(installDependencies('C:\\skill', () => 'python', () => null, run).ok, false);
+    assert.equal(attempts, 1);
+  }
+});
+
+test('pip 超时被终止后仍可使用备用索引恢复', (t) => {
+  const previous = process.env.SW_PIP_FALLBACK_INDEX_URL;
+  process.env.SW_PIP_FALLBACK_INDEX_URL = 'https://fallback.example/simple';
+  t.after(() => {
+    if (previous === undefined) delete process.env.SW_PIP_FALLBACK_INDEX_URL;
+    else process.env.SW_PIP_FALLBACK_INDEX_URL = previous;
+  });
+  let attempts = 0;
+  const run = (_name, args) => {
+    if (args.includes('-c')) return { status: 0, stdout: '1\n' };
+    attempts++;
+    return attempts === 1
+      ? { status: null, signal: 'SIGTERM', error: { code: 'ETIMEDOUT' } }
+      : { status: 0 };
+  };
+  assert.equal(installDependencies('C:\\skill', () => 'python', () => null, run).ok, true);
+  assert.equal(attempts, 2);
+});
+
 test('MCP 注册复用已选择的 Python，失败时返回失败且不重复安装依赖', () => {
   const root = tempDir();
   fs.mkdirSync(path.join(root, 'mcp-server'));
