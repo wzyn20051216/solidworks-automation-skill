@@ -20,8 +20,13 @@ sw = win32com.client.Dispatch("SldWorks.Application.32")  # SW 2024
 错误: pywintypes.com_error: (-2147221021, '操作不可用', None, None)
 ```
 
-**原因**: SolidWorks 未运行
-**解决**: 先手动启动 SolidWorks，或使用 `Dispatch` 启动新实例
+**原因**: SolidWorks 可能未运行，也可能已有可响应实例但当前会话无法从运行对象表（ROT）取得它。先核对进程、版本和桌面状态，不反复启动新实例。
+
+已有唯一、版本明确的目标实例，且本机已确认版本化 `Dispatch` 可返回同一实例时，可在执行进程环境中显式设置 `SW_ATTACH_EXISTING_DISPATCH=1`，再调用 `connect_solidworks(version=2024)`（年份按实际版本填写）。MCP客户端需将此变量传给服务进程并重连；未设置或值不为 `1` 时仍保留原来的禁止重复构造行为。
+
+回退仍先等待ROT，随后核对返回PID、实际版本及前后进程清单；不符合就停止，不进行后续建模，也不取得退出既有实例的所有权。**这不是保证构造器绝不启动新实例**：不同版本或安装环境可能返回其他进程。身份不符时不会擅自退出该进程，应先检查实例清单和未保存文档，再决定如何处理；不要自动重试。此选项不修复Windows的ROT机制，目标不唯一、未知版本及清单变化仍拒绝附着。
+
+SW2024 的直接 API、MCP stdio 和未保存文档回归结果及复现方式见[可选 ROT 回退验证](../docs/rot-sw2024-regression.md)。SW2026 尚未实测。
 
 ### Python 32/64 位不匹配
 
