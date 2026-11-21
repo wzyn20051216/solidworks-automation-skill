@@ -8,9 +8,11 @@ from contextlib import contextmanager
 
 try:
     from .sw_connect import get_com_member
+    from .sw_live_preview import preview_checkpoint
     from .sw_preflight import import_com_dependencies
 except ImportError:
     from sw_connect import get_com_member
+    from sw_live_preview import preview_checkpoint
     from sw_preflight import import_com_dependencies
 
 
@@ -515,6 +517,7 @@ def end_sketch(model):
     """
     sketch_ref = _capture_sketch_ref(model, source="end_sketch")
     model.SketchManager.InsertSketch(True)
+    preview_checkpoint(model)
     return _cache_sketch_ref(model, _refresh_sketch_ref(sketch_ref))
 
 
@@ -747,7 +750,7 @@ def extrude_boss(model, sketch_name, depth, direction=True, merge=True, start_of
         start_offset: 从草图法向偏移起点（米）；负数反向，默认保持原行为
     """
     _ensure_sketch_selected(model, sketch_name)
-    return model.FeatureManager.FeatureExtrusion3(
+    feature = model.FeatureManager.FeatureExtrusion3(
         True,         # Sd: 单向拉伸
         False,        # Flip
         direction,    # Dir: 拉伸方向
@@ -772,6 +775,9 @@ def extrude_boss(model, sketch_name, depth, direction=True, merge=True, start_of
         abs(start_offset),
         start_offset < 0
     )
+    if feature is not None:
+        preview_checkpoint(model)
+    return feature
 
 
 def extrude_cut(model, sketch_name, depth, direction=True, flip=False, both_directions=False):
@@ -794,7 +800,7 @@ def extrude_cut(model, sketch_name, depth, direction=True, flip=False, both_dire
     else:
         end_condition = 0  # swEndCondBlind
 
-    return model.FeatureManager.FeatureCut4(
+    feature = model.FeatureManager.FeatureCut4(
         not both_directions, bool(flip), bool(direction),  # Sd, Flip, Dir
         end_condition, end_condition if both_directions else 0, depth, depth if both_directions else 0,
         False, False, False, False, 0.0, 0.0,
@@ -802,6 +808,9 @@ def extrude_cut(model, sketch_name, depth, direction=True, flip=False, both_dire
         True, True, False, False,  # assembly-scope flags -> False for part docs
         False, 0, 0, False, False
     )
+    if feature is not None:
+        preview_checkpoint(model)
+    return feature
 
 
 def extrude_midplane(model, sketch_name, total_depth):

@@ -1,7 +1,7 @@
 use notify::{RecursiveMode, Watcher};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, Transaction};
 use serde_json::{json, Value};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -481,6 +481,64 @@ fn read_preview_file(path: String) -> Result<tauri::ipc::Response, String> {
         return Err("预览文件超过 128 MB，请先导出轻量 GLB/STL 或 PNG。".to_string());
     }
     let bytes = fs::read(target).map_err(|error| format!("预览文件读取失败: {error}"))?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+fn solidworks_preview_bytes(queue: &Path, id: &str, run_id: &str) -> Option<Vec<u8>> {
+    let id = safe_id(id).ok()?;
+    let run_id = safe_id(run_id).ok()?;
+    let queue = queue.canonicalize().ok()?;
+    let job_path = queue.join(format!("{id}.json"));
+    let running = || {
+        if job_path.canonicalize().ok()? != job_path {
+            return None;
+        }
+        let job: Value = serde_json::from_reader(fs::File::open(&job_path).ok()?).ok()?;
+        let cad = job.pointer("/uiConfig/cadRuntime")?;
+        (job["id"].as_str() == Some(id.as_str())
+            && job["runId"].as_str() == Some(run_id.as_str())
+            && job["status"] == "running"
+            && cad["localCadAutomation"] == true
+            && matches!(cad["application"].as_str(), Some("auto" | "solidworks")))
+        .then_some(())
+    };
+    running()?;
+    let frame = queue
+        .join("solidworks-live")
+        .join(&id)
+        .join(format!("{run_id}.png"));
+    if frame.canonicalize().ok()? != frame {
+        return None;
+    }
+    const MAX_FRAME_BYTES: u64 = 3 * 1024 * 1024;
+    let file = fs::File::open(frame).ok()?;
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_FRAME_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    if bytes.len() as u64 > MAX_FRAME_BYTES || !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return None;
+    }
+    running()?;
+    Some(bytes)
+}
+
+#[tauri::command]
+async fn read_solidworks_preview(
+    app: AppHandle,
+    id: String,
+    run_id: String,
+) -> Result<tauri::ipc::Response, String> {
+    let queue = queue_dir(&app)?;
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        solidworks_preview_bytes(&queue, &id, &run_id)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .unwrap_or_default();
     Ok(tauri::ipc::Response::new(bytes))
 }
 
@@ -3219,6 +3277,7 @@ pub fn run() {
             delete_queue_job,
             import_wallpaper,
             read_preview_file,
+            read_solidworks_preview,
             worker_status,
             start_worker,
             stop_worker,
@@ -3263,8 +3322,9 @@ mod tests {
     use super::{
         asset_path, can_delete_job, database_provider_groups, derive_dangerous_capabilities,
         initialize_app_store, is_queue_metadata_path, prepare_job_for_retry,
-        required_review_checks, sync_entity_index, sync_task_index, validate_external_download_url,
-        validate_new_queue_job, validate_preview_extension, wallpaper_kind,
+        required_review_checks, retry_run_id, solidworks_preview_bytes, sync_entity_index,
+        sync_task_index, validate_external_download_url, validate_new_queue_job,
+        validate_preview_extension, wallpaper_kind,
     };
     use rusqlite::{params, Connection};
     use serde_json::json;
@@ -3299,6 +3359,42 @@ mod tests {
             },
             "artifacts": []
         })
+    }
+
+    #[test]
+    fn solidworks_preview_is_limited_to_the_running_attempt() {
+        use std::fs;
+
+        let queue = std::env::temp_dir().join(format!("cad-studio-preview-{}", retry_run_id()));
+        let frame_dir = queue.join("solidworks-live").join("job-test-1");
+        fs::create_dir_all(&frame_dir).unwrap();
+        let path = queue.join("job-test-1.json");
+        let frame = frame_dir.join("run-test-1.png");
+        let png = b"\x89PNG\r\n\x1a\npreview";
+        let mut job = queued_job();
+        job["status"] = json!("running");
+        job["uiConfig"]["cadRuntime"]["application"] = json!("solidworks");
+        fs::write(&path, job.to_string()).unwrap();
+        assert!(solidworks_preview_bytes(&queue, "job-test-1", "run-test-1").is_none());
+        fs::write(&frame, png).unwrap();
+        assert_eq!(
+            solidworks_preview_bytes(&queue, "job-test-1", "run-test-1").as_deref(),
+            Some(png.as_slice())
+        );
+        assert!(solidworks_preview_bytes(&queue, "job-test-1", "run-old").is_none());
+        assert!(solidworks_preview_bytes(&queue, "../job-test-1", "run-test-1").is_none());
+
+        fs::write(&frame, b"invalid").unwrap();
+        assert!(solidworks_preview_bytes(&queue, "job-test-1", "run-test-1").is_none());
+        fs::write(&frame, png).unwrap();
+        job["uiConfig"]["cadRuntime"]["application"] = json!("autocad");
+        fs::write(&path, job.to_string()).unwrap();
+        assert!(solidworks_preview_bytes(&queue, "job-test-1", "run-test-1").is_none());
+        job["uiConfig"]["cadRuntime"]["application"] = json!("solidworks");
+        job["status"] = json!("passed");
+        fs::write(&path, job.to_string()).unwrap();
+        assert!(solidworks_preview_bytes(&queue, "job-test-1", "run-test-1").is_none());
+        fs::remove_dir_all(queue).unwrap();
     }
 
     #[test]

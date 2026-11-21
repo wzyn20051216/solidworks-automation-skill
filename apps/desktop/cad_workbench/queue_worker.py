@@ -12,6 +12,7 @@ import time
 import uuid
 import shutil
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, BinaryIO, Callable, Mapping, Sequence
@@ -1133,6 +1134,40 @@ def _run_command(command: Sequence[str], cwd: Path, timeout_seconds: int) -> sub
     )
 
 
+@contextmanager
+def _solidworks_preview_environment(child_env: dict[str, str], queue: Path, job: dict[str, Any]):
+    """限定 SolidWorks 帧的存放位置和有效期。"""
+    env_key = "CAD_STUDIO_SW_PREVIEW_PATH"
+    child_env.pop(env_key, None)
+    ui_config = job.get("uiConfig") or {}
+    cad = ui_config.get("cadRuntime") if isinstance(ui_config, dict) else None
+    job_id, run_id = job.get("id"), job.get("runId")
+    frame = None
+    if (
+        os.name == "nt"
+        and isinstance(cad, dict)
+        and cad.get("localCadAutomation") is True
+        and cad.get("application") in ("auto", "solidworks")
+        and all(isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,96}", value) for value in (job_id, run_id))
+    ):
+        try:
+            candidate = queue.resolve() / "solidworks-live" / job_id / f"{run_id}.png"
+            if candidate.resolve() == candidate:
+                candidate.unlink(missing_ok=True)
+                frame = candidate
+                child_env[env_key] = str(frame)
+        except (OSError, RuntimeError):
+            pass
+    try:
+        yield
+    finally:
+        if frame is not None:
+            try:
+                frame.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 def _run_command_with_runtime(
     command: Sequence[str],
     cwd: Path,
@@ -1159,7 +1194,11 @@ def _run_command_with_runtime(
         child_env["SW_API_LOOKUP_NETWORK"] = "off"
     if knowledge.get("parallelApiFallbackEnabled", True) is not True:
         child_env["SW_API_LOOKUP_PARALLEL"] = "off"
-    with stdout_path.open("w", encoding="utf-8") as stdout_handle, stderr_path.open("w", encoding="utf-8") as stderr_handle:
+    with (
+        _solidworks_preview_environment(child_env, job_path.parent, job),
+        stdout_path.open("w", encoding="utf-8") as stdout_handle,
+        stderr_path.open("w", encoding="utf-8") as stderr_handle,
+    ):
         process = subprocess.Popen(
             list(command),
             cwd=str(cwd),

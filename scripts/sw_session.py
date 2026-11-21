@@ -11,9 +11,11 @@ import os
 try:
     from .sw_connect import close_owned_solidworks, connect_solidworks, get_com_member, new_document, open_document, save_document
     from .sw_export import export_to_dxf, export_to_iges, export_to_pdf, export_to_stl, export_to_step
+    from .sw_live_preview import close_preview_document, preview_checkpoint, preview_document
 except ImportError:
     from sw_connect import close_owned_solidworks, connect_solidworks, get_com_member, new_document, open_document, save_document
     from sw_export import export_to_dxf, export_to_iges, export_to_pdf, export_to_stl, export_to_step
+    from sw_live_preview import close_preview_document, preview_checkpoint, preview_document
 
 
 EXPORTERS = {
@@ -72,10 +74,11 @@ class SolidWorksSession:
         """@brief 读取当前文档，读取失败不得猜测没有用户文档。"""
         return list(get_com_member(self.sw, "GetDocuments") or [])
 
-    def _remember(self, model):
+    def _remember(self, model, existing=()):
         """@brief 仅登记本轮真正创建或新打开的文档对象。"""
         if model is not None and not any(item is model for item in self._owned_documents):
             self._owned_documents.append(model)
+            preview_document(self.sw, model, self.connection_info.get("process_id"), existing)
         return model
 
     def close_owned_documents(self):
@@ -128,9 +131,10 @@ class SolidWorksSession:
             silent: 是否静默打开。
             raise_on_error: 打开失败时是否抛出异常。
         """
-        before = {os.path.normcase(str(get_com_member(doc, "GetPathName") or "")) for doc in self._documents()}
+        existing = self._documents()
+        before = {os.path.normcase(str(get_com_member(doc, "GetPathName") or "")) for doc in existing}
         requested = os.path.normcase(os.path.abspath(os.path.expandvars(str(file_path))))
-        if requested not in before and len(self._documents()) >= self.max_documents:
+        if requested not in before and len(existing) >= self.max_documents:
             raise RuntimeError("打开文档数已达会话预算")
         self.model = open_document(
             self.sw,
@@ -140,7 +144,7 @@ class SolidWorksSession:
             raise_on_error=raise_on_error,
         )
         if requested not in before:
-            self._remember(self.model)
+            self._remember(self.model, existing)
         return self.model
 
     def save(self, model=None, file_path=None):
@@ -154,7 +158,9 @@ class SolidWorksSession:
         model = model if model is not None else self.model
         if model is None:
             raise RuntimeError("当前没有可保存的活动文档")
-        return save_document(model, file_path=file_path)
+        saved = save_document(model, file_path=file_path)
+        preview_checkpoint(model)
+        return saved
 
     def export(self, model=None, output_path=None, format_ext=None, **kwargs):
         """
@@ -181,7 +187,9 @@ class SolidWorksSession:
         exporter = EXPORTERS.get(ext)
         if exporter is None:
             raise ValueError(f"暂不支持导出格式: {ext}")
-        return exporter(model, str(output), **kwargs)
+        exported = exporter(model, str(output), **kwargs)
+        preview_checkpoint(model)
+        return exported
 
     def close(self, model=None, title=None):
         """
@@ -209,6 +217,7 @@ class SolidWorksSession:
                 from sw_part import clear_sketch_selection_cache
             clear_sketch_selection_cache(model)
         self.sw.CloseDoc(title)
+        close_preview_document(self.model if model is None and is_current_model else model)
         self._owned_documents = [item for item in self._owned_documents if item is not model]
         if is_current_model:
             self.model = self.sw.ActiveDoc
