@@ -46,3 +46,15 @@ SolidWorks 2026 SP1.1（`34.1.1`）中上述 10 个成功对照均通过，新�
 需要原报告的 `repro_hole_bug.py`、输出及 `repro_plate.SLDPRT`，并在 SW2024 `32.5.0` 重现。重点比较：创建前后的实际草图引用、选择集、草图平面与实体相交方向，以及封装与裸调用的真实参数和文档身份。
 
 官方 [FeatureCut4 文档](https://help.solidworks.com/2024/english/api/sldworksapi/solidworks.interop.sldworks~solidworks.interop.sldworks.ifeaturemanager~featurecut4.html)区分 `Sd`、`Dir`、两端终止条件及实体作用域。返回空本身不足以确定根因，不根据版本年份直接反向切除，也不靠增加无界重试掩盖失败。
+
+## 离线回归记录
+
+基于 `524a4a3` 的独立诊断分支运行 `python -m pytest -q`：1766 项通过、17 项跳过，另有两条既有依赖警告。整合 ROT 修复后的 `ad4b457` 主线，再验证连接归属、文档身份、孔诊断、草图选择及发布合同：71 项通过。
+
+```powershell
+python -m pytest -q tests/test_sw_session_ownership.py tests/test_mcp_hole_diagnostics.py tests/test_sw_hole_features.py tests/test_sw_connect_open_document.py tests/test_mcp_document_identity.py tests/test_mcp_document_binding_integration.py tests/test_sw_part_sketch_selection.py tests/test_release_check.py tests/test_sync_bundled_skill.py
+python scripts/validate_skill.py
+python scripts/release_check.py
+```
+
+内嵌 Skill 同步、完整性和发布合同检查通过；这些离线结果不替代 SW2024 原故障的真机验收。
