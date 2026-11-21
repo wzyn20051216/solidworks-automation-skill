@@ -151,7 +151,6 @@ def run(version, output):
             session.close(model)
             assert solidworks_processes() == original_processes
             assert get(session.sw, "GetDocumentCount") == 0
-        report["status"] = "passed"
         report["created_documents_closed"] = True
         # ExitApp 为异步退出，不能把调用后瞬时清单当作残留进程。
         deadline = time.monotonic() + 20
@@ -159,6 +158,7 @@ def run(version, output):
             time.sleep(.2)
         report["processes_restored"] = solidworks_processes() == before
         assert report["processes_restored"], "本轮自启实例未在限定时间内退出"
+        report["status"] = "passed"
     except Exception as error:
         report["error"] = repr(error)
         raise
