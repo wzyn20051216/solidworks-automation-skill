@@ -40,6 +40,18 @@ def test_release_check_still_validates_versions_without_bundle():
     assert len(versions) == 1
 
 
+@pytest.mark.parametrize("relative", ["manifest.json", "uv.lock"])
+def test_release_check_rejects_mcpb_or_locked_project_version_drift(monkeypatch, relative):
+    """桌面版号一致也不能掩盖 MCPB 清单或锁文件项目版号遗漏。"""
+    from scripts import release_check
+    original = release_check._version
+    def drift(path, pattern):
+        return "0.0.0" if path == release_check.ROOT / relative else original(path, pattern)
+    monkeypatch.setattr(release_check, "_version", drift)
+    with pytest.raises(AssertionError, match="版本不一致"):
+        release_check.run_release_check()
+
+
 def test_find_bundled_skill_drift_detects_changed_and_missing_sources(tmp_path):
     """@brief 内嵌文件内容漂移或没有根源文件时必须阻止发布。"""
     root = tmp_path / "root"

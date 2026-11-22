@@ -58,8 +58,11 @@ def run_release_check() -> dict[str, object]:
     python_version = _version(ROOT / "pyproject.toml", r'(?m)^version\s*=\s*"([^"]+)"')
     ui_lock = json.loads((ROOT / "apps/workbench-ui/package-lock.json").read_text(encoding="utf-8"))
     cargo_lock_version = _version(ROOT / "apps/workbench-ui/src-tauri/Cargo.lock", r'name = "cad-studio"\s+version = "([^"]+)"')
+    mcpb_version = _version(ROOT / "manifest.json", r'"version"\s*:\s*"([^"]+)"')
+    uv_project_version = _version(ROOT / "uv.lock", r'name = "solidworks-automation-skill"\s+version = "([^"]+)"')
     if len({ui_version, tauri_version, cargo_version, app_version, skill_version, python_version,
-            ui_lock["version"], ui_lock["packages"][""]["version"], cargo_lock_version}) != 1:
+            ui_lock["version"], ui_lock["packages"][""]["version"], cargo_lock_version,
+            mcpb_version, uv_project_version}) != 1:
         raise AssertionError(f"版本不一致: npm={ui_version}, tauri={tauri_version}, cargo={cargo_version}, app={app_version}")
     manifest = json.loads((ROOT / "capabilities.yaml").read_text(encoding="utf-8"))
     capabilities = manifest.get("capabilities", [])
