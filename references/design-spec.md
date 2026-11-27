@@ -102,7 +102,7 @@
 
 | 字段 | 说明 |
 |---|---|
-| `envelope_mm` | 期望的包围盒尺寸 `[长, 宽, 高]` |
+| `envelope_mm` | 期望的零件实体外形尺寸，按模型 `[X, Y, Z]` 轴排列 |
 | `hole_count` | 期望的孔数 |
 | `tolerance_mm` | 尺寸公差（默认 0.1） |
 | `min_mass_g` / `max_mass_g` | 质量上下限 |
@@ -156,7 +156,7 @@ save_document(model, "D:/designs/motor_mount.sldprt")
 | `fillet_results` | 每个圆角选中的边数与特征名 |
 | `warnings` | 不阻断的问题（DFM 提示、圆角跳过、材料未分配） |
 | `errors` | 阻断性问题，附带可操作的下一步 |
-| `measurements.bounding_box` | 回读的包围盒（毫米） |
+| `measurements.bounding_box` | 毫米包围盒。要求核验 `verify.envelope_mm` 时，按当前配置全部实体的轴向极值测量；否则为近似包围盒。 |
 | `measurements.mass_properties` | 回读的质量、体积、材料 |
 | `verification` | 与 `verify` 段的比对结论 |
 

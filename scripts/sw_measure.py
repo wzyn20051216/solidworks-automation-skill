@@ -196,20 +196,7 @@ def collect_mass_properties(model, density_kg_m3=None):
     return result
 
 
-def collect_bounding_box(model):
-    """
-    读取零件的包围盒。
-
-    参数:
-        model: IModelDoc2 对象（零件）。
-
-    返回:
-        dict，包含 min_corner_mm / max_corner_mm / size_mm / diagonal_mm。
-
-    说明:
-        ``GetPartBox(True)`` 返回模型坐标系下的 [xmin,ymin,zmin,xmax,ymax,zmax]；
-        装配体请使用 ``GetBox``，两者签名不同，此函数会自动选择。
-    """
+def _bounding_box_result(box=None, error=None):
     result = {
         "units": "mm",
         "min_corner_mm": None,
@@ -218,17 +205,9 @@ def collect_bounding_box(model):
         "diagonal_mm": None,
         "errors": [],
     }
-
-    box = None
-    try:
-        member = getattr(model, "GetPartBox")
-        box = member(True)
-    except Exception:
-        try:
-            box = model.GetBox(0)
-        except Exception as exc:
-            result["errors"].append(f"包围盒读取失败: {exc}")
-            return result
+    if error is not None:
+        result["errors"].append(error)
+        return result
 
     values = list(box or [])
     if len(values) < 6:
@@ -243,6 +222,68 @@ def collect_bounding_box(model):
     result["size_mm"] = [_round(value, 6) for value in size]
     result["diagonal_mm"] = _round(math.sqrt(sum(value * value for value in size)), 6)
     return result
+
+
+def collect_bounding_box(model):
+    """
+    读取零件或装配体在模型坐标系中的近似包围盒。
+
+    参数:
+        model: IModelDoc2 对象（零件或装配体）。
+
+    返回:
+        dict，包含 min_corner_mm / max_corner_mm / size_mm / diagonal_mm 和 errors。
+
+    说明:
+        零件使用 ``GetPartBox(True)``，装配体使用 ``GetBox(0)``。
+        近似结果只用于估算，不能用于尺寸公差验收。
+    """
+    try:
+        box = model.GetPartBox(True)
+    except Exception:
+        try:
+            box = model.GetBox(0)
+        except Exception as exc:
+            return _bounding_box_result(error=f"包围盒读取失败: {exc}")
+    return _bounding_box_result(box)
+
+
+def collect_exact_part_bounding_box(model):
+    """
+    回读当前零件配置中全部实体沿模型 X/Y/Z 方向的几何极值。
+
+    参数:
+        model: IModelDoc2 对象（零件）。
+
+    返回:
+        dict，包含毫米坐标、轴向尺寸、对角线和 errors。
+        无实体或任一极值读取失败时尺寸为空，不返回部分结果。
+    """
+    try:
+        if get_com_member(model, "GetType") != 1:
+            return _bounding_box_result(error="精确外形回读仅支持零件")
+        # 0 = swSolidBody；False 表示包含隐藏实体，显示状态不影响尺寸。
+        bodies = get_com_member(model, "GetBodies2", 0, False)
+        if not bodies:
+            return _bounding_box_result(error="精确外形回读未找到实体")
+        bounds = []
+        for sign, reduce_extreme in ((-1, min), (1, max)):
+            for axis in range(3):
+                direction = [sign if index == axis else 0 for index in range(3)]
+                coordinates = []
+                for body in bodies:
+                    ok, *point = get_com_member(
+                        body, "GetExtremePoint", *direction, 0.0, 0.0, 0.0,
+                    )
+                    if not ok or len(point) != 3 or not math.isfinite(point[axis]):
+                        raise ValueError(f"GetExtremePoint 未返回有效的 {'XYZ'[axis]} 轴极值")
+                    coordinates.append(point[axis])
+                bounds.append(reduce_extreme(coordinates))
+        if any(low > high for low, high in zip(bounds[:3], bounds[3:])):
+            raise ValueError("实体极值范围反向")
+        return _bounding_box_result(bounds)
+    except Exception as exc:
+        return _bounding_box_result(error=f"精确外形回读失败: {exc}")
 
 
 def inspect_interference(asm_model, treat_subassemblies_as_components=False,

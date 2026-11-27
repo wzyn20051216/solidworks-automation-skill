@@ -155,6 +155,46 @@ def test_bounding_box_short_array_reports_error():
     assert any("6 个坐标" in item for item in result["errors"])
 
 
+def test_exact_box_combines_solid_bodies_along_each_axis():
+    """多个分离实体的不同极值合成整件尺寸，并包含隐藏实体。"""
+    def body(minimum, maximum):
+        def extreme(dx, dy, dz, _x, _y, _z):
+            direction = (dx, dy, dz)
+            axis = next(index for index, value in enumerate(direction) if value)
+            point = maximum if direction[axis] > 0 else minimum
+            return True, *point
+        return types.SimpleNamespace(GetExtremePoint=extreme)
+
+    def bodies(kind, visible_only):
+        assert kind == 0 and visible_only is False
+        return [
+            body((-0.02, 0.01, -0.01), (0.02, 0.04, 0.0)),
+            body((0.03, -0.01, -0.005), (0.05, 0.015, 0.03)),
+        ]
+
+    model = types.SimpleNamespace(GetType=lambda: 1, GetBodies2=bodies)
+    result = sw_measure.collect_exact_part_bounding_box(model)
+
+    assert result["errors"] == []
+    assert result["min_corner_mm"] == [-20.0, -10.0, -10.0]
+    assert result["max_corner_mm"] == [50.0, 40.0, 30.0]
+    assert result["size_mm"] == [70.0, 50.0, 40.0]
+
+
+@pytest.mark.parametrize("bodies", [
+    [],
+    [types.SimpleNamespace(GetExtremePoint=lambda *_: (True, float("nan"), 0.0, 0.0))],
+])
+def test_exact_box_unavailable_without_complete_finite_extrema(bodies):
+    """空实体或非有限坐标没有可用于验收的尺寸。"""
+    model = types.SimpleNamespace(GetType=lambda: 1, GetBodies2=lambda *_: bodies)
+
+    result = sw_measure.collect_exact_part_bounding_box(model)
+
+    assert result["size_mm"] is None
+    assert result["errors"]
+
+
 # ------------------------------------------------------------ 质量属性
 
 def test_mass_properties_converted_to_engineering_units():
