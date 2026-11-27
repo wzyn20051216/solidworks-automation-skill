@@ -20,6 +20,22 @@
 - 默认基准面是 `Front Plane`，中文版由 `sw_part.start_sketch()` 自动兼容。
 - 创建参数证据同时输出米和毫米字段，但毫米字段只用于报告，不回传 COM。
 
+## 通孔切除方向
+
+圆形通孔仍从所选草图平面沿单侧贯穿。材料位于现有默认切除方向的另一侧时，
+在 `create_through_hole` 或 MCP `solidworks_create_hole_feature` 的
+`feature_kind="through"` 请求中传入 `reverse_direction=True`（JSON 中为 `true`）。
+该选项相对所选草图平面的旧默认切除方向，与全局坐标轴符号无关。
+省略或传入 `false` 保持默认方向。其他孔槽类型不接受此选项。
+
+```json
+{"feature_kind": "through", "plane_name": "Front Plane", "diameter_mm": 6, "reverse_direction": true}
+```
+
+方向与材料不相交时仍返回 `SW_HOLE_NOT_CREATED`。失败诊断的
+`direction_reversed` 是实际传给 `FeatureCut4` 的 `Dir` 标志，
+不是请求中的 `reverse_direction`。按实体所在侧选择方向，失败后先核对草图和材料侧。
+
 ## 示例
 
 ```python

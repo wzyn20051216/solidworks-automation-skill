@@ -27,11 +27,11 @@ class HoleFeatureCreationError(RuntimeError):
                          f"diagnostics={json.dumps(diagnostics, ensure_ascii=False)}")
 
 
-def _failed_cut_diagnostics(model, sketch_ref, plane_name, depth):
+def _failed_cut_diagnostics(model, sketch_ref, plane_name, depth, direction_reversed):
     """尽力回读失败后的状态；字段读取失败不能覆盖原始创建失败。"""
     result = {"operation": "FeatureCut4", "state": "after_failed_cut",
               "plane_name": str(plane_name), "sketch_name": str(sketch_ref),
-              "depth_m": depth, "direction_reversed": True, "both_directions": False}
+              "depth_m": depth, "direction_reversed": direction_reversed, "both_directions": False}
     reads = {
         "selection_count": lambda: int(get_com_member(model.SelectionManager, "GetSelectedObjectCount2", -1)),
         "editing_sketch": lambda: get_com_member(model.SketchManager, "ActiveSketch") is not None,
@@ -105,16 +105,19 @@ def _feature_name(feature, fallback: str) -> str:
         return fallback
 
 
-def _circle_cut(model, plane_name: str, center: tuple[float, float], diameter: float, depth: float, feature_name: str):
+def _circle_cut(model, plane_name: str, center: tuple[float, float], diameter: float, depth: float,
+                feature_name: str, *, reverse_direction: bool = False):
     """@brief 创建单个圆形草图并执行定深或贯穿切除。"""
     with sketch(model, plane_name) as sketch_name:
         segment = sketch_circle(model, center[0], center[1], diameter / 2.0)
         if segment is None:
             raise RuntimeError(f"创建圆草图失败: {feature_name}")
-    feature = extrude_cut(model, sketch_name, depth)
+    # extrude_cut 既有默认值 direction=True。显式反向时传 False。
+    cut_options = {"direction": False} if reverse_direction else {}
+    feature = extrude_cut(model, sketch_name, depth, **cut_options)
     if feature is None:
         raise HoleFeatureCreationError(feature_name,
-            _failed_cut_diagnostics(model, sketch_name, plane_name, depth))
+            _failed_cut_diagnostics(model, sketch_name, plane_name, depth, not reverse_direction))
     return _feature_name(feature, feature_name)
 
 
@@ -177,11 +180,25 @@ def create_blind_hole(model, center, diameter, depth, plane_name="Front Plane", 
     return HoleFeatureEvidence("blind", center, diameter, depth, False, plane_name, (feature_name,)).to_dict()
 
 
-def create_through_hole(model, center, diameter, plane_name="Front Plane", name="通孔") -> dict:
-    """@brief 创建完全贯穿圆孔，并返回创建参数证据。"""
+def create_through_hole(model, center, diameter, plane_name="Front Plane", name="通孔",
+                        *, reverse_direction=False) -> dict:
+    """创建单向贯穿圆孔。
+
+    参数:
+        model: 目标 SolidWorks 零件文档。
+        center: 草图平面上的二维孔中心，单位为米。
+        diameter: 孔直径，单位为米。
+        plane_name: 草图基准面名称。
+        name: 切除特征名称。
+        reverse_direction: True 时沿此工具旧默认切除方向的反向切除。
+
+    返回:
+        孔尺寸、位置与切除特征名称组成的证据字典。
+    """
     center = _center(center)
     diameter = _positive("diameter", diameter)
-    feature_name = _circle_cut(model, plane_name, center, diameter, 0.0, name)
+    feature_name = _circle_cut(model, plane_name, center, diameter, 0.0, name,
+                               reverse_direction=reverse_direction)
     return HoleFeatureEvidence("through", center, diameter, None, True, plane_name, (feature_name,)).to_dict()
 
 
