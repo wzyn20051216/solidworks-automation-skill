@@ -1097,7 +1097,17 @@ class SolidWorksHoleFeatureInput(BaseInput):
     slot_end_y_mm: Optional[float] = Field(default=None, description="Slot end Y on the sketch plane, mm.")
     plane_name: str = Field(default="Front Plane", min_length=1, max_length=120, description="Standard sketch plane.")
     feature_name: str = Field(default="MCP_孔槽", min_length=1, max_length=120, description="Feature tree name.")
+    reverse_direction: Optional[bool] = Field(
+        default=None,
+        description="Through holes only. True cuts opposite to the existing tool default on the selected sketch plane.",
+    )
     response_format: ResponseFormat = Field(default=ResponseFormat.JSON, description="Return format.")
+
+    @model_validator(mode="after")
+    def _check_reverse_direction(self):
+        if self.reverse_direction is not None and self.feature_kind != HoleFeatureKind.THROUGH:
+            raise ValueError("reverse_direction is only supported for feature_kind='through'.")
+        return self
 
 
 class HoleExpectationInput(BaseInput):
@@ -3458,6 +3468,8 @@ def solidworks_create_hole_feature(params: SolidWorksHoleFeatureInput) -> str:
                 raise ValueError("depth_mm is required for a blind hole")
             evidence = create_blind_hole(model, center, mm(params.diameter_mm), mm(params.depth_mm), **common)
         elif params.feature_kind == HoleFeatureKind.THROUGH:
+            if params.reverse_direction is not None:
+                common["reverse_direction"] = params.reverse_direction
             evidence = create_through_hole(model, center, mm(params.diameter_mm), **common)
         elif params.feature_kind == HoleFeatureKind.COUNTERBORE:
             if params.secondary_diameter_mm is None or params.secondary_depth_mm is None:

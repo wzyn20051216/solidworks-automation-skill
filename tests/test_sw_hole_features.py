@@ -127,7 +127,9 @@ def test_invalid_hole_parameters_fail_before_com(call, fake_ops) -> None:
         call(FakeModel())
 
 
-def test_failed_through_cut_reports_state_without_retrying_or_changing_direction(fake_ops, monkeypatch):
+@pytest.mark.parametrize("reverse_direction", [False, True])
+def test_failed_through_cut_reports_state_without_retrying_or_changing_direction(
+        fake_ops, monkeypatch, reverse_direction):
     """缺少 COM 诊断成员仍保留原始失败；不能擅自反向重试。"""
     calls = []
     def fail(*args, **kwargs):
@@ -135,9 +137,12 @@ def test_failed_through_cut_reports_state_without_retrying_or_changing_direction
         return None
     monkeypatch.setattr(holes, "extrude_cut", fail)
     with pytest.raises(holes.HoleFeatureCreationError, match="SolidWorks 未创建特征: H_Reopen") as error:
-        holes.create_through_hole(FakeModel(), (0.01, 0.02), .006, name="H_Reopen")
-    assert len(calls) == 1 and calls[0][0][2] == 0.0 and not calls[0][1]
+        holes.create_through_hole(FakeModel(), (0.01, 0.02), .006, name="H_Reopen",
+                                  reverse_direction=reverse_direction)
+    assert len(calls) == 1 and calls[0][0][2] == 0.0
+    assert calls[0][1].get("direction", True) is not reverse_direction
     assert error.value.code == "SW_HOLE_NOT_CREATED"
+    assert error.value.diagnostics["direction_reversed"] is not reverse_direction
     assert error.value.diagnostics["state"] == "after_failed_cut"
     assert error.value.diagnostics["sketch_name"] == "Sketch_Front Plane"
     assert error.value.diagnostics["selection_count"] is None
