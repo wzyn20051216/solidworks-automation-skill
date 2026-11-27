@@ -492,8 +492,12 @@ def test_fillet_failure_is_warning_not_error(harness, monkeypatch):
 
 # ------------------------------------------------------------ 验证
 
-def test_verification_runs_and_reports(harness):
+def test_verification_runs_and_reports(harness, monkeypatch):
     """@brief 开启验证时比对实测与期望。"""
+    monkeypatch.setattr(
+        build_from_spec.sw_measure, "collect_exact_part_bounding_box",
+        lambda model: {"size_mm": [100.0, 60.0, 6.0], "errors": []},
+    )
     spec = base_spec(
         holes=[{"id": "H1", "type": "through", "diameter_mm": 6.6, "position_mm": [10.0, 10.0, 0.0]}],
         verify={"envelope_mm": [100.0, 60.0, 6.0], "hole_count": 1, "tolerance_mm": 0.1},
@@ -508,7 +512,7 @@ def test_verification_runs_and_reports(harness):
 def test_verification_flags_dimension_mismatch(harness, monkeypatch):
     """@brief 实测尺寸与规格不符时报告警告并要求复核。"""
     monkeypatch.setattr(
-        build_from_spec.sw_measure, "collect_bounding_box",
+        build_from_spec.sw_measure, "collect_exact_part_bounding_box",
         lambda model: {"size_mm": [999.0, 60.0, 6.0], "errors": []},
     )
     spec = base_spec(verify={"envelope_mm": [100.0, 60.0, 6.0], "tolerance_mm": 0.1})
@@ -517,6 +521,36 @@ def test_verification_flags_dimension_mismatch(harness, monkeypatch):
 
     assert result["verification"]["status"] == "warn"
     assert "envelope_mm" in result["verification"]["failed"]
+
+
+@pytest.mark.parametrize("extreme_available", [True, False])
+def test_envelope_verification_does_not_use_approximate_box(harness, monkeypatch, extreme_available):
+    """精确外形由实体极值决定，极值失败时近似包围盒不能充当验收证据。"""
+    expected_mm = [100.0, 60.0, 6.0]
+    approximate_mm = [100.0, 60.0, 6.4] if extreme_available else expected_mm
+    monkeypatch.setattr(
+        build_from_spec.sw_measure, "collect_bounding_box",
+        lambda model: {"size_mm": approximate_mm, "errors": []},
+    )
+    model = FakeModel()
+    model.GetType = lambda: 1
+
+    def extreme(dx, dy, dz, *_outputs):
+        direction = (dx, dy, dz)
+        point = tuple(size / 1000 if component > 0 else 0.0
+                      for size, component in zip(expected_mm, direction))
+        return extreme_available, *point
+
+    model.GetBodies2 = lambda _kind, _visible_only: [types.SimpleNamespace(GetExtremePoint=extreme)]
+    result = build_from_spec.build_from_spec(
+        model, base_spec(verify={"envelope_mm": expected_mm, "tolerance_mm": 0.1}),
+    )
+
+    check = result["verification"]["checks"][0]
+    assert check["name"] == "envelope_mm"
+    assert check["passed"] is extreme_available
+    assert check["actual"] == (expected_mm if extreme_available else None)
+    assert bool(result["measurements"]["errors"]) is not extreme_available
 
 
 def test_base_none_skips_solid_creation(harness):

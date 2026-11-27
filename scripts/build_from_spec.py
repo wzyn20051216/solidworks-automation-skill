@@ -414,12 +414,16 @@ def build_from_spec(model, spec: Dict[str, Any], apply_fillets=True, verify_geom
     measurements: Dict[str, Any] = {}
     verification: Dict[str, Any] = {"status": "skipped", "checks": []}
     if verify_geometry:
+        expected = spec.get("verify") or {}
         try:
             model.ForceRebuild3(False)
         except Exception:
             pass
         try:
-            bounding = sw_measure.collect_bounding_box(model)
+            if expected.get("envelope_mm"):
+                bounding = sw_measure.collect_exact_part_bounding_box(model)
+            else:
+                bounding = sw_measure.collect_bounding_box(model)
         except Exception as exc:
             bounding = {"errors": [f"包围盒回读失败: {exc}"]}
         try:
@@ -441,7 +445,7 @@ def build_from_spec(model, spec: Dict[str, Any], apply_fillets=True, verify_geom
             "hole_count": len([item for item in created_holes if item["ok"]]),
             "mass_g": mass.get("mass_g"),
         }
-        verification = compare_verification(actual, spec.get("verify") or {})
+        verification = compare_verification(actual, expected)
         for error in measurements["errors"]:
             warnings.append(error)
 

@@ -2591,9 +2591,9 @@ def solidworks_mass_properties(params: SolidWorksMassPropertiesInput = SolidWork
     annotations={"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
 )
 def solidworks_bounding_box(params: SolidWorksBoundingBoxInput = SolidWorksBoundingBoxInput()) -> str:
-    """Read the active document's bounding box in millimetres.
+    """Read the active document's approximate bounding box in millimetres.
 
-    Useful for checking that a part fits a build envelope, pallet, or shipping box.
+    Use for rough sizing only. For dimensional tolerance checks, use exact part extents.
     """
 
     def op():
